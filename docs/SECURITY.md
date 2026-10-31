@@ -35,7 +35,7 @@ The code is public; the data and secrets never are. This page is how that holds.
 
 - Stored in a **private** Vercel Blob store. Browsers upload straight to Blob with a short-lived token issued only to signed-in teammates; downloads stream through `/api/files/[id]`, which checks the session.
 - Web pages, SVG, scripts and executables are refused. Downloads are sent with `nosniff` and a `sandbox` CSP, so no uploaded file can run script on the CRM's origin.
-- The brand kit logo is the one public file (email clients must load it): admins only, raster images only, 2 MB.
+- The brand kit logo is the one public file (email clients must load it). It's stored privately and served from `/brand/logo/[name]`, which only reads files under `brand/`: admins only, raster images only, 2 MB.
 
 ## Email
 

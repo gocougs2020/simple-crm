@@ -16,6 +16,6 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except public pages, unsubscribe links, cron endpoints and static files.
-  matcher: ["/((?!sign-in|setup|forgot|reset|invite|unsubscribe|api/cron|_next/|favicon|icon|apple-icon|robots.txt).*)"],
+  // Everything except public pages, unsubscribe links, the email logo, cron endpoints and static files.
+  matcher: ["/((?!sign-in|setup|forgot|reset|invite|unsubscribe|brand/logo|api/cron|_next/|favicon|icon|apple-icon|robots.txt).*)"],
 };

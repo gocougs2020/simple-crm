@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { getUser, isAdmin } from "@/lib/auth";
 import { blobConfigured } from "@/lib/files";
+import { siteOrigin } from "@/lib/origin";
 
 const types: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
 
 /**
- * The brand kit logo. Unlike CRM files it's public, because email clients
- * load it. Admins only; raster images only (no SVG, which can carry script); 2 MB.
+ * The brand kit logo. It's stored in the same private Blob store as CRM files
+ * and served publicly from /brand/logo/[name], because email clients must be
+ * able to load it. Admins only; raster images only (no SVG, which can carry
+ * script); 2 MB.
  */
 export async function POST(request: Request) {
   const user = await getUser();
@@ -18,6 +21,7 @@ export async function POST(request: Request) {
   if (!ext) return NextResponse.json({ error: "Use a PNG, JPEG, WebP or GIF image." }, { status: 400 });
   if (file.size > 2 * 1024 * 1024) return NextResponse.json({ error: "Use an image under 2 MB." }, { status: 400 });
   const { put } = await import("@vercel/blob");
-  const blob = await put(`brand/logo.${ext}`, file, { access: "public", addRandomSuffix: true, contentType: file.type });
-  return NextResponse.json({ url: blob.url });
+  const name = `${crypto.randomUUID()}.${ext}`;
+  await put(`brand/${name}`, file, { access: "private", contentType: file.type });
+  return NextResponse.json({ url: `${await siteOrigin()}/brand/logo/${name}` });
 }
