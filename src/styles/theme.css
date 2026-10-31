@@ -1,0 +1,53 @@
+/*
+ * Theme: every color the app uses comes from these variables.
+ * To rebrand, change the values here (see docs/THEMING.md). Components never
+ * use raw hex values, so nothing else needs to change.
+ *
+ * The default theme is deliberately neutral: grayscale surfaces and a
+ * near-black accent. Status colors (success, warning, error, info) are
+ * functional and stay the same across themes.
+ */
+:root {
+  /* Accent: primary buttons, focus rings, selected states, the "mine" marker. */
+  --accent: #18181b;
+  --accent-hover: #27272a;
+  --accent-foreground: #ffffff;
+  /* A light tint of the accent for selected rows, active nav and soft chips. */
+  --accent-soft: #f4f4f5;
+  --accent-soft-foreground: #18181b;
+
+  /* Surfaces */
+  --background: #ffffff;
+  --canvas: #fafafa; /* app background behind cards and boards */
+  --surface: #ffffff; /* cards, panels, popovers */
+  --surface-sunken: #f4f4f5; /* inputs on hover, table header, kanban columns */
+  --overlay: rgb(9 9 11 / 0.4);
+
+  /* Text: titles, body, supporting copy, icons and disabled text. */
+  --text-primary: #09090b;
+  --text-secondary: #3f3f46;
+  --text-muted: #6b6b73;
+  --text-faint: #a1a1aa;
+
+  /* Lines */
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --ring: #18181b;
+
+  /* Status (functional: same meaning in every theme; every badge also carries a word) */
+  --success: #15803d;
+  --success-surface: #dcfce7;
+  --success-border: #bbf7d0;
+  --warning: #a16207;
+  --warning-surface: #fef9c3;
+  --warning-border: #fde68a;
+  --error: #b91c1c;
+  --error-surface: #fee2e2;
+  --error-border: #fecaca;
+  --info: #1e40af;
+  --info-surface: #dbeafe;
+  --info-border: #bfdbfe;
+  --neutral: #52525b;
+  --neutral-surface: #f4f4f5;
+  --neutral-border: #e4e4e7;
+}
