@@ -51,6 +51,13 @@ const nextConfig: NextConfig = {
     // Spreadsheet imports post rows in chunks; keep each chunk well under Vercel's 4.5 MB limit.
     serverActions: { bodySizeLimit: "2mb" },
   },
+  // Deals became clients; old links and bookmarks still land in the right place.
+  async redirects() {
+    return [
+      { source: "/deals", destination: "/clients", permanent: true },
+      { source: "/deals/:id", destination: "/clients/:id", permanent: true },
+    ];
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

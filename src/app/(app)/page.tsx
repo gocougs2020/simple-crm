@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { HomeView } from "@/components/home/home-view";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { requireUser } from "@/lib/auth";
-import { dealStats, dealsWithoutNextStep, listActivities, myDueCounts, teamFeed } from "@/lib/crm/activities";
+import { clientStats, clientsWithoutNextStep, listActivities, myDueCounts, teamFeed } from "@/lib/crm/activities";
 import { getAppData } from "@/lib/crm/context";
 import { pipelineSummary } from "@/lib/crm/records";
 
@@ -17,12 +17,13 @@ export default function Home() {
 async function Dashboard() {
   const [user, app] = await Promise.all([requireUser(), getAppData()]);
   const tz = app.workspace.timezone;
-  const pipeline = app.pipelines.find((p) => p.id === user.prefs.pipelineId) ?? app.pipelines[0];
+  const prospectPipelines = app.pipelines.filter((p) => p.category === "prospective");
+  const pipeline = prospectPipelines.find((p) => p.id === user.prefs.clientPipelines?.prospective) ?? prospectPipelines[0];
   const [tasks, feed, stuck, stats, summary, due] = await Promise.all([
     listActivities({ assigneeId: user.id, status: "todo", range: "week" }, tz),
     teamFeed(15),
-    dealsWithoutNextStep(),
-    dealStats(tz),
+    clientsWithoutNextStep(),
+    clientStats(tz),
     pipeline ? pipelineSummary(pipeline.id) : Promise.resolve([]),
     myDueCounts(user.id, tz),
   ]);

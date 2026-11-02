@@ -7,7 +7,10 @@ import {
   ArrowDownLeftIcon,
   ArrowUpRightIcon,
   ArrowsRightLeftIcon,
+  BriefcaseIcon,
   CheckIcon,
+  CreditCardIcon,
+  EnvelopeOpenIcon,
   EllipsisHorizontalIcon,
   PaperClipIcon,
   PencilSquareIcon,
@@ -16,6 +19,9 @@ import {
   TrophyIcon,
   XCircleIcon,
 } from "@heroicons/react/20/solid";
+
+/** The record being viewed. For clients, the category decides whether a missing next step is worth flagging. */
+type Context = { type: EntityType; id: string; category?: ClientCategory };
 import { MapPinIcon } from "@heroicons/react/24/outline";
 import { deleteActivity, setCompleted, setPinned, updateActivity } from "@/actions/activities";
 import { useApp } from "@/components/app-context";
@@ -30,8 +36,7 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tooltip } from
 import { RichText } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
 import type { ActivityRow, TimelineItem } from "@/lib/crm/activities";
-import type { EntityType } from "@/lib/constants";
-import { activityLabels, interactionTypes, type ActivityType } from "@/lib/constants";
+import { activityLabels, clientCategoryLabels, clientHealthLabels, interactionTypes, type ActivityType, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
 import { dayKey, dueTone, formatBytes, formatDateTime, formatDay, formatFull, formatTime, timeKey, zonedTime } from "@/lib/format";
 import { activityIcons } from "./composer";
 import { askNextStep } from "./next-step-dialog";
@@ -77,7 +82,7 @@ export function Timeline({
   planned: ActivityRow[];
   pinned: TimelineItem[];
   past: TimelineItem[];
-  context: { type: EntityType; id: string };
+  context: Context;
   emptyHint: string;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
@@ -97,8 +102,8 @@ export function Timeline({
               <PlannedItem key={row.activity.id} row={row} context={context} />
             ))}
           </ul>
-        ) : context.type === "deal" ? (
-          <ScheduleNext dealId={context.id} />
+        ) : context.type === "client" && context.category !== "past" ? (
+          <ScheduleNext clientId={context.id} />
         ) : (
           <p className="rounded-xl border border-dashed border-line px-4 py-3 text-[13px] text-muted">Nothing planned. Add a task or schedule a call above.</p>
         )}
@@ -159,19 +164,22 @@ export function Timeline({
   );
 }
 
+/** "Sam Lee <sam@acme.com>" → "Sam Lee". */
+const senderName = (raw: string) => /^\s*"?([^"<]+?)"?\s*</.exec(raw)?.[1]?.trim() || (/<([^>]+)>/.exec(raw)?.[1] ?? raw);
+
 function Who({ id }: { id: string | null }) {
   const { member, viewer } = useApp();
   const m = member(id);
   return <span className="font-medium text-primary">{m ? (m.id === viewer.id ? "You" : m.name) : "Someone"}</span>;
 }
 
-/** Links to the other records an activity belongs to (on an organization page: which deal, which person). */
-function LinkedTo({ row, context }: { row: ActivityRow; context: { type: EntityType; id: string } }) {
+/** Links to the other records an activity belongs to (on an organization page: which client, which person). */
+function LinkedTo({ row, context }: { row: ActivityRow; context: Context }) {
   const a = row.activity;
   const parts: { href: string; label: string }[] = [];
-  if (a.dealId && row.dealTitle && !(context.type === "deal" && context.id === a.dealId)) parts.push({ href: `/deals/${a.dealId}`, label: row.dealTitle });
+  if (a.clientId && row.clientName && !(context.type === "client" && context.id === a.clientId)) parts.push({ href: `/clients/${a.clientId}`, label: row.clientName });
   if (a.personId && row.personName && !(context.type === "person" && context.id === a.personId)) parts.push({ href: `/people/${a.personId}`, label: row.personName });
-  if (a.organizationId && row.organizationName && context.type === "deal" && !a.personId) parts.push({ href: `/organizations/${a.organizationId}`, label: row.organizationName });
+  if (a.organizationId && row.organizationName && context.type === "client" && !a.personId) parts.push({ href: `/organizations/${a.organizationId}`, label: row.organizationName });
   if (!parts.length) return null;
   return (
     <span className="flex min-w-0 items-center gap-1 text-muted">
@@ -188,7 +196,7 @@ function LinkedTo({ row, context }: { row: ActivityRow; context: { type: EntityT
   );
 }
 
-export function PlannedItem({ row, context }: { row: ActivityRow; context: { type: EntityType; id: string } }) {
+export function PlannedItem({ row, context }: { row: ActivityRow; context: Context }) {
   const { workspace, member } = useApp();
   const a = row.activity;
   const [pending, start] = useTransition();
@@ -203,7 +211,7 @@ export function PlannedItem({ row, context }: { row: ActivityRow; context: { typ
       const r = await setCompleted(a.id, true);
       if (!r.ok) return void toast.error(r.error);
       toast.success(`${activityLabels[a.type]} done`, { label: "Undo", onClick: () => setCompleted(a.id, false) });
-      if (r.data.dealWithoutNext) askNextStep({ dealId: r.data.dealWithoutNext, title: row.dealTitle ?? "This deal" });
+      if (r.data.clientWithoutNext) askNextStep({ clientId: r.data.clientWithoutNext, title: row.clientName ?? "This client" });
     });
 
   return (
@@ -248,7 +256,7 @@ export function PlannedItem({ row, context }: { row: ActivityRow; context: { typ
   );
 }
 
-export function ActivityItem({ row, context }: { row: ActivityRow; context: { type: EntityType; id: string } }) {
+export function ActivityItem({ row, context }: { row: ActivityRow; context: Context }) {
   const { workspace } = useApp();
   const a = row.activity;
   const tz = workspace.timezone;
@@ -261,7 +269,11 @@ export function ActivityItem({ row, context }: { row: ActivityRow; context: { ty
       : a.type === "task"
         ? "completed a task"
         : a.type === "email"
-          ? a.emailId
+          ? a.inboxThreadId && !a.userId
+            ? a.direction === "inbound"
+              ? "emailed"
+              : `sent from ${row.inboxAddress ?? "an inbox"}`
+            : a.emailId || a.inboxThreadId
             ? "sent an email"
             : a.direction === "inbound"
               ? "logged an email received"
@@ -284,7 +296,8 @@ export function ActivityItem({ row, context }: { row: ActivityRow; context: { ty
       <article className={clsx("group min-w-0 flex-1 rounded-xl border bg-surface px-3.5 py-3", a.pinned ? "border-line-strong shadow-sm" : "border-line")}>
         <header className="flex items-start gap-2">
           <div className="min-w-0 flex-1 text-[13px] text-muted">
-            <Who id={a.userId} /> {verb}
+            {a.inboxThreadId && !a.userId && a.direction === "inbound" && row.inboxFrom ? <span className="font-medium text-primary">{senderName(row.inboxFrom)}</span> : a.inboxThreadId && !a.userId ? <span className="font-medium text-primary">Email</span> : <Who id={a.userId} />}{" "}
+            {verb}
             {a.direction && a.type !== "note" ? (
               a.direction === "inbound" ? (
                 <ArrowDownLeftIcon className="ml-1 inline size-3.5 align-[-2px]" aria-label="Inbound" />
@@ -308,10 +321,20 @@ export function ActivityItem({ row, context }: { row: ActivityRow; context: { ty
             To {row.emailTo}
             {row.emailCc ? ` · Cc ${row.emailCc}` : ""}
           </p>
+        ) : a.type === "email" && a.inboxThreadId && row.inboxTo?.length ? (
+          <p className="mt-1 truncate text-[12px] text-muted">
+            {a.direction === "inbound" && row.inboxFrom ? `From ${row.inboxFrom} · ` : ""}To {row.inboxTo.join(", ")}
+          </p>
         ) : null}
         {a.subject ? <h3 className="mt-1 text-[14px] font-medium">{a.subject}</h3> : null}
         {a.body ? <CollapsibleBody html={a.body} /> : null}
-        <div className="mt-1.5 text-[12px] empty:hidden">
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] empty:hidden">
+          {a.inboxThreadId ? (
+            <Link href={`/email?t=${a.inboxThreadId}`} className="inline-flex items-center gap-1 font-medium text-secondary hover:text-primary">
+              <EnvelopeOpenIcon className="size-3.5" aria-hidden />
+              Open conversation
+            </Link>
+          ) : null}
           <LinkedTo row={row} context={context} />
         </div>
       </article>
@@ -340,7 +363,7 @@ function ItemMenu({ row, onEdit }: { row: ActivityRow; onEdit: () => void }) {
   const { viewer, isAdmin } = useApp();
   const a = row.activity;
   const canEdit = a.userId === viewer.id || isAdmin || a.type === "task" || !a.completedAt;
-  const canDelete = (a.userId === viewer.id || isAdmin) && !a.emailId;
+  const canDelete = (a.userId === viewer.id || isAdmin) && !a.emailId && !a.inboxThreadId;
   return (
     <Menu>
       <MenuTrigger asChild>
@@ -349,7 +372,7 @@ function ItemMenu({ row, onEdit }: { row: ActivityRow; onEdit: () => void }) {
         </button>
       </MenuTrigger>
       <MenuContent className="w-44">
-        {canEdit && !a.emailId ? (
+        {canEdit && !a.emailId && !a.inboxThreadId ? (
           <MenuItem icon={<PencilSquareIcon />} onSelect={onEdit}>
             Edit
           </MenuItem>
@@ -448,8 +471,10 @@ const fieldText = (v: unknown, label: string | null | undefined, member: (id: st
   if (label) return label;
   if (v === null || v === undefined || v === "" || (Array.isArray(v) && !v.length)) return "empty";
   if (field === "ownerId") return member(String(v))?.name ?? "a former teammate";
-  if (field === "value") return money(Number(v));
-  if (field === "marketingOptIn") return v ? "Yes" : "No";
+  if (field === "value" || field === "price") return money(Number(v));
+  if (field === "marketingOptIn" || field === "openToReturn") return v ? "Yes" : "No";
+  if (field === "health") return clientHealthLabels[v as ClientHealth] ?? String(v);
+  if (field === "interval") return String(v) === "once" ? "one time" : `${v}ly`;
   if (Array.isArray(v)) return v.join(", ");
   if (field === "organizationId" || field === "personId") return "a deleted record";
   return String(v);
@@ -459,13 +484,60 @@ const fieldText = (v: unknown, label: string | null | undefined, member: (id: st
 function EventItem({ event }: { event: { id: string; action: string; data: Record<string, unknown>; userId: string | null; createdAt: Date } }) {
   const { workspace, member, money } = useApp();
   const tz = workspace.timezone;
-  const d = event.data as { from?: string; to?: string; reason?: string; changes?: { field: string; label: string; from: unknown; to: unknown; fromLabel?: string; toLabel?: string }[]; subject?: string; type?: string; name?: string };
+  const d = event.data as {
+    from?: string;
+    to?: string;
+    on?: string;
+    reason?: string;
+    stage?: string;
+    category?: ClientCategory;
+    changes?: { field: string; label: string; from: unknown; to: unknown; fromLabel?: string; toLabel?: string }[];
+    subject?: string;
+    type?: string;
+    name?: string;
+  };
+  const cat = (c?: string) => (c && c in clientCategoryLabels ? clientCategoryLabels[c as ClientCategory].one.toLowerCase() : c);
   let text: React.ReactNode;
   let icon = <PencilSquareIcon className="size-3.5" />;
   switch (event.action) {
     case "created":
-      text = <>created this{d.from ? "" : ""}</>;
+      text = d.category ? <>added this as a {cat(d.category)} client{d.stage ? <> in {d.stage}</> : null}</> : <>created this</>;
       icon = <SparklesIcon className="size-3.5" />;
+      break;
+    case "category_changed":
+      text =
+        d.to === "current" ? (
+          <>{d.from === "past" ? "won this client back" : "marked this client as signed"}{d.stage ? <> · {d.stage}</> : null}</>
+        ) : d.to === "past" ? (
+          <>marked this client as left{d.reason ? <>: “{d.reason}”</> : null}</>
+        ) : (
+          <>moved this from {cat(d.from)} to {cat(d.to)} clients</>
+        );
+      icon = d.to === "current" ? <TrophyIcon className="size-3.5 text-success" /> : d.to === "past" ? <XCircleIcon className="size-3.5 text-error" /> : <BriefcaseIcon className="size-3.5" />;
+      break;
+    case "service_added":
+      text = <>added the service <strong className="font-medium text-secondary">{d.name}</strong></>;
+      icon = <BriefcaseIcon className="size-3.5" />;
+      break;
+    case "service_ended":
+      text = <>ended the service <strong className="font-medium text-secondary">{d.name}</strong></>;
+      icon = <BriefcaseIcon className="size-3.5" />;
+      break;
+    case "service_removed":
+      text = <>removed the service <strong className="font-medium text-secondary">{d.name}</strong></>;
+      icon = <TrashIcon className="size-3.5" />;
+      break;
+    case "stripe_linked":
+      text = <>linked the Stripe customer {d.name ?? ""}</>;
+      icon = <CreditCardIcon className="size-3.5" />;
+      break;
+    case "stripe_unlinked":
+      text = <>unlinked the Stripe customer</>;
+      icon = <CreditCardIcon className="size-3.5" />;
+      break;
+    case "email_linked":
+      text = <>linked the conversation{d.subject ? <> “{d.subject}”</> : null}</>;
+      icon = <EnvelopeOpenIcon className="size-3.5" />;
       break;
     case "stage_changed":
       text = (
@@ -475,16 +547,17 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
       );
       icon = <ArrowsRightLeftIcon className="size-3.5" />;
       break;
+    // From before deals became clients.
     case "won":
-      text = <>marked this deal won</>;
+      text = <>marked this won</>;
       icon = <TrophyIcon className="size-3.5 text-success" />;
       break;
     case "lost":
-      text = <>marked this deal lost{d.reason ? <>: “{d.reason}”</> : null}</>;
+      text = <>marked this lost{d.reason ? <>: “{d.reason}”</> : null}</>;
       icon = <XCircleIcon className="size-3.5 text-error" />;
       break;
     case "reopened":
-      text = <>reopened this deal</>;
+      text = <>reopened this</>;
       break;
     case "archived":
       text = <>archived this</>;

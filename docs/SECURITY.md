@@ -42,3 +42,10 @@ The code is public; the data and secrets never are. This page is how that holds.
 - Campaign unsubscribe links are signed tokens with a purpose claim. The unsubscribe page needs a click (a POST) so link scanners can't unsubscribe people; mail apps use the RFC 8058 one-click endpoint.
 - Campaigns require a postal address (CAN-SPAM) before they can send.
 - Cron endpoints require `Authorization: Bearer $CRON_SECRET`, compared in constant time.
+- The Resend webhook (`/api/webhooks/resend`) verifies every delivery's signature (Svix) and refuses anything unsigned. It's only a trigger: it re-fetches the thread from Resend with the API key, so a forged payload couldn't inject mail even if a signature check were bypassed. The signing secret is stored in the `workspace` row when an admin connects the webhook (or comes from `RESEND_WEBHOOK_SECRET`) and never reaches the browser.
+- Received email is sanitized with the same allow-list as notes before it's stored or shown. Scripts, styles, images and tracking pixels are dropped.
+- Managing domains, inboxes and the webhook is admin-only. Every teammate can read and reply to the shared inboxes.
+
+## Stripe
+
+- Read-only: the CRM only ever calls `GET` endpoints. Use a restricted key with read access; it's never sent to the browser, and billing is fetched on the server per request.

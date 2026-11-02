@@ -7,14 +7,15 @@ import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
 import { ActionError, actionAdmin, actionUser, hashToken, randomToken, revokeSessions } from "@/lib/auth";
 import { emailBrand } from "@/lib/brand";
-import { customFieldTypes, entityTypes, userRoles } from "@/lib/constants";
+import { billingIntervals, clientCategories, clientCategoryLabels, customFieldTypes, entityTypes, userRoles, type ClientCategory } from "@/lib/constants";
+import { defaultStages } from "@/lib/crm/defaults";
 import { sendEmail } from "@/lib/email";
 import { siteOrigin } from "@/lib/origin";
 import { hashPassword, passwordProblem, verifyPassword } from "@/lib/password";
 import { loadSampleData } from "@/lib/sample-data";
 import InviteEmail from "@/emails/invite";
 
-const { users, pipelines, stages, deals, customFields, workspace } = schema;
+const { users, pipelines, stages, clients, customFields, workspace, services } = schema;
 const uuid = z.uuid();
 
 // ─── Profile ─────────────────────────────────────────────────────────────
@@ -175,14 +176,16 @@ export async function updateBrand(input: z.input<typeof brandInput>): Promise<Re
 
 // ─── Pipelines and stages ────────────────────────────────────────────────
 
-export async function createPipeline(name: string): Promise<Result<{ id: string }>> {
+/** A new pipeline for one client category, starting with that category's usual stages. */
+export async function createPipeline(name: string, category: ClientCategory): Promise<Result<{ id: string }>> {
   return run(async () => {
     await actionAdmin();
     const n = z.string().trim().min(1, "Name the pipeline.").max(60).parse(name);
+    const c = z.enum(clientCategories).parse(category);
     const db = await getDb();
-    const [{ max }] = await db.select({ max: sql<number>`coalesce(max(${pipelines.position}), -1)::int` }).from(pipelines);
-    const [p] = await db.insert(pipelines).values({ name: n, position: max + 1 }).returning({ id: pipelines.id });
-    await db.insert(stages).values(["Lead", "Qualified", "Proposal", "Negotiation"].map((s, i) => ({ pipelineId: p.id, name: s, position: i, probability: [10, 30, 60, 80][i] })));
+    const [{ max }] = await db.select({ max: sql<number>`coalesce(max(${pipelines.position}), -1)::int` }).from(pipelines).where(eq(pipelines.category, c));
+    const [p] = await db.insert(pipelines).values({ name: n, category: c, position: max + 1 }).returning({ id: pipelines.id });
+    await db.insert(stages).values(defaultStages[c].stages.map((s, i) => ({ pipelineId: p.id, name: s.name, position: i, probability: s.probability, rottingDays: s.rottingDays })));
     refresh();
     return p;
   });
@@ -204,9 +207,13 @@ export async function deletePipeline(pipelineId: string): Promise<Result> {
   return run(async () => {
     await actionAdmin();
     const db = await getDb();
-    const [{ n }] = await db.select({ n: count() }).from(deals).where(eq(deals.pipelineId, uuid.parse(pipelineId)));
-    if (n) throw new ActionError(`This pipeline has ${n} deal${n === 1 ? "" : "s"}. Move them to another pipeline first.`);
-    await db.delete(pipelines).where(eq(pipelines.id, pipelineId));
+    const [p] = await db.select().from(pipelines).where(eq(pipelines.id, uuid.parse(pipelineId)));
+    if (!p) return;
+    const [{ n }] = await db.select({ n: count() }).from(clients).where(eq(clients.pipelineId, p.id));
+    if (n) throw new ActionError(`This pipeline has ${n} client${n === 1 ? "" : "s"}. Move them to another pipeline first.`);
+    const [{ others }] = await db.select({ others: count() }).from(pipelines).where(and(eq(pipelines.category, p.category), ne(pipelines.id, p.id)));
+    if (!others) throw new ActionError(`${clientCategoryLabels[p.category].one} clients need at least one pipeline. Add another before deleting this one.`);
+    await db.delete(pipelines).where(eq(pipelines.id, p.id));
     refresh();
   });
 }
@@ -241,7 +248,7 @@ export async function reorderStages(pipelineId: string, ids: string[]): Promise<
   });
 }
 
-/** Deleting a stage moves its deals to another stage of the same pipeline first, so nothing is orphaned. */
+/** Deleting a stage moves its clients to another stage of the same pipeline first, so nothing is orphaned. */
 export async function deleteStage(stageId: string, moveTo: string | null): Promise<Result> {
   return run(async () => {
     await actionAdmin();
@@ -250,13 +257,74 @@ export async function deleteStage(stageId: string, moveTo: string | null): Promi
     if (!s) return;
     const others = await db.select().from(stages).where(and(eq(stages.pipelineId, s.pipelineId), ne(stages.id, s.id))).orderBy(asc(stages.position));
     if (!others.length) throw new ActionError("A pipeline needs at least one stage.");
-    const [{ n }] = await db.select({ n: count() }).from(deals).where(eq(deals.stageId, s.id));
+    const [{ n }] = await db.select({ n: count() }).from(clients).where(eq(clients.stageId, s.id));
     if (n) {
       const target = others.find((o) => o.id === moveTo);
-      if (!target) throw new ActionError(`Pick where this stage's ${n} deal${n === 1 ? "" : "s"} should go.`);
-      await db.update(deals).set({ stageId: target.id, stageChangedAt: new Date() }).where(eq(deals.stageId, s.id));
+      if (!target) throw new ActionError(`Pick where this stage's ${n} client${n === 1 ? "" : "s"} should go.`);
+      await db.update(clients).set({ stageId: target.id, stageChangedAt: new Date() }).where(eq(clients.stageId, s.id));
     }
     await db.delete(stages).where(eq(stages.id, s.id));
+    refresh();
+  });
+}
+
+// ─── Services ────────────────────────────────────────────────────────────
+
+const serviceInput = z.object({
+  name: z.string().trim().min(1, "Name the service.").max(80),
+  description: z
+    .string()
+    .trim()
+    .max(300)
+    .nullable()
+    .optional()
+    .transform((v) => v || null),
+  price: z.number().int().min(0, "Prices can't be negative.").max(1e13),
+  interval: z.enum(billingIntervals),
+});
+
+/** Adds a service to the catalog, or edits one. Changing the price doesn't change what existing clients pay. */
+export async function saveService(serviceId: string | null, input: z.input<typeof serviceInput>): Promise<Result<{ id: string }>> {
+  return run(async () => {
+    await actionAdmin();
+    const data = serviceInput.parse(input);
+    const db = await getDb();
+    const [dupe] = await db
+      .select({ id: services.id })
+      .from(services)
+      .where(and(sql`lower(${services.name}) = lower(${data.name})`, isNull(services.archivedAt), serviceId ? ne(services.id, uuid.parse(serviceId)) : undefined))
+      .limit(1);
+    if (dupe) throw new ActionError(`There's already a service called ${data.name}.`);
+    if (serviceId) {
+      await db.update(services).set(data).where(eq(services.id, uuid.parse(serviceId)));
+      refresh();
+      return { id: serviceId };
+    }
+    const [{ max }] = await db.select({ max: sql<number>`coalesce(max(${services.position}), -1)::int` }).from(services);
+    const [row] = await db.insert(services).values({ ...data, position: max + 1 }).returning({ id: services.id });
+    refresh();
+    return row;
+  });
+}
+
+/** Archived services can't be added to clients; the clients who have them keep them. */
+export async function archiveService(serviceId: string, archived: boolean): Promise<Result> {
+  return run(async () => {
+    await actionAdmin();
+    const db = await getDb();
+    await db
+      .update(services)
+      .set({ archivedAt: archived ? new Date() : null })
+      .where(eq(services.id, uuid.parse(serviceId)));
+    refresh();
+  });
+}
+
+export async function reorderServices(ids: string[]): Promise<Result> {
+  return run(async () => {
+    await actionAdmin();
+    const db = await getDb();
+    for (const [i, id] of z.array(uuid).max(200).parse(ids).entries()) await db.update(services).set({ position: i }).where(eq(services.id, id));
     refresh();
   });
 }

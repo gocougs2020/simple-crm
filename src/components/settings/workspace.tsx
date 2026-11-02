@@ -36,7 +36,7 @@ export function WorkspaceSettings({ canAddSample }: { canAddSample: boolean }) {
           <Field label="Company name" className="sm:col-span-2">
             {(p) => <Input {...p} value={name} onChange={(e) => setName(e.target.value)} required />}
           </Field>
-          <Field label="Currency" hint="New deals use this currency.">
+          <Field label="Currency" hint="Client values and prices use this currency.">
             {(p) => (
               <Select id={p.id} value={currency} onChange={(e) => setCurrency(e.target.value)}>
                 {currencies.map((c) => (
@@ -64,7 +64,7 @@ export function WorkspaceSettings({ canAddSample }: { canAddSample: boolean }) {
         </form>
       </Section>
       {canAddSample ? (
-        <Section title="Sample data" description="Local development only. Adds a few organizations, people, deals and activities so you can try things out.">
+        <Section title="Sample data" description="Local development only. Adds a few organizations, people, clients in each category, services and activities so you can try things out.">
           <div className="p-5">
             <Button
               variant="outline"
@@ -73,8 +73,8 @@ export function WorkspaceSettings({ canAddSample }: { canAddSample: boolean }) {
                 start(async () => {
                   const r = await addSampleData();
                   if (!r.ok) return void toast.error(r.error);
-                  toast.success(`Added ${r.data.people} people with their organizations, deals and activity`);
-                  router.push("/deals");
+                  toast.success(`Added ${r.data.people} people with their organizations, clients and activity`);
+                  router.push("/clients");
                 })
               }
             >

@@ -1,16 +1,17 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import type { ClientCategory } from "@/lib/constants";
 
 /**
  * Which quick-create dialog is open, from anywhere: the sidebar's New menu,
  * the command palette, an empty state, or a "+" in a board column. Defaults
- * prefill the form (a deal created from a person's page starts linked to them).
+ * prefill the form (a client created from a person's page starts linked to them).
  */
 export type CreateRequest =
   | { kind: "person"; defaults?: { organizationId?: string; organizationName?: string; firstName?: string } }
   | { kind: "organization"; defaults?: { name?: string } }
-  | { kind: "deal"; defaults?: { stageId?: string; pipelineId?: string; personId?: string; personName?: string; organizationId?: string; organizationName?: string; title?: string } }
+  | { kind: "client"; defaults?: { category?: ClientCategory; stageId?: string; personId?: string; personName?: string; organizationId?: string; organizationName?: string; name?: string } }
   | null;
 
 let current: CreateRequest = null;

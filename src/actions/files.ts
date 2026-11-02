@@ -9,7 +9,7 @@ import { ActionError, actionUser, isAdmin } from "@/lib/auth";
 import { recordEvent, touch } from "@/lib/crm/events";
 import { blobConfigured, cleanFileName, fileProblem } from "@/lib/files";
 
-const links = z.object({ personId: z.uuid().nullable().optional(), organizationId: z.uuid().nullable().optional(), dealId: z.uuid().nullable().optional() });
+const links = z.object({ personId: z.uuid().nullable().optional(), organizationId: z.uuid().nullable().optional(), clientId: z.uuid().nullable().optional() });
 
 /**
  * Records a file the browser just uploaded to Vercel Blob. The URL must be on
@@ -61,8 +61,8 @@ export async function deleteFile(fileId: string): Promise<Result> {
       const { del } = await import("@vercel/blob");
       await del(f.url).catch((err) => console.error("[files] blob delete", err));
     }
-    const entity = f.dealId ? ("deal" as const) : f.personId ? ("person" as const) : f.organizationId ? ("organization" as const) : null;
-    if (entity) await recordEvent({ entityType: entity, entityId: (f.dealId ?? f.personId ?? f.organizationId)!, action: "file_deleted", data: { name: f.name }, userId: user.id });
+    const entity = f.clientId ? ("client" as const) : f.personId ? ("person" as const) : f.organizationId ? ("organization" as const) : null;
+    if (entity) await recordEvent({ entityType: entity, entityId: (f.clientId ?? f.personId ?? f.organizationId)!, action: "file_deleted", data: { name: f.name }, userId: user.id });
     refresh();
   });
 }

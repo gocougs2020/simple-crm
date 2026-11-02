@@ -2,7 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
-import { createDeal, createOrganization, createPerson } from "@/actions/records";
+import { createClient } from "@/actions/clients";
+import { createOrganization, createPerson } from "@/actions/records";
+import { Chip } from "@/components/clients/client-controls";
 import { useApp } from "@/components/app-context";
 import { CustomFieldInput } from "@/components/records/custom-field-input";
 import { OwnerSelect } from "@/components/records/owner-select";
@@ -11,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
-import type { EntityType } from "@/lib/constants";
+import { clientCategories, clientCategoryLabels, type ClientCategory, type EntityType } from "@/lib/constants";
 import { formatPhoneInput, parseMoney } from "@/lib/format";
 import { openCreate, useCreateRequest, type CreateRequest } from "./create-store";
 
@@ -24,7 +26,7 @@ export function CreateDialogs() {
     <>
       {req?.kind === "person" ? <PersonDialog key={JSON.stringify(req)} req={req} onClose={close} /> : null}
       {req?.kind === "organization" ? <OrganizationDialog key={JSON.stringify(req)} req={req} onClose={close} /> : null}
-      {req?.kind === "deal" ? <DealDialog key={JSON.stringify(req)} req={req} onClose={close} /> : null}
+      {req?.kind === "client" ? <ClientDialog key={JSON.stringify(req)} req={req} onClose={close} /> : null}
     </>
   );
 }
@@ -192,68 +194,86 @@ function OrganizationDialog({ req, onClose }: { req: Extract<CreateRequest, { ki
   );
 }
 
-function DealDialog({ req, onClose }: { req: Extract<CreateRequest, { kind: "deal" }>; onClose: () => void }) {
-  const { viewer, pipelines, workspace } = useApp();
+function ClientDialog({ req, onClose }: { req: Extract<CreateRequest, { kind: "client" }>; onClose: () => void }) {
+  const { viewer, pipelines, workspace, catalog, stage } = useApp();
   const d = req.defaults ?? {};
-  const initialPipeline = pipelines.find((p) => p.id === (d.pipelineId ?? viewer.prefs.pipelineId)) ?? pipelines[0];
-  const [pipelineId, setPipelineId] = useState(initialPipeline?.id ?? "");
-  const pipeline = pipelines.find((p) => p.id === pipelineId);
-  const [stageId, setStageId] = useState(d.stageId ?? initialPipeline?.stages[0]?.id ?? "");
-  const [title, setTitle] = useState(d.title ?? "");
-  const [titleTouched, setTitleTouched] = useState(!!d.title);
+  const [category, setCategory] = useState<ClientCategory>(d.category ?? (d.stageId ? (stage(d.stageId)?.pipeline.category ?? "prospective") : "prospective"));
+  const options = pipelines.filter((p) => p.category === category);
+  const firstStage = (c: ClientCategory) => {
+    const list = pipelines.filter((p) => p.category === c);
+    return (list.find((p) => p.id === viewer.prefs.clientPipelines?.[c]) ?? list[0])?.stages[0]?.id ?? "";
+  };
+  const [stageId, setStageId] = useState(d.stageId ?? firstStage(category));
+  const [name, setName] = useState(d.name ?? "");
+  const [nameTouched, setNameTouched] = useState(!!d.name);
   const [value, setValue] = useState("");
   const [person, setPerson] = useState<PickerValue>(d.personId ? { record: { id: d.personId, label: d.personName ?? "" } } : null);
   const [org, setOrg] = useState<PickerValue>(d.organizationId ? { record: { id: d.organizationId, label: d.organizationName ?? "" } } : null);
-  const [close, setClose] = useState("");
+  const [date, setDate] = useState("");
+  const [serviceIds, setServiceIds] = useState<string[]>([]);
   const [ownerId, setOwnerId] = useState<string | null>(viewer.id);
   const [custom, setCustom] = useState<Record<string, unknown>>({});
   const [openAfter, setOpenAfter] = useState(false);
-  const done = useCreated("/deals", "Deal", onClose);
+  const done = useCreated("/clients", "Client", onClose);
   const cents = parseMoney(value);
 
-  // Suggest "Acme deal" until someone types their own title.
+  // The client is usually the organization, or the person when they're on their own.
   const label = (v: PickerValue) => (v ? ("record" in v ? v.record.label : v.create) : "");
-  const suggested = label(org) || label(person);
-  const effectiveTitle = titleTouched ? title : suggested ? `${suggested} deal` : "";
+  const effectiveName = nameTouched ? name : label(org) || label(person);
 
   const { pending, error, submit } = useSubmit(
     () =>
       cents === null
         ? Promise.resolve({ ok: false as const, error: "Enter the value as a number, like 12,500 or 12.5k." })
-        : createDeal({
-            title: effectiveTitle,
+        : createClient({
+            name: effectiveName,
+            category,
             value: cents,
-            stageId,
+            stageId: stageId || null,
             ownerId,
-            expectedCloseDate: close || null,
+            expectedCloseDate: category === "prospective" ? date || null : null,
+            startedOn: category === "current" ? date || null : null,
+            endedOn: category === "past" ? date || null : null,
+            serviceIds,
             personId: person && "record" in person ? person.record.id : null,
             newPersonName: person && "create" in person ? person.create : undefined,
             organizationId: org && "record" in org ? org.record.id : null,
             newOrganizationName: org && "create" in org ? org.create : undefined,
             custom,
           }),
-    (r) => done(r.id, effectiveTitle, openAfter),
+    (r) => done(r.id, effectiveName, openAfter),
   );
-
-  if (!pipelines.length)
-    return (
-      <Dialog open onOpenChange={(o) => !o && onClose()} title="New deal" size="sm">
-        <p className="text-[14px]">Add a pipeline in Settings → Pipelines first.</p>
-      </Dialog>
-    );
 
   return (
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
-      title="New deal"
+      title="New client"
       size="lg"
-      footer={<Footer pending={pending} form="create-deal" label="Add deal" openAfter={openAfter} setOpenAfter={setOpenAfter} onCancel={onClose} />}
+      footer={<Footer pending={pending} form="create-client" label="Add client" openAfter={openAfter} setOpenAfter={setOpenAfter} onCancel={onClose} />}
     >
-      <form id="create-deal" onSubmit={submit} className="flex flex-col gap-4">
+      <form id="create-client" onSubmit={submit} className="flex flex-col gap-4">
         <FormError error={error} />
+        <div role="radiogroup" aria-label="Category" className="grid grid-cols-3 gap-2">
+          {clientCategories.map((c) => (
+            <button
+              key={c}
+              type="button"
+              role="radio"
+              aria-checked={category === c}
+              onClick={() => {
+                setCategory(c);
+                setStageId(firstStage(c));
+              }}
+              className={`rounded-lg border px-3 py-2 text-left transition-colors ${category === c ? "border-accent bg-accent-soft" : "border-line hover:border-line-strong"}`}
+            >
+              <span className="block text-[13.5px] font-medium text-primary">{clientCategoryLabels[c].one}</span>
+              <span className="mt-0.5 block text-[11.5px] leading-snug text-muted">{clientCategoryLabels[c].hint}</span>
+            </button>
+          ))}
+        </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Person" optional>
+          <Field label="Contact" optional>
             {(p) => (
               <RecordPicker
                 id={p.id}
@@ -271,60 +291,68 @@ function DealDialog({ req, onClose }: { req: Extract<CreateRequest, { kind: "dea
           <Field label="Organization" optional>
             {(p) => <RecordPicker id={p.id} kind="organization" value={org} onChange={setOrg} />}
           </Field>
-          <Field label="Title" className="sm:col-span-2">
+          <Field label="Name" className="sm:col-span-2" hint="Usually the company, or the person if they're on their own.">
             {(p) => (
               <Input
                 {...p}
-                value={effectiveTitle}
+                value={effectiveName}
                 onChange={(e) => {
-                  setTitle(e.target.value);
-                  setTitleTouched(true);
+                  setName(e.target.value);
+                  setNameTouched(true);
                 }}
                 required
                 autoComplete="off"
               />
             )}
           </Field>
-          <Field label={`Value (${workspace.currency})`} error={cents === null ? "Enter a number, like 12,500 or 12.5k." : null} optional>
-            {(p) => <Input {...p} inputMode="decimal" placeholder="0" value={value} onChange={(e) => setValue(e.target.value)} />}
-          </Field>
-          <Field label="Expected close" optional>
-            {(p) => <Input {...p} type="date" value={close} onChange={(e) => setClose(e.target.value)} />}
-          </Field>
-          {pipelines.length > 1 ? (
-            <Field label="Pipeline">
-              {(p) => (
-                <Select
-                  id={p.id}
-                  value={pipelineId}
-                  onChange={(e) => {
-                    setPipelineId(e.target.value);
-                    setStageId(pipelines.find((x) => x.id === e.target.value)?.stages[0]?.id ?? "");
-                  }}
-                >
-                  {pipelines.map((x) => (
-                    <option key={x.id} value={x.id}>
-                      {x.name}
-                    </option>
-                  ))}
-                </Select>
-              )}
+          {category === "prospective" ? (
+            <Field label={`Potential value (${workspace.currency})`} error={cents === null ? "Enter a number, like 12,500 or 12.5k." : null} optional>
+              {(p) => <Input {...p} inputMode="decimal" placeholder="0" value={value} onChange={(e) => setValue(e.target.value)} />}
             </Field>
           ) : null}
+          <Field label={category === "prospective" ? "Expected to sign" : category === "current" ? "Client since" : "Left on"} optional>
+            {(p) => <Input {...p} type="date" value={date} onChange={(e) => setDate(e.target.value)} />}
+          </Field>
           <Field label="Stage">
-            {(p) => (
-              <Select id={p.id} value={stageId} onChange={(e) => setStageId(e.target.value)}>
-                {pipeline?.stages.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </Select>
-            )}
+            {(p) =>
+              options.length ? (
+                <Select id={p.id} value={stageId} onChange={(e) => setStageId(e.target.value)}>
+                  {options.map((pl) => (
+                    <optgroup key={pl.id} label={pl.name}>
+                      {pl.stages.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </Select>
+              ) : (
+                <p id={p.id} className="py-2 text-[13px] text-error">
+                  Add a pipeline for {clientCategoryLabels[category].one.toLowerCase()} clients in Settings → Pipelines first.
+                </p>
+              )
+            }
           </Field>
           <Field label="Owner">{(p) => <OwnerSelect id={p.id} value={ownerId} onChange={setOwnerId} />}</Field>
+          {category !== "prospective" && catalog.some((s) => !s.archivedAt) ? (
+            <div className="sm:col-span-2">
+              <p className="mb-1.5 text-[13px] font-medium text-primary">
+                {category === "current" ? "Services they use" : "Services they had"} <span className="font-normal text-muted">(optional)</span>
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {catalog
+                  .filter((s) => !s.archivedAt)
+                  .map((s) => (
+                    <Chip key={s.id} on={serviceIds.includes(s.id)} onClick={() => setServiceIds(serviceIds.includes(s.id) ? serviceIds.filter((x) => x !== s.id) : [...serviceIds, s.id])}>
+                      {s.name}
+                    </Chip>
+                  ))}
+              </div>
+            </div>
+          ) : null}
         </div>
-        <CustomFields entity="deal" values={custom} onChange={setCustom} />
+        <CustomFields entity="client" values={custom} onChange={setCustom} />
       </form>
     </Dialog>
   );

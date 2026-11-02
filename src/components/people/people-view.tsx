@@ -6,7 +6,8 @@ import { ArrowUpTrayIcon, PlusIcon } from "@heroicons/react/20/solid";
 import { UserIcon } from "@heroicons/react/24/outline";
 import { addTag, assignOwner, setArchived } from "@/actions/records";
 import { useApp } from "@/components/app-context";
-import { BulkButton } from "@/components/deals/deals-view";
+import { CategoryBadge } from "@/components/clients/client-controls";
+import { BulkButton } from "@/components/clients/clients-view";
 import { formatCustomValue } from "@/components/records/custom-field-input";
 import { PageHeader } from "@/components/shell/app-shell";
 import { openCreate } from "@/components/shell/create-store";
@@ -55,7 +56,7 @@ export function PeopleView({ rows, tags, filtered }: { rows: Row[]; tags: string
     },
     { key: "email", label: "Email", render: (r) => (r.person.email ? <a href={`mailto:${r.person.email}`} className="text-secondary hover:underline">{r.person.email}</a> : <span className="text-faint">—</span>) },
     { key: "phone", label: "Phone", render: (r) => (r.person.phone ? <a href={`tel:${r.person.phone.replace(/[^\d+]/g, "")}`} className="whitespace-nowrap text-secondary hover:underline">{r.person.phone}</a> : <span className="text-faint">—</span>) },
-    { key: "deals", label: "Open deals", align: "right", render: (r) => (r.openDeals ? <span className="tabular-nums">{r.openDeals}</span> : <span className="text-faint">—</span>) },
+    { key: "clients", label: "Client", render: (r) => (r.clientCategories.length ? <span className="flex gap-1">{(["current", "prospective", "past"] as const).filter((c) => r.clientCategories.includes(c)).map((c) => <CategoryBadge key={c} category={c} />)}</span> : <span className="text-faint">—</span>) },
     { key: "next", label: "Next activity", className: "max-w-60", render: (r) => <NextActivityCell next={r.next} /> },
     { key: "tags", label: "Tags", render: (r) => <span className="flex gap-1">{r.person.tags.slice(0, 2).map((t) => <Tag key={t}>{t}</Tag>)}{r.person.tags.length > 2 ? <span className="text-[12px] text-muted">+{r.person.tags.length - 2}</span> : null}</span> },
     { key: "owner", label: "Owner", render: (r) => <OwnerCell id={r.person.ownerId} /> },

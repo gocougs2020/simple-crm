@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   const links = {
     personId: id.parse(form.get("personId") || null),
     organizationId: id.parse(form.get("organizationId") || null),
-    dealId: id.parse(form.get("dealId") || null),
+    clientId: id.parse(form.get("clientId") || null),
   };
   const name = cleanFileName(file.name);
   const pathname = `${crypto.randomUUID()}${path.extname(name).slice(0, 12)}`;

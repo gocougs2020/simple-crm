@@ -9,7 +9,7 @@ const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono"
 
 export const metadata: Metadata = {
   title: { default: "CRM", template: "%s · CRM" },
-  description: "People, organizations and deals for your team.",
+  description: "People, organizations and clients for your team.",
   robots: { index: false, follow: false },
 };
 

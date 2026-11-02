@@ -10,7 +10,7 @@ import { activityTypes } from "@/lib/constants";
 import { recordEvent, touch } from "@/lib/crm/events";
 import { sanitizeHtml } from "@/lib/safe-html";
 
-const { activities, deals, people } = schema;
+const { activities, clients, people } = schema;
 
 const activityInput = z.object({
   type: z.enum(activityTypes),
@@ -31,7 +31,7 @@ const activityInput = z.object({
   assigneeId: z.uuid().nullable().optional(),
   personId: z.uuid().nullable().optional(),
   organizationId: z.uuid().nullable().optional(),
-  dealId: z.uuid().nullable().optional(),
+  clientId: z.uuid().nullable().optional(),
   /** Logging something that already happened (a call you just made) vs planning it. */
   done: z.boolean().optional(),
 });
@@ -39,17 +39,17 @@ const activityInput = z.object({
 export type ActivityInput = z.input<typeof activityInput>;
 
 /**
- * Fills in the links an activity implies: logged on a deal, it also shows on
- * the deal's person and organization; logged on a person, on their
+ * Fills in the links an activity implies: logged on a client, it also shows on
+ * the client's contact and organization; logged on a person, on their
  * organization. That's what makes the organization page the whole story.
  */
-async function resolveLinks(l: { personId?: string | null; organizationId?: string | null; dealId?: string | null }) {
+async function resolveLinks(l: { personId?: string | null; organizationId?: string | null; clientId?: string | null }) {
   const db = await getDb();
   let { personId = null, organizationId = null } = l;
-  const dealId = l.dealId ?? null;
-  if (dealId) {
-    const [d] = await db.select({ personId: deals.personId, organizationId: deals.organizationId }).from(deals).where(eq(deals.id, dealId));
-    if (!d) throw new ActionError("That deal was deleted.");
+  const clientId = l.clientId ?? null;
+  if (clientId) {
+    const [d] = await db.select({ personId: clients.personId, organizationId: clients.organizationId }).from(clients).where(eq(clients.id, clientId));
+    if (!d) throw new ActionError("That client was deleted.");
     personId ??= d.personId;
     organizationId ??= d.organizationId;
   }
@@ -57,7 +57,7 @@ async function resolveLinks(l: { personId?: string | null; organizationId?: stri
     const [p] = await db.select({ organizationId: people.organizationId }).from(people).where(eq(people.id, personId));
     organizationId = p?.organizationId ?? null;
   }
-  return { personId, organizationId, dealId };
+  return { personId, organizationId, clientId };
 }
 
 function cleanBody(body: string | null | undefined) {
@@ -70,7 +70,7 @@ export async function logActivity(input: ActivityInput): Promise<Result<{ id: st
     const user = await actionUser();
     const data = activityInput.parse(input);
     const links = await resolveLinks(data);
-    if (!links.personId && !links.organizationId && !links.dealId) throw new ActionError("Link this to a person, organization or deal.");
+    if (!links.personId && !links.organizationId && !links.clientId) throw new ActionError("Link this to a person, organization or client.");
     const body = cleanBody(data.body);
     if (!body && !data.subject && (data.type === "note" || data.type === "task")) throw new ActionError(data.type === "note" ? "Write something first." : "Give the task a name.");
     const now = new Date();
@@ -112,7 +112,7 @@ export async function updateActivity(activityId: string, patch: Partial<Activity
     // Anyone can reschedule or reassign a task; only the author (or an admin) can rewrite what was logged.
     const contentChange = data.body !== undefined || data.subject !== undefined || data.outcome !== undefined || data.direction !== undefined;
     if (contentChange && a.userId !== user.id && !isAdmin(user) && a.type !== "task") throw new ActionError("Only the person who logged this can edit it.");
-    const links = data.personId !== undefined || data.organizationId !== undefined || data.dealId !== undefined ? await resolveLinks({ ...a, ...data }) : {};
+    const links = data.personId !== undefined || data.organizationId !== undefined || data.clientId !== undefined ? await resolveLinks({ ...a, ...data }) : {};
     await db
       .update(activities)
       .set({
@@ -135,10 +135,11 @@ export async function updateActivity(activityId: string, patch: Partial<Activity
 }
 
 /**
- * Checks a task off (or back on). Returns whether the linked deal is left with
- * nothing planned, so the interface can offer to schedule the next step.
+ * Checks a task off (or back on). Returns whether the linked prospect or
+ * current client is left with nothing planned, so the interface can offer to
+ * schedule the next step.
  */
-export async function setCompleted(activityId: string, completed: boolean): Promise<Result<{ dealWithoutNext: string | null }>> {
+export async function setCompleted(activityId: string, completed: boolean): Promise<Result<{ clientWithoutNext: string | null }>> {
   return run(async () => {
     const user = await actionUser();
     const db = await getDb();
@@ -150,21 +151,21 @@ export async function setCompleted(activityId: string, completed: boolean): Prom
       .returning();
     if (!a) throw new ActionError("This activity was deleted.");
     if (completed) await touch(a, now);
-    let dealWithoutNext: string | null = null;
-    if (completed && a.dealId) {
-      const [d] = await db.select({ status: deals.status }).from(deals).where(eq(deals.id, a.dealId));
+    let clientWithoutNext: string | null = null;
+    if (completed && a.clientId) {
+      const [c] = await db.select({ category: clients.category }).from(clients).where(eq(clients.id, a.clientId));
       const [next] = await db
         .select({ id: activities.id })
         .from(activities)
-        .where(and(eq(activities.dealId, a.dealId), isNull(activities.completedAt), isNotNull(activities.dueAt), ne(activities.id, a.id)))
+        .where(and(eq(activities.clientId, a.clientId), isNull(activities.completedAt), isNotNull(activities.dueAt), ne(activities.id, a.id)))
         .limit(1);
-      if (d?.status === "open" && !next) dealWithoutNext = a.dealId;
+      if (c && c.category !== "past" && !next) clientWithoutNext = a.clientId;
     }
-    if (a.type === "task" && completed && a.assigneeId && a.assigneeId !== user.id && a.dealId) {
-      await recordEvent({ entityType: "deal", entityId: a.dealId, action: "task_completed_for", data: { subject: a.subject, assigneeId: a.assigneeId }, userId: user.id });
+    if (a.type === "task" && completed && a.assigneeId && a.assigneeId !== user.id && a.clientId) {
+      await recordEvent({ entityType: "client", entityId: a.clientId, action: "task_completed_for", data: { subject: a.subject, assigneeId: a.assigneeId }, userId: user.id });
     }
     refresh();
-    return { dealWithoutNext };
+    return { clientWithoutNext };
   });
 }
 
@@ -184,10 +185,10 @@ export async function deleteActivity(activityId: string): Promise<Result> {
     const [a] = await db.select().from(activities).where(eq(activities.id, z.uuid().parse(activityId)));
     if (!a) return;
     if (a.userId !== user.id && !isAdmin(user)) throw new ActionError("Only the person who logged this, or an admin, can delete it.");
-    if (a.emailId) throw new ActionError("Emails sent from the CRM stay on the record.");
+    if (a.emailId || a.inboxThreadId) throw new ActionError("Emails sent or received through the CRM stay on the record.");
     await db.delete(activities).where(eq(activities.id, a.id));
-    const entity = a.dealId ? ("deal" as const) : a.personId ? ("person" as const) : ("organization" as const);
-    await recordEvent({ entityType: entity, entityId: (a.dealId ?? a.personId ?? a.organizationId)!, action: "activity_deleted", data: { type: a.type, subject: a.subject }, userId: user.id });
+    const entity = a.clientId ? ("client" as const) : a.personId ? ("person" as const) : ("organization" as const);
+    await recordEvent({ entityType: entity, entityId: (a.clientId ?? a.personId ?? a.organizationId)!, action: "activity_deleted", data: { type: a.type, subject: a.subject }, userId: user.id });
     refresh();
   });
 }

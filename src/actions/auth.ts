@@ -11,6 +11,8 @@ import { siteOrigin } from "@/lib/origin";
 import { hashPassword, passwordProblem, verifyDecoy, verifyPassword } from "@/lib/password";
 import { resetLimitError, signInLimitError } from "@/lib/rate-limit";
 import { peekToken } from "@/lib/auth-tokens";
+import { clientCategories } from "@/lib/constants";
+import { defaultStages } from "@/lib/crm/defaults";
 import ResetPasswordEmail from "@/emails/reset-password";
 
 /** Form state for the auth pages. `fields` echoes back what was typed (never the password) so a failed submit doesn't clear the form. */
@@ -85,20 +87,16 @@ export async function setupWorkspace(_: AuthState, fd: FormData): Promise<AuthSt
   redirect("/");
 }
 
-/** A first pipeline so the board isn't empty on day one. Stages can be renamed or removed in Settings. */
+/** A first pipeline for each client category so the boards aren't empty on day one. Stages can be renamed or removed in Settings. */
 async function seedDefaults() {
   const db = await getDb();
-  const [existing] = await db.select({ id: schema.pipelines.id }).from(schema.pipelines).limit(1);
-  if (existing) return;
-  const [pipeline] = await db.insert(schema.pipelines).values({ name: "Sales", position: 0 }).returning();
-  const stages = [
-    ["Lead", 10],
-    ["Qualified", 25],
-    ["Meeting scheduled", 40],
-    ["Proposal sent", 60],
-    ["Negotiation", 80],
-  ] as const;
-  await db.insert(schema.stages).values(stages.map(([name, probability], position) => ({ pipelineId: pipeline.id, name, probability, position, rottingDays: 14 })));
+  for (const category of clientCategories) {
+    const [existing] = await db.select({ id: schema.pipelines.id }).from(schema.pipelines).where(eq(schema.pipelines.category, category)).limit(1);
+    if (existing) continue;
+    const d = defaultStages[category];
+    const [pipeline] = await db.insert(schema.pipelines).values({ name: d.pipeline, category, position: 0 }).returning();
+    await db.insert(schema.stages).values(d.stages.map((s, position) => ({ pipelineId: pipeline.id, name: s.name, probability: s.probability, rottingDays: s.rottingDays, position })));
+  }
 }
 
 export async function requestPasswordReset(_: AuthState, fd: FormData): Promise<AuthState> {

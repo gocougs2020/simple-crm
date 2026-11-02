@@ -1,6 +1,7 @@
 "use server";
 
 import { refresh } from "next/cache";
+import { render } from "@react-email/render";
 import { and, desc, eq, or } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
@@ -8,7 +9,7 @@ import { run, type Result } from "@/lib/action";
 import { ActionError, actionUser, isAdmin } from "@/lib/auth";
 import { emailBrand } from "@/lib/brand";
 import { touch } from "@/lib/crm/events";
-import { fromAs, sendEmail } from "@/lib/email";
+import { fromAs, getResend, sendEmail } from "@/lib/email";
 import { fillMergeTags, fillMergeTagsHtml, mergeValues } from "@/lib/email/merge-tags";
 import { htmlToText, sanitizeHtml } from "@/lib/safe-html";
 import DirectEmail from "@/emails/direct";
@@ -17,7 +18,9 @@ const { people, organizations, activities, outboundEmails, emailTemplates } = sc
 
 const sendInput = z.object({
   personId: z.uuid(),
-  dealId: z.uuid().nullable().optional(),
+  clientId: z.uuid().nullable().optional(),
+  /** Send from one of the workspace's Resend inboxes, so replies come back into the CRM. Otherwise from RESEND_FROM, with replies to the teammate. */
+  inboxId: z.string().max(100).nullable().optional(),
   cc: z
     .array(z.email("One of the CC addresses isn't valid."))
     .max(10)
@@ -29,9 +32,11 @@ const sendInput = z.object({
 });
 
 /**
- * Sends a one-off email to a person from their record (or a deal's), as the
- * signed-in teammate: their name in From, their address in Reply-To, so
- * replies land in their own inbox. The email is logged on the timeline.
+ * Sends a one-off email to a person from their record (or a client's), as the
+ * signed-in teammate. From an inbox, the teammate's name goes in front of the
+ * inbox address and replies thread back into the CRM. Without one, From is
+ * RESEND_FROM and Reply-To is the teammate, so replies land in their own
+ * mailbox. Either way the email is logged on the timeline.
  */
 export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise<Result<{ activityId: string }>> {
   return run(async () => {
@@ -59,26 +64,45 @@ export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise
       .insert(outboundEmails)
       .values({ personId: row.person.id, userId: user.id, to: row.person.email, cc: data.cc?.join(", ") || null, subject })
       .returning({ id: outboundEmails.id });
-    const { id: resendId } = await sendEmail({
-      from: fromAs(brand.senderName ? `${user.name} · ${brand.senderName}` : user.name),
-      to: row.person.email,
-      cc: data.cc?.length ? data.cc : undefined,
-      bcc: data.copyMe ? user.email : undefined,
-      replyTo: user.email,
-      subject,
-      react: DirectEmail({ brand, html, preview: htmlToText(html).split("\n").find(Boolean)?.slice(0, 120) ?? "", signature }),
-      tags: [{ name: "type", value: "direct" }],
-      idempotencyKey: `direct-${outbound.id}`,
-    });
+    const fromName = brand.senderName ? `${user.name} · ${brand.senderName}` : user.name;
+    const preview = htmlToText(html).split("\n").find(Boolean)?.slice(0, 120) ?? "";
+    const email = DirectEmail({ brand, html, preview, signature });
+    let resendId: string | null;
+    if (data.inboxId) {
+      const resend = getResend();
+      if (!resend) throw new ActionError("Email isn't connected yet, so inboxes can't send. Send without an inbox, or add RESEND_API_KEY.");
+      const draft = await resend.inboxes.drafts.create(
+        { inboxId: data.inboxId, to: row.person.email, cc: data.cc?.length ? data.cc : undefined, bcc: data.copyMe ? user.email : undefined, subject, html: await render(email) },
+        { idempotencyKey: `draft-${outbound.id}` },
+      );
+      if (draft.error || !draft.data) throw new ActionError(`Resend couldn't prepare the email: ${draft.error?.message ?? "no response"}.`);
+      const sent = await resend.inboxes.drafts.send({ inboxId: data.inboxId, draftId: draft.data.id }, { idempotencyKey: `direct-${outbound.id}` });
+      if (sent.error || !sent.data) throw new ActionError(`Resend couldn't send the email: ${sent.error?.message ?? "no response"}.`);
+      resendId = sent.data.id;
+    } else {
+      resendId = (
+        await sendEmail({
+          from: fromAs(fromName),
+          to: row.person.email,
+          cc: data.cc?.length ? data.cc : undefined,
+          bcc: data.copyMe ? user.email : undefined,
+          replyTo: user.email,
+          subject,
+          react: email,
+          tags: [{ name: "type", value: "direct" }],
+          idempotencyKey: `direct-${outbound.id}`,
+        })
+      ).id;
+    }
     await db.update(outboundEmails).set({ resendId }).where(eq(outboundEmails.id, outbound.id));
 
-    let dealOrg: string | null = null;
-    if (data.dealId) {
-      const [d] = await db.select({ organizationId: schema.deals.organizationId }).from(schema.deals).where(eq(schema.deals.id, data.dealId));
-      dealOrg = d?.organizationId ?? null;
+    let clientOrg: string | null = null;
+    if (data.clientId) {
+      const [c] = await db.select({ organizationId: schema.clients.organizationId }).from(schema.clients).where(eq(schema.clients.id, data.clientId));
+      clientOrg = c?.organizationId ?? null;
     }
     const now = new Date();
-    const links = { personId: row.person.id, organizationId: row.person.organizationId ?? dealOrg, dealId: data.dealId ?? null };
+    const links = { personId: row.person.id, organizationId: row.person.organizationId ?? clientOrg, clientId: data.clientId ?? null };
     const [activity] = await db
       .insert(activities)
       .values({ type: "email", direction: "outbound", subject, body: html, occurredAt: now, userId: user.id, assigneeId: user.id, emailId: outbound.id, ...links })

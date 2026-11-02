@@ -8,7 +8,7 @@ import { PageSkeleton } from "@/components/ui/skeleton";
 import { getDb, schema } from "@/db";
 import { emailBrand } from "@/lib/brand";
 import { audienceCount, renderCampaign } from "@/lib/email/campaigns";
-import { allTags } from "@/lib/crm/records";
+import { allClientTags, allTags } from "@/lib/crm/records";
 
 export const metadata: Metadata = { title: "Campaign" };
 
@@ -26,8 +26,8 @@ async function Campaign({ params }: Pick<PageProps<"/email/campaigns/[id]">, "pa
   const db = await getDb();
   const [c] = await db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id));
   if (!c) notFound();
-  const [tags, count, brand] = await Promise.all([allTags(), audienceCount(c.audience), emailBrand()]);
+  const [tags, clientTags, count, brand] = await Promise.all([allTags(), allClientTags(), audienceCount(c.audience), emailBrand()]);
   // Drafts always preview with the current brand kit.
   const html = c.status === "draft" || c.status === "scheduled" ? await renderCampaign(c.body, c.previewText) : c.html;
-  return <CampaignEditor campaign={{ ...c, html }} tags={tags} initialCount={c.status === "sent" ? c.recipientCount : count} hasAddress={!!brand.postalAddress} />;
+  return <CampaignEditor campaign={{ ...c, html }} tags={tags} clientTags={clientTags} initialCount={c.status === "sent" ? c.recipientCount : count} hasAddress={!!brand.postalAddress} />;
 }

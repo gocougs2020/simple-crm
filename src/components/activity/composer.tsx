@@ -32,7 +32,7 @@ export const activityIcons: Record<ActivityType, typeof PhoneIcon> = {
   task: CheckCircleIcon,
 };
 
-export type Links = { personId?: string | null; organizationId?: string | null; dealId?: string | null };
+export type Links = { personId?: string | null; organizationId?: string | null; clientId?: string | null };
 
 /**
  * The one place to record anything about a record. Each tab asks only for

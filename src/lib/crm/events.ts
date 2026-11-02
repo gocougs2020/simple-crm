@@ -52,13 +52,13 @@ export function diff<T extends Record<string, unknown>>(before: T, patch: Partia
 }
 
 /** Marks records as just-touched, for "last activity" columns and sorting. */
-export async function touch(links: { personId?: string | null; organizationId?: string | null; dealId?: string | null }, at = new Date()) {
+export async function touch(links: { personId?: string | null; organizationId?: string | null; clientId?: string | null }, at = new Date()) {
   const db = await getDb();
   const ops: Promise<unknown>[] = [];
   const later = (col: ReturnType<typeof sql.raw>) => sql`greatest(coalesce(${col}, ${at}), ${at})`;
   if (links.personId) ops.push(db.update(schema.people).set({ lastActivityAt: later(sql.raw(`"people"."last_activity_at"`)) }).where(inArray(schema.people.id, [links.personId])));
   if (links.organizationId)
     ops.push(db.update(schema.organizations).set({ lastActivityAt: later(sql.raw(`"organizations"."last_activity_at"`)) }).where(inArray(schema.organizations.id, [links.organizationId])));
-  if (links.dealId) ops.push(db.update(schema.deals).set({ lastActivityAt: later(sql.raw(`"deals"."last_activity_at"`)) }).where(inArray(schema.deals.id, [links.dealId])));
+  if (links.clientId) ops.push(db.update(schema.clients).set({ lastActivityAt: later(sql.raw(`"clients"."last_activity_at"`)) }).where(inArray(schema.clients.id, [links.clientId])));
   await Promise.all(ops);
 }

@@ -10,7 +10,9 @@ const items = [
   { href: "/settings/profile", label: "Profile", admin: false },
   { href: "/settings/team", label: "Team", admin: false },
   { href: "/settings/pipelines", label: "Pipelines", admin: true },
+  { href: "/settings/services", label: "Services", admin: true },
   { href: "/settings/fields", label: "Custom fields", admin: true },
+  { href: "/settings/email", label: "Email domains", admin: true },
   { href: "/settings/brand", label: "Email and brand", admin: true },
   { href: "/settings/workspace", label: "Workspace", admin: true },
 ];

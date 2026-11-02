@@ -11,7 +11,7 @@ export type PickedRecord = { id: string; label: string; detail?: string; organiz
 export type PickerValue = { record: PickedRecord } | { create: string } | null;
 
 /**
- * Typeahead for linking a person, organization or deal. Typing a name that
+ * Typeahead for linking a person, organization or client. Typing a name that
  * doesn't exist offers to create it, so nobody has to leave the form.
  */
 export function RecordPicker({
@@ -23,7 +23,7 @@ export function RecordPicker({
   id,
   autoFocus,
 }: {
-  kind: "person" | "organization" | "deal";
+  kind: "person" | "organization" | "client";
   value: PickerValue;
   onChange: (v: PickerValue) => void;
   placeholder?: string;
@@ -110,7 +110,7 @@ export function RecordPicker({
             setOpen(false);
           }
         }}
-        placeholder={placeholder ?? (kind === "person" ? "Search people" : kind === "organization" ? "Search organizations" : "Search deals")}
+        placeholder={placeholder ?? (kind === "person" ? "Search people" : kind === "organization" ? "Search organizations" : "Search clients")}
         className="h-9 w-full rounded-md border border-line bg-surface px-3 text-[14px] text-primary shadow-sm placeholder:text-faint hover:border-line-strong focus:border-ring focus:ring-1 focus:ring-ring focus:outline-none"
         role="combobox"
         aria-expanded={open}

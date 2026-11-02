@@ -8,7 +8,7 @@ import {
   BuildingOffice2Icon,
   CheckCircleIcon,
   Cog6ToothIcon,
-  CurrencyDollarIcon,
+  BriefcaseIcon,
   EnvelopeIcon,
   FolderIcon,
   HomeIcon,
@@ -31,7 +31,7 @@ export const openPalette = () => setOpen(true);
 
 type Item = { id: string; group: string; label: string; detail?: string; icon: ComponentType<{ className?: string }>; run: () => void };
 
-/** ⌘K: find any person, organization or deal, jump anywhere, or create something. */
+/** ⌘K: find any person, organization or client, jump anywhere, or create something. */
 export function CommandPalette() {
   const isOpen = useSyncExternalStore(
     (l) => {
@@ -79,23 +79,25 @@ export function CommandPalette() {
   const items = useMemo<Item[]>(() => {
     if (!q.trim()) {
       return [
-        { id: "new-deal", group: "Create", label: "New deal", icon: PlusIcon, run: () => (setOpen(false), openCreate({ kind: "deal" })) },
+        { id: "new-client", group: "Create", label: "New client", icon: PlusIcon, run: () => (setOpen(false), openCreate({ kind: "client" })) },
         { id: "new-person", group: "Create", label: "New person", icon: PlusIcon, run: () => (setOpen(false), openCreate({ kind: "person" })) },
         { id: "new-org", group: "Create", label: "New organization", icon: PlusIcon, run: () => (setOpen(false), openCreate({ kind: "organization" })) },
         { id: "go-home", group: "Go to", label: "Home", icon: HomeIcon, run: go("/") },
-        { id: "go-deals", group: "Go to", label: "Deals", icon: CurrencyDollarIcon, run: go("/deals") },
+        { id: "go-clients", group: "Go to", label: "Clients", icon: BriefcaseIcon, run: go("/clients") },
+        { id: "go-current", group: "Go to", label: "Current clients", icon: BriefcaseIcon, run: go("/clients?category=current") },
+        { id: "go-past", group: "Go to", label: "Past clients", icon: BriefcaseIcon, run: go("/clients?category=past") },
         { id: "go-people", group: "Go to", label: "People", icon: UserIcon, run: go("/people") },
         { id: "go-orgs", group: "Go to", label: "Organizations", icon: BuildingOffice2Icon, run: go("/organizations") },
         { id: "go-activities", group: "Go to", label: "Activities", icon: CheckCircleIcon, run: go("/activities") },
         { id: "go-files", group: "Go to", label: "Files", icon: FolderIcon, run: go("/files") },
-        { id: "go-email", group: "Go to", label: "Email", icon: EnvelopeIcon, run: go("/email") },
+        { id: "go-email", group: "Go to", label: "Inbox", icon: EnvelopeIcon, run: go("/email") },
         { id: "go-settings", group: "Go to", label: "Settings", icon: Cog6ToothIcon, run: go("/settings") },
       ];
     }
     if (!results) return [];
     const term = q.trim();
     return [
-      ...results.deals.map((r): Item => ({ id: `d${r.id}`, group: "Deals", label: r.label, detail: r.detail, icon: CurrencyDollarIcon, run: go(`/deals/${r.id}`) })),
+      ...results.clients.map((r): Item => ({ id: `c${r.id}`, group: "Clients", label: r.label, detail: r.detail, icon: BriefcaseIcon, run: go(`/clients/${r.id}`) })),
       ...results.people.map((r): Item => ({ id: `p${r.id}`, group: "People", label: r.label, detail: r.detail, icon: UserIcon, run: go(`/people/${r.id}`) })),
       ...results.organizations.map((r): Item => ({ id: `o${r.id}`, group: "Organizations", label: r.label, detail: r.detail, icon: BuildingOffice2Icon, run: go(`/organizations/${r.id}`) })),
       { id: "create-person", group: "Create", label: `New person “${term}”`, icon: PlusIcon, run: () => (setOpen(false), openCreate({ kind: "person", defaults: { firstName: term } })) },
@@ -127,7 +129,7 @@ export function CommandPalette() {
         <D.Overlay className="fixed inset-0 z-50 animate-fade-in bg-overlay" />
         <D.Content className="fixed top-[10vh] left-1/2 z-50 w-[calc(100%-24px)] max-w-xl -translate-x-1/2 animate-pop-in overflow-hidden rounded-xl border border-line bg-surface shadow-lg outline-none">
           <D.Title className="sr-only">Search</D.Title>
-          <D.Description className="sr-only">Find people, organizations and deals, or jump to a page.</D.Description>
+          <D.Description className="sr-only">Find people, organizations and clients, or jump to a page.</D.Description>
           <div className="flex items-center gap-2.5 border-b border-line px-4">
             {pending ? <Spinner className="text-faint" /> : <MagnifyingGlassIcon className="size-4 text-faint" aria-hidden />}
             <input
@@ -146,7 +148,7 @@ export function CommandPalette() {
                   items[active]?.run();
                 }
               }}
-              placeholder="Search people, organizations, deals…"
+              placeholder="Search people, organizations, clients…"
               className="h-12 flex-1 bg-transparent text-[15px] text-primary outline-none placeholder:text-faint"
               role="combobox"
               aria-expanded="true"

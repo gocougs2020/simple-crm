@@ -88,11 +88,15 @@ export function formatFull(d: DateInput, tz: string) {
   return new Intl.DateTimeFormat("en-US", { timeZone: tz, dateStyle: "full", timeStyle: "short" }).format(toDate(d));
 }
 
-/** A date-only value ("2026-11-15", from a date column) as "Nov 15" — no time zone shifting. */
-export function formatDateOnly(iso: string, now = new Date()) {
+/**
+ * A date-only value ("2026-11-15", from a date column) as "Nov 15", with no
+ * time zone shifting. "Today" and "Yesterday" are judged by the calendar in
+ * the workspace's time zone, which is where these dates were picked.
+ */
+export function formatDateOnly(iso: string, tz: string, now = new Date()) {
   const [y, m, d] = iso.split("-").map(Number);
   const date = new Date(Date.UTC(y, m - 1, d, 12));
-  return formatDay(date, "UTC", now);
+  return formatDay(date, "UTC", new Date(`${dayKey(now, tz)}T12:00:00Z`));
 }
 
 /** "just now", "5m", "3h", "2d", then a date. For the dense "last activity" columns. */

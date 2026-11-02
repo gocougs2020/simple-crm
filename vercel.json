@@ -1,5 +1,14 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "pnpm db:migrate && pnpm build",
-  "crons": [{ "path": "/api/cron/campaigns", "schedule": "*/5 * * * *" }]
+  "crons": [
+    {
+      "path": "/api/cron/campaigns",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/inbox",
+      "schedule": "*/15 * * * *"
+    }
+  ]
 }

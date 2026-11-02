@@ -7,7 +7,8 @@ import { usePathname } from "next/navigation";
 export function EmailTabs() {
   const pathname = usePathname();
   const tabs = [
-    { href: "/email", label: "Campaigns", active: pathname === "/email" || pathname.startsWith("/email/campaigns") },
+    { href: "/email", label: "Inbox", active: pathname === "/email" },
+    { href: "/email/campaigns", label: "Campaigns", active: pathname.startsWith("/email/campaigns") },
     { href: "/email/templates", label: "Templates", active: pathname.startsWith("/email/templates") },
   ];
   return (
