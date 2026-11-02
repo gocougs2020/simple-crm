@@ -283,7 +283,8 @@ export async function addClientService(clientId: string, serviceId: string, inpu
 export async function updateClientService(rowId: string, patch: z.input<typeof subscriptionInput>): Promise<Result> {
   return run(async () => {
     const user = await actionUser();
-    const data = subscriptionInput.parse(patch);
+    // Partial, so fields left out stay as they are (otherwise they'd parse to null and clear the start date and note).
+    const data = subscriptionInput.partial().parse(patch);
     const db = await getDb();
     const [row] = await db.select({ cs: clientServices, name: services.name }).from(clientServices).innerJoin(services, eq(services.id, clientServices.serviceId)).where(eq(clientServices.id, id.parse(rowId)));
     if (!row) throw new ActionError("That service was removed from this client.");

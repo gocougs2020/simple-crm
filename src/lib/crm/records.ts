@@ -161,7 +161,8 @@ export async function listClients(f: ClientFilter = {}) {
     where.push(or(ilike(clients.name, t), ilike(organizations.name, t), ilike(sql`${people.firstName} || ' ' || coalesce(${people.lastName}, '')`, t))!);
   }
   const mrr = monthly(activeService);
-  const formerMrr = monthly(sql`cs.ended_on is not null`);
+  // What they paid when they last left: the services that ended on their latest end date, not every period they've ever had.
+  const formerMrr = monthly(sql`cs.ended_on = (select max(x.ended_on) from client_services x where x.client_id = ${clients.id})`);
   const sorts: Record<string, SQL> = {
     name: sql`lower(${clients.name})`,
     value: sql`${clients.value}`,

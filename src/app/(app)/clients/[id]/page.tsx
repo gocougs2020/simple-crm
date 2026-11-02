@@ -57,7 +57,9 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
   const threads = await threadsFor({ personIds: [...new Set([client.personId, ...colleagues.map((p) => p.id)].filter((x): x is string => !!x))], organizationId: client.organizationId, clientId: id });
   const stage = app.pipelines.flatMap((p) => p.stages).find((s) => s.id === client.stageId);
   const today = dayKey(new Date(), app.workspace.timezone);
-  const monthly = Math.round(services.filter((s) => (c === "past" ? s.endedOn : !s.endedOn || s.endedOn > today)).reduce((sum, s) => sum + s.price * monthlyFactor[s.interval], 0));
+  // A past client's subscription is what ended on their latest end date (a client won back and lost again has two periods).
+  const lastEnded = services.reduce<string | null>((max, s) => (s.endedOn && (!max || s.endedOn > max) ? s.endedOn : max), null);
+  const monthly = Math.round(services.filter((s) => (c === "past" ? s.endedOn === lastEnded : !s.endedOn || s.endedOn > today)).reduce((sum, s) => sum + s.price * monthlyFactor[s.interval], 0));
 
   return (
     <>
@@ -87,7 +89,7 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
             {person ? <span>· {personName(person)}</span> : null}
           </span>
         }
-        actions={<CategoryActions clientId={id} name={client.name} category={c} previousServiceIds={c === "past" ? [...new Set(services.filter((s) => s.endedOn).map((s) => s.serviceId))] : undefined} />}
+        actions={<CategoryActions clientId={id} name={client.name} category={c} previousServiceIds={c === "past" ? [...new Set(services.filter((s) => s.endedOn === lastEnded).map((s) => s.serviceId))] : undefined} />}
       />
       <div className="border-b border-line pt-3">
         <StageBar clientId={id} stageId={client.stageId} category={c} stageChangedAt={client.stageChangedAt} />

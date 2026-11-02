@@ -197,6 +197,26 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
     if (known.has(m.id)) continue;
     const body = bodyOf(m);
     const sentAt = new Date(m.received_at);
+    // Claim the message first. The webhook fires more than once for a new thread and the cron can overlap it, so
+    // only the sync whose insert wins goes on to log the activity; the others stop here and nothing shows twice.
+    const [claimed] = await db
+      .insert(inboxMessages)
+      .values({
+        threadId: thread.id,
+        resendEmailId: m.id,
+        direction: m.direction,
+        from: m.from,
+        to: m.to,
+        cc: m.cc,
+        subject: m.subject,
+        html: body || null,
+        text: m.text,
+        attachments: m.attachments.map((x) => ({ id: x.id, filename: x.filename, size: x.size })),
+        sentAt,
+      })
+      .onConflictDoNothing({ target: inboxMessages.resendEmailId })
+      .returning({ id: inboxMessages.id });
+    if (!claimed) continue;
     let activityId: string | null = null;
     if (m.direction === "outbound") {
       // Sent from a record in the CRM: that send already logged an activity.
@@ -221,23 +241,7 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
         .returning({ id: activities.id });
       activityId = a.id;
     }
-    await db
-      .insert(inboxMessages)
-      .values({
-        threadId: thread.id,
-        resendEmailId: m.id,
-        direction: m.direction,
-        from: m.from,
-        to: m.to,
-        cc: m.cc,
-        subject: m.subject,
-        html: body || null,
-        text: m.text,
-        attachments: m.attachments.map((x) => ({ id: x.id, filename: x.filename, size: x.size })),
-        sentAt,
-        activityId,
-      })
-      .onConflictDoNothing({ target: inboxMessages.resendEmailId });
+    await db.update(inboxMessages).set({ activityId }).where(eq(inboxMessages.id, claimed.id));
   }
   if (existing && !existing.linkedByHand && (existing.personId !== links.personId || existing.organizationId !== links.organizationId || existing.clientId !== links.clientId)) await applyThreadLinks(thread.id);
   else if (thread.lastMessageAt) await touch(links, thread.lastMessageAt);
