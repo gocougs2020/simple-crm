@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import type { GetInboxThreadEmailResponseSuccess } from "resend";
 import { getDb, schema } from "@/db";
 import { touch } from "@/lib/crm/events";
@@ -188,18 +188,23 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
     ? await db.update(inboxThreads).set(values).where(eq(inboxThreads.id, existing.id)).returning()
     : await db.insert(inboxThreads).values(values).onConflictDoUpdate({ target: inboxThreads.resendThreadId, set: values }).returning();
 
-  const known = new Set(
+  // Messages already finished (stored and logged on the timeline). One stored without an activity was left
+  // half-done by a sync that died midway; it's picked up again below.
+  const done = new Set(
     messages.length
-      ? (await db.select({ id: inboxMessages.resendEmailId }).from(inboxMessages).where(inArray(inboxMessages.resendEmailId, messages.map((m) => m.id)))).map((r) => r.id)
+      ? (
+          await db
+            .select({ id: inboxMessages.resendEmailId })
+            .from(inboxMessages)
+            .where(and(inArray(inboxMessages.resendEmailId, messages.map((m) => m.id)), isNotNull(inboxMessages.activityId)))
+        ).map((r) => r.id)
       : [],
   );
   for (const m of messages) {
-    if (known.has(m.id)) continue;
+    if (done.has(m.id)) continue;
     const body = bodyOf(m);
     const sentAt = new Date(m.received_at);
-    // Claim the message first. The webhook fires more than once for a new thread and the cron can overlap it, so
-    // only the sync whose insert wins goes on to log the activity; the others stop here and nothing shows twice.
-    const [claimed] = await db
+    await db
       .insert(inboxMessages)
       .values({
         threadId: thread.id,
@@ -214,10 +219,10 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
         attachments: m.attachments.map((x) => ({ id: x.id, filename: x.filename, size: x.size })),
         sentAt,
       })
-      .onConflictDoNothing({ target: inboxMessages.resendEmailId })
-      .returning({ id: inboxMessages.id });
-    if (!claimed) continue;
+      .onConflictDoNothing({ target: inboxMessages.resendEmailId });
+
     let activityId: string | null = null;
+    let created = false;
     if (m.direction === "outbound") {
       // Sent from a record in the CRM: that send already logged an activity.
       const recipients = [...m.to, ...m.cc].map(address);
@@ -229,10 +234,7 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
           sql`${outboundEmails.resendId} = ${m.id} or (${outboundEmails.resendId} is null and ${outboundEmails.campaignId} is null and lower(${outboundEmails.to}) in (${sql.join(recipients.length ? recipients.map((r) => sql`${r}`) : [sql`''`], sql`, `)}) and ${outboundEmails.subject} = ${m.subject ?? ""} and ${outboundEmails.createdAt} >= ${new Date(sentAt.getTime() - 15 * 60_000)})`,
         )
         .limit(1);
-      if (sent) {
-        activityId = sent.activityId;
-        await db.update(activities).set({ inboxThreadId: thread.id, ...links }).where(eq(activities.id, sent.activityId));
-      }
+      if (sent) activityId = sent.activityId;
     }
     if (!activityId) {
       const [a] = await db
@@ -240,8 +242,20 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
         .values({ type: "email", direction: m.direction, subject: m.subject, body: body || null, occurredAt: sentAt, userId: null, inboxThreadId: thread.id, ...links })
         .returning({ id: activities.id });
       activityId = a.id;
+      created = true;
     }
-    await db.update(inboxMessages).set({ activityId }).where(eq(inboxMessages.id, claimed.id));
+    // Attach it only if no other sync got there first. The webhook fires more than once for a new thread and
+    // the cron can overlap it; the loser removes the activity it just made, so nothing shows twice.
+    const [won] = await db
+      .update(inboxMessages)
+      .set({ activityId })
+      .where(and(eq(inboxMessages.resendEmailId, m.id), isNull(inboxMessages.activityId)))
+      .returning({ id: inboxMessages.id });
+    if (!won) {
+      if (created) await db.delete(activities).where(eq(activities.id, activityId));
+      continue;
+    }
+    if (!created) await db.update(activities).set({ inboxThreadId: thread.id, ...links }).where(eq(activities.id, activityId));
   }
   if (existing && !existing.linkedByHand && (existing.personId !== links.personId || existing.organizationId !== links.organizationId || existing.clientId !== links.clientId)) await applyThreadLinks(thread.id);
   else if (thread.lastMessageAt) await touch(links, thread.lastMessageAt);
@@ -259,14 +273,21 @@ export async function syncInbox(inboxId: string, opts: { limit?: number; ourAddr
   const res = must(await resend.inboxes.threads.list({ inboxId, folders: ["inbox", "archive", "sent", "spam", "trash"], limit: Math.min(opts.limit ?? 50, 100) }), "list conversations");
   const local = res.data.length
     ? await db
-        .select({ resendThreadId: inboxThreads.resendThreadId, messageCount: inboxThreads.messageCount, lastMessageAt: inboxThreads.lastMessageAt, id: inboxThreads.id })
+        .select({
+          resendThreadId: inboxThreads.resendThreadId,
+          messageCount: inboxThreads.messageCount,
+          lastMessageAt: inboxThreads.lastMessageAt,
+          id: inboxThreads.id,
+          // Qualified by hand: with no joins Drizzle would render a bare "id", which the subquery reads as m.id.
+          unfinished: sql<boolean>`exists (select 1 from inbox_messages m where m.thread_id = "inbox_threads"."id" and m.activity_id is null)`,
+        })
         .from(inboxThreads)
         .where(inArray(inboxThreads.resendThreadId, res.data.map((t) => t.id)))
     : [];
   let synced = 0;
   for (const t of res.data) {
     const l = local.find((x) => x.resendThreadId === t.id);
-    if (l && l.messageCount === t.email_count && l.lastMessageAt && l.lastMessageAt.getTime() >= new Date(t.received_at).getTime()) {
+    if (l && !l.unfinished && l.messageCount === t.email_count && l.lastMessageAt && l.lastMessageAt.getTime() >= new Date(t.received_at).getTime()) {
       await db.update(inboxThreads).set({ folder: t.folder, read: t.read }).where(eq(inboxThreads.id, l.id));
       continue;
     }

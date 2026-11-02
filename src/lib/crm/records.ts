@@ -95,8 +95,9 @@ export async function listOrganizations(f: OrgFilter = {}) {
   return db
     .select({
       organization: organizations,
-      peopleCount: sql<number>`(select count(*)::int from people p where p.organization_id = ${organizations.id} and p.archived_at is null)`,
-      clientCategories: sql<string[]>`(select coalesce(json_agg(distinct c.category), '[]') from clients c where c.organization_id = ${organizations.id} and c.archived_at is null)`,
+      // Qualified by hand: in a select with no joins Drizzle renders a column as a bare "id", which the subquery would read as its own.
+      peopleCount: sql<number>`(select count(*)::int from people p where p.organization_id = "organizations"."id" and p.archived_at is null)`,
+      clientCategories: sql<string[]>`(select coalesce(json_agg(distinct c.category), '[]') from clients c where c.organization_id = "organizations"."id" and c.archived_at is null)`,
       next: nextActivity("organization_id", sql`${organizations.id}`),
     })
     .from(organizations)
