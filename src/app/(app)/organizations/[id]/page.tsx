@@ -7,11 +7,13 @@ import { BuildingOffice2Icon } from "@heroicons/react/24/outline";
 import { Composer } from "@/components/activity/composer";
 import { Timeline } from "@/components/activity/timeline";
 import { FilesPanel } from "@/components/files/files-panel";
-import { OrganizationDetails, RelatedDeals, RelatedPeople } from "@/components/records/details";
+import { EmailThreadsCard } from "@/components/email/threads-card";
+import { OrganizationDetails, RelatedClients, RelatedPeople } from "@/components/records/details";
 import { RecordBody, RecordHeader } from "@/components/records/record-header";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { timeline } from "@/lib/crm/activities";
-import { getOrganization, listDeals, peopleOf } from "@/lib/crm/records";
+import { clientsOfOrganization, getOrganization, peopleOf } from "@/lib/crm/records";
+import { threadsFor } from "@/lib/email/inbox";
 
 export async function generateMetadata({ params }: PageProps<"/organizations/[id]">): Promise<Metadata> {
   const { id } = await params;
@@ -35,7 +37,8 @@ async function Organization({ params }: Pick<PageProps<"/organizations/[id]">, "
   if (!z.uuid().safeParse(id).success) notFound();
   const org = await getOrganization(id);
   if (!org) notFound();
-  const [tl, deals, people] = await Promise.all([timeline("organization", id), listDeals({ organizationId: id, status: "all" }), peopleOf(id)]);
+  const [tl, clients, people] = await Promise.all([timeline("organization", id), clientsOfOrganization(id), peopleOf(id)]);
+  const threads = await threadsFor({ personIds: people.map((p) => p.id), organizationId: id });
   return (
     <>
       <RecordHeader
@@ -55,10 +58,8 @@ async function Organization({ params }: Pick<PageProps<"/organizations/[id]">, "
           <>
             <OrganizationDetails org={org} />
             <RelatedPeople people={people} organization={org} />
-            <RelatedDeals
-              deals={deals.map((d) => ({ id: d.deal.id, title: d.deal.title, value: d.deal.value, status: d.deal.status, stageName: d.stageName }))}
-              create={{ kind: "deal", defaults: { organizationId: id, organizationName: org.name } }}
-            />
+            <RelatedClients clients={clients} create={{ kind: "client", defaults: { organizationId: id, organizationName: org.name, name: org.name } }} />
+            <EmailThreadsCard threads={threads} />
             <FilesPanel files={tl.files} links={{ organizationId: id }} />
           </>
         }
@@ -69,7 +70,7 @@ async function Organization({ params }: Pick<PageProps<"/organizations/[id]">, "
           pinned={tl.pinned}
           past={tl.past}
           context={{ type: "organization", id }}
-          emptyHint={`Everything logged with ${org.name}'s people and deals shows up here too.`}
+          emptyHint={`Everything logged with ${org.name}'s people and clients shows up here too.`}
         />
       </RecordBody>
     </>

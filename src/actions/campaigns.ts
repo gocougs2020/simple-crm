@@ -13,6 +13,7 @@ import { sendEmail } from "@/lib/email";
 import { escapeHtml, fillMergeTags, fillMergeTagsHtml, mergeValues } from "@/lib/email/merge-tags";
 import { siteOrigin } from "@/lib/origin";
 import { sanitizeHtml } from "@/lib/safe-html";
+import { clientCategories } from "@/lib/constants";
 
 const { campaigns } = schema;
 const uuid = z.uuid();
@@ -22,6 +23,11 @@ const audienceSchema = z.object({
   ownerIds: z.array(uuid).max(100).optional(),
   organizationIds: z.array(uuid).max(500).optional(),
   stageIds: z.array(uuid).max(100).optional(),
+  clientCategories: z.array(z.enum(clientCategories)).max(3).optional(),
+  clientTags: z.array(z.string().max(40)).max(50).optional(),
+  serviceIds: z.array(uuid).max(100).optional(),
+  churnReasons: z.array(z.string().max(300)).max(50).optional(),
+  openToReturnOnly: z.boolean().optional(),
   personIds: z.array(uuid).max(5000).optional(),
 });
 

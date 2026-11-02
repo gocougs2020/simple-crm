@@ -19,6 +19,6 @@ export default function PipelinesPage() {
 async function Pipelines() {
   await requireAdminPage();
   const db = await getDb();
-  const rows = await db.select({ stageId: schema.deals.stageId, n: count() }).from(schema.deals).where(isNull(schema.deals.archivedAt)).groupBy(schema.deals.stageId);
-  return <PipelineSettings dealCounts={Object.fromEntries(rows.map((r) => [r.stageId, r.n]))} />;
+  const rows = await db.select({ stageId: schema.clients.stageId, n: count() }).from(schema.clients).where(isNull(schema.clients.archivedAt)).groupBy(schema.clients.stageId);
+  return <PipelineSettings clientCounts={Object.fromEntries(rows.map((r) => [r.stageId, r.n]))} />;
 }

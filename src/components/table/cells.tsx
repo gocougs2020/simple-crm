@@ -11,7 +11,7 @@ import { dueTone, formatAgo, formatDay, formatFull, formatTime } from "@/lib/for
 
 export type NextActivity = { id: string; type: string; subject: string | null; dueAt: string | null; dueHasTime: boolean } | null;
 
-/** The next planned step, as a due badge. Open deals with nothing planned get a warning instead. */
+/** The next planned step, as a due badge. Active clients with nothing planned get a warning instead. */
 export function NextActivityCell({ next, warnIfNone }: { next: NextActivity; warnIfNone?: boolean }) {
   const { workspace } = useApp();
   if (!next?.dueAt)

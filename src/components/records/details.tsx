@@ -2,16 +2,18 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BuildingOffice2Icon, CurrencyDollarIcon, PlusIcon } from "@heroicons/react/20/solid";
-import { updateDeal, updateOrganization, updatePerson } from "@/actions/records";
+import { BriefcaseIcon, BuildingOffice2Icon, PlusIcon } from "@heroicons/react/20/solid";
+import { updateClient } from "@/actions/clients";
+import { updateOrganization, updatePerson } from "@/actions/records";
+import { CategoryBadge, Chip, HealthBadge } from "@/components/clients/client-controls";
 import { useApp } from "@/components/app-context";
 import { openCreate } from "@/components/shell/create-store";
 import { Avatar } from "@/components/ui/avatar";
 import { StatusBadge, Tag } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox, Input, Textarea } from "@/components/ui/field";
+import { Checkbox, Input, Select, Textarea } from "@/components/ui/field";
 import type { schema } from "@/db";
-import type { EntityType } from "@/lib/constants";
+import { churnReasons, clientHealthLabels, clientHealths, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
 import { formatDateOnly, formatPhoneInput, parseMoney, personName } from "@/lib/format";
 import { CustomFieldInput, formatCustomValue } from "./custom-field-input";
 import { InlineField, SideCard } from "./inline-field";
@@ -20,7 +22,7 @@ import { RecordPicker, type PickerValue } from "./record-picker";
 
 type Person = typeof schema.people.$inferSelect;
 type Organization = typeof schema.organizations.$inferSelect;
-type Deal = typeof schema.deals.$inferSelect;
+type Client = typeof schema.clients.$inferSelect;
 
 const ok = <T,>(r: { ok: true; data: T } | { ok: false; error: string }) => (r.ok ? { ok: true as const } : r);
 
@@ -239,36 +241,92 @@ export function OrganizationDetails({ org }: { org: Organization }) {
   );
 }
 
-// ─── Deal ────────────────────────────────────────────────────────────────
+// ─── Client ──────────────────────────────────────────────────────────────
 
-export function DealDetails({ deal, person, organization }: { deal: Deal; person: Person | null; organization: Organization | null }) {
-  const { money } = useApp();
-  const save = (patch: Parameters<typeof updateDeal>[1]) => updateDeal(deal.id, patch).then(ok);
+const dateEditor = ({ value, setValue }: { value: string | null; setValue: (v: string | null) => void }) => (
+  <Input type="date" value={value ?? ""} onChange={(e) => setValue(e.target.value || null)} autoFocus className="h-8 text-[13.5px]" />
+);
+
+/** The client's fields. Which ones show depends on the category: what a prospect is worth, how a current client is doing, why a past one left. */
+export function ClientDetails({ client, person, organization }: { client: Client; person: Person | null; organization: Organization | null }) {
+  const { money, workspace } = useApp();
+  const tz = workspace.timezone;
+  const save = (patch: Parameters<typeof updateClient>[1]) => updateClient(client.id, patch).then(ok);
+  const c = client.category;
   return (
     <SideCard title="Details">
       <dl>
-        <InlineField<string>
-          label="Value"
-          value={String(deal.value / 100)}
-          display={<span className="tabular-nums">{money(deal.value)}</span>}
-          editor={({ value, setValue }) => <Input inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} autoFocus className="h-8 text-[13.5px]" />}
-          onSave={async (v) => {
-            const cents = parseMoney(v);
-            if (cents === null) return { ok: false, error: "Enter the value as a number, like 12,500 or 12.5k." };
-            return save({ value: cents });
-          }}
-        />
-        <InlineField
-          label="Expected close"
-          value={deal.expectedCloseDate}
-          display={deal.expectedCloseDate ? formatDateOnly(deal.expectedCloseDate) : undefined}
-          editor={({ value, setValue }) => <Input type="date" value={value ?? ""} onChange={(e) => setValue(e.target.value || null)} autoFocus className="h-8 text-[13.5px]" />}
-          onSave={(expectedCloseDate) => save({ expectedCloseDate })}
-        />
+        <InlineField label="Name" value={client.name} {...text((name) => save({ name: name ?? "" }))} />
+        {c === "prospective" ? (
+          <>
+            <InlineField<string>
+              label="Potential value"
+              value={String(client.value / 100)}
+              display={<span className="tabular-nums">{money(client.value)}</span>}
+              editor={({ value, setValue }) => <Input inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} autoFocus className="h-8 text-[13.5px]" />}
+              onSave={async (v) => {
+                const cents = parseMoney(v);
+                if (cents === null) return { ok: false, error: "Enter the value as a number, like 12,500 or 12.5k." };
+                return save({ value: cents });
+              }}
+            />
+            <InlineField label="Expected to sign" value={client.expectedCloseDate} display={client.expectedCloseDate ? formatDateOnly(client.expectedCloseDate, tz) : undefined} editor={dateEditor} onSave={(expectedCloseDate) => save({ expectedCloseDate })} />
+          </>
+        ) : null}
+        {c === "current" ? (
+          <InlineField<ClientHealth | null>
+            label="Health"
+            value={client.health}
+            empty="Set health"
+            display={client.health ? <HealthBadge health={client.health} /> : undefined}
+            editor={({ value, commit }) => (
+              <Select value={value ?? ""} onChange={(e) => commit((e.target.value || null) as ClientHealth | null)} autoFocus className="[&_select]:h-8">
+                <option value="">Not set</option>
+                {clientHealths.map((h) => (
+                  <option key={h} value={h}>
+                    {clientHealthLabels[h]}
+                  </option>
+                ))}
+              </Select>
+            )}
+            onSave={(health) => save({ health })}
+          />
+        ) : null}
+        {c !== "prospective" ? <InlineField label="Client since" value={client.startedOn} display={client.startedOn ? formatDateOnly(client.startedOn, tz) : undefined} editor={dateEditor} onSave={(startedOn) => save({ startedOn })} /> : null}
+        {c === "past" ? (
+          <>
+            <InlineField label="Left on" value={client.endedOn} display={client.endedOn ? formatDateOnly(client.endedOn, tz) : undefined} editor={dateEditor} onSave={(endedOn) => save({ endedOn })} />
+            <InlineField<string | null>
+              label="Why they left"
+              value={client.churnReason}
+              multiline
+              editor={({ value, setValue }) => (
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap gap-1">
+                    {churnReasons.map((r) => (
+                      <Chip key={r} on={value === r} onClick={() => setValue(value === r ? null : r)}>
+                        {r}
+                      </Chip>
+                    ))}
+                  </div>
+                  <Input value={value ?? ""} onChange={(e) => setValue(e.target.value || null)} autoFocus placeholder="Or write your own" className="h-8 text-[13.5px]" />
+                </div>
+              )}
+              onSave={(churnReason) => save({ churnReason: churnReason?.trim() || null })}
+            />
+            <InlineField<boolean>
+              label="Win back"
+              value={client.openToReturn}
+              display={client.openToReturn ? "Open to coming back" : "Not interested"}
+              editor={({ value, commit }) => <Checkbox checked={value} onChange={(e) => commit(e.target.checked)} label="Open to coming back" autoFocus />}
+              onSave={(openToReturn) => save({ openToReturn })}
+            />
+          </>
+        ) : null}
         <InlineField<PickerValue>
-          label="Person"
+          label="Contact"
           value={person ? { record: { id: person.id, label: personName(person) } } : null}
-          empty="Add person"
+          empty="Add contact"
           display={
             person ? (
               <Link href={`/people/${person.id}`} className="underline-offset-2 hover:underline" onClick={(e) => e.stopPropagation()}>
@@ -293,8 +351,22 @@ export function DealDetails({ deal, person, organization }: { deal: Deal; person
           editor={({ value, commit }) => <RecordPicker kind="organization" value={value} onChange={(v) => commit(v)} allowCreate={false} autoFocus />}
           onSave={(v) => save({ organizationId: v && "record" in v ? v.record.id : null })}
         />
-        <OwnerField value={deal.ownerId} onSave={(ownerId) => save({ ownerId })} />
-        <CustomFieldRows entity="deal" values={deal.custom} onSave={(key, v) => save({ custom: { [key]: v } })} />
+        <OwnerField value={client.ownerId} onSave={(ownerId) => save({ ownerId })} />
+        <InlineField<string[]>
+          label="Tags"
+          value={client.tags}
+          empty="Add tags"
+          display={
+            <span className="flex flex-wrap gap-1">
+              {client.tags.map((t) => (
+                <Tag key={t}>{t}</Tag>
+              ))}
+            </span>
+          }
+          editor={({ value, setValue }) => <TagEditor value={value} onChange={setValue} />}
+          onSave={(tags) => save({ tags })}
+        />
+        <CustomFieldRows entity="client" values={client.custom} onSave={(key, v) => save({ custom: { [key]: v } })} />
       </dl>
     </SideCard>
   );
@@ -302,44 +374,48 @@ export function DealDetails({ deal, person, organization }: { deal: Deal; person
 
 // ─── Related lists ───────────────────────────────────────────────────────
 
-export type RelatedDeal = { id: string; title: string; value: number; status: string; stageName: string | null };
+export type RelatedClient = { id: string; name: string; category: ClientCategory; value: number; mrr: number | string; stageName: string | null };
 
-export function RelatedDeals({ deals, create }: { deals: RelatedDeal[]; create: Parameters<typeof openCreate>[0] }) {
+const categoryOrder: Record<ClientCategory, number> = { current: 0, prospective: 1, past: 2 };
+
+export function RelatedClients({ clients, create }: { clients: RelatedClient[]; create: Parameters<typeof openCreate>[0] }) {
   const { money } = useApp();
-  const open = deals.filter((d) => d.status === "open");
-  const closed = deals.filter((d) => d.status !== "open");
   return (
     <SideCard
       title={
         <>
-          Deals <span className="font-medium text-muted tabular-nums">{deals.length || ""}</span>
+          Clients <span className="font-medium text-muted tabular-nums">{clients.length || ""}</span>
         </>
       }
       action={
         <Button size="sm" variant="ghost" className="-mr-2" onClick={() => openCreate(create)}>
           <PlusIcon />
-          Deal
+          Client
         </Button>
       }
     >
-      {deals.length ? (
+      {clients.length ? (
         <ul className="-mx-2">
-          {[...open, ...closed].map((d) => (
-            <li key={d.id}>
-              <Link href={`/deals/${d.id}`} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-sunken">
-                <CurrencyDollarIcon className="size-4 shrink-0 text-faint" aria-hidden />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-medium text-primary">{d.title}</span>
-                  <span className="block truncate text-[11.5px] text-muted">{d.status === "open" ? d.stageName : null}</span>
-                </span>
-                {d.status !== "open" ? <StatusBadge tone={d.status === "won" ? "success" : "neutral"}>{d.status === "won" ? "Won" : "Lost"}</StatusBadge> : null}
-                <span className="text-[12.5px] text-secondary tabular-nums">{money(d.value)}</span>
-              </Link>
-            </li>
-          ))}
+          {[...clients]
+            .sort((a, b) => categoryOrder[a.category] - categoryOrder[b.category])
+            .map((d) => (
+              <li key={d.id}>
+                <Link href={`/clients/${d.id}`} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-sunken">
+                  <BriefcaseIcon className="size-4 shrink-0 text-faint" aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-medium text-primary">{d.name}</span>
+                    <span className="block truncate text-[11.5px] text-muted">{d.stageName}</span>
+                  </span>
+                  <CategoryBadge category={d.category} />
+                  <span className="text-[12.5px] text-secondary tabular-nums">
+                    {d.category === "prospective" ? money(d.value) : Number(d.mrr) ? `${money(Number(d.mrr))}/mo` : null}
+                  </span>
+                </Link>
+              </li>
+            ))}
         </ul>
       ) : (
-        <p className="py-1 text-[12.5px] text-muted">No deals yet.</p>
+        <p className="py-1 text-[12.5px] text-muted">Not a client yet.</p>
       )}
     </SideCard>
   );
@@ -397,9 +473,9 @@ export function OrganizationCard({ org }: { org: Organization }) {
   );
 }
 
-export function PersonCard({ person }: { person: Person }) {
+export function PersonCard({ person, title = "Person" }: { person: Person; title?: string }) {
   return (
-    <SideCard title="Person">
+    <SideCard title={title}>
       <Link href={`/people/${person.id}`} className="-mx-2 flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-sunken">
         <Avatar name={personName(person)} size="md" />
         <span className="min-w-0">

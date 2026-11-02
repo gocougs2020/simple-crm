@@ -9,7 +9,7 @@ import { getResend, emailFrom, fromAs } from "@/lib/email";
 import CampaignEmail from "@/emails/campaign";
 import { escapeHtml, fillMergeTags, fillMergeTagsHtml, mergeValues } from "./merge-tags";
 
-const { people, organizations, campaigns, outboundEmails, deals } = schema;
+const { people, organizations, campaigns, outboundEmails } = schema;
 
 /** Resend's batch endpoint takes up to 100 messages per call. */
 const BATCH_SIZE = 100;
@@ -28,9 +28,18 @@ function audienceWhere(a: CampaignAudience): SQL[] {
   if (a.tags?.length) where.push(sql`${people.tags} ?| array[${sql.join(a.tags.map((t) => sql`${t}`), sql`, `)}]`);
   if (a.ownerIds?.length) where.push(inArray(people.ownerId, a.ownerIds));
   if (a.organizationIds?.length) where.push(inArray(people.organizationId, a.organizationIds));
-  if (a.stageIds?.length) {
+  const list = (xs: string[]) => sql.join(xs.map((x) => sql`${x}`), sql`, `);
+  // Client filters: people who are a matching client's contact, or work at its organization.
+  const client: SQL[] = [];
+  if (a.clientCategories?.length) client.push(sql`c.category in (${list(a.clientCategories)})`);
+  if (a.stageIds?.length) client.push(sql`c.stage_id in (${list(a.stageIds)})`);
+  if (a.clientTags?.length) client.push(sql`c.tags ?| array[${list(a.clientTags)}]`);
+  if (a.churnReasons?.length) client.push(sql`c.churn_reason in (${list(a.churnReasons)})`);
+  if (a.serviceIds?.length) client.push(sql`exists (select 1 from client_services cs where cs.client_id = c.id and cs.service_id in (${list(a.serviceIds)}))`);
+  if (a.openToReturnOnly) client.push(sql`(c.category <> 'past' or c.open_to_return)`);
+  if (client.length) {
     where.push(
-      sql`exists (select 1 from ${deals} d where d.person_id = ${people.id} and d.status = 'open' and d.archived_at is null and d.stage_id in (${sql.join(a.stageIds.map((s) => sql`${s}`), sql`, `)}))`,
+      sql`exists (select 1 from clients c where c.archived_at is null and (c.person_id = ${people.id} or (c.organization_id is not null and c.organization_id = ${people.organizationId})) and ${sql.join(client, sql` and `)})`,
     );
   }
   return where;

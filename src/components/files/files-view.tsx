@@ -41,7 +41,7 @@ export function FilesView({ rows }: { rows: Row[] }) {
       label: "Attached to",
       render: (r) => {
         const links = [
-          r.file.dealId && r.dealTitle ? { href: `/deals/${r.file.dealId}`, label: r.dealTitle } : null,
+          r.file.clientId && r.clientName ? { href: `/clients/${r.file.clientId}`, label: r.clientName } : null,
           r.file.personId && r.personName ? { href: `/people/${r.file.personId}`, label: r.personName } : null,
           r.file.organizationId && r.organizationName ? { href: `/organizations/${r.file.organizationId}`, label: r.organizationName } : null,
         ].filter((x): x is { href: string; label: string } => !!x);

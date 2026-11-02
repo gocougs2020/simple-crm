@@ -170,8 +170,8 @@ export async function undoImport(importId: string) {
   // Only organizations nothing else has started using since.
   for (const id of imp.createdOrgIds) {
     const [inUse] = await db.select({ id: schema.people.id }).from(schema.people).where(eq(schema.people.organizationId, id)).limit(1);
-    const [hasDeal] = await db.select({ id: schema.deals.id }).from(schema.deals).where(eq(schema.deals.organizationId, id)).limit(1);
-    if (!inUse && !hasDeal) await db.delete(schema.organizations).where(eq(schema.organizations.id, id));
+    const [hasClient] = await db.select({ id: schema.clients.id }).from(schema.clients).where(eq(schema.clients.organizationId, id)).limit(1);
+    if (!inUse && !hasClient) await db.delete(schema.organizations).where(eq(schema.organizations.id, id));
   }
   return { removed: imp.createdIds.length, restored: restores.size };
 }

@@ -7,10 +7,11 @@ import { ActivityItem, PlannedItem } from "@/components/activity/timeline";
 import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { ActivityRow } from "@/lib/crm/activities";
+import type { ClientCategory } from "@/lib/constants";
 import { daysSince } from "@/lib/format";
 
-type Stuck = { id: string; title: string; value: number; ownerId: string | null; stageChangedAt: Date; organizationName: string | null };
-type Stats = { openCount: number; openValue: number; wonCount: number; wonValue: number; dueNow: number };
+type Stuck = { id: string; name: string; category: ClientCategory; value: number; ownerId: string | null; stageChangedAt: Date; organizationName: string | null };
+type Stats = { prospectCount: number; prospectValue: number; currentCount: number; mrr: number; signedThisMonth: number; leftThisMonth: number; dueNow: number };
 type StageSummary = { id: string; name: string; n: number; value: number };
 
 /** No record is being viewed, so every activity shows what it's linked to. */
@@ -42,9 +43,13 @@ export function HomeView({
       </h1>
       <dl className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Due today or overdue" value={stats.dueNow.toLocaleString()} tone={stats.dueNow ? "warn" : undefined} />
-        <Stat label="Open deals" value={stats.openCount.toLocaleString()} />
-        <Stat label="Open pipeline" value={money(stats.openValue, { compact: stats.openValue >= 1e8 })} />
-        <Stat label="Won this month" value={money(stats.wonValue, { compact: stats.wonValue >= 1e8 })} detail={`${stats.wonCount} deal${stats.wonCount === 1 ? "" : "s"}`} />
+        <Stat label="Prospects" value={stats.prospectCount.toLocaleString()} detail={`${money(stats.prospectValue, { compact: true })} potential`} />
+        <Stat label="Current clients" value={stats.currentCount.toLocaleString()} detail={`${money(stats.mrr, { compact: stats.mrr >= 1e8 })}/mo`} />
+        <Stat
+          label="This month"
+          value={`${stats.signedThisMonth} signed`}
+          detail={stats.leftThisMonth ? `${stats.leftThisMonth} left` : undefined}
+        />
       </dl>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
@@ -92,7 +97,7 @@ export function HomeView({
                 <h2 id="pipeline" className="text-[13px] font-semibold text-primary">
                   {pipelineName} pipeline
                 </h2>
-                <Link href="/deals" className="text-[12.5px] text-muted hover:text-primary">
+                <Link href="/clients" className="text-[12.5px] text-muted hover:text-primary">
                   Open board
                 </Link>
               </div>
@@ -117,21 +122,23 @@ export function HomeView({
           <section aria-labelledby="stuck" className="rounded-xl border border-line bg-surface p-4">
             <h2 id="stuck" className="flex items-center gap-1.5 text-[13px] font-semibold text-primary">
               <ExclamationTriangleIcon className="size-4 text-warning" aria-hidden />
-              Deals with no next step
+              Clients with no next step
             </h2>
-            <p className="mt-0.5 text-[12px] text-muted">Open deals with nothing planned, longest-waiting first.</p>
+            <p className="mt-0.5 text-[12px] text-muted">Prospects and current clients with nothing planned, longest-waiting first.</p>
             {stuck.length ? (
               <ul className="-mx-2 mt-2">
                 {stuck.map((d) => {
                   const owner = member(d.ownerId);
                   return (
                     <li key={d.id}>
-                      <Link href={`/deals/${d.id}`} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-sunken">
+                      <Link href={`/clients/${d.id}`} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-sunken">
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13px] font-medium text-primary">{d.title}</span>
-                          <span className="block truncate text-[11.5px] text-muted">{[d.organizationName, `${daysSince(d.stageChangedAt)}d in stage`].filter(Boolean).join(" · ")}</span>
+                          <span className="block truncate text-[13px] font-medium text-primary">{d.name}</span>
+                          <span className="block truncate text-[11.5px] text-muted">
+                            {[d.category === "current" ? "Current" : "Prospect", d.organizationName !== d.name ? d.organizationName : null, `${daysSince(d.stageChangedAt)}d in stage`].filter(Boolean).join(" · ")}
+                          </span>
                         </span>
-                        <span className="text-[12px] text-secondary tabular-nums">{money(d.value, { compact: true })}</span>
+                        {d.category === "prospective" && d.value ? <span className="text-[12px] text-secondary tabular-nums">{money(d.value, { compact: true })}</span> : null}
                         {owner ? <Avatar name={owner.name} size="xs" /> : null}
                       </Link>
                     </li>
@@ -139,7 +146,7 @@ export function HomeView({
                 })}
               </ul>
             ) : (
-              <p className="mt-2 text-[12.5px] text-muted">Every open deal has a next step.</p>
+              <p className="mt-2 text-[12.5px] text-muted">Every prospect and current client has a next step.</p>
             )}
           </section>
         </aside>

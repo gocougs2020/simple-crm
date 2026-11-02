@@ -101,7 +101,7 @@ export function CampaignList({ rows }: { rows: CampaignRow[] }) {
           <EmptyState
             icon={EnvelopeIcon}
             title="No campaigns yet"
-            description="Send a branded email to a group of people: everyone tagged “newsletter”, say, or everyone with a deal in Proposal."
+            description="Send a branded email to a group of people: everyone tagged “newsletter”, say, or every past client open to coming back."
             action={
               <Button variant="primary" onClick={create} loading={pending}>
                 Create your first campaign

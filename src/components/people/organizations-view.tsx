@@ -4,7 +4,8 @@ import { PlusIcon } from "@heroicons/react/20/solid";
 import { BuildingOffice2Icon } from "@heroicons/react/24/outline";
 import { assignOwner, setArchived } from "@/actions/records";
 import { useApp } from "@/components/app-context";
-import { BulkButton } from "@/components/deals/deals-view";
+import { CategoryBadge } from "@/components/clients/client-controls";
+import { BulkButton } from "@/components/clients/clients-view";
 import { formatCustomValue } from "@/components/records/custom-field-input";
 import { PageHeader } from "@/components/shell/app-shell";
 import { openCreate } from "@/components/shell/create-store";
@@ -49,7 +50,7 @@ export function OrganizationsView({ rows, filtered }: { rows: Row[]; filtered: b
     },
     { key: "industry", label: "Industry", render: (r) => r.organization.industry ?? <span className="text-faint">—</span> },
     { key: "people", label: "People", sort: "people", align: "right", render: (r) => <span className="tabular-nums">{r.peopleCount || "—"}</span> },
-    { key: "deals", label: "Open deals", sort: "deals", align: "right", render: (r) => (r.openDeals ? <span className="tabular-nums">{r.openDeals} · {money(Number(r.openValue), { compact: true })}</span> : <span className="text-faint">—</span>) },
+    { key: "clients", label: "Client", render: (r) => (r.clientCategories.length ? <span className="flex gap-1">{(["current", "prospective", "past"] as const).filter((c) => r.clientCategories.includes(c)).map((c) => <CategoryBadge key={c} category={c} />)}</span> : <span className="text-faint">—</span>) },
     { key: "next", label: "Next activity", className: "max-w-60", render: (r) => <NextActivityCell next={r.next} /> },
     { key: "owner", label: "Owner", render: (r) => <OwnerCell id={r.organization.ownerId} /> },
     { key: "last", label: "Last activity", sort: "lastActivity", render: (r) => <AgoCell at={r.organization.lastActivityAt} /> },
@@ -80,7 +81,7 @@ export function OrganizationsView({ rows, filtered }: { rows: Row[]; filtered: b
           <EmptyState
             icon={BuildingOffice2Icon}
             title={filtered ? "No matching organizations" : "No organizations yet"}
-            description={filtered ? "Try a different search or filter." : "Organizations group the people you work with and their deals."}
+            description={filtered ? "Try a different search or filter." : "Organizations group the people you work with and the clients they belong to."}
             action={filtered ? undefined : <Button variant="primary" onClick={() => openCreate({ kind: "organization" })}>Add an organization</Button>}
           />
         }

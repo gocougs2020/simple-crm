@@ -4,7 +4,7 @@ import { upload } from "@vercel/blob/client";
 import { attachUploadedFile } from "@/actions/files";
 import { MAX_FILE_BYTES } from "@/lib/constants";
 
-export type FileLinks = { personId?: string | null; organizationId?: string | null; dealId?: string | null };
+export type FileLinks = { personId?: string | null; organizationId?: string | null; clientId?: string | null };
 
 /** Uploads one file: straight to private Vercel Blob in production, to the dev server's disk locally. Throws a readable message on failure. */
 export async function uploadFile(file: File, links: FileLinks, blob: boolean, onProgress?: (pct: number) => void) {

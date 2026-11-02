@@ -13,10 +13,11 @@ import { dayFromToday, zonedTime } from "@/lib/format";
 import { Segmented } from "./composer";
 
 /**
- * Every open deal should have a next step. When it doesn't (on the deal page,
- * or right after its last task is checked off) this asks for one, in place.
+ * Every prospect and current client should have a next step. When one doesn't
+ * (on their page, or right after their last task is checked off) this asks
+ * for one, in place.
  */
-export function ScheduleNext({ dealId, compact, onDone }: { dealId: string; compact?: boolean; onDone?: () => void }) {
+export function ScheduleNext({ clientId, compact, onDone }: { clientId: string; compact?: boolean; onDone?: () => void }) {
   const { workspace } = useApp();
   const tz = workspace.timezone;
   const [type, setType] = useState<Extract<ActivityType, "task" | "call" | "meeting">>("task");
@@ -25,7 +26,7 @@ export function ScheduleNext({ dealId, compact, onDone }: { dealId: string; comp
   const [pending, start] = useTransition();
   const save = () =>
     start(async () => {
-      const r = await logActivity({ type, subject: subject || (type === "call" ? "Call" : type === "meeting" ? "Meeting" : "Follow up"), dealId, dueAt: zonedTime(dayFromToday(tz, days), "00:00", tz).toISOString(), dueHasTime: false, done: false });
+      const r = await logActivity({ type, subject: subject || (type === "call" ? "Call" : type === "meeting" ? "Meeting" : "Follow up"), clientId, dueAt: zonedTime(dayFromToday(tz, days), "00:00", tz).toISOString(), dueHasTime: false, done: false });
       if (!r.ok) return void toast.error(r.error);
       toast.success("Next step scheduled");
       setSubject("");
@@ -36,10 +37,10 @@ export function ScheduleNext({ dealId, compact, onDone }: { dealId: string; comp
       {!compact ? (
         <p className="flex items-center gap-1.5 text-[13px] font-medium text-warning">
           <ExclamationTriangleIcon className="size-4" aria-hidden />
-          No next step planned for this deal
+          No next step planned for this client
         </p>
       ) : (
-        <p className="text-[13px] text-secondary">Every open deal should have a next step. Schedule one now?</p>
+        <p className="text-[13px] text-secondary">Every active client should have a next step. Schedule one now?</p>
       )}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <Segmented

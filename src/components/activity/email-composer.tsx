@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { CodeBracketIcon, DocumentDuplicateIcon } from "@heroicons/react/20/solid";
 import { listTemplates, sendRecordEmail } from "@/actions/email";
+import { listSendingInboxes } from "@/actions/inbox";
 import { Button } from "@/components/ui/button";
-import { Checkbox, Input, Kbd } from "@/components/ui/field";
+import { Checkbox, Input, Kbd, Select } from "@/components/ui/field";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "@/components/ui/menu";
 import { RichText, type RichTextHandle } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
@@ -13,6 +14,7 @@ import type { Links } from "./composer";
 
 export type EmailRecipient = { personId: string; name: string; email: string | null };
 type Template = Awaited<ReturnType<typeof listTemplates>>[number];
+type SendingInbox = Awaited<ReturnType<typeof listSendingInboxes>>[number];
 
 /** Write and send an email to this record's person, optionally from a template. Merge tags fill in at send time. */
 export function EmailComposer({ links, recipient }: { links: Links; recipient: EmailRecipient }) {
@@ -26,9 +28,19 @@ export function EmailComposer({ links, recipient }: { links: Links; recipient: E
   const [templates, setTemplates] = useState<Template[] | null>(null);
   const [pending, start] = useTransition();
   const [lastFocus, setLastFocus] = useState<"subject" | "body">("body");
+  const [inboxes, setInboxes] = useState<SendingInbox[]>([]);
+  /** "" sends from the default address with replies to the teammate's own mailbox. */
+  const [inboxId, setInboxId] = useState("");
 
   useEffect(() => {
     listTemplates().then(setTemplates, () => setTemplates([]));
+    listSendingInboxes().then(
+      (list) => {
+        setInboxes(list);
+        if (list[0]) setInboxId(list[0].id);
+      },
+      () => setInboxes([]),
+    );
   }, []);
 
   const insertTag = (tag: string) => {
@@ -48,7 +60,7 @@ export function EmailComposer({ links, recipient }: { links: Links; recipient: E
         .split(/[,;\s]+/)
         .map((s) => s.trim())
         .filter(Boolean);
-      const r = await sendRecordEmail({ personId: recipient.personId, dealId: links.dealId ?? null, cc: ccList, subject, body, copyMe });
+      const r = await sendRecordEmail({ personId: recipient.personId, clientId: links.clientId ?? null, inboxId: inboxId || null, cc: ccList, subject, body, copyMe });
       if (!r.ok) return void toast.error(r.error);
       toast.success(`Email sent to ${recipient.name}`);
       editor.current?.clear();
@@ -59,6 +71,21 @@ export function EmailComposer({ links, recipient }: { links: Links; recipient: E
 
   return (
     <div className="flex flex-col gap-2.5">
+      {inboxes.length ? (
+        <div className="flex items-center gap-2 text-[13px]">
+          <label htmlFor="email-from" className="w-10 text-muted">
+            From
+          </label>
+          <Select id="email-from" value={inboxId} onChange={(e) => setInboxId(e.target.value)} className="min-w-0 flex-1 [&_select]:h-8 [&_select]:text-[13px]">
+            {inboxes.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.name ? `${i.name} <${i.address}>` : i.address}
+              </option>
+            ))}
+            <option value="">Default (replies to your own inbox)</option>
+          </Select>
+        </div>
+      ) : null}
       <div className="flex items-center gap-2 text-[13px]">
         <span className="w-10 text-muted">To</span>
         <span className="min-w-0 flex-1 truncate text-primary">
@@ -133,7 +160,7 @@ export function EmailComposer({ links, recipient }: { links: Links; recipient: E
           </Button>
         </div>
       </div>
-      <p className="text-fine">Replies go to your own inbox. The email is saved to this timeline.</p>
+      <p className="text-fine">{inboxId ? "Replies come back to the CRM inbox. The email is saved to this timeline." : "Replies go to your own inbox. The email is saved to this timeline."}</p>
     </div>
   );
 }

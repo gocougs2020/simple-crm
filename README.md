@@ -1,6 +1,6 @@
 # Simple CRM
 
-A light, fast CRM for small B2B teams (two to a few dozen people). People, organizations and deals; a pipeline board and tables; one place to log calls, emails, texts, meetings, notes and tasks; files; custom fields; and branded email, from one-off messages to campaigns.
+A light, fast CRM for small B2B teams (two to a few dozen people). People, organizations and clients (prospective, current and past); pipeline boards and tables; one place to log calls, emails, texts, meetings, notes and tasks; files; custom fields; and branded email, from one-off messages to campaigns.
 
 It's built to cover the 80% of CRM work a small team does every day, and to stay out of the way while doing it.
 
@@ -8,12 +8,14 @@ It's built to cover the 80% of CRM work a small team does every day, and to stay
 
 ## What it does
 
-- **People, organizations, deals.** Every record has a details panel you edit in place, custom fields, related records and files, and one timeline.
-- **One timeline per record.** Notes, calls, emails, texts, meetings and tasks, plus every change (stage moves, owner changes, field edits) and every file, each attributed to the teammate who did it. Logged on a deal, an activity also shows on the deal's person and organization.
+- **Clients in three buckets.** Prospective, current and past, each with its own pipelines and stages, and a record page that fits: potential value for prospects; health, services, monthly revenue, Stripe billing, performance numbers and contact frequency for current clients; what they had, why they left and whether they'd come back for past clients. Signing, leaving and winning back are one step each.
+- **Services** you sell are set up once in Settings and picked per client, with their own price and dates.
+- **People, organizations, clients.** Every record has a details panel you edit in place, custom fields, related records and files, and one timeline.
+- **One timeline per record.** Notes, calls, emails, texts, meetings and tasks, plus every change (stage moves, owner changes, field edits) and every file, each attributed to the teammate who did it. Logged on a client, an activity also shows on the client's contact and organization, and received email lands there by itself.
 - **A composer that's fast to use.** Pick a tab, write a sentence, ⌘↵. Calls take a direction and an outcome; anything that happened can schedule a follow-up in the same step.
-- **Next steps are never lost.** Open deals with nothing planned are flagged on the board, the deal page and the home page; checking off a deal's last task asks what's next.
-- **Board or table, per person.** Drag deals between stages (or onto Won/Lost); switch to a sortable table. Each teammate's choice is remembered.
-- **Email built in.** Send from any record as yourself (replies come to your inbox) with templates and merge fields; send campaigns to filtered audiences with a live preview, test sends, scheduling and one-click unsubscribe. A brand kit (logo, color, address, signature) wraps every email.
+- **Next steps are never lost.** Prospects and current clients with nothing planned are flagged on the board, their page and the home page; checking off their last task asks what's next.
+- **Board or table, per person.** Drag clients between stages (or onto Signed, Left or Won back); switch to a sortable table. Each teammate's choice is remembered.
+- **Email built in.** Add your domains and team inboxes (sales@, support@) in Settings, powered by Resend. Incoming mail lands in a shared inbox and on the timeline of the person, organization and client it's about; reply from the CRM. Send from any record through an inbox, with templates and merge fields. Campaigns go to filtered audiences (past clients open to coming back, say) with a live preview, test sends, scheduling and one-click unsubscribe. A brand kit (logo, color, address, signature) wraps every email.
 - **Import** people from CSV or Excel: match columns, merge by email, undo.
 - **Files** live in a private store and only stream to signed-in teammates.
 - **Team** is invite-only with email-and-password sign-in, roles (owner, admin, member) and deactivation that keeps history intact.
@@ -30,7 +32,8 @@ Open http://localhost:3200 and create the owner account. With no environment var
 | Service | Locally, without configuration |
 | --- | --- |
 | Database | An embedded Postgres (PGlite) in `.data/`, migrated on first use |
-| Email | Printed to the terminal (invite and reset links included) |
+| Email | Printed to the terminal (invite and reset links included). The inbox needs Resend |
+| Stripe | The billing card explains how to connect |
 | Files | Saved to `.data/uploads/` |
 
 Settings → Workspace has **Add sample data** (local development only) to fill an empty workspace with realistic records.
@@ -43,7 +46,7 @@ See [docs/DEPLOYING.md](docs/DEPLOYING.md). In short: connect Neon and a **priva
 
 - **Look and feel:** every color comes from one file, [`src/styles/theme.css`](src/styles/theme.css). See [docs/THEMING.md](docs/THEMING.md).
 - **Emails:** the brand kit in Settings → Email and brand. No code needed.
-- **Pipelines, stages and custom fields:** Settings.
+- **Pipelines (per client category), stages, services and custom fields:** Settings.
 
 ## Documentation
 

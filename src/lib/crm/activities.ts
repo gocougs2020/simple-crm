@@ -6,7 +6,7 @@ import { zonedTime } from "@/lib/format";
 
 const zonedMidnight = (ymd: string, tz: string) => zonedTime(ymd, "00:00", tz);
 
-const { activities, events, files, people, organizations, deals } = schema;
+const { activities, events, files, people, organizations, clients } = schema;
 
 export type ActivityRow = Awaited<ReturnType<typeof activityRows>>[number];
 
@@ -18,22 +18,27 @@ function activityRows(where: SQL | undefined, opts: { order: SQL[]; limit: numbe
         activity: activities,
         personName: sql<string | null>`case when ${people.id} is null then null else ${people.firstName} || coalesce(' ' || ${people.lastName}, '') end`,
         organizationName: organizations.name,
-        dealTitle: deals.title,
+        clientName: clients.name,
         emailCc: schema.outboundEmails.cc,
         emailTo: schema.outboundEmails.to,
+        /** For mail in a connected inbox: who sent it, and which inbox it's in. */
+        inboxFrom: sql<string | null>`(select m."from" from inbox_messages m where m.activity_id = ${activities.id} limit 1)`,
+        inboxTo: sql<string[] | null>`(select m."to" from inbox_messages m where m.activity_id = ${activities.id} limit 1)`,
+        inboxAddress: schema.inboxThreads.inboxAddress,
       })
       .from(activities)
       .leftJoin(people, eq(people.id, activities.personId))
       .leftJoin(organizations, eq(organizations.id, activities.organizationId))
-      .leftJoin(deals, eq(deals.id, activities.dealId))
+      .leftJoin(clients, eq(clients.id, activities.clientId))
       .leftJoin(schema.outboundEmails, eq(schema.outboundEmails.id, activities.emailId))
+      .leftJoin(schema.inboxThreads, eq(schema.inboxThreads.id, activities.inboxThreadId))
       .where(where)
       .orderBy(...opts.order)
       .limit(opts.limit),
   );
 }
 
-const linkColumn = { person: activities.personId, organization: activities.organizationId, deal: activities.dealId };
+const linkColumn = { person: activities.personId, organization: activities.organizationId, client: activities.clientId };
 
 /** One entry on a record's timeline: something someone logged, something that changed, or a file. */
 export type TimelineItem =
@@ -64,7 +69,7 @@ export async function timeline(entity: EntityType, id: string) {
     db
       .select()
       .from(files)
-      .where(and(eq(entity === "person" ? files.personId : entity === "organization" ? files.organizationId : files.dealId, id), isNull(files.deletedAt)))
+      .where(and(eq(entity === "person" ? files.personId : entity === "organization" ? files.organizationId : files.clientId, id), isNull(files.deletedAt)))
       .orderBy(desc(files.createdAt)),
   ]);
   const past: TimelineItem[] = [
@@ -136,37 +141,43 @@ export function dayBounds(tz: string, now = new Date()) {
   return { startOfToday, startOfTomorrow: plusDays(1), endOfWeek: plusDays(7) };
 }
 
-/** Open deals with nothing planned, oldest stage change first: the ones slipping through the cracks. */
-export async function dealsWithoutNextStep(limit = 6) {
+/** Prospects and current clients with nothing planned, longest-waiting first: the ones slipping through the cracks. */
+export async function clientsWithoutNextStep(limit = 6) {
   const db = await getDb();
   return db
-    .select({ id: deals.id, title: deals.title, value: deals.value, ownerId: deals.ownerId, stageChangedAt: deals.stageChangedAt, organizationName: organizations.name })
-    .from(deals)
-    .leftJoin(organizations, eq(organizations.id, deals.organizationId))
+    .select({ id: clients.id, name: clients.name, category: clients.category, value: clients.value, ownerId: clients.ownerId, stageChangedAt: clients.stageChangedAt, organizationName: organizations.name })
+    .from(clients)
+    .leftJoin(organizations, eq(organizations.id, clients.organizationId))
     .where(
       and(
-        eq(deals.status, "open"),
-        isNull(deals.archivedAt),
-        sql`not exists (select 1 from activities a where a.deal_id = ${deals.id} and a.completed_at is null and a.due_at is not null)`,
+        inArray(clients.category, ["prospective", "current"]),
+        isNull(clients.archivedAt),
+        sql`not exists (select 1 from activities a where a.client_id = ${clients.id} and a.completed_at is null and a.due_at is not null)`,
       ),
     )
-    .orderBy(asc(deals.stageChangedAt))
+    .orderBy(asc(clients.stageChangedAt))
     .limit(limit);
 }
 
-/** Won this month and open pipeline, for the home page header. */
-export async function dealStats(tz: string) {
+/** The home page header: prospects and their value, current clients and their monthly revenue, and who signed or left this month. */
+export async function clientStats(tz: string) {
   const db = await getDb();
   const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit" }).format(new Date());
-  const monthStart = zonedMidnight(`${ymd}-01`, tz);
+  const monthStart = `${ymd}-01`;
   const [row] = await db
     .select({
-      openCount: sql<number>`count(*) filter (where ${deals.status} = 'open')::int`,
-      openValue: sql<number>`coalesce(sum(${deals.value}) filter (where ${deals.status} = 'open'), 0)::bigint`,
-      wonCount: sql<number>`count(*) filter (where ${deals.status} = 'won' and ${deals.closedAt} >= ${monthStart})::int`,
-      wonValue: sql<number>`coalesce(sum(${deals.value}) filter (where ${deals.status} = 'won' and ${deals.closedAt} >= ${monthStart}), 0)::bigint`,
+      prospectCount: sql<number>`count(*) filter (where ${clients.category} = 'prospective')::int`,
+      prospectValue: sql<number>`coalesce(sum(${clients.value}) filter (where ${clients.category} = 'prospective'), 0)::bigint`,
+      currentCount: sql<number>`count(*) filter (where ${clients.category} = 'current')::int`,
+      signedThisMonth: sql<number>`count(*) filter (where ${clients.category} = 'current' and ${clients.startedOn} >= ${monthStart})::int`,
+      leftThisMonth: sql<number>`count(*) filter (where ${clients.category} = 'past' and ${clients.endedOn} >= ${monthStart})::int`,
+      mrr: sql<number>`(
+        select coalesce(round(sum(case cs.interval when 'month' then cs.price when 'quarter' then cs.price / 3.0 when 'year' then cs.price / 12.0 else 0 end)), 0)::bigint
+        from client_services cs join clients c on c.id = cs.client_id
+        where c.category = 'current' and c.archived_at is null and (cs.ended_on is null or cs.ended_on > current_date)
+      )`,
     })
-    .from(deals)
-    .where(isNull(deals.archivedAt));
-  return { ...row, openValue: Number(row.openValue), wonValue: Number(row.wonValue) };
+    .from(clients)
+    .where(isNull(clients.archivedAt));
+  return { ...row, prospectValue: Number(row.prospectValue), mrr: Number(row.mrr) };
 }

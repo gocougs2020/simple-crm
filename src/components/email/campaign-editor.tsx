@@ -11,13 +11,14 @@ import { Tag } from "@/components/ui/badge";
 import { Button, Spinner } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
-import { Field, Input } from "@/components/ui/field";
+import { Checkbox, Field, Input } from "@/components/ui/field";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "@/components/ui/menu";
 import { RichText, type RichTextHandle } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
 import type { CampaignAudience } from "@/db/schema";
 import { dayFromToday, formatDateTime, formatFull, zonedTime } from "@/lib/format";
 import { fillMergeTagsHtml, mergeTagLabels, mergeTags } from "@/lib/email/merge-tags";
+import { churnReasons, clientCategories, clientCategoryLabels } from "@/lib/constants";
 
 export type CampaignData = {
   id: string;
@@ -38,8 +39,8 @@ export type CampaignData = {
  * Write a campaign on the left, see exactly what will be sent on the right.
  * Saves as you type. The audience is a set of filters evaluated at send time.
  */
-export function CampaignEditor({ campaign, tags, initialCount, hasAddress }: { campaign: CampaignData; tags: string[]; initialCount: number; hasAddress: boolean }) {
-  const { team, pipelines, workspace, viewer } = useApp();
+export function CampaignEditor({ campaign, tags, clientTags, initialCount, hasAddress }: { campaign: CampaignData; tags: string[]; clientTags: string[]; initialCount: number; hasAddress: boolean }) {
+  const { team, pipelines, catalog, workspace, viewer } = useApp();
   const readOnly = campaign.status === "sent" || campaign.status === "sending";
   const [name, setName] = useState(campaign.name);
   const [subject, setSubject] = useState(campaign.subject);
@@ -82,7 +83,7 @@ export function CampaignEditor({ campaign, tags, initialCount, hasAddress }: { c
   const sample = { first_name: viewer.name.split(" ")[0], last_name: viewer.name.split(" ").slice(1).join(" "), full_name: viewer.name, company: workspace.name };
   const previewHtml = fillMergeTagsHtml(html ?? "", sample);
 
-  const toggle = (key: keyof Omit<CampaignAudience, "personIds">, value: string) =>
+  const toggle = (key: keyof Omit<CampaignAudience, "personIds" | "openToReturnOnly">, value: string) =>
     setAudience((a) => {
       const list = (a[key] ?? []) as string[];
       return { ...a, [key]: list.includes(value) ? list.filter((x) => x !== value) : [...list, value] };
@@ -91,7 +92,7 @@ export function CampaignEditor({ campaign, tags, initialCount, hasAddress }: { c
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2.5 lg:px-6">
-        <Link href="/email" className="flex items-center gap-1 text-[13px] text-muted hover:text-primary">
+        <Link href="/email/campaigns" className="flex items-center gap-1 text-[13px] text-muted hover:text-primary">
           <ChevronLeftIcon className="size-4" />
           Campaigns
         </Link>
@@ -198,9 +199,9 @@ export function CampaignEditor({ campaign, tags, initialCount, hasAddress }: { c
               </span>
             </div>
             <div className={clsx("flex flex-col gap-3 rounded-xl border border-line p-3.5", readOnly && "pointer-events-none opacity-70")}>
-              <p className="text-[12.5px] text-muted">Everyone with an email who hasn&apos;t opted out{Object.values(audience).some((v) => v?.length) ? ", narrowed to people who match all of these:" : "."}</p>
+              <p className="text-[12.5px] text-muted">Everyone with an email who hasn&apos;t opted out{Object.values(audience).some((v) => (Array.isArray(v) ? v.length : !!v)) ? ", narrowed to people who match all of these:" : "."}</p>
               <ChipGroup label="Tagged" options={tags.map((t) => ({ value: t, label: t }))} selected={audience.tags ?? []} onToggle={(v) => toggle("tags", v)} empty="No tags yet. Tag people from their page or during import." />
-              <ChipGroup label="With an open deal in" options={pipelines.flatMap((p) => p.stages.map((s) => ({ value: s.id, label: pipelines.length > 1 ? `${p.name}: ${s.name}` : s.name })))} selected={audience.stageIds ?? []} onToggle={(v) => toggle("stageIds", v)} />
+              <ClientAudience audience={audience} setAudience={setAudience} toggle={toggle} pipelines={pipelines} catalog={catalog} clientTags={clientTags} />
               <ChipGroup label="Owned by" options={team.filter((m) => m.active).map((m) => ({ value: m.id, label: m.name }))} selected={audience.ownerIds ?? []} onToggle={(v) => toggle("ownerIds", v)} />
             </div>
           </section>
@@ -276,6 +277,57 @@ export function CampaignEditor({ campaign, tags, initialCount, hasAddress }: { c
             <span className="font-medium text-primary">{subject}</span>
           </p>
         </Dialog>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Client filters: people who are a matching client's contact or work at its
+ * organization. Stages narrow to the chosen categories; churn reasons only
+ * make sense for past clients.
+ */
+function ClientAudience({
+  audience,
+  setAudience,
+  toggle,
+  pipelines,
+  catalog,
+  clientTags,
+}: {
+  audience: CampaignAudience;
+  setAudience: (fn: (a: CampaignAudience) => CampaignAudience) => void;
+  toggle: (key: "clientCategories" | "stageIds" | "serviceIds" | "churnReasons" | "clientTags", value: string) => void;
+  pipelines: ReturnType<typeof useApp>["pipelines"];
+  catalog: ReturnType<typeof useApp>["catalog"];
+  clientTags: string[];
+}) {
+  const categories = audience.clientCategories ?? [];
+  const shownPipelines = pipelines.filter((p) => !categories.length || categories.includes(p.category));
+  const multi = shownPipelines.length > 1;
+  const services = catalog.filter((s) => !s.archivedAt || audience.serviceIds?.includes(s.id));
+  const showPast = !categories.length || categories.includes("past");
+  const reasons = [...new Set([...churnReasons, ...(audience.churnReasons ?? [])])];
+  return (
+    <div className="flex flex-col gap-3 border-t border-line pt-3">
+      <ChipGroup label="Clients who are" options={clientCategories.map((c) => ({ value: c, label: clientCategoryLabels[c].one }))} selected={categories} onToggle={(v) => toggle("clientCategories", v)} />
+      <ChipGroup
+        label="In stage"
+        options={shownPipelines.flatMap((p) => p.stages.map((s) => ({ value: s.id, label: multi ? `${p.name}: ${s.name}` : s.name })))}
+        selected={audience.stageIds ?? []}
+        onToggle={(v) => toggle("stageIds", v)}
+      />
+      <ChipGroup label="Using or used" options={services.map((s) => ({ value: s.id, label: s.name }))} selected={audience.serviceIds ?? []} onToggle={(v) => toggle("serviceIds", v)} empty="No services yet. Add them in Settings → Services." />
+      <ChipGroup label="Client tagged" options={clientTags.map((t) => ({ value: t, label: t }))} selected={audience.clientTags ?? []} onToggle={(v) => toggle("clientTags", v)} empty="No client tags yet. Tag clients from their page." />
+      {showPast ? (
+        <>
+          <ChipGroup label="Left because" options={reasons.map((r) => ({ value: r, label: r }))} selected={audience.churnReasons ?? []} onToggle={(v) => toggle("churnReasons", v)} />
+          <Checkbox
+            checked={!!audience.openToReturnOnly}
+            onChange={(e) => setAudience((a) => ({ ...a, openToReturnOnly: e.target.checked || undefined }))}
+            label={<span className="text-[13px]">Only past clients open to coming back</span>}
+          />
+        </>
       ) : null}
     </div>
   );

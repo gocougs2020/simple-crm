@@ -10,7 +10,7 @@ import {
   BuildingOffice2Icon,
   CheckCircleIcon,
   Cog6ToothIcon,
-  CurrencyDollarIcon,
+  BriefcaseIcon,
   EnvelopeIcon,
   FolderIcon,
   HomeIcon,
@@ -29,9 +29,9 @@ import { CommandPalette, openPalette } from "./command-palette";
 import { CreateDialogs } from "./create-dialogs";
 import { openCreate } from "./create-store";
 
-type NavItem = { href: string; label: string; icon: ComponentType<{ className?: string }>; badge?: number; tone?: "error" };
+type NavItem = { href: string; label: string; icon: ComponentType<{ className?: string }>; badge?: number; badgeLabel?: string; tone?: "error" };
 
-export function AppShell({ due, children }: { due: { overdue: number; today: number }; children: ReactNode }) {
+export function AppShell({ due, unread = 0, children }: { due: { overdue: number; today: number }; unread?: number; children: ReactNode }) {
   const { viewer, workspace } = useApp();
   const pathname = usePathname();
   const [drawer, setDrawer] = useState(false);
@@ -40,12 +40,12 @@ export function AppShell({ due, children }: { due: { overdue: number; today: num
 
   const nav: NavItem[] = [
     { href: "/", label: "Home", icon: HomeIcon },
-    { href: "/deals", label: "Deals", icon: CurrencyDollarIcon },
+    { href: "/clients", label: "Clients", icon: BriefcaseIcon },
     { href: "/people", label: "People", icon: UserIcon },
     { href: "/organizations", label: "Organizations", icon: BuildingOffice2Icon },
-    { href: "/activities", label: "Activities", icon: CheckCircleIcon, badge: due.overdue + due.today || undefined, tone: due.overdue ? "error" : undefined },
+    { href: "/activities", label: "Activities", icon: CheckCircleIcon, badge: due.overdue + due.today || undefined, badgeLabel: "due", tone: due.overdue ? "error" : undefined },
     { href: "/files", label: "Files", icon: FolderIcon },
-    { href: "/email", label: "Email", icon: EnvelopeIcon },
+    { href: "/email", label: "Email", icon: EnvelopeIcon, badge: unread || undefined, badgeLabel: "unread" },
   ];
 
   const sidebar = (
@@ -71,8 +71,8 @@ export function AppShell({ due, children }: { due: { overdue: number; today: num
           </button>
         </MenuTrigger>
         <MenuContent align="start" className="w-52">
-          <MenuItem icon={<CurrencyDollarIcon />} onSelect={() => openCreate({ kind: "deal" })}>
-            Deal
+          <MenuItem icon={<BriefcaseIcon />} onSelect={() => openCreate({ kind: "client" })}>
+            Client
           </MenuItem>
           <MenuItem icon={<UserIcon />} onSelect={() => openCreate({ kind: "person" })}>
             Person
@@ -99,7 +99,7 @@ export function AppShell({ due, children }: { due: { overdue: number; today: num
             {n.badge ? (
               <span
                 className={clsx("min-w-5 rounded-full px-1.5 text-center text-[11px] leading-5 font-semibold tabular-nums", n.tone === "error" ? "bg-error-surface text-error" : "bg-sunken text-secondary")}
-                aria-label={`${n.badge} due`}
+                aria-label={`${n.badge} ${n.badgeLabel ?? ""}`.trim()}
               >
                 {n.badge}
               </span>

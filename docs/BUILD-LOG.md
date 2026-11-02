@@ -36,8 +36,20 @@ The interface follows the HiringCenter design system for everything except color
 ### Not in this version (candidates for next)
 
 - A block-based campaign editor (sections, columns, buttons) like the earlier project's `@react-email/editor` setup. Campaigns currently use the same rich-text editor as notes, inside the brand layout.
-- Email open and click tracking (Resend webhooks), and logging replies automatically (inbound email).
+- Email open and click tracking (Resend webhooks).
 - Saved views and filters per teammate beyond owner, tag and search.
-- Reports (won/lost by month, stage conversion, activity by teammate).
+- Reports (signed and lost by month, churn by reason, stage conversion, activity by teammate).
 - Merging duplicate people and organizations.
 - Two-way calendar sync for meetings.
+
+## Clients, services, Stripe and the inbox
+
+**Goal.** Deals were limiting: a deal ends at won or lost, but the relationship doesn't. The team wanted to organize everyone they work with as prospective, current or past clients, manage current accounts, and keep past clients reachable for win-back campaigns. Email had to become first-class: real inboxes on the team's own domains, with mail landing on the right records.
+
+- **Deals became clients, renamed in place.** The `deals` table, its links from activities and files, its history and custom fields were renamed rather than copied, so every id and link survived. Won deals became current clients (client since the day they closed); lost ones stayed prospects in a new "Not now" stage, with their reason kept in history.
+- **Category, not status.** A client's category (prospective, current, past) decides its pipeline, its page and its board's drop zones (Signed, Left, Won back). Stages stay free-form per pipeline, so each category moves through its own steps.
+- **Services instead of a plan field.** A catalog in Settings, linked per client with its own price and dates. Monthly revenue is computed from open services, and a past client's ended services are exactly "what their subscription had been".
+- **Performance is numbers over time.** Teams track different things (leads, hires, ad spend), so metrics are free-form labels with a value per period, shown with their trend.
+- **Stripe is read live, not synced.** Billing changes constantly and Stripe is the source of truth; a read-only key and one card per client avoid a sync job and stale numbers.
+- **Inbox: Resend holds the mail, the CRM holds the links.** Threads are mirrored so they can be linked, searched and shown on timelines without a round trip, and every message becomes an email activity. Webhook first, cron as a safety net, a button for impatience.
+
