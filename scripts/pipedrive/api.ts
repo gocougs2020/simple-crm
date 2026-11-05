@@ -95,7 +95,7 @@ export type PdActivity = {
   conference_meeting_url: string | null;
   public_description: string | null;
   note: string | null;
-  outcome?: string | null;
+  outcome?: unknown;
 };
 
 export type PdActivityType = { key_string: string; name: string; active_flag: boolean };
@@ -198,7 +198,7 @@ export class PipedriveApi {
   pipelines = () => this.allV2<PdPipeline>("/api/v2/pipelines");
   stages = () => this.allV2<PdStage>("/api/v2/stages");
   activityTypes = async () => (await this.get<{ data: PdActivityType[] }>("/v1/activityTypes")).data ?? [];
-  fields = (entity: "deal" | "person" | "organization") => this.allV1<PdField>(`/v1/${entity}Fields`);
+  fields = (entity: "deal" | "person" | "organization" | "activity") => this.allV1<PdField>(`/v1/${entity}Fields`);
   organizations = () => this.allV2<PdOrganization>("/api/v2/organizations", { include_labels: true });
   persons = () => this.allV2<PdPerson>("/api/v2/persons", { include_labels: true, include_fields: "email_messages_count" });
   deals = () => this.allV2<PdDeal>("/api/v2/deals", { status: "open,won,lost", include_labels: true, include_fields: "first_won_time" });

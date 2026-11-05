@@ -87,7 +87,8 @@ const time = (s: string | null | undefined) => {
 };
 const day = (s: string | null | undefined) => (s ? (time(s)?.toISOString().slice(0, 10) ?? (/^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null)) : null);
 const cents = (v: number | null | undefined) => (typeof v === "number" && Number.isFinite(v) ? Math.round(v * 100) : 0);
-const clip = (s: string | null | undefined, n: number) => (s ? s.trim().slice(0, n) || null : null);
+/** Trimmed text, cut to `n` characters. Pipedrive sometimes sends ids or objects where text is expected; those count as blank. */
+const clip = (s: unknown, n: number) => (typeof s === "string" || typeof s === "number" ? String(s).trim().slice(0, n) || null : null);
 
 /**
  * Pipedrive HTML (notes, email) made safe. Pipedrive rewrites links in sent
@@ -139,7 +140,7 @@ async function runImport(db: Database) {
   if (!actor) throw new Error(asEmail ? `No teammate with the email ${asEmail}.` : "Create the owner account first (open the app and sign up), then run the import.");
 
   log("Reading Pipedrive…");
-  const [pdUsers, pipelines, stages, activityTypes, dealFields, personFields, orgFields] = await Promise.all([
+  const [pdUsers, pipelines, stages, activityTypes, dealFields, personFields, orgFields, activityFields] = await Promise.all([
     api.allV1<PdUser>("/v1/users"),
     api.pipelines(),
     api.stages(),
@@ -147,6 +148,7 @@ async function runImport(db: Database) {
     api.fields("deal"),
     api.fields("person"),
     api.fields("organization"),
+    api.fields("activity").catch(() => [] as PdField[]),
   ]);
   const orgs = await api.organizations();
   log(`  ${orgs.length} organizations`);
@@ -463,9 +465,10 @@ async function runImport(db: Database) {
   log(`Notes: ${noteRows.length} added`);
 
   const typeNames = new Map(activityTypes.map((t) => [t.key_string, t.name]));
+  const outcomeNames = new Map((activityFields.find((f) => f.key === "outcome")?.options ?? []).map((o) => [String(o.id), o.label.trim()]));
   const activityRows = pdActivities
     .filter((a) => !links.get("activity", a.id))
-    .map((a) => ({ pd: a.id, values: { ...activityValues(a, typeNames, user, now), ...linksFor(a.deal_id, a.org_id, a.person_id) } }))
+    .map((a) => ({ pd: a.id, values: { ...activityValues(a, typeNames, outcomeNames, user, now), ...linksFor(a.deal_id, a.org_id, a.person_id) } }))
     .filter((r) => r.values.personId || r.values.organizationId || r.values.clientId);
   await insertActivities(db, links, "activity", activityRows);
   log(`Activities: ${activityRows.length} added`);
@@ -601,7 +604,7 @@ function clientValues(plan: ClientPlan, lk: Lookup, c: Ctx) {
   };
 }
 
-function activityValues(a: PdActivity, typeNames: Map<string, string>, user: (id: PdId | null | undefined) => string | null, now: Date) {
+function activityValues(a: PdActivity, typeNames: Map<string, string>, outcomeNames: Map<string, string>, user: (id: PdId | null | undefined) => string | null, now: Date) {
   const type = activityTypeMap[a.type] ?? "task";
   const hasTime = !!a.due_time;
   const due = a.due_date ? new Date(hasTime ? `${a.due_date}T${a.due_time!.slice(0, 5)}:00Z` : `${a.due_date}T12:00:00Z`) : null;
@@ -618,7 +621,8 @@ function activityValues(a: PdActivity, typeNames: Map<string, string>, user: (id
     type,
     subject,
     body: body || null,
-    outcome: clip(a.outcome, 80),
+    // Outcome is an option id ("Connected", "Left voicemail" …); keep its label.
+    outcome: a.outcome === null || a.outcome === undefined ? null : clip(outcomeNames.get(String(a.outcome)) ?? (typeof a.outcome === "string" ? a.outcome : null), 80),
     durationMinutes: minutes,
     occurredAt: a.done ? (due ?? doneAt ?? createdAt) : null,
     dueAt: due ?? (a.done ? null : createdAt),
