@@ -43,16 +43,17 @@ export type Lookup = { pipelines: Map<PdId, PdPipeline>; stages: Map<PdId, PdSta
 export function dealCategory(deal: PdDeal, lk: Lookup): ClientCategory {
   const role = pipelineRole(lk.pipelines.get(deal.pipeline_id)!);
   const stage = lk.stages.get(deal.stage_id);
-  if (role.kind === "product") return deal.status === "lost" || (stage && STOPPED.test(stage.name)) ? "past" : "current";
+  // An archived product deal is one they no longer use, whatever stage it was left in.
+  if (role.kind === "product") return deal.status === "lost" || deal.is_archived || (stage && STOPPED.test(stage.name)) ? "past" : "current";
   return deal.status === "won" ? "current" : "prospective";
 }
 
 const categoryOrder: ClientCategory[] = ["current", "past", "prospective"];
 
-/** Sort key for "furthest along": live deals before lost ones, moving stages before parked ones, then stage order, then most recently touched. */
+/** Sort key for "furthest along": deals not archived before archived ones, live before lost, moving stages before parked ones, then stage order, then most recently touched. */
 function progress(deal: PdDeal, lk: Lookup) {
   const stage = lk.stages.get(deal.stage_id);
-  return [deal.status === "lost" ? 0 : 1, stage && PARKED.test(stage.name) ? 0 : 1, stage?.order_nr ?? 0, Date.parse(deal.update_time ?? deal.add_time) || 0];
+  return [deal.is_archived ? 0 : 1, deal.status === "lost" ? 0 : 1, stage && PARKED.test(stage.name) ? 0 : 1, stage?.order_nr ?? 0, Date.parse(deal.update_time ?? deal.add_time) || 0];
 }
 
 function compare(a: number[], b: number[]) {
@@ -70,6 +71,8 @@ export type ClientPlan = {
   /** The deal whose stage the client takes. */
   lead: PdDeal;
   stage: PdStage;
+  /** Set when every one of its deals is archived in Pipedrive: the latest archive time. */
+  archivedAt: Date | null;
 };
 
 /** One client per organization (or per person, for deals with no organization). */
@@ -85,7 +88,9 @@ export function planClients(deals: PdDeal[], lk: Lookup): ClientPlan[] {
     const category = categoryOrder.find((c) => list.some((d) => dealCategory(d, lk) === c))!;
     const lead = list.filter((d) => dealCategory(d, lk) === category).sort((a, b) => compare(progress(b, lk), progress(a, lk)))[0];
     const personId = lead.person_id ?? list.find((d) => d.person_id)?.person_id ?? null;
-    plans.push({ key, orgId: lead.org_id, personId, deals: list, category, lead, stage: lk.stages.get(lead.stage_id)! });
+    const archived = list.every((d) => d.is_archived);
+    const archivedAt = archived ? new Date(Math.max(...list.map((d) => Date.parse(d.archive_time ?? d.update_time ?? d.add_time) || 0))) : null;
+    plans.push({ key, orgId: lead.org_id, personId, deals: list, category, lead, stage: lk.stages.get(lead.stage_id)!, archivedAt });
   }
   return plans;
 }

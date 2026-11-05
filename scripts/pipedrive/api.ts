@@ -69,6 +69,7 @@ export type PdDeal = {
   expected_close_date: string | null;
   is_deleted?: boolean;
   is_archived?: boolean;
+  archive_time?: string | null;
   label_ids?: number[];
   labels?: PdLabel[];
   custom_fields?: Record<string, unknown> | null;
@@ -201,7 +202,16 @@ export class PipedriveApi {
   fields = (entity: "deal" | "person" | "organization" | "activity") => this.allV1<PdField>(`/v1/${entity}Fields`);
   organizations = () => this.allV2<PdOrganization>("/api/v2/organizations", { include_labels: true });
   persons = () => this.allV2<PdPerson>("/api/v2/persons", { include_labels: true, include_fields: "email_messages_count" });
-  deals = () => this.allV2<PdDeal>("/api/v2/deals", { status: "open,won,lost", include_labels: true, include_fields: "first_won_time" });
+  /** Live and archived deals. Pipedrive lists archived deals separately; older plans without archiving answer 404 there. */
+  async deals() {
+    const params = { status: "open,won,lost", include_labels: true, include_fields: "first_won_time" };
+    const live = await this.allV2<PdDeal>("/api/v2/deals", params);
+    const archived = await this.allV2<PdDeal>("/api/v2/deals/archived", params).catch((err) => {
+      if (err instanceof Error && / 404 /.test(err.message)) return [] as PdDeal[];
+      throw err;
+    });
+    return [...live, ...archived.map((d) => ({ ...d, is_archived: true }))];
+  }
   activities = () => this.allV2<PdActivity>("/api/v2/activities");
   notes = () => this.allV1<PdNote>("/v1/notes");
 

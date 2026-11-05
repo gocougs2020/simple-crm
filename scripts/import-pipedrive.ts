@@ -70,6 +70,11 @@ class Links {
     this.map.set(`${kind}:${id}`, localId);
     this.pending.push({ source: SOURCE, kind, externalId: String(id), localId });
   }
+  /** Records a mapping and writes it right away: used right after creating a record, so a later failure can't leave it unmapped (and duplicated by the next run). */
+  async save(kind: string, id: PdId | string, localId: string) {
+    this.add(kind, id, localId);
+    await this.flush();
+  }
   async flush() {
     for (const rows of chunks(this.pending.splice(0), 500)) await this.db.insert(schema.externalIds).values(rows).onConflictDoUpdate({ target: [schema.externalIds.source, schema.externalIds.kind, schema.externalIds.externalId], set: { localId: sql`excluded.local_id` } });
   }
@@ -168,9 +173,10 @@ async function runImport(db: Database) {
   const serviceNames = [...new Set(pipelines.map(pipelineRole).flatMap((r) => (r.kind === "product" ? [r.service] : [])))];
 
   printPlan(plans, stagePlan, lk, serviceNames, productDeals);
-  // Email: by default only for people tied to a client (its contact, or anyone at its organization). Everyone's mail is often mostly cold outreach.
-  const clientOrgs = new Set(plans.map((p) => p.orgId).filter(Boolean));
-  const clientPeople = new Set(plans.map((p) => p.personId).filter(Boolean));
+  // Email: by default only for people tied to a client that isn't archived (its contact, or anyone at its organization). Everyone's mail is often mostly cold outreach.
+  const activePlans = plans.filter((p) => !p.archivedAt);
+  const clientOrgs = new Set(activePlans.map((p) => p.orgId).filter(Boolean));
+  const clientPeople = new Set(activePlans.map((p) => p.personId).filter(Boolean));
   const mailPeople = emailScope === "none" ? [] : persons.filter((p) => (p.email_messages_count ?? 1) > 0 && (emailScope === "all" || clientPeople.has(p.id) || (p.org_id && clientOrgs.has(p.org_id))));
   log(
     emailScope === "none"
@@ -201,7 +207,7 @@ async function runImport(db: Database) {
     }
     if (!referenced.has(u.id) || !u.email || flag("no-users")) continue;
     const [row] = await db.insert(schema.users).values({ email: u.email.toLowerCase(), name: u.name, role: "member", deactivatedAt: now }).returning({ id: schema.users.id });
-    links.add("user", u.id, row.id);
+    await links.save("user", u.id, row.id);
     userIds.set(u.id, row.id);
     usersAdded++;
   }
@@ -237,7 +243,7 @@ async function runImport(db: Database) {
         .insert(schema.customFields)
         .values({ entityType: entity, key, label: f.name.trim().slice(0, 80), type, options: [...new Set(options)], position: ++position })
         .returning({ id: schema.customFields.id });
-      links.add(`field:${entity}`, f.key, row.id);
+      await links.save(`field:${entity}`, f.key, row.id);
       fieldMaps[entity].push({ field: f, key });
     }
   }
@@ -326,7 +332,7 @@ async function runImport(db: Database) {
       let row = existing.find((e) => e.name === s.name);
       if (!row) {
         [row] = await db.insert(schema.stages).values({ pipelineId: pipeline.id, name: s.name, probability: s.probability, rottingDays: null }).returning();
-        links.add("stage", `${category}:${s.name}`, row.id);
+        await links.save("stage", `${category}:${s.name}`, row.id);
       }
       stageIds.set(`${category}:${s.name}`, row.id);
       ordered.push(row.id);
@@ -344,7 +350,7 @@ async function runImport(db: Database) {
     let row = services.find((s) => s.name.toLowerCase() === name.toLowerCase());
     if (!row) {
       [row] = await db.insert(schema.services).values({ name, interval: "month", position: services.length + i }).returning();
-      links.add("service", name, row.id);
+      await links.save("service", name, row.id);
     }
     serviceIds.set(name, row.id);
   }
@@ -383,9 +389,10 @@ async function runImport(db: Database) {
       const createdAt = new Date(Math.min(...plan.deals.map((d) => time(d.add_time)?.getTime() ?? now.getTime())));
       const [row] = await db
         .insert(schema.clients)
-        .values({ ...values, rank: nextRank(values.stageId), createdBy: actor.id, createdAt })
+        // A client whose deals are all archived in Pipedrive comes in archived: its history is kept, off the boards.
+        .values({ ...values, rank: nextRank(values.stageId), createdBy: actor.id, createdAt, archivedAt: plan.archivedAt })
         .returning({ id: schema.clients.id });
-      links.add("client", plan.key, row.id);
+      await links.save("client", plan.key, row.id);
       await db.insert(schema.events).values({
         entityType: "client",
         entityId: row.id,
@@ -435,7 +442,7 @@ async function runImport(db: Database) {
     if (id) await db.update(schema.clientServices).set(values).where(eq(schema.clientServices.id, id));
     else {
       const [row] = await db.insert(schema.clientServices).values(values).returning({ id: schema.clientServices.id });
-      links.add("client_service", d.id, row.id);
+      await links.save("client_service", d.id, row.id);
       servicesAdded++;
     }
   }
@@ -675,6 +682,7 @@ async function upsert<V extends Record<string, unknown>>(
       .values(batch.map((r) => ({ ...r.values, createdBy: actorId, createdAt: r.createdAt, updatedAt: r.createdAt })) as never)
       .returning({ id: table.id })) as { id: string }[];
     created.forEach((row, i) => links.add(kind, batch[i].pd, row.id));
+    await links.flush();
     await db.insert(schema.events).values(created.map((row) => ({ entityType: kind, entityId: row.id, action: "created", data: { source: SOURCE }, userId: actorId })));
   }
   await mapLimit(known, 8, (r) =>
@@ -709,7 +717,7 @@ async function ensureField(db: Database, links: Links, entity: EntityType, key: 
     return;
   }
   const [row] = await db.insert(schema.customFields).values({ entityType: entity, key, label, type, options, position: 999 }).returning({ id: schema.customFields.id });
-  links.add(`field:${entity}`, key, row.id);
+  await links.save(`field:${entity}`, key, row.id);
   await links.flush();
 }
 
@@ -724,8 +732,13 @@ function printPlan(plans: ClientPlan[], stagePlan: ReturnType<typeof planStages>
   log(`\n${plans.length} clients from ${plans.reduce((n, p) => n + p.deals.length, 0)} deals (${plans.filter((p) => p.deals.length > 1).length} with more than one deal):`);
   for (const category of ["prospective", "current", "past"] as const) {
     const inCat = plans.filter((p) => p.category === category);
-    log(`\n  ${category[0].toUpperCase()}${category.slice(1)}: ${inCat.length}`);
-    for (const s of stagePlan[category]) log(`    ${String(inCat.filter((p) => stageName(p.stage) === s.name).length).padStart(5)}  ${s.name}`);
+    const shown = inCat.filter((p) => !p.archivedAt);
+    const extra = (n: number) => (n ? ` (+${n} archived)` : "");
+    log(`\n  ${category[0].toUpperCase()}${category.slice(1)}: ${shown.length}${extra(inCat.length - shown.length)}`);
+    for (const s of stagePlan[category]) {
+      const here = inCat.filter((p) => stageName(p.stage) === s.name);
+      log(`    ${String(here.filter((p) => !p.archivedAt).length).padStart(5)}  ${s.name}${extra(here.filter((p) => p.archivedAt).length)}`);
+    }
   }
   log(`\nServices: ${serviceNames.join(", ")}`);
   for (const name of serviceNames) {
