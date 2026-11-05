@@ -73,7 +73,7 @@ Stages with the same name in several Pipedrive pipelines (each product pipeline 
 
 A prospect whose only sales deals are lost keeps the stage the deal was lost in and gets the tag **Lost in Pipedrive**, so they're easy to filter or bulk-move.
 
-**Archived deals** come in too. When all of an organization's deals are archived in Pipedrive, its client is imported archived: its history, notes and services are kept, but it stays off the boards, as in Pipedrive. When an organization has both, its live deals decide the stage, and an archived product deal counts as an ended service.
+**Archived deals** come in too. When all of an organization's deals are archived in Pipedrive, its client is imported archived: its history, notes and services are kept, but it stays off the boards, as in Pipedrive. When an organization has both, its live deals decide the stage, and an archived product deal counts as an ended service. On a later run, a client follows Pipedrive: archived when all its deals are archived there, restored when one is live again. A client someone archived or restored by hand in the CRM is left as it is.
 
 ### Everything else
 

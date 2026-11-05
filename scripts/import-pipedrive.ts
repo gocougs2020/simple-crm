@@ -75,6 +75,11 @@ class Links {
     this.add(kind, id, localId);
     await this.flush();
   }
+  /** Forgets a mapping. */
+  async remove(kind: string, id: PdId | string) {
+    this.map.delete(`${kind}:${id}`);
+    await this.db.delete(schema.externalIds).where(and(eq(schema.externalIds.source, SOURCE), eq(schema.externalIds.kind, kind), eq(schema.externalIds.externalId, String(id))));
+  }
   async flush() {
     for (const rows of chunks(this.pending.splice(0), 500)) await this.db.insert(schema.externalIds).values(rows).onConflictDoUpdate({ target: [schema.externalIds.source, schema.externalIds.kind, schema.externalIds.externalId], set: { localId: sql`excluded.local_id` } });
   }
@@ -377,10 +382,18 @@ async function runImport(db: Database) {
     const current = id ? existingClients.get(id) : undefined;
     if (current) {
       const moved = current.stageId !== values.stageId;
+      // Follow Pipedrive's archiving, but only where the import is the one that archived: a client archived or restored by hand stays as it is.
+      const archivedByImport = !!links.get("client_archived", plan.key);
+      const archive = plan.archivedAt && !current.archivedAt && !archivedByImport ? { archivedAt: plan.archivedAt } : !plan.archivedAt && current.archivedAt && archivedByImport ? { archivedAt: null } : {};
       await db
         .update(schema.clients)
-        .set({ ...values, ...(moved ? { rank: nextRank(values.stageId) } : {}), updatedAt: now })
+        .set({ ...values, ...archive, ...(moved ? { rank: nextRank(values.stageId) } : {}), updatedAt: now })
         .where(eq(schema.clients.id, current.id));
+      if ("archivedAt" in archive) {
+        await db.insert(schema.events).values({ entityType: "client", entityId: current.id, action: archive.archivedAt ? "archived" : "restored", data: { source: SOURCE }, userId: actor.id });
+        if (archive.archivedAt) await links.save("client_archived", plan.key, current.id);
+        else await links.remove("client_archived", plan.key);
+      }
       if (current.category !== values.category) await db.insert(schema.events).values({ entityType: "client", entityId: current.id, action: "category_changed", data: { from: current.category, to: values.category, stage: stageName(plan.stage), source: SOURCE }, userId: actor.id });
       else if (moved) await db.insert(schema.events).values({ entityType: "client", entityId: current.id, action: "stage_changed", data: { from: stageNames.get(current.stageId) ?? null, to: stageName(plan.stage), source: SOURCE }, userId: actor.id });
       clientIds.set(plan.key, current.id);
@@ -393,6 +406,7 @@ async function runImport(db: Database) {
         .values({ ...values, rank: nextRank(values.stageId), createdBy: actor.id, createdAt, archivedAt: plan.archivedAt })
         .returning({ id: schema.clients.id });
       await links.save("client", plan.key, row.id);
+      if (plan.archivedAt) await links.save("client_archived", plan.key, row.id);
       await db.insert(schema.events).values({
         entityType: "client",
         entityId: row.id,
