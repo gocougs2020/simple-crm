@@ -17,6 +17,7 @@ It's built to cover the 80% of CRM work a small team does every day, and to stay
 - **Board or table, per person.** Drag clients between stages (or onto Signed, Left or Won back); switch to a sortable table. Each teammate's choice is remembered.
 - **Email built in.** Add your domains and team inboxes (sales@, support@) in Settings, powered by Resend. Incoming mail lands in a shared inbox and on the timeline of the person, organization and client it's about; reply from the CRM. Send from any record through an inbox, with templates and merge fields. Campaigns go to filtered audiences (past clients open to coming back, say) with a live preview, test sends, scheduling and one-click unsubscribe. A brand kit (logo, color, address, signature) wraps every email.
 - **Import** people from CSV or Excel: match columns, merge by email, undo.
+- **Move from Pipedrive** with `pnpm import:pipedrive`: people, organizations, deals collapsed into one client per organization, products as services, notes, activities and email. See [docs/PIPEDRIVE-IMPORT.md](docs/PIPEDRIVE-IMPORT.md).
 - **Files** live in a private store and only stream to signed-in teammates.
 - **Team** is invite-only with email-and-password sign-in, roles (owner, admin, member) and deactivation that keeps history intact.
 
@@ -54,6 +55,7 @@ See [docs/DEPLOYING.md](docs/DEPLOYING.md). In short: connect Neon and a **priva
 - [docs/SECURITY.md](docs/SECURITY.md): authentication, sessions, files, and what keeps a public repo safe to deploy
 - [docs/THEMING.md](docs/THEMING.md): changing the design
 - [docs/DEPLOYING.md](docs/DEPLOYING.md): production setup
+- [docs/PIPEDRIVE-IMPORT.md](docs/PIPEDRIVE-IMPORT.md): importing from Pipedrive
 - [docs/BUILD-LOG.md](docs/BUILD-LOG.md): decisions made while building it
 
 ## Scripts
@@ -66,6 +68,7 @@ See [docs/DEPLOYING.md](docs/DEPLOYING.md). In short: connect Neon and a **priva
 | `pnpm db:generate` | Create a migration from `src/db/schema.ts` changes |
 | `pnpm db:migrate` | Apply migrations to `DATABASE_URL` (runs in the Vercel build) |
 | `pnpm email:dev` | Preview the email templates in `src/emails` |
+| `pnpm import:pipedrive` | Import a Pipedrive account ([how it maps](docs/PIPEDRIVE-IMPORT.md)) |
 
 ## License
 

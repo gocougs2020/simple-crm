@@ -40,6 +40,7 @@ drizzle/             SQL migrations generated from schema.ts
 | `email_templates`, `campaigns`, `outbound_emails` | Email. `outbound_emails` records every message sent |
 | `inbox_threads`, `inbox_messages` | A mirror of the workspace's Resend inboxes, linked to people, organizations and clients |
 | `people_imports` | What each spreadsheet import created and changed, so it can be undone |
+| `external_ids` | Which record here came from which record in Pipedrive, so the [Pipedrive import](PIPEDRIVE-IMPORT.md) can run again without duplicating and be removed cleanly |
 
 Choices worth knowing:
 
