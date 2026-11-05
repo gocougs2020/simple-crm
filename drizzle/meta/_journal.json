@@ -15,6 +15,13 @@
       "when": 1793591985964,
       "tag": "0001_clients_and_inbox",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793912248698,
+      "tag": "0002_external-ids",
+      "breakpoints": true
     }
   ]
 }

@@ -495,6 +495,7 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
     subject?: string;
     type?: string;
     name?: string;
+    source?: string;
   };
   const cat = (c?: string) => (c && c in clientCategoryLabels ? clientCategoryLabels[c as ClientCategory].one.toLowerCase() : c);
   let text: React.ReactNode;
@@ -502,6 +503,7 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
   switch (event.action) {
     case "created":
       text = d.category ? <>added this as a {cat(d.category)} client{d.stage ? <> in {d.stage}</> : null}</> : <>created this</>;
+      if (d.source === "pipedrive") text = <>{text} from Pipedrive</>;
       icon = <SparklesIcon className="size-3.5" />;
       break;
     case "category_changed":

@@ -13,6 +13,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
+    "import:pipedrive": "tsx scripts/import-pipedrive.ts",
     "db:studio": "drizzle-kit studio",
     "email:dev": "email dev --dir src/emails"
   },

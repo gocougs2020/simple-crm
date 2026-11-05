@@ -594,3 +594,25 @@ export const inboxMessages = pgTable(
   },
   (t) => [uniqueIndex("inbox_messages_resend_idx").on(t.resendEmailId), index("inbox_messages_thread_idx").on(t.threadId, t.sentAt)],
 );
+
+// ─── Imports from other CRMs ─────────────────────────────────────────────
+
+/**
+ * Which record here came from which record in another system (Pipedrive, for
+ * now). Lets an import run again and update what it brought in instead of
+ * duplicating it, and lets it be removed cleanly. `kind` is the other
+ * system's record type ("organization", "deal", "note", …); one local record
+ * can stand for several of theirs (an organization's deals collapse into one
+ * client).
+ */
+export const externalIds = pgTable(
+  "external_ids",
+  {
+    source: text("source").$type<"pipedrive">().notNull(),
+    kind: text("kind").notNull(),
+    externalId: text("external_id").notNull(),
+    localId: uuid("local_id").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.source, t.kind, t.externalId] }), index("external_ids_local_idx").on(t.localId)],
+);
