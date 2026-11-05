@@ -6,6 +6,7 @@
  *   pnpm import:pipedrive --dry-run     show what would happen, write nothing
  *   pnpm import:pipedrive               import (safe to run again: it updates)
  *   pnpm import:pipedrive --no-email    skip email (much faster)
+ *   pnpm import:pipedrive --email=all   email for everyone, not only people tied to clients
  *   pnpm import:pipedrive --reset       remove everything a previous import added
  *
  * Needs PIPEDRIVE_API_TOKEN. Writes to DATABASE_URL, or to the local embedded
@@ -128,7 +129,7 @@ async function runImport(db: Database) {
   const token = process.env.PIPEDRIVE_API_TOKEN;
   if (!token) throw new Error("Set PIPEDRIVE_API_TOKEN (Pipedrive → Personal preferences → API) and run again.");
   const dryRun = flag("dry-run");
-  const withEmail = !flag("no-email");
+  const emailScope = flag("no-email") ? "none" : option("email") === "all" ? "all" : "clients";
   const api = new PipedriveApi(token, process.env.PIPEDRIVE_COMPANY_DOMAIN);
 
   // Who the import is recorded as.
@@ -165,6 +166,15 @@ async function runImport(db: Database) {
   const serviceNames = [...new Set(pipelines.map(pipelineRole).flatMap((r) => (r.kind === "product" ? [r.service] : [])))];
 
   printPlan(plans, stagePlan, lk, serviceNames, productDeals);
+  // Email: by default only for people tied to a client (its contact, or anyone at its organization). Everyone's mail is often mostly cold outreach.
+  const clientOrgs = new Set(plans.map((p) => p.orgId).filter(Boolean));
+  const clientPeople = new Set(plans.map((p) => p.personId).filter(Boolean));
+  const mailPeople = emailScope === "none" ? [] : persons.filter((p) => (p.email_messages_count ?? 1) > 0 && (emailScope === "all" || clientPeople.has(p.id) || (p.org_id && clientOrgs.has(p.org_id))));
+  log(
+    emailScope === "none"
+      ? "\nEmail: skipped (--no-email)"
+      : `\nEmail: ${mailPeople.length} people (${emailScope === "all" ? "everyone with email" : "tied to a client; --email=all for everyone"}), about ${mailPeople.reduce((n, p) => n + (p.email_messages_count ?? 0), 0)} messages`,
+  );
   if (dryRun) {
     log("\nDry run: nothing was written. Run again without --dry-run to import.");
     return;
@@ -412,9 +422,9 @@ async function runImport(db: Database) {
     const values = {
       clientId,
       serviceId: serviceIds.get(role.service)!,
-      // Pipedrive's MRR when it's filled in, else the deal value (taken as monthly).
-      price: cents(d.mrr ?? d.value),
-      interval: "month" as const,
+      // Pipedrive's MRR when it's filled in; otherwise the deal value, which this account records as a yearly contract value.
+      price: cents(d.mrr || d.value),
+      interval: d.mrr ? ("month" as const) : ("year" as const),
       startedOn: day(startField ? String(d.custom_fields?.[startField.key] ?? "") : null) ?? day(d.first_won_time) ?? day(d.won_time) ?? day(d.add_time),
       endedOn: ended ? (day(endField ? String(d.custom_fields?.[endField.key] ?? "") : null) ?? day(d.lost_time) ?? day(d.close_time) ?? day(d.stage_change_time) ?? day(d.update_time)) : null,
       note: clip(`${d.title}${note ? ` · ${note}` : ""}`, 500),
@@ -460,8 +470,8 @@ async function runImport(db: Database) {
   await insertActivities(db, links, "activity", activityRows);
   log(`Activities: ${activityRows.length} added`);
 
-  if (withEmail) {
-    const withMail = persons.filter((p) => (p.email_messages_count ?? 1) > 0 && personIds.has(p.id));
+  if (mailPeople.length) {
+    const withMail = mailPeople.filter((p) => personIds.has(p.id));
     log(`Email: reading the mail of ${withMail.length} people (this is the slow part; --no-email skips it)…`);
     let done = 0;
     let added = 0;

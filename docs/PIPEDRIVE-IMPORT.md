@@ -33,6 +33,7 @@ pnpm import:pipedrive
 | Option | What it does |
 | --- | --- |
 | `--dry-run` | Show the plan, write nothing |
+| `--email=all` | Import email for everyone. By default only people tied to a client (its contact, or anyone at its organization) get their email imported, because the rest is mostly outreach and can run to hundreds of thousands of messages |
 | `--no-email` | Skip email. Email is read person by person, so it's most of the run time |
 | `--no-users` | Don't add Pipedrive users who aren't teammates here (their records get no owner) |
 | `--as=you@company.com` | Record the import as this teammate instead of the owner |
@@ -80,10 +81,10 @@ A prospect whose only sales deals are lost keeps the stage the deal was lost in 
 | Organizations | Organizations: name, address, website (or the "Website Domain" field), industry, owner. Labels go in a "Labels" field |
 | People | People: name, primary email and phone, organization, owner. Labels and the "Tags" field become tags; "Title Specific" becomes the title |
 | Custom fields | Custom fields with the same name, type and options (organizations, people, and deals → clients). On a client, the furthest deal's values come first; multi-option fields combine across deals |
-| Product deals | A service on the client per deal: started on the deal's Start Date (or first won date), ended on its End Date (or when it was paused, terminated or lost) when it stopped. Price is the deal's MRR, or its value taken as monthly; check these in each client's Services card. The deal title, Products and Plan / Level go in the service's note |
+| Product deals | A service on the client per deal: started on the deal's Start Date (or first won date), ended on its End Date (or when it was paused, terminated or lost) when it stopped. Price is the deal's MRR when filled in (monthly), otherwise the deal value as a yearly price, since deal values here are annual contract values; check odd ones in each client's Services card. The deal title, Products and Plan / Level go in the service's note |
 | Notes | Notes, pinned if pinned in Pipedrive, on the person, organization and client |
 | Activities | Calls, meetings (and lunches), emails, texts and tasks (deadlines and custom types become tasks, with the type in the subject). Done ones are history; open ones are planned with their due date |
-| Email | Email activities with the full message, sender and recipients. Pipedrive's click-tracking links are replaced with the original links |
+| Email | Email activities with the full message, sender and recipients, for people tied to a client (`--email=all` for everyone). Pipedrive's click-tracking links are replaced with the original links |
 
 Files, leads (the Leads inbox) and Pipedrive projects aren't imported.
 
