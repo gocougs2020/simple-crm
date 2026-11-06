@@ -22,6 +22,8 @@ export type DomainView = {
 };
 export type InboxView = { id: string; address: string; name: string | null; fromName: string | null; unread: number };
 type Webhook = { connected: boolean; endpoint: string | null; envSecret: boolean };
+/** Whether RESEND_DOMAINS limits which domains show, and how many in the account it leaves out. */
+type Scope = { scoped: boolean; hidden: number };
 
 const statusTone = (s: string): Tone => (s === "verified" ? "success" : s === "failed" || s === "partially_failed" ? "error" : s === "pending" || s === "partially_verified" ? "warning" : "neutral");
 const statusLabel = (s: string) => ({ verified: "Verified", failed: "Failed", partially_failed: "Partly failed", pending: "Checking", partially_verified: "Partly verified", not_started: "Not verified", temporary_failure: "Retrying" })[s] ?? s;
@@ -54,6 +56,7 @@ export function EmailDomainSettings({
   configured,
   domains,
   domainsError,
+  scope,
   inboxes,
   inboxesError,
   webhook,
@@ -61,6 +64,7 @@ export function EmailDomainSettings({
   configured: boolean;
   domains: DomainView[];
   domainsError: string | null;
+  scope: Scope;
   inboxes: InboxView[];
   inboxesError: string | null;
   webhook: Webhook;
@@ -81,7 +85,7 @@ export function EmailDomainSettings({
     );
   return (
     <>
-      <Domains domains={domains} error={domainsError} />
+      <Domains domains={domains} error={domainsError} scope={scope} />
       <Inboxes inboxes={inboxes} error={inboxesError} domains={domains} />
       <LiveUpdates webhook={webhook} />
     </>
@@ -94,7 +98,7 @@ function ErrorLine({ error }: { error: string }) {
 
 // ─── Domains ─────────────────────────────────────────────────────────────
 
-function Domains({ domains, error }: { domains: DomainView[]; error: string | null }) {
+function Domains({ domains, error, scope }: { domains: DomainView[]; error: string | null; scope: Scope }) {
   const [adding, setAdding] = useState(false);
   return (
     <Section
@@ -108,6 +112,7 @@ function Domains({ domains, error }: { domains: DomainView[]; error: string | nu
       }
     >
       {error ? <ErrorLine error={error} /> : null}
+      {!error ? <ScopeNote scope={scope} /> : null}
       {!error && !domains.length ? <p className="px-4 py-3 text-[13px] text-muted">No domains yet. Add one like mail.yourcompany.com to send and receive as your own brand.</p> : null}
       <ul className="divide-y divide-line">
         {domains.map((d) => (
@@ -116,6 +121,22 @@ function Domains({ domains, error }: { domains: DomainView[]; error: string | nu
       </ul>
       {adding ? <AddDomain onClose={() => setAdding(false)} /> : null}
     </Section>
+  );
+}
+
+function ScopeNote({ scope }: { scope: Scope }) {
+  const env = <code className="font-mono text-[12px]">RESEND_DOMAINS</code>;
+  if (scope.scoped)
+    return (
+      <p className="border-b border-line px-4 py-2.5 text-[12.5px] text-muted">
+        Showing only the domains in {env}.{" "}
+        {scope.hidden ? `${scope.hidden} other ${scope.hidden === 1 ? "domain" : "domains"} in this Resend account ${scope.hidden === 1 ? "is" : "are"} hidden and left alone.` : null}
+      </p>
+    );
+  return (
+    <p className="border-b border-line px-4 py-2.5 text-[12.5px] text-muted">
+      Showing every domain in this Resend account. If another app shares the account, set {env} to the domains this CRM should manage (comma-separated) and redeploy. Removing a domain here deletes it in Resend.
+    </p>
   );
 }
 
@@ -151,7 +172,7 @@ function DomainRow({ domain: d }: { domain: DomainView }) {
               aria-label={`Remove ${d.name}`}
               disabled={pending}
               onClick={() => {
-                if (confirm(`Remove ${d.name} from Resend? Email from and to this domain stops working.`)) act(() => removeDomain(d.id), `${d.name} removed`);
+                if (confirm(`Delete ${d.name} from your Resend account? Email from and to this domain stops working, for this CRM and any other app using it.`)) act(() => removeDomain(d.id), `${d.name} removed`);
               }}
             >
               <TrashIcon />

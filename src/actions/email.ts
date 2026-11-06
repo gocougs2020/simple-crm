@@ -10,6 +10,7 @@ import { ActionError, actionUser, isAdmin } from "@/lib/auth";
 import { emailBrand } from "@/lib/brand";
 import { touch } from "@/lib/crm/events";
 import { fromAs, getResend, sendEmail } from "@/lib/email";
+import { assertInboxInScope, InboxError } from "@/lib/email/inbox";
 import { fillMergeTags, fillMergeTagsHtml, mergeValues } from "@/lib/email/merge-tags";
 import { htmlToText, sanitizeHtml } from "@/lib/safe-html";
 import DirectEmail from "@/emails/direct";
@@ -42,6 +43,12 @@ export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise
   return run(async () => {
     const user = await actionUser();
     const data = sendInput.parse(input);
+    if (data.inboxId && getResend()) {
+      // Only inboxes on domains this CRM manages (RESEND_DOMAINS) can send.
+      await assertInboxInScope(data.inboxId).catch((err) => {
+        throw err instanceof InboxError ? new ActionError(err.message) : err;
+      });
+    }
     const db = await getDb();
     const [row] = await db
       .select({ person: people, organizationName: organizations.name })
