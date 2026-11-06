@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { DropdownMenu as M, Popover as P, Tooltip as T } from "radix-ui";
+import { DropdownMenu as M, Popover as P, Slot, Tooltip as T } from "radix-ui";
 import type { ComponentProps, ReactNode } from "react";
 
 export const Menu = M.Root;
@@ -20,7 +20,7 @@ export function MenuContent({ className, align = "end", ...props }: ComponentPro
   );
 }
 
-export function MenuItem({ className, destructive, icon, children, ...props }: ComponentProps<typeof M.Item> & { destructive?: boolean; icon?: ReactNode }) {
+export function MenuItem({ className, destructive, icon, children, asChild, ...props }: ComponentProps<typeof M.Item> & { destructive?: boolean; icon?: ReactNode }) {
   return (
     <M.Item
       className={clsx(
@@ -28,10 +28,12 @@ export function MenuItem({ className, destructive, icon, children, ...props }: C
         destructive ? "text-error" : "text-secondary data-[highlighted]:text-primary",
         className,
       )}
+      asChild={asChild}
       {...props}
     >
       {icon}
-      {children}
+      {/* With asChild the item renders as its child (a link, say), so the icon has to go inside it: Slottable marks which element that is. */}
+      {asChild ? <Slot.Slottable>{children}</Slot.Slottable> : children}
     </M.Item>
   );
 }
