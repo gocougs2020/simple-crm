@@ -21,7 +21,7 @@ import type { CustomValues } from "@/db/schema";
 import type { ActivityType, ClientCategory, CustomFieldType, EntityType } from "@/lib/constants";
 import { rankBetween } from "@/lib/rank";
 import { sanitizeHtml, textToHtml } from "@/lib/safe-html";
-import { mapLimit, PipedriveApi, type PdActivity, type PdDeal, type PdField, type PdId, type PdMailMessage, type PdUser } from "./pipedrive/api";
+import { mapLimit, PipedriveApi, sleep, type PdActivity, type PdDeal, type PdField, type PdId, type PdMailMessage, type PdUser } from "./pipedrive/api";
 import { dealCategory, openToReturn, pipelineRole, planClients, planStages, productEnded, stageName, type ClientPlan, type Lookup } from "./pipedrive/plan";
 
 type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
@@ -98,15 +98,18 @@ const time = (s: string | null | undefined) => {
 const day = (s: string | null | undefined) => (s ? (time(s)?.toISOString().slice(0, 10) ?? (/^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null)) : null);
 const cents = (v: number | null | undefined) => (typeof v === "number" && Number.isFinite(v) ? Math.round(v * 100) : 0);
 /** Trimmed text, cut to `n` characters. Pipedrive sometimes sends ids or objects where text is expected; those count as blank. */
-const clip = (s: unknown, n: number) => (typeof s === "string" || typeof s === "number" ? String(s).trim().slice(0, n) || null : null);
+/** Drops what Postgres can't store in text: NUL bytes and broken UTF-16 (a lone half of a surrogate pair). */
+const storable = (s: string) => s.replace(/\u0000/g, "").replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD");
+const clip = (s: unknown, n: number) => (typeof s === "string" || typeof s === "number" ? storable(String(s)).trim().slice(0, n) || null : null);
 
 /**
  * Pipedrive HTML (notes, email) made safe. Pipedrive rewrites links in sent
  * email to go through its click tracker; the original address is kept in
  * data-pipedrive-original-href, so put that back before sanitizing.
  */
-function cleanHtml(html: string | null | undefined) {
-  if (!html?.trim()) return null;
+function cleanHtml(raw: string | null | undefined) {
+  if (!raw?.trim()) return null;
+  const html = storable(raw);
   const untracked = html.replace(/<a\b[^>]*>/gi, (tag) => {
     const original = /data-pipedrive-original-href="([^"]*)"/i.exec(tag)?.[1];
     return original ? tag.replace(/\shref="[^"]*"/i, ` href="${original}"`) : tag;
@@ -482,8 +485,7 @@ async function runImport(db: Database) {
       return { pd: n.id, values: { type: "note" as const, body: cleanHtml(n.content), occurredAt: at, createdAt: at, updatedAt: at, pinned: !!(n.pinned_to_deal_flag || n.pinned_to_person_flag || n.pinned_to_organization_flag), userId: user(n.user_id), assigneeId: user(n.user_id), ...linksFor(n.deal_id, n.org_id, n.person_id) } };
     })
     .filter((r) => r.values.body && (r.values.personId || r.values.organizationId || r.values.clientId));
-  await insertActivities(db, links, "note", noteRows);
-  log(`Notes: ${noteRows.length} added`);
+  log(`Notes: ${await insertActivities(db, links, "note", noteRows)} added`);
 
   const typeNames = new Map(activityTypes.map((t) => [t.key_string, t.name]));
   const outcomeNames = new Map((activityFields.find((f) => f.key === "outcome")?.options ?? []).map((o) => [String(o.id), o.label.trim()]));
@@ -491,8 +493,7 @@ async function runImport(db: Database) {
     .filter((a) => !links.get("activity", a.id))
     .map((a) => ({ pd: a.id, values: { ...activityValues(a, typeNames, outcomeNames, user, now), ...linksFor(a.deal_id, a.org_id, a.person_id) } }))
     .filter((r) => r.values.personId || r.values.organizationId || r.values.clientId);
-  await insertActivities(db, links, "activity", activityRows);
-  log(`Activities: ${activityRows.length} added`);
+  log(`Activities: ${await insertActivities(db, links, "activity", activityRows)} added`);
 
   if (mailPeople.length) {
     const withMail = mailPeople.filter((p) => personIds.has(p.id));
@@ -511,8 +512,7 @@ async function runImport(db: Database) {
           seen.add(m.id);
           return { pd: m.id, values: { ...emailValues(m, user), ...linksFor(m.deal_id, null, p.id) } };
         });
-      await insertActivities(db, links, "email", rows);
-      added += rows.length;
+      added += await insertActivities(db, links, "email", rows);
       if (++done % 50 === 0) log(`  ${done}/${withMail.length} people, ${added} emails`);
     });
     log(`Email: ${added} messages added`);
@@ -528,6 +528,11 @@ async function runImport(db: Database) {
       sql.raw(`update "${table}" t set last_activity_at = s.at from (select ${column} as id, max(coalesce(occurred_at, completed_at)) as at from activities where ${column} is not null group by ${column}) s
        where t.id = s.id and s.at is not null and (t.last_activity_at is null or t.last_activity_at < s.at)`),
     );
+  }
+  if (skippedRows.length) {
+    log(`\n${skippedRows.length} items couldn't be stored and were skipped:`);
+    for (const line of skippedRows.slice(0, 50)) log(`  ${line}`);
+    if (skippedRows.length > 50) log(`  …and ${skippedRows.length - 50} more`);
   }
   log(`\nDone. ${api.requests} Pipedrive requests.`);
 }
@@ -710,15 +715,58 @@ async function upsert<V extends Record<string, unknown>>(
   return { created: fresh.length, updated: known.length };
 }
 
+/** Notes, activities and email that couldn't be stored, listed at the end of the run. */
+const skippedRows: string[] = [];
+
+/**
+ * Inserts timeline items in batches. A batch that fails is retried (dropped
+ * connections happen on long runs); if it keeps failing, its rows go in one
+ * at a time and any row that still can't be stored is skipped and reported,
+ * so one bad message can't stop the import.
+ */
+/** Returns how many were stored. */
 async function insertActivities(db: Database, links: Links, kind: "note" | "activity" | "email", rows: { pd: PdId; values: typeof schema.activities.$inferInsert }[]) {
-  for (const batch of chunks(rows, 200)) {
-    const created = await db
-      .insert(schema.activities)
-      .values(batch.map((r) => r.values))
-      .returning({ id: schema.activities.id });
-    created.forEach((row, i) => links.add(kind, batch[i].pd, row.id));
+  let stored = 0;
+  const insert = (batch: typeof rows) => db.insert(schema.activities).values(batch.map((r) => r.values)).returning({ id: schema.activities.id });
+  // Email bodies carry whole quoted threads, so their batches stay small.
+  for (const batch of chunks(rows, kind === "email" ? 10 : 200)) {
+    let created: { id: string }[] | null = null;
+    for (let attempt = 0; attempt < 3 && !created; attempt++) {
+      try {
+        created = await insert(batch);
+      } catch (err) {
+        if (attempt === 2) console.warn(`  A batch of ${batch.length} ${kind === "activity" ? "activities" : `${kind}s`} failed (${describe(err)}); storing them one by one.`);
+        else await sleep(2 ** attempt * 2000);
+      }
+    }
+    if (created) {
+      created.forEach((row, i) => links.add(kind, batch[i].pd, row.id));
+      stored += created.length;
+    } else {
+      for (const r of batch) {
+        try {
+          const [row] = await insert([r]);
+          links.add(kind, r.pd, row.id);
+          stored++;
+        } catch (err) {
+          const when = r.values.occurredAt ?? r.values.dueAt ?? r.values.createdAt;
+          skippedRows.push(`${kind} ${r.pd}${r.values.subject ? ` “${r.values.subject}”` : ""}${when ? ` (${new Date(when).toISOString().slice(0, 10)})` : ""}: ${describe(err)}`);
+        }
+      }
+    }
     await links.flush();
   }
+  return stored;
+}
+
+/** The useful part of an error: Postgres's own message, which drizzle wraps in a "Failed query" error with the whole statement. */
+function describe(err: unknown): string {
+  const seen: string[] = [];
+  for (let e: unknown = err; e && seen.length < 5; e = (e as { cause?: unknown }).cause) {
+    const m = e instanceof Error ? e.message : String(e);
+    if (!m.startsWith("Failed query")) seen.push(m.split("\n")[0].slice(0, 300));
+  }
+  return seen.join(" ← ") || "unknown error";
 }
 
 async function ensureField(db: Database, links: Links, entity: EntityType, key: string, label: string, type: CustomFieldType, options: string[]) {
@@ -805,7 +853,7 @@ async function reset(db: Database) {
 }
 
 main().catch((err) => {
-  console.error(`\n${err instanceof Error ? err.message : err}`);
+  console.error(`\n${describe(err)}`);
   process.exit(1);
 });
 
