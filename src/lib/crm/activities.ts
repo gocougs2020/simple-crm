@@ -64,7 +64,7 @@ export type TimelineItem =
 export async function timeline(entity: EntityType, id: string) {
   const db = await getDb();
   const link = linkColumn[entity];
-  const [planned, done, history, attached, mail] = await Promise.all([
+  const [planned, done, history, attached, mail, [contact]] = await Promise.all([
     activityRows(and(eq(link, id), isNull(activities.completedAt), isNotNull(activities.dueAt)), { order: [asc(activities.dueAt)], limit: 100 }),
     activityRows(and(eq(link, id), or(isNotNull(activities.completedAt), isNull(activities.dueAt))), {
       order: [desc(activities.pinned), desc(sql`coalesce(${activities.occurredAt}, ${activities.completedAt}, ${activities.createdAt})`)],
@@ -99,6 +99,11 @@ export async function timeline(entity: EntityType, id: string) {
       .where(and(eq(link, id), sql`jsonb_array_length(${schema.inboxMessages.attachments}) > 0`))
       .orderBy(desc(schema.inboxMessages.sentAt))
       .limit(200),
+    // Its own query, so it's right however long the history is.
+    db
+      .select({ at: sql<Date | null>`max(coalesce(${activities.occurredAt}, ${activities.completedAt}, ${activities.createdAt}))` })
+      .from(activities)
+      .where(and(eq(link, id), inArray(activities.type, interactionTypes), or(isNotNull(activities.completedAt), isNull(activities.dueAt)))),
   ]);
   const past: TimelineItem[] = [
     ...done.map((row): TimelineItem => ({ kind: "activity", at: (row.activity.occurredAt ?? row.activity.completedAt ?? row.activity.createdAt).toISOString(), row })),
@@ -108,19 +113,41 @@ export async function timeline(entity: EntityType, id: string) {
   ];
   const pinned = past.filter((i) => i.kind === "activity" && i.row.activity.pinned);
   const rest = past.filter((i) => !(i.kind === "activity" && i.row.activity.pinned)).sort((a, b) => b.at.localeCompare(a.at));
-  const contacts = done.filter((r) => interactionTypes.includes(r.activity.type)).map((r) => (r.activity.occurredAt ?? r.activity.completedAt ?? r.activity.createdAt).toISOString());
-  const lastContactAt = contacts.length ? contacts.reduce((a, b) => (a > b ? a : b)) : null;
+  const lastContactAt = contact?.at ? new Date(contact.at).toISOString() : null;
   const emailFiles: EmailFile[] = mail.flatMap((m) => m.attachments.map((a) => ({ key: `${m.id}:${a.id}`, name: a.filename ?? "Attachment", size: a.size, threadId: m.threadId, from: m.from, at: m.sentAt })));
   return { planned, pinned, past: rest, lastContactAt, files: attached, emailFiles };
 }
 
 /**
+ * Fills in the links an activity implies: logged on a client, it also shows on
+ * the client's contact and organization; logged on a person, on their
+ * organization. That's what makes the organization page the whole story.
+ */
+export async function resolveLinks(l: { personId?: string | null; organizationId?: string | null; clientId?: string | null }) {
+  const db = await getDb();
+  let { personId = null, organizationId = null } = l;
+  const clientId = l.clientId ?? null;
+  if (clientId) {
+    const [d] = await db.select({ personId: clients.personId, organizationId: clients.organizationId }).from(clients).where(eq(clients.id, clientId));
+    if (!d) throw new ActionError("That client was deleted.");
+    personId ??= d.personId;
+    organizationId ??= d.organizationId;
+  }
+  if (personId && !organizationId) {
+    const [p] = await db.select({ organizationId: people.organizationId }).from(people).where(eq(people.id, personId));
+    organizationId = p?.organizationId ?? null;
+  }
+  return { personId, organizationId, clientId };
+}
+
+/**
  * What an uploaded file links to. A file attached to an activity takes that
  * activity's person, organization and client, so it shows on every record the
- * activity does; otherwise the links the browser sent stand.
+ * activity does; otherwise the links the browser sent roll up the same way
+ * an activity's do (a client's file also shows on its contact and organization).
  */
 export async function uploadLinks(input: { personId?: string | null; organizationId?: string | null; clientId?: string | null; activityId?: string | null }) {
-  if (!input.activityId) return { personId: input.personId ?? null, organizationId: input.organizationId ?? null, clientId: input.clientId ?? null, activityId: null };
+  if (!input.activityId) return { ...(await resolveLinks(input)), activityId: null };
   const db = await getDb();
   const [a] = await db
     .select({ personId: activities.personId, organizationId: activities.organizationId, clientId: activities.clientId })

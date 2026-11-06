@@ -129,7 +129,7 @@ export function EmailComposer({ links, recipient }: { links: Links; recipient: E
         </div>
       ) : null}
       <Input ref={subjectRef} value={subject} onChange={(e) => setSubject(e.target.value)} onFocus={() => setLastFocus("subject")} placeholder="Subject" aria-label="Subject" />
-      <div onFocusCapture={() => setLastFocus("body")}>
+      <div onFocusCapture={(e) => (e.target as HTMLElement).isContentEditable && setLastFocus("body")}>
         <RichText
           handle={editor}
           value={body}
