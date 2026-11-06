@@ -3,7 +3,7 @@ import { and, desc, eq, gte, inArray, isNotNull, isNull, sql } from "drizzle-orm
 import type { GetInboxThreadEmailResponseSuccess } from "resend";
 import { getDb, schema } from "@/db";
 import { touch } from "@/lib/crm/events";
-import { getResend, inEmailScope } from "@/lib/email";
+import { emailDomainsScoped, getResend, inEmailScope } from "@/lib/email";
 import { sanitizeHtml } from "@/lib/safe-html";
 
 const { inboxThreads, inboxMessages, activities, people, organizations, clients, outboundEmails } = schema;
@@ -95,16 +95,16 @@ const outOfScope = "That belongs to a domain this CRM doesn't manage. Add the do
 
 /** Refuses an inbox on a domain outside RESEND_DOMAINS, so the CRM can't send from or change another app's inbox. */
 export async function assertInboxInScope(inboxId: string) {
+  if (!emailDomainsScoped) return;
   const inbox = must(await resendOrThrow().inboxes.get(inboxId), "load the inbox");
   if (!inEmailScope(inbox.email_address)) throw new InboxError(outOfScope);
-  return inbox;
 }
 
 /** Refuses a domain outside RESEND_DOMAINS, so the CRM can't verify, change or remove another app's domain. */
 export async function assertDomainInScope(domainId: string) {
+  if (!emailDomainsScoped) return;
   const domain = must(await resendOrThrow().domains.get(domainId), "load the domain");
   if (!inEmailScope(domain.name)) throw new InboxError(outOfScope);
-  return domain;
 }
 
 /**
