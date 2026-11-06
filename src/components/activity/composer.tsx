@@ -172,12 +172,54 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
           autoFocus={isTask}
         />
       ) : null}
+      {type !== "note" ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <label className="sr-only" htmlFor={`${type}-day`}>
+              {isTask ? "Due date" : "Date"}
+            </label>
+            <Input id={`${type}-day`} type="date" value={day} onChange={(e) => setDay(e.target.value)} className="h-8 w-[9.5rem] text-[13px]" />
+            <label className="sr-only" htmlFor={`${type}-time`}>
+              Time
+            </label>
+            <Input id={`${type}-time`} type="time" value={time} onChange={(e) => setTime(e.target.value)} className="h-8 w-[7.5rem] text-[13px]" step={900} />
+          </div>
+          {type === "call" || type === "meeting" ? (
+            <Input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              value={duration}
+              onChange={(e) => setDuration(e.target.value)}
+              placeholder="Min"
+              aria-label="Duration in minutes"
+              className="h-8 w-16 text-[13px]"
+            />
+          ) : null}
+          {planned ? (
+            <div className="w-40">
+              <OwnerSelect value={assigneeId} onChange={setAssigneeId} allowNone={false} className="[&_select]:h-8 [&_select]:text-[13px]" />
+            </div>
+          ) : null}
+          {!planned ? <FollowUp value={followUp} onChange={setFollowUp} /> : null}
+        </div>
+      ) : null}
       <RichText
         handle={editor}
         value={body}
         onChange={setBody}
         onSubmit={submit}
         minHeight={isTask ? 44 : 72}
+        actions={
+          <>
+            <span className="hidden text-[11.5px] text-faint sm:inline">
+              <Kbd>⌘</Kbd> <Kbd>↵</Kbd>
+            </span>
+            <Button variant="primary" size="sm" loading={pending} onClick={submit}>
+              {label}
+            </Button>
+          </>
+        }
         placeholder={
           {
             note: "Write a note. Only your team sees it.",
@@ -189,48 +231,6 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
           }[type]
         }
       />
-      <div className="flex flex-wrap items-center gap-2">
-        {type !== "note" ? (
-          <div className="flex items-center gap-1.5">
-            <label className="sr-only" htmlFor={`${type}-day`}>
-              {isTask ? "Due date" : "Date"}
-            </label>
-            <Input id={`${type}-day`} type="date" value={day} onChange={(e) => setDay(e.target.value)} className="h-8 w-[9.5rem] text-[13px]" />
-            <label className="sr-only" htmlFor={`${type}-time`}>
-              Time
-            </label>
-            <Input id={`${type}-time`} type="time" value={time} onChange={(e) => setTime(e.target.value)} className="h-8 w-[7.5rem] text-[13px]" step={900} />
-          </div>
-        ) : null}
-        {type === "call" || type === "meeting" ? (
-          <div className="flex items-center gap-1.5">
-            <Input
-              type="number"
-              min={0}
-              inputMode="numeric"
-              value={duration}
-              onChange={(e) => setDuration(e.target.value)}
-              placeholder="Min"
-              aria-label="Duration in minutes"
-              className="h-8 w-16 text-[13px]"
-            />
-          </div>
-        ) : null}
-        {planned ? (
-          <div className="w-40">
-            <OwnerSelect value={assigneeId} onChange={setAssigneeId} allowNone={false} className="[&_select]:h-8 [&_select]:text-[13px]" />
-          </div>
-        ) : null}
-        {!planned && type !== "note" ? <FollowUp value={followUp} onChange={setFollowUp} /> : null}
-        <div className="ml-auto flex items-center gap-2">
-          <span className="hidden text-[11.5px] text-faint sm:inline">
-            <Kbd>⌘</Kbd> <Kbd>↵</Kbd>
-          </span>
-          <Button variant="primary" size="sm" loading={pending} onClick={submit}>
-            {label}
-          </Button>
-        </div>
-      </div>
     </div>
   );
 }

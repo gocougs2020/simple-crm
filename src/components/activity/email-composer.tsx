@@ -128,39 +128,48 @@ export function EmailComposer({ links, recipient }: { links: Links; recipient: E
           <Input id="email-cc" value={cc} onChange={(e) => setCc(e.target.value)} placeholder="name@company.com, …" className="h-8 text-[13px]" autoFocus />
         </div>
       ) : null}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-12">
+        <Checkbox checked={copyMe} onChange={(e) => setCopyMe(e.target.checked)} label={<span className="text-[13px]">Send me a copy</span>} />
+        <p className="text-fine">{inboxId ? "Replies come back to the CRM inbox. The email is saved to this timeline." : "Replies go to your own inbox. The email is saved to this timeline."}</p>
+      </div>
       <Input ref={subjectRef} value={subject} onChange={(e) => setSubject(e.target.value)} onFocus={() => setLastFocus("subject")} placeholder="Subject" aria-label="Subject" />
       <div onFocusCapture={() => setLastFocus("body")}>
-        <RichText handle={editor} value={body} onChange={setBody} onSubmit={send} minHeight={120} placeholder={`Hi {{first_name}},`} />
+        <RichText
+          handle={editor}
+          value={body}
+          onChange={setBody}
+          onSubmit={send}
+          minHeight={120}
+          placeholder={`Hi {{first_name}},`}
+          actions={
+            <>
+              <Menu>
+                <MenuTrigger asChild>
+                  <Button size="sm" variant="ghost" className="h-7">
+                    <CodeBracketIcon />
+                    Insert field
+                  </Button>
+                </MenuTrigger>
+                <MenuContent align="end" className="w-52">
+                  <MenuLabel>Filled in when sent</MenuLabel>
+                  {mergeTags.map((t) => (
+                    <MenuItem key={t} onSelect={() => insertTag(t)}>
+                      {mergeTagLabels[t]}
+                      <span className="ml-auto font-mono text-[11px] text-faint">{`{{${t}}}`}</span>
+                    </MenuItem>
+                  ))}
+                </MenuContent>
+              </Menu>
+              <span className="hidden text-[11.5px] text-faint sm:inline">
+                <Kbd>⌘</Kbd> <Kbd>↵</Kbd>
+              </span>
+              <Button variant="primary" size="sm" loading={pending} onClick={send}>
+                Send email
+              </Button>
+            </>
+          }
+        />
       </div>
-      <div className="flex flex-wrap items-center gap-3">
-        <Menu>
-          <MenuTrigger asChild>
-            <Button size="sm" variant="ghost">
-              <CodeBracketIcon />
-              Insert field
-            </Button>
-          </MenuTrigger>
-          <MenuContent align="start" className="w-52">
-            <MenuLabel>Filled in when sent</MenuLabel>
-            {mergeTags.map((t) => (
-              <MenuItem key={t} onSelect={() => insertTag(t)}>
-                {mergeTagLabels[t]}
-                <span className="ml-auto font-mono text-[11px] text-faint">{`{{${t}}}`}</span>
-              </MenuItem>
-            ))}
-          </MenuContent>
-        </Menu>
-        <Checkbox checked={copyMe} onChange={(e) => setCopyMe(e.target.checked)} label={<span className="text-[13px]">Send me a copy</span>} />
-        <div className="ml-auto flex items-center gap-2">
-          <span className="hidden text-[11.5px] text-faint sm:inline">
-            <Kbd>⌘</Kbd> <Kbd>↵</Kbd>
-          </span>
-          <Button variant="primary" size="sm" loading={pending} onClick={send}>
-            Send email
-          </Button>
-        </div>
-      </div>
-      <p className="text-fine">{inboxId ? "Replies come back to the CRM inbox. The email is saved to this timeline." : "Replies go to your own inbox. The email is saved to this timeline."}</p>
     </div>
   );
 }

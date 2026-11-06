@@ -452,7 +452,6 @@ function EditActivity({ row, onClose }: { row: ActivityRow; onClose: () => void 
     >
       <div className="flex flex-col gap-4">
         {a.type !== "note" ? <Field label={a.type === "task" ? "Task" : "Subject"}>{(p) => <Input {...p} value={subject} onChange={(e) => setSubject(e.target.value)} />}</Field> : null}
-        <RichText value={body} onChange={setBody} onSubmit={save} minHeight={120} autoFocus={a.type === "note"} />
         {a.type !== "note" ? (
           <div className="flex flex-wrap gap-3">
             <Field label={open ? "Due" : "When"}>{(p) => <Input {...p} type="date" value={day} onChange={(e) => setDay(e.target.value)} className="w-40" />}</Field>
@@ -462,6 +461,7 @@ function EditActivity({ row, onClose }: { row: ActivityRow; onClose: () => void 
             {open ? <Field label="Assigned to">{(p) => <OwnerSelect id={p.id} value={assigneeId} onChange={setAssigneeId} allowNone={false} />}</Field> : null}
           </div>
         ) : null}
+        <RichText value={body} onChange={setBody} onSubmit={save} minHeight={120} autoFocus={a.type === "note"} />
       </div>
     </Dialog>
   );
