@@ -210,16 +210,6 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
         onChange={setBody}
         onSubmit={submit}
         minHeight={isTask ? 44 : 72}
-        actions={
-          <>
-            <span className="hidden text-[11.5px] text-faint sm:inline">
-              <Kbd>⌘</Kbd> <Kbd>↵</Kbd>
-            </span>
-            <Button variant="primary" size="sm" loading={pending} onClick={submit}>
-              {label}
-            </Button>
-          </>
-        }
         placeholder={
           {
             note: "Write a note. Only your team sees it.",
@@ -231,6 +221,14 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
           }[type]
         }
       />
+      <div className="flex items-center justify-end gap-2">
+        <span className="hidden text-[11.5px] text-faint sm:inline">
+          <Kbd>⌘</Kbd> <Kbd>↵</Kbd>
+        </span>
+        <Button variant="primary" size="sm" loading={pending} onClick={submit}>
+          {label}
+        </Button>
+      </div>
     </div>
   );
 }

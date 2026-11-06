@@ -13,9 +13,8 @@ export type RichTextHandle = { clear: () => void; focus: () => void; insert: (ht
  * The rich-text box used for notes, call summaries and email bodies. Small on
  * purpose: bold, italic, lists and links. ⌘/Ctrl+Enter submits.
  *
- * The toolbar sits above the text, and `actions` (a form's submit button,
- * "Insert field") sit at its right end, so the text is always the last thing
- * in the box, with no row of controls underneath it.
+ * The toolbar sits above the text; `actions` (like "Insert field") sit at
+ * its right end.
  */
 export function RichText({
   value,
