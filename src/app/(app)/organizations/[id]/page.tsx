@@ -57,7 +57,7 @@ async function Organization({ params }: Pick<PageProps<"/organizations/[id]">, "
             <OrganizationDetails org={org} />
             <RelatedPeople people={people} organization={org} />
             <RelatedClients clients={clients} create={{ kind: "client", defaults: { organizationId: id, organizationName: org.name, name: org.name } }} />
-            <FilesCard files={tl.files} emailFiles={tl.emailFiles} />
+            <FilesCard files={tl.files} emailFiles={tl.emailFiles} links={{ organizationId: id }} />
           </>
         }
       >

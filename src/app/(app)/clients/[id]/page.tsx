@@ -101,7 +101,7 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
               </ServicesCard>
             ) : null}
             {c === "current" || metrics.length ? <PerformanceCard clientId={id} metrics={metrics} readOnly={c !== "current"} /> : null}
-            <FilesCard files={tl.files} emailFiles={tl.emailFiles} />
+            <FilesCard files={tl.files} emailFiles={tl.emailFiles} links={{ clientId: id, personId: client.personId, organizationId: client.organizationId }} />
           </>
         }
       >
