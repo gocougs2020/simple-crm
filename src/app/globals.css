@@ -43,6 +43,9 @@
   --color-neutral: var(--neutral);
   --color-neutral-surface: var(--neutral-surface);
   --color-neutral-border: var(--neutral-border);
+  --color-note-surface: var(--note-surface);
+  --color-note-border: var(--note-border);
+  --color-toast-success-icon: var(--toast-success-icon);
 
   /* HiringCenter radii: sm controls, md buttons/inputs, lg tables, xl cards and dialogs. */
   --radius-sm: 4px;

@@ -7,10 +7,11 @@ import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
 import { ActionError, actionUser, isAdmin } from "@/lib/auth";
 import { activityTypes } from "@/lib/constants";
+import { resolveLinks } from "@/lib/crm/activities";
 import { recordEvent, touch } from "@/lib/crm/events";
 import { sanitizeHtml } from "@/lib/safe-html";
 
-const { activities, clients, people } = schema;
+const { activities, clients } = schema;
 
 const activityInput = z.object({
   type: z.enum(activityTypes),
@@ -37,28 +38,6 @@ const activityInput = z.object({
 });
 
 export type ActivityInput = z.input<typeof activityInput>;
-
-/**
- * Fills in the links an activity implies: logged on a client, it also shows on
- * the client's contact and organization; logged on a person, on their
- * organization. That's what makes the organization page the whole story.
- */
-async function resolveLinks(l: { personId?: string | null; organizationId?: string | null; clientId?: string | null }) {
-  const db = await getDb();
-  let { personId = null, organizationId = null } = l;
-  const clientId = l.clientId ?? null;
-  if (clientId) {
-    const [d] = await db.select({ personId: clients.personId, organizationId: clients.organizationId }).from(clients).where(eq(clients.id, clientId));
-    if (!d) throw new ActionError("That client was deleted.");
-    personId ??= d.personId;
-    organizationId ??= d.organizationId;
-  }
-  if (personId && !organizationId) {
-    const [p] = await db.select({ organizationId: people.organizationId }).from(people).where(eq(people.id, personId));
-    organizationId = p?.organizationId ?? null;
-  }
-  return { personId, organizationId, clientId };
-}
 
 function cleanBody(body: string | null | undefined) {
   const html = sanitizeHtml(body);

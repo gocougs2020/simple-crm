@@ -61,7 +61,7 @@ function ToastItem({ toast: t }: { toast: Toast }) {
         t.tone === "success" ? "bg-primary" : "bg-error",
       )}
     >
-      <Icon className={clsx("size-4 shrink-0", t.tone === "success" ? "text-[#4ade80]" : "text-white")} aria-hidden />
+      <Icon className={clsx("size-4 shrink-0", t.tone === "success" ? "text-toast-success-icon" : "text-white")} aria-hidden />
       <span className="min-w-0 flex-1">{t.message}</span>
       {t.action ? (
         <button

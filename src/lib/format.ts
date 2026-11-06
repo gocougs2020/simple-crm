@@ -165,3 +165,6 @@ export function dayFromToday(tz: string, days = 0, now = new Date()) {
 export function timeKey(d: DateInput, tz: string) {
   return new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(toDate(d));
 }
+
+/** "Sam Lee <sam@acme.com>" → "Sam Lee"; a bare address stays as it is. */
+export const senderName = (raw: string) => /^\s*"?([^"<]+?)"?\s*</.exec(raw)?.[1]?.trim() || (/<([^>]+)>/.exec(raw)?.[1] ?? raw);

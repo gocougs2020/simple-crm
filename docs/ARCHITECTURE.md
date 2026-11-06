@@ -35,7 +35,7 @@ drizzle/             SQL migrations generated from schema.ts
 | `client_metrics` | Performance numbers logged over time per client ("Leads", "Days to fill") |
 | `activities` | Notes, calls, emails, texts, meetings and tasks in one table. Links to a person, organization and/or client |
 | `events` | Change history: who changed what, from what, to what |
-| `files` | Metadata; the bytes live in private Vercel Blob |
+| `files` | Metadata; the bytes live in private Vercel Blob. A file added to a note, call or other activity keeps its `activity_id` and takes that activity's links |
 | `custom_fields` | Field definitions per record type. Values live on the record, keyed by a stable `key` |
 | `email_templates`, `campaigns`, `outbound_emails` | Email. `outbound_emails` records every message sent |
 | `inbox_threads`, `inbox_messages` | A mirror of the workspace's Resend inboxes, linked to people, organizations and clients |
@@ -44,7 +44,7 @@ drizzle/             SQL migrations generated from schema.ts
 
 Choices worth knowing:
 
-- **Clients are one table, in three categories.** A client is prospective, current or past. The category decides which pipelines it moves through (each pipeline has a `category`) and what its page shows: potential value and expected close for prospects; health, services, Stripe billing, performance and contact frequency for current clients; what they had, why they left and whether they'd come back for past clients. Moving between categories (`changeClientCategory`) records dates, the reason and a history entry, and ends or starts services in the same step. Deals were renamed to clients in place (migration `0001`), so ids, links and history carried over; won deals became current clients, lost ones prospects in a "Not now" stage.
+- **Clients are one table, in three categories.** A client is prospective, current or past. The category decides which pipelines it moves through (each pipeline has a `category`) and what its page shows: potential value and expected close for prospects; health, services and Stripe billing (one card), performance and time since last contact for current clients; what they had, why they left and whether they'd come back for past clients. Moving between categories (`changeClientCategory`) records dates, the reason and a history entry, and ends or starts services in the same step. Deals were renamed to clients in place (migration `0001`), so ids, links and history carried over; won deals became current clients, lost ones prospects in a "Not now" stage.
 - **Monthly revenue is derived, never stored.** It's the sum of a client's open `client_services`, normalized to a month, so changing a price or ending a service is the only thing to keep up to date.
 - **Activities are one table.** "Log a call" and "add a task" are the same gesture with different fields, and a record's timeline is one query. An open activity with a `due_at` is planned; one with `completed_at` or no `due_at` is history.
 - **Links roll up.** Logging on a client fills in its contact and organization; logging on a person fills in their organization. The organization page is the whole story without joins across clients.

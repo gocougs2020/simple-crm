@@ -3,7 +3,8 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
-import { getUser } from "@/lib/auth";
+import { ActionError, getUser } from "@/lib/auth";
+import { uploadLinks } from "@/lib/crm/activities";
 import { touch } from "@/lib/crm/events";
 import { blobConfigured, cleanFileName, fileProblem, LOCAL_UPLOAD_DIR } from "@/lib/files";
 
@@ -18,11 +19,16 @@ export async function POST(request: Request) {
   const problem = fileProblem(file.name, file.size, file.type);
   if (problem) return NextResponse.json({ error: problem }, { status: 400 });
   const id = z.uuid().nullable();
-  const links = {
-    personId: id.parse(form.get("personId") || null),
-    organizationId: id.parse(form.get("organizationId") || null),
-    clientId: id.parse(form.get("clientId") || null),
-  };
+  const sent = id.array().safeParse(["personId", "organizationId", "clientId", "activityId"].map((k) => form.get(k) || null));
+  if (!sent.success) return NextResponse.json({ error: "That record link isn't valid." }, { status: 400 });
+  const [personId, organizationId, clientId, activityId] = sent.data;
+  let links: Awaited<ReturnType<typeof uploadLinks>>;
+  try {
+    links = await uploadLinks({ personId, organizationId, clientId, activityId });
+  } catch (err) {
+    if (err instanceof ActionError) return NextResponse.json({ error: err.message }, { status: 400 });
+    throw err;
+  }
   const name = cleanFileName(file.name);
   const pathname = `${crypto.randomUUID()}${path.extname(name).slice(0, 12)}`;
   await mkdir(LOCAL_UPLOAD_DIR, { recursive: true });

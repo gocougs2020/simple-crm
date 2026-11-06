@@ -2,12 +2,15 @@
 
 import clsx from "clsx";
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import {
   ArrowDownLeftIcon,
   ArrowUpRightIcon,
   ArrowsRightLeftIcon,
+  ArrowDownTrayIcon,
+  ArrowUpTrayIcon,
   BriefcaseIcon,
+  ChevronRightIcon,
   CheckIcon,
   CreditCardIcon,
   EnvelopeOpenIcon,
@@ -24,6 +27,7 @@ import {
 type Context = { type: EntityType; id: string; category?: ClientCategory };
 import { MapPinIcon } from "@heroicons/react/24/outline";
 import { deleteActivity, setCompleted, setPinned, updateActivity } from "@/actions/activities";
+import { deleteFile } from "@/actions/files";
 import { useApp } from "@/components/app-context";
 import { OwnerSelect } from "@/components/records/owner-select";
 import { Avatar } from "@/components/ui/avatar";
@@ -33,37 +37,49 @@ import { Dialog } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Field, Input } from "@/components/ui/field";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tooltip } from "@/components/ui/menu";
+import { useUploader } from "@/components/files/files-panel";
+import type { FileLinks } from "@/components/files/upload";
 import { RichText } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
-import type { ActivityRow, TimelineItem } from "@/lib/crm/activities";
+import type { ActivityRow, RecordFile, TimelineItem } from "@/lib/crm/activities";
 import { activityLabels, clientCategoryLabels, clientHealthLabels, interactionTypes, type ActivityType, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
-import { dayKey, dueTone, formatBytes, formatDateTime, formatDay, formatFull, formatTime, timeKey, zonedTime } from "@/lib/format";
+import { dayKey, dueTone, formatBytes, formatDateTime, formatDay, formatFull, formatTime, senderName, timeKey, zonedTime } from "@/lib/format";
 import { activityIcons } from "./composer";
 import { askNextStep } from "./next-step-dialog";
-import { ScheduleNext } from "./schedule-next";
 
-type Filter = "all" | "interactions" | ActivityType | "changes" | "files";
+type Filter = "all" | "conversations" | "tasks";
 
 const filters: { value: Filter; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "interactions", label: "Interactions" },
-  { value: "note", label: "Notes" },
-  { value: "call", label: "Calls" },
-  { value: "email", label: "Emails" },
-  { value: "text", label: "Texts" },
-  { value: "meeting", label: "Meetings" },
-  { value: "task", label: "Tasks" },
-  { value: "changes", label: "Changes" },
-  { value: "files", label: "Files" },
+  { value: "all", label: "Everything" },
+  { value: "conversations", label: "Conversations" },
+  { value: "tasks", label: "Tasks" },
 ];
+
+/** Calls, emails, texts, meetings and notes: what was said, as opposed to what changed. */
+const conversationTypes: ActivityType[] = [...interactionTypes, "note"];
 
 function matches(item: TimelineItem, f: Filter) {
   if (f === "all") return true;
-  if (f === "changes") return item.kind === "event";
-  if (f === "files") return item.kind === "file";
   if (item.kind !== "activity") return false;
-  if (f === "interactions") return interactionTypes.includes(item.row.activity.type);
-  return item.row.activity.type === f;
+  if (f === "tasks") return item.row.activity.type === "task";
+  return conversationTypes.includes(item.row.activity.type);
+}
+
+/** Changes that tell the record's story (signed, left, moved stage) stay on their own line; the rest fold together. */
+const milestones = new Set(["created", "category_changed", "stage_changed", "won", "lost", "reopened"]);
+type EventEntry = Extract<TimelineItem, { kind: "event" }>;
+const isRoutine = (i: EventEntry) => !milestones.has(i.event.action);
+
+/** Runs of two or more routine changes in a row become one group, so field edits don't bury the conversation. */
+function groupRoutine(items: TimelineItem[]) {
+  const out: (TimelineItem | { kind: "group"; events: EventEntry[] })[] = [];
+  for (const i of items) {
+    const last = out.at(-1);
+    if (i.kind === "event" && isRoutine(i) && last?.kind === "group") last.events.push(i);
+    else if (i.kind === "event" && isRoutine(i) && last?.kind === "event" && isRoutine(last)) out[out.length - 1] = { kind: "group", events: [last, i] };
+    else out.push(i);
+  }
+  return out;
 }
 
 /**
@@ -78,47 +94,70 @@ export function Timeline({
   past,
   context,
   emptyHint,
+  fileLinks,
+  files,
 }: {
   planned: ActivityRow[];
   pinned: TimelineItem[];
   past: TimelineItem[];
   context: Context;
   emptyHint: string;
+  /** What an uploaded file is attached to. */
+  fileLinks: FileLinks;
+  /** The record's files; the ones attached to an activity show on it. */
+  files: RecordFile[];
 }) {
+  const byActivity = new Map<string, RecordFile[]>();
+  for (const f of files) if (f.activityId) byActivity.set(f.activityId, [...(byActivity.get(f.activityId) ?? []), f]);
   const [filter, setFilter] = useState<Filter>("all");
-  const shown = past.filter((i) => matches(i, filter));
+  const shown = groupRoutine(past.filter((i) => matches(i, filter)));
+  const input = useRef<HTMLInputElement>(null);
+  const [over, setOver] = useState(false);
+  const { uploads, run } = useUploader(fileLinks);
   const counts = Object.fromEntries(filters.map((f) => [f.value, [...pinned, ...past].filter((i) => matches(i, f.value)).length]));
 
   return (
     <div className="flex flex-col gap-6">
-      <section aria-labelledby="planned-heading">
-        <h2 id="planned-heading" className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-primary">
-          Planned
-          <span className="font-medium text-muted tabular-nums">{planned.length}</span>
-        </h2>
-        {planned.length ? (
+      {planned.length ? (
+        <section aria-labelledby="planned-heading">
+          <h2 id="planned-heading" className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-primary">
+            Planned
+            <span className="font-medium text-muted tabular-nums">{planned.length}</span>
+          </h2>
           <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
             {planned.map((row) => (
-              <PlannedItem key={row.activity.id} row={row} context={context} />
+              <PlannedItem key={row.activity.id} row={row} context={context} attachments={byActivity.get(row.activity.id)} />
             ))}
           </ul>
-        ) : context.type === "client" && context.category !== "past" ? (
-          <ScheduleNext clientId={context.id} />
-        ) : (
-          <p className="rounded-xl border border-dashed border-line px-4 py-3 text-[13px] text-muted">Nothing planned. Add a task or schedule a call above.</p>
-        )}
-      </section>
+        </section>
+      ) : null}
 
       {pinned.length ? (
         <section aria-label="Pinned">
           <h2 className="mb-2 text-[13px] font-semibold text-primary">Pinned</h2>
           <ol className="flex flex-col gap-2">
-            {pinned.map((i) => (i.kind === "activity" ? <ActivityItem key={i.row.activity.id} row={i.row} context={context} /> : null))}
+            {pinned.map((i) => (i.kind === "activity" ? <ActivityItem key={i.row.activity.id} row={i.row} context={context} attachments={byActivity.get(i.row.activity.id)} /> : null))}
           </ol>
         </section>
       ) : null}
 
-      <section aria-labelledby="history-heading">
+      <section
+        aria-labelledby="history-heading"
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes("Files")) return;
+          e.preventDefault();
+          setOver(true);
+        }}
+        onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setOver(false)}
+        onDrop={(e) => {
+          if (!e.dataTransfer.files.length) return;
+          e.preventDefault();
+          setOver(false);
+          run(e.dataTransfer.files);
+        }}
+        className={clsx("-m-2 rounded-xl p-2 transition-colors", over && "bg-accent-soft ring-2 ring-accent ring-dashed")}
+      >
+        <input ref={input} type="file" multiple hidden onChange={(e) => e.target.files && run(e.target.files).then(() => (e.target.value = ""))} />
         <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
           <h2 id="history-heading" className="text-[13px] font-semibold text-primary">
             History
@@ -143,29 +182,41 @@ export function Timeline({
                 </button>
               ))}
           </div>
+          <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={() => input.current?.click()}>
+            <ArrowUpTrayIcon />
+            Attach file
+          </Button>
         </div>
+        {uploads.map((u) => (
+          <div key={u.name} className="mb-2 flex items-center gap-2 pl-[9px] text-[12.5px]">
+            <PaperClipIcon className="size-3.5 text-faint" aria-hidden />
+            <span className="min-w-0 flex-1 truncate text-secondary">{u.name}</span>
+            <span className="w-24 overflow-hidden rounded-full bg-sunken">
+              <span className="block h-1.5 rounded-full bg-accent transition-[width]" style={{ width: `${Math.max(u.pct, 4)}%` }} />
+            </span>
+          </div>
+        ))}
         {shown.length ? (
           <ol className="relative flex flex-col gap-2 before:absolute before:top-2 before:bottom-2 before:left-[15px] before:w-px before:bg-line">
             {shown.map((i) =>
               i.kind === "activity" ? (
-                <ActivityItem key={i.row.activity.id} row={i.row} context={context} />
+                <ActivityItem key={i.row.activity.id} row={i.row} context={context} attachments={byActivity.get(i.row.activity.id)} />
               ) : i.kind === "event" ? (
                 <EventItem key={i.event.id} event={i.event} />
+              ) : i.kind === "group" ? (
+                <ChangeGroup key={i.events[0].event.id} events={i.events} />
               ) : (
                 <FileItem key={i.file.id} file={i.file} />
               ),
             )}
           </ol>
         ) : (
-          <EmptyState variant="subtle" title={filter === "all" ? "No history yet" : `No ${filters.find((f) => f.value === filter)?.label.toLowerCase()} yet`} description={filter === "all" ? emptyHint : undefined} />
+          <EmptyState variant="subtle" title={filter === "all" ? "No history yet" : `No ${filters.find((f) => f.value === filter)?.label.toLowerCase()} yet`} description={filter === "all" ? `${emptyHint} Drop a file here to attach it.` : undefined} />
         )}
       </section>
     </div>
   );
 }
-
-/** "Sam Lee <sam@acme.com>" → "Sam Lee". */
-const senderName = (raw: string) => /^\s*"?([^"<]+?)"?\s*</.exec(raw)?.[1]?.trim() || (/<([^>]+)>/.exec(raw)?.[1] ?? raw);
 
 function Who({ id }: { id: string | null }) {
   const { member, viewer } = useApp();
@@ -196,7 +247,7 @@ function LinkedTo({ row, context }: { row: ActivityRow; context: Context }) {
   );
 }
 
-export function PlannedItem({ row, context }: { row: ActivityRow; context: Context }) {
+export function PlannedItem({ row, context, attachments }: { row: ActivityRow; context: Context; attachments?: RecordFile[] }) {
   const { workspace, member } = useApp();
   const a = row.activity;
   const [pending, start] = useTransition();
@@ -240,6 +291,7 @@ export function PlannedItem({ row, context }: { row: ActivityRow; context: Conte
           </Tooltip>
         </div>
         {a.body ? <div className="prose-crm mt-1 line-clamp-3 text-[13px]" dangerouslySetInnerHTML={{ __html: a.body }} /> : null}
+        <Attachments files={attachments} />
         <div className="mt-1 flex min-w-0 items-center gap-2 text-[12px]">
           {assignee ? (
             <span className="flex items-center gap-1.5 text-muted">
@@ -256,7 +308,7 @@ export function PlannedItem({ row, context }: { row: ActivityRow; context: Conte
   );
 }
 
-export function ActivityItem({ row, context }: { row: ActivityRow; context: Context }) {
+export function ActivityItem({ row, context, attachments }: { row: ActivityRow; context: Context; attachments?: RecordFile[] }) {
   const { workspace } = useApp();
   const a = row.activity;
   const tz = workspace.timezone;
@@ -290,7 +342,7 @@ export function ActivityItem({ row, context }: { row: ActivityRow; context: Cont
 
   return (
     <li className="relative flex gap-3">
-      <span className={clsx("relative z-10 mt-2.5 flex size-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface", a.type === "note" && "bg-[#fefce8] border-[#fde68a]")}>
+      <span className={clsx("relative z-10 mt-2.5 flex size-8 shrink-0 items-center justify-center rounded-full border", a.type === "note" ? "border-note-border bg-note-surface" : "border-line bg-surface")}>
         <Icon className="size-4 text-secondary" aria-hidden />
       </span>
       <article className={clsx("group min-w-0 flex-1 rounded-xl border bg-surface px-3.5 py-3", a.pinned ? "border-line-strong shadow-sm" : "border-line")}>
@@ -328,6 +380,7 @@ export function ActivityItem({ row, context }: { row: ActivityRow; context: Cont
         ) : null}
         {a.subject ? <h3 className="mt-1 text-[14px] font-medium">{a.subject}</h3> : null}
         {a.body ? <CollapsibleBody html={a.body} /> : null}
+        <Attachments files={attachments} />
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] empty:hidden">
           {a.inboxThreadId ? (
             <Link href={`/email?t=${a.inboxThreadId}`} className="inline-flex items-center gap-1 font-medium text-secondary hover:text-primary">
@@ -340,6 +393,24 @@ export function ActivityItem({ row, context }: { row: ActivityRow; context: Cont
       </article>
       {editing ? <EditActivity row={row} onClose={() => setEditing(false)} /> : null}
     </li>
+  );
+}
+
+/** Files attached to an activity, as chips that open them. */
+function Attachments({ files }: { files?: RecordFile[] }) {
+  if (!files?.length) return null;
+  return (
+    <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Attachments">
+      {files.map((f) => (
+        <li key={f.id}>
+          <a href={`/api/files/${f.id}`} target="_blank" rel="noopener" className="inline-flex h-7 max-w-64 items-center gap-1.5 rounded-full border border-line bg-sunken px-2.5 text-[12px] text-secondary hover:border-line-strong hover:text-primary">
+            <PaperClipIcon className="size-3.5 shrink-0 text-faint" aria-hidden />
+            <span className="truncate">{f.name}</span>
+            <span className="shrink-0 text-faint tabular-nums">{formatBytes(f.size)}</span>
+          </a>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -452,7 +523,6 @@ function EditActivity({ row, onClose }: { row: ActivityRow; onClose: () => void 
     >
       <div className="flex flex-col gap-4">
         {a.type !== "note" ? <Field label={a.type === "task" ? "Task" : "Subject"}>{(p) => <Input {...p} value={subject} onChange={(e) => setSubject(e.target.value)} />}</Field> : null}
-        <RichText value={body} onChange={setBody} onSubmit={save} minHeight={120} autoFocus={a.type === "note"} />
         {a.type !== "note" ? (
           <div className="flex flex-wrap gap-3">
             <Field label={open ? "Due" : "When"}>{(p) => <Input {...p} type="date" value={day} onChange={(e) => setDay(e.target.value)} className="w-40" />}</Field>
@@ -462,6 +532,7 @@ function EditActivity({ row, onClose }: { row: ActivityRow; onClose: () => void 
             {open ? <Field label="Assigned to">{(p) => <OwnerSelect id={p.id} value={assigneeId} onChange={setAssigneeId} allowNone={false} />}</Field> : null}
           </div>
         ) : null}
+        <RichText value={body} onChange={setBody} onSubmit={save} minHeight={120} autoFocus={a.type === "note"} />
       </div>
     </Dialog>
   );
@@ -603,16 +674,43 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
   );
 }
 
-function FileItem({ file }: { file: { id: string; name: string; size: number; uploadedBy: string; createdAt: Date } }) {
-  const { workspace } = useApp();
+/** Several routine changes in a row, folded into one line that opens to show each. */
+function ChangeGroup({ events }: { events: EventEntry[] }) {
+  const { workspace, member, viewer } = useApp();
+  const [open, setOpen] = useState(false);
+  const people = [...new Set(events.map((e) => e.event.userId))].map((id) => (id === viewer.id ? "You" : (member(id)?.name ?? "Someone")));
+  const newest = events[0].event.createdAt;
   return (
-    <li className="relative flex items-start gap-3 py-0.5 pl-[9px]">
+    <>
+      <li className="relative flex items-start gap-3 py-0.5 pl-[9px]">
+        <span className="relative z-10 mt-0.5 flex size-[14px] items-center justify-center rounded-full bg-background text-faint ring-4 ring-background">
+          <PencilSquareIcon className="size-3.5" />
+        </span>
+        <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="flex min-w-0 flex-1 items-start gap-1 text-left text-[12.5px] leading-5 text-muted hover:text-secondary">
+          <span>
+            <span className="font-medium text-primary">{people.length > 2 ? `${people.slice(0, 2).join(", ")} and others` : people.join(" and ")}</span> made {events.length} changes
+            <time className="ml-1.5 whitespace-nowrap text-faint" suppressHydrationWarning>
+              · {formatDateTime(newest, workspace.timezone)}
+            </time>
+          </span>
+          <ChevronRightIcon className={clsx("mt-0.5 size-4 shrink-0 transition-transform", open && "rotate-90")} aria-hidden />
+        </button>
+      </li>
+      {open ? events.map((e) => <EventItem key={e.event.id} event={e.event} />) : null}
+    </>
+  );
+}
+
+function FileItem({ file }: { file: { id: string; name: string; size: number; uploadedBy: string; createdAt: Date } }) {
+  const { workspace, viewer, isAdmin } = useApp();
+  return (
+    <li className="group relative flex items-start gap-3 py-0.5 pl-[9px]">
       <span className="relative z-10 mt-0.5 flex size-[14px] items-center justify-center rounded-full bg-background text-faint ring-4 ring-background">
         <PaperClipIcon className="size-3.5" />
       </span>
       <p className="min-w-0 flex-1 text-[12.5px] leading-5 text-muted">
         <Who id={file.uploadedBy} /> added{" "}
-        <a href={`/api/files/${file.id}`} className="font-medium text-secondary underline-offset-2 hover:text-primary hover:underline">
+        <a href={`/api/files/${file.id}`} target="_blank" rel="noopener" className="font-medium text-secondary underline-offset-2 hover:text-primary hover:underline">
           {file.name}
         </a>{" "}
         <span className="tabular-nums">({formatBytes(file.size)})</span>
@@ -620,6 +718,23 @@ function FileItem({ file }: { file: { id: string; name: string; size: number; up
           · {formatDateTime(file.createdAt, workspace.timezone)}
         </time>
       </p>
+      <a href={`/api/files/${file.id}?download`} className="rounded p-0.5 text-faint opacity-0 group-hover:opacity-100 hover:text-primary focus:opacity-100" aria-label={`Download ${file.name}`}>
+        <ArrowDownTrayIcon className="size-3.5" />
+      </a>
+      {file.uploadedBy === viewer.id || isAdmin ? (
+        <button
+          type="button"
+          onClick={async () => {
+            if (!confirm(`Remove ${file.name}?`)) return;
+            const r = await deleteFile(file.id);
+            if (!r.ok) toast.error(r.error);
+          }}
+          className="rounded p-0.5 text-faint opacity-0 group-hover:opacity-100 hover:text-error focus:opacity-100"
+          aria-label={`Remove ${file.name}`}
+        >
+          <TrashIcon className="size-3.5" />
+        </button>
+      ) : null}
     </li>
   );
 }

@@ -1,7 +1,8 @@
 import "server-only";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
-import type { ActivityType, EntityType } from "@/lib/constants";
+import { interactionTypes, type ActivityType, type EntityType } from "@/lib/constants";
+import { ActionError } from "@/lib/auth";
 import { zonedTime } from "@/lib/format";
 
 const zonedMidnight = (ymd: string, tz: string) => zonedTime(ymd, "00:00", tz);
@@ -40,21 +41,30 @@ function activityRows(where: SQL | undefined, opts: { order: SQL[]; limit: numbe
 
 const linkColumn = { person: activities.personId, organization: activities.organizationId, client: activities.clientId };
 
-/** One entry on a record's timeline: something someone logged, something that changed, or a file. */
+/** A file on a record, without its storage URL (downloads go through /api/files/[id]). `activityType` is set when it's attached to a note, call or other activity. */
+export type RecordFile = { id: string; name: string; size: number; contentType: string; uploadedBy: string; createdAt: Date; activityId: string | null; activityType: ActivityType | null };
+
+/** An attachment on an email in a connected inbox. It stays in Resend, so it opens with its conversation. */
+export type EmailFile = { key: string; name: string; size: number | null; threadId: string; from: string; at: Date };
+
+/** One entry on a record's timeline: something someone logged, something that changed, or a file added on its own. */
 export type TimelineItem =
   | { kind: "activity"; at: string; row: ActivityRow }
   | { kind: "event"; at: string; event: typeof events.$inferSelect }
-  | { kind: "file"; at: string; file: typeof files.$inferSelect };
+  | { kind: "file"; at: string; file: RecordFile };
 
 /**
  * A record's whole story, newest first: logged activities (by when they
  * happened), changes, and files. Open tasks are returned separately as
  * "planned", soonest first, because they're about the future.
+ * `lastContactAt` is the latest call, email, text or meeting. `files` is every
+ * file on the record (added on its own or attached to an activity) and
+ * `emailFiles` every attachment on its inbox mail, for the Files card.
  */
 export async function timeline(entity: EntityType, id: string) {
   const db = await getDb();
   const link = linkColumn[entity];
-  const [planned, done, history, attached] = await Promise.all([
+  const [planned, done, history, attached, mail, [contact]] = await Promise.all([
     activityRows(and(eq(link, id), isNull(activities.completedAt), isNotNull(activities.dueAt)), { order: [asc(activities.dueAt)], limit: 100 }),
     activityRows(and(eq(link, id), or(isNotNull(activities.completedAt), isNull(activities.dueAt))), {
       order: [desc(activities.pinned), desc(sql`coalesce(${activities.occurredAt}, ${activities.completedAt}, ${activities.createdAt})`)],
@@ -67,19 +77,84 @@ export async function timeline(entity: EntityType, id: string) {
       .orderBy(desc(events.createdAt))
       .limit(200),
     db
-      .select()
+      .select({
+        id: files.id,
+        name: files.name,
+        size: files.size,
+        contentType: files.contentType,
+        uploadedBy: files.uploadedBy,
+        createdAt: files.createdAt,
+        activityId: files.activityId,
+        activityType: activities.type,
+      })
       .from(files)
+      .leftJoin(activities, eq(activities.id, files.activityId))
       .where(and(eq(entity === "person" ? files.personId : entity === "organization" ? files.organizationId : files.clientId, id), isNull(files.deletedAt)))
-      .orderBy(desc(files.createdAt)),
+      .orderBy(desc(files.createdAt))
+      .limit(500),
+    db
+      .select({ id: schema.inboxMessages.id, threadId: schema.inboxMessages.threadId, from: schema.inboxMessages.from, sentAt: schema.inboxMessages.sentAt, attachments: schema.inboxMessages.attachments })
+      .from(schema.inboxMessages)
+      .innerJoin(activities, eq(activities.id, schema.inboxMessages.activityId))
+      .where(and(eq(link, id), sql`jsonb_array_length(${schema.inboxMessages.attachments}) > 0`))
+      .orderBy(desc(schema.inboxMessages.sentAt))
+      .limit(200),
+    // Its own query, so it's right however long the history is.
+    db
+      .select({ at: sql<Date | null>`max(coalesce(${activities.occurredAt}, ${activities.completedAt}, ${activities.createdAt}))` })
+      .from(activities)
+      .where(and(eq(link, id), inArray(activities.type, interactionTypes), or(isNotNull(activities.completedAt), isNull(activities.dueAt)))),
   ]);
   const past: TimelineItem[] = [
     ...done.map((row): TimelineItem => ({ kind: "activity", at: (row.activity.occurredAt ?? row.activity.completedAt ?? row.activity.createdAt).toISOString(), row })),
     ...history.map((event): TimelineItem => ({ kind: "event", at: event.createdAt.toISOString(), event })),
-    ...attached.map((file): TimelineItem => ({ kind: "file", at: file.createdAt.toISOString(), file })),
+    // A file attached to an activity shows on that activity, not as its own line.
+    ...attached.filter((f) => !f.activityId).map((file): TimelineItem => ({ kind: "file", at: file.createdAt.toISOString(), file })),
   ];
   const pinned = past.filter((i) => i.kind === "activity" && i.row.activity.pinned);
   const rest = past.filter((i) => !(i.kind === "activity" && i.row.activity.pinned)).sort((a, b) => b.at.localeCompare(a.at));
-  return { planned, pinned, past: rest, files: attached };
+  const lastContactAt = contact?.at ? new Date(contact.at).toISOString() : null;
+  const emailFiles: EmailFile[] = mail.flatMap((m) => m.attachments.map((a) => ({ key: `${m.id}:${a.id}`, name: a.filename ?? "Attachment", size: a.size, threadId: m.threadId, from: m.from, at: m.sentAt })));
+  return { planned, pinned, past: rest, lastContactAt, files: attached, emailFiles };
+}
+
+/**
+ * Fills in the links an activity implies: logged on a client, it also shows on
+ * the client's contact and organization; logged on a person, on their
+ * organization. That's what makes the organization page the whole story.
+ */
+export async function resolveLinks(l: { personId?: string | null; organizationId?: string | null; clientId?: string | null }) {
+  const db = await getDb();
+  let { personId = null, organizationId = null } = l;
+  const clientId = l.clientId ?? null;
+  if (clientId) {
+    const [d] = await db.select({ personId: clients.personId, organizationId: clients.organizationId }).from(clients).where(eq(clients.id, clientId));
+    if (!d) throw new ActionError("That client was deleted.");
+    personId ??= d.personId;
+    organizationId ??= d.organizationId;
+  }
+  if (personId && !organizationId) {
+    const [p] = await db.select({ organizationId: people.organizationId }).from(people).where(eq(people.id, personId));
+    organizationId = p?.organizationId ?? null;
+  }
+  return { personId, organizationId, clientId };
+}
+
+/**
+ * What an uploaded file links to. A file attached to an activity takes that
+ * activity's person, organization and client, so it shows on every record the
+ * activity does; otherwise the links the browser sent roll up the same way
+ * an activity's do (a client's file also shows on its contact and organization).
+ */
+export async function uploadLinks(input: { personId?: string | null; organizationId?: string | null; clientId?: string | null; activityId?: string | null }) {
+  if (!input.activityId) return { ...(await resolveLinks(input)), activityId: null };
+  const db = await getDb();
+  const [a] = await db
+    .select({ personId: activities.personId, organizationId: activities.organizationId, clientId: activities.clientId })
+    .from(activities)
+    .where(eq(activities.id, input.activityId));
+  if (!a) throw new ActionError("That activity was deleted. Attach the file to the record instead.");
+  return { ...a, activityId: input.activityId };
 }
 
 export type ActivityFilter = {

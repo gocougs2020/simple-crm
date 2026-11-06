@@ -129,27 +129,36 @@ export function EmailComposer({ links, recipient }: { links: Links; recipient: E
         </div>
       ) : null}
       <Input ref={subjectRef} value={subject} onChange={(e) => setSubject(e.target.value)} onFocus={() => setLastFocus("subject")} placeholder="Subject" aria-label="Subject" />
-      <div onFocusCapture={() => setLastFocus("body")}>
-        <RichText handle={editor} value={body} onChange={setBody} onSubmit={send} minHeight={120} placeholder={`Hi {{first_name}},`} />
+      <div onFocusCapture={(e) => (e.target as HTMLElement).isContentEditable && setLastFocus("body")}>
+        <RichText
+          handle={editor}
+          value={body}
+          onChange={setBody}
+          onSubmit={send}
+          minHeight={120}
+          placeholder={`Hi {{first_name}},`}
+          actions={
+            <Menu>
+              <MenuTrigger asChild>
+                <Button size="sm" variant="ghost" className="h-7">
+                  <CodeBracketIcon />
+                  Insert field
+                </Button>
+              </MenuTrigger>
+              <MenuContent align="end" className="w-52">
+                <MenuLabel>Filled in when sent</MenuLabel>
+                {mergeTags.map((t) => (
+                  <MenuItem key={t} onSelect={() => insertTag(t)}>
+                    {mergeTagLabels[t]}
+                    <span className="ml-auto font-mono text-[11px] text-faint">{`{{${t}}}`}</span>
+                  </MenuItem>
+                ))}
+              </MenuContent>
+            </Menu>
+          }
+        />
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        <Menu>
-          <MenuTrigger asChild>
-            <Button size="sm" variant="ghost">
-              <CodeBracketIcon />
-              Insert field
-            </Button>
-          </MenuTrigger>
-          <MenuContent align="start" className="w-52">
-            <MenuLabel>Filled in when sent</MenuLabel>
-            {mergeTags.map((t) => (
-              <MenuItem key={t} onSelect={() => insertTag(t)}>
-                {mergeTagLabels[t]}
-                <span className="ml-auto font-mono text-[11px] text-faint">{`{{${t}}}`}</span>
-              </MenuItem>
-            ))}
-          </MenuContent>
-        </Menu>
         <Checkbox checked={copyMe} onChange={(e) => setCopyMe(e.target.checked)} label={<span className="text-[13px]">Send me a copy</span>} />
         <div className="ml-auto flex items-center gap-2">
           <span className="hidden text-[11.5px] text-faint sm:inline">

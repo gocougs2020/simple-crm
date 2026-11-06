@@ -4,7 +4,7 @@ import clsx from "clsx";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
-import { useEffect, useImperativeHandle, type Ref } from "react";
+import { useEffect, useImperativeHandle, type ReactNode, type Ref } from "react";
 import { BoldIcon, ItalicIcon, LinkIcon, ListBulletIcon, NumberedListIcon } from "@heroicons/react/20/solid";
 
 export type RichTextHandle = { clear: () => void; focus: () => void; insert: (html: string) => void; setContent: (html: string) => void; isEmpty: () => boolean };
@@ -12,6 +12,9 @@ export type RichTextHandle = { clear: () => void; focus: () => void; insert: (ht
 /**
  * The rich-text box used for notes, call summaries and email bodies. Small on
  * purpose: bold, italic, lists and links. ⌘/Ctrl+Enter submits.
+ *
+ * The toolbar sits above the text; `actions` (like "Insert field") sit at
+ * its right end.
  */
 export function RichText({
   value,
@@ -23,6 +26,7 @@ export function RichText({
   handle,
   className,
   toolbar = true,
+  actions,
 }: {
   value?: string;
   onChange?: (html: string) => void;
@@ -33,6 +37,7 @@ export function RichText({
   handle?: Ref<RichTextHandle>;
   className?: string;
   toolbar?: boolean;
+  actions?: ReactNode;
 }) {
   const editor = useEditor({
     immediatelyRender: false,
@@ -79,6 +84,12 @@ export function RichText({
 
   return (
     <div className={clsx("rounded-md border border-line bg-surface shadow-sm transition-colors focus-within:border-ring focus-within:ring-1 focus-within:ring-ring", className)}>
+      {toolbar || actions ? (
+        <div className="flex min-h-[33px] flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-1.5 py-1">
+          {toolbar ? editor ? <Toolbar editor={editor} /> : <div className="h-6" /> : null}
+          {actions ? <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div> : null}
+        </div>
+      ) : null}
       {editor ? (
         <EditorContent editor={editor} />
       ) : (
@@ -87,7 +98,6 @@ export function RichText({
           {placeholder ?? "Write something…"}
         </div>
       )}
-      {toolbar ? editor ? <Toolbar editor={editor} /> : <div className="h-[33px] border-t border-line" /> : null}
     </div>
   );
 }
@@ -95,7 +105,7 @@ export function RichText({
 function Toolbar({ editor }: { editor: Editor }) {
   const btn = (active: boolean) => clsx("rounded p-1 transition-colors", active ? "bg-sunken text-primary" : "text-faint hover:bg-sunken hover:text-secondary");
   return (
-    <div className="flex items-center gap-0.5 border-t border-line px-1.5 py-1">
+    <div className="flex items-center gap-0.5">
       <button type="button" className={btn(editor.isActive("bold"))} onClick={() => editor.chain().focus().toggleBold().run()} aria-label="Bold" aria-pressed={editor.isActive("bold")}>
         <BoldIcon className="size-4" />
       </button>

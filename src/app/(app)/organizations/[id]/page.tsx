@@ -5,15 +5,14 @@ import { DynamicMarker } from "@/components/dynamic-marker";
 import { z } from "zod";
 import { BuildingOffice2Icon } from "@heroicons/react/24/outline";
 import { Composer } from "@/components/activity/composer";
+import { FocusLine } from "@/components/activity/focus-line";
 import { Timeline } from "@/components/activity/timeline";
-import { FilesPanel } from "@/components/files/files-panel";
-import { EmailThreadsCard } from "@/components/email/threads-card";
+import { FilesCard } from "@/components/files/files-panel";
 import { OrganizationDetails, RelatedClients, RelatedPeople } from "@/components/records/details";
 import { RecordBody, RecordHeader } from "@/components/records/record-header";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { timeline } from "@/lib/crm/activities";
 import { clientsOfOrganization, getOrganization, peopleOf } from "@/lib/crm/records";
-import { threadsFor } from "@/lib/email/inbox";
 
 export async function generateMetadata({ params }: PageProps<"/organizations/[id]">): Promise<Metadata> {
   const { id } = await params;
@@ -38,7 +37,6 @@ async function Organization({ params }: Pick<PageProps<"/organizations/[id]">, "
   const org = await getOrganization(id);
   if (!org) notFound();
   const [tl, clients, people] = await Promise.all([timeline("organization", id), clientsOfOrganization(id), peopleOf(id)]);
-  const threads = await threadsFor({ personIds: people.map((p) => p.id), organizationId: id });
   return (
     <>
       <RecordHeader
@@ -59,17 +57,19 @@ async function Organization({ params }: Pick<PageProps<"/organizations/[id]">, "
             <OrganizationDetails org={org} />
             <RelatedPeople people={people} organization={org} />
             <RelatedClients clients={clients} create={{ kind: "client", defaults: { organizationId: id, organizationName: org.name, name: org.name } }} />
-            <EmailThreadsCard threads={threads} />
-            <FilesPanel files={tl.files} links={{ organizationId: id }} />
+            <FilesCard files={tl.files} emailFiles={tl.emailFiles} links={{ organizationId: id }} />
           </>
         }
       >
+        <FocusLine planned={tl.planned} lastContactAt={tl.lastContactAt} context={{ type: "organization", id }} />
         <Composer links={{ organizationId: id }} />
         <Timeline
           planned={tl.planned}
           pinned={tl.pinned}
           past={tl.past}
           context={{ type: "organization", id }}
+          fileLinks={{ organizationId: id }}
+          files={tl.files}
           emptyHint={`Everything logged with ${org.name}'s people and clients shows up here too.`}
         />
       </RecordBody>

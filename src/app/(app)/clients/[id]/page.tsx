@@ -3,22 +3,21 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { z } from "zod";
 import { Composer } from "@/components/activity/composer";
+import { FocusLine } from "@/components/activity/focus-line";
 import { Timeline } from "@/components/activity/timeline";
 import { BillingCard } from "@/components/clients/billing-card";
 import { CategoryActions, CategoryBadge, CategoryDate, HealthBadge } from "@/components/clients/client-controls";
-import { AccountCard, PerformanceCard, ServicesCard } from "@/components/clients/client-panels";
+import { PerformanceCard, ServicesCard } from "@/components/clients/client-panels";
 import { StageBar } from "@/components/clients/client-controls";
 import { DynamicMarker } from "@/components/dynamic-marker";
-import { EmailThreadsCard } from "@/components/email/threads-card";
-import { FilesPanel } from "@/components/files/files-panel";
-import { ClientDetails, OrganizationCard, PersonCard } from "@/components/records/details";
+import { FilesCard } from "@/components/files/files-panel";
+import { ClientDetails } from "@/components/records/details";
 import { RecordBody, RecordHeader } from "@/components/records/record-header";
 import { PageSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { monthlyFactor } from "@/lib/constants";
 import { timeline } from "@/lib/crm/activities";
 import { getAppData } from "@/lib/crm/context";
-import { getClient, interactionSummary, metricsOf, peopleOf, servicesOf } from "@/lib/crm/records";
-import { threadsFor } from "@/lib/email/inbox";
+import { getClient, metricsOf, servicesOf } from "@/lib/crm/records";
 import { dayKey, formatMoney, personName } from "@/lib/format";
 
 export async function generateMetadata({ params }: PageProps<"/clients/[id]">): Promise<Metadata> {
@@ -45,16 +44,12 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
   if (!row) notFound();
   const { client, person, organization } = row;
   const c = client.category;
-  const [tl, app, services, metrics, summary, colleagues] = await Promise.all([
+  const [tl, app, services, metrics] = await Promise.all([
     timeline("client", id),
     getAppData(),
     servicesOf(id),
     metricsOf(id),
-    interactionSummary(id),
-    client.organizationId ? peopleOf(client.organizationId) : Promise.resolve([]),
   ]);
-  // Conversations with anyone connected to the client: its contact, everyone at its organization, or linked to it directly.
-  const threads = await threadsFor({ personIds: [...new Set([client.personId, ...colleagues.map((p) => p.id)].filter((x): x is string => !!x))], organizationId: client.organizationId, clientId: id });
   const stage = app.pipelines.flatMap((p) => p.stages).find((s) => s.id === client.stageId);
   const today = dayKey(new Date(), app.workspace.timezone);
   // A past client's subscription is what ended on their latest end date (a client won back and lost again has two periods).
@@ -98,27 +93,27 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
         side={
           <>
             <ClientDetails client={client} person={person} organization={organization} />
-            {c === "current" ? <AccountCard summary={summary} /> : null}
-            {c !== "prospective" ? <ServicesCard clientId={id} category={c} rows={services} /> : null}
             {c !== "prospective" ? (
-              <Suspense fallback={<Skeleton className="h-40 rounded-xl" />}>
-                <BillingCard clientId={id} customerId={client.stripeCustomerId} suggest={person?.email ?? organization?.name ?? client.name} />
-              </Suspense>
+              <ServicesCard clientId={id} category={c} rows={services}>
+                <Suspense fallback={<Skeleton className="mt-3 h-16 rounded-lg" />}>
+                  <BillingCard clientId={id} customerId={client.stripeCustomerId} suggest={person?.email ?? organization?.name ?? client.name} />
+                </Suspense>
+              </ServicesCard>
             ) : null}
             {c === "current" || metrics.length ? <PerformanceCard clientId={id} metrics={metrics} readOnly={c !== "current"} /> : null}
-            {person ? <PersonCard person={person} title="Contact" /> : null}
-            {organization ? <OrganizationCard org={organization} /> : null}
-            <EmailThreadsCard threads={threads} />
-            <FilesPanel files={tl.files} links={{ clientId: id, personId: client.personId, organizationId: client.organizationId }} />
+            <FilesCard files={tl.files} emailFiles={tl.emailFiles} links={{ clientId: id, personId: client.personId, organizationId: client.organizationId }} />
           </>
         }
       >
+        <FocusLine planned={tl.planned} lastContactAt={tl.lastContactAt} context={{ type: "client", id, category: c }} />
         <Composer links={{ clientId: id }} recipient={person ? { personId: person.id, name: personName(person), email: person.email } : null} />
         <Timeline
           planned={tl.planned}
           pinned={tl.pinned}
           past={tl.past}
           context={{ type: "client", id, category: c }}
+          fileLinks={{ clientId: id, personId: client.personId, organizationId: client.organizationId }}
+          files={tl.files}
           emptyHint={c === "prospective" ? "Calls, emails and notes with this prospect show up here, along with every stage change." : "Every interaction, email, service change and stage move with this client shows up here."}
         />
       </RecordBody>

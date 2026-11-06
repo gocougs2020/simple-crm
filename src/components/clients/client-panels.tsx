@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import { ArrowDownRightIcon, ArrowUpRightIcon, EllipsisHorizontalIcon, LinkIcon, PlusIcon, TrashIcon } from "@heroicons/react/20/solid";
 import { addClientService, deleteClientMetric, findStripeCustomers, linkStripeCustomer, logClientMetric, removeClientService, updateClientService } from "@/actions/clients";
 import { useApp } from "@/components/app-context";
@@ -14,7 +14,7 @@ import { toast } from "@/components/ui/toast";
 import type { schema } from "@/db";
 import { billingIntervalLabels, billingIntervals, monthlyFactor, type BillingInterval, type ClientCategory } from "@/lib/constants";
 import type { ClientServiceRow } from "@/lib/crm/records";
-import { dayFromToday, formatAgo, formatDateOnly, parseMoney } from "@/lib/format";
+import { dayFromToday, formatDateOnly, parseMoney } from "@/lib/format";
 
 const isActive = (s: { endedOn: string | null }, today: string) => !s.endedOn || s.endedOn > today;
 
@@ -23,8 +23,9 @@ const isActive = (s: { endedOn: string | null }, today: string) => !s.endedOn ||
 /**
  * What the client pays for: the services from Settings → Services they use
  * now, and the ones they had. Monthly revenue is the sum of the open ones.
+ * `children` is the Stripe billing section, so everything about money sits in one card.
  */
-export function ServicesCard({ clientId, category, rows }: { clientId: string; category: ClientCategory; rows: ClientServiceRow[] }) {
+export function ServicesCard({ clientId, category, rows, children }: { clientId: string; category: ClientCategory; rows: ClientServiceRow[]; children?: ReactNode }) {
   const { catalog, money, workspace } = useApp();
   const today = dayFromToday(workspace.timezone);
   const active = rows.filter((r) => isActive(r, today));
@@ -60,6 +61,7 @@ export function ServicesCard({ clientId, category, rows }: { clientId: string; c
           ))}
         </ul>
       )}
+      {children}
       {adding ? <ServiceDialog clientId={clientId} category={category} onClose={() => setAdding(false)} /> : null}
       {editing ? <ServiceDialog clientId={clientId} category={category} row={editing} onClose={() => setEditing(null)} /> : null}
     </SideCard>
@@ -254,6 +256,17 @@ export function PerformanceCard({ clientId, metrics, readOnly }: { clientId: str
       return acc;
     }, {}),
   );
+  // Nothing logged yet: an offer to start, not a whole empty card.
+  if (!series.length && !readOnly)
+    return (
+      <>
+        <Button size="sm" variant="ghost" className="self-start text-muted" onClick={() => setLogging(null)}>
+          <PlusIcon />
+          Track a number, like leads or sales
+        </Button>
+        {logging !== false ? <LogMetric clientId={clientId} label={logging} labels={[]} onClose={() => setLogging(false)} /> : null}
+      </>
+    );
   return (
     <SideCard
       title="Performance"
@@ -369,36 +382,6 @@ function LogMetric({ clientId, label: initial, labels, onClose }: { clientId: st
         </Field>
       </div>
     </Dialog>
-  );
-}
-
-// ─── Account ─────────────────────────────────────────────────────────────
-
-/** How much contact there's been: the account manager's at-a-glance view of whether a client is being looked after. */
-export function AccountCard({ summary }: { summary: { last30: number; last90: number; inbound90: number; lastAt: string | null; quiet: boolean } }) {
-  const { workspace } = useApp();
-  const quiet = summary.quiet;
-  return (
-    <SideCard title="Account">
-      <dl className="grid grid-cols-3 gap-2 py-1">
-        <Stat label="Last contact" value={summary.lastAt ? formatAgo(summary.lastAt, workspace.timezone) : "Never"} warn={quiet} />
-        <Stat label="Last 30 days" value={String(summary.last30)} />
-        <Stat label="Last 90 days" value={String(summary.last90)} detail={summary.last90 ? `${summary.inbound90} from them` : undefined} />
-      </dl>
-      {quiet ? <p className="mt-1 text-[12px] text-warning">No calls, emails or meetings in over a month. Schedule a check-in.</p> : null}
-    </SideCard>
-  );
-}
-
-function Stat({ label, value, detail, warn }: { label: string; value: string; detail?: string; warn?: boolean }) {
-  return (
-    <div className="min-w-0">
-      <dt className="truncate text-[11.5px] text-muted">{label}</dt>
-      <dd className={clsx("truncate text-[14px] font-semibold tabular-nums", warn ? "text-warning" : "text-primary")} suppressHydrationWarning>
-        {value}
-      </dd>
-      {detail ? <dd className="truncate text-[11px] text-faint">{detail}</dd> : null}
-    </div>
   );
 }
 

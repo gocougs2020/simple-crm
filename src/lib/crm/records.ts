@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, count, desc, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { clientCategoryLabels, type ClientCategory } from "@/lib/constants";
 
@@ -252,23 +252,6 @@ export async function metricsOf(clientId: string) {
   const db = await getDb();
   const m = schema.clientMetrics;
   return db.select().from(m).where(eq(m.clientId, clientId)).orderBy(asc(m.label), asc(m.period), asc(m.createdAt)).limit(1000);
-}
-
-/** Interactions (calls, emails, texts, meetings) in the last 30 and 90 days, and the most recent one. */
-export async function interactionSummary(clientId: string) {
-  const db = await getDb();
-  const [row] = await db
-    .select({
-      last30: sql<number>`count(*) filter (where coalesce(occurred_at, created_at) > now() - interval '30 days')::int`,
-      last90: sql<number>`count(*) filter (where coalesce(occurred_at, created_at) > now() - interval '90 days')::int`,
-      lastAt: sql<string | null>`max(coalesce(occurred_at, created_at))`,
-      inbound90: sql<number>`count(*) filter (where direction = 'inbound' and coalesce(occurred_at, created_at) > now() - interval '90 days')::int`,
-      /** Nothing in the last 30 days: time for a check-in. */
-      quiet: sql<boolean>`coalesce(max(coalesce(occurred_at, created_at)) < now() - interval '30 days', true)`,
-    })
-    .from(schema.activities)
-    .where(and(eq(schema.activities.clientId, clientId), inArray(schema.activities.type, ["call", "email", "text", "meeting"]), or(isNotNull(schema.activities.completedAt), isNull(schema.activities.dueAt))));
-  return row;
 }
 
 /** Clients linked to a person directly or through their organization, for the person's page. */

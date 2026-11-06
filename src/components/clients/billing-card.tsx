@@ -1,5 +1,5 @@
+import type { ReactNode } from "react";
 import { ArrowTopRightOnSquareIcon } from "@heroicons/react/20/solid";
-import { SideCard } from "@/components/records/inline-field";
 import { StatusBadge, type Tone } from "@/components/ui/badge";
 import { formatMoney } from "@/lib/format";
 import { billingFor, stripeConfigured, stripeDashboardUrl, StripeError, type StripeInvoice, type StripeSubscription } from "@/lib/stripe";
@@ -12,6 +12,19 @@ const subTone: Record<StripeSubscription["status"], Tone> = { active: "success",
 const subLabel: Record<StripeSubscription["status"], string> = { active: "Active", trialing: "Trial", past_due: "Past due", unpaid: "Unpaid", incomplete: "Incomplete", incomplete_expired: "Expired", canceled: "Canceled", paused: "Paused" };
 const invoiceTone: Record<NonNullable<StripeInvoice["status"]>, Tone> = { paid: "success", open: "warning", uncollectible: "error", void: "neutral", draft: "neutral" };
 
+/** The billing part of the services card: a divider, a small heading, and the Stripe link control. */
+function Section({ action, children }: { action?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="mt-3 border-t border-line pt-3">
+      <header className="mb-1 flex items-center justify-between gap-2">
+        <h3 className="text-[11.5px] font-semibold tracking-wide text-muted uppercase">Billing</h3>
+        {action}
+      </header>
+      {children}
+    </section>
+  );
+}
+
 /**
  * Stripe billing for a current or past client: balance, subscriptions,
  * invoices and payments, fetched live from Stripe on every view. Renders in
@@ -20,15 +33,15 @@ const invoiceTone: Record<NonNullable<StripeInvoice["status"]>, Tone> = { paid: 
 export async function BillingCard({ clientId, customerId, suggest }: { clientId: string; customerId: string | null; suggest: string | null }) {
   if (!stripeConfigured())
     return (
-      <SideCard title="Billing">
+      <Section>
         <p className="py-1 text-[12.5px] text-muted">Connect Stripe to see subscriptions, invoices and payments here. Add a restricted STRIPE_SECRET_KEY (read access is enough) to the environment.</p>
-      </SideCard>
+      </Section>
     );
   if (!customerId)
     return (
-      <SideCard title="Billing" action={<StripeLinker clientId={clientId} suggest={suggest} linked={null} />}>
+      <Section action={<StripeLinker clientId={clientId} suggest={suggest} linked={null} />}>
         <p className="py-1 text-[12.5px] text-muted">Link this client&apos;s Stripe customer to see their subscriptions, invoices and payments.</p>
-      </SideCard>
+      </Section>
     );
 
   let billing: Awaited<ReturnType<typeof billingFor>>;
@@ -36,9 +49,9 @@ export async function BillingCard({ clientId, customerId, suggest }: { clientId:
     billing = await billingFor(customerId);
   } catch (err) {
     return (
-      <SideCard title="Billing" action={<StripeLinker clientId={clientId} suggest={suggest} linked={customerId} />}>
+      <Section action={<StripeLinker clientId={clientId} suggest={suggest} linked={customerId} />}>
         <p className="py-1 text-[12.5px] text-error">{err instanceof StripeError ? err.message : "Stripe didn't answer."} Reload to try again.</p>
-      </SideCard>
+      </Section>
     );
   }
   const { customer, subscriptions, invoices, charges } = billing;
@@ -48,7 +61,7 @@ export async function BillingCard({ clientId, customerId, suggest }: { clientId:
   const ended = subscriptions.filter((s) => ["canceled", "incomplete_expired"].includes(s.status));
 
   return (
-    <SideCard title="Billing" action={<StripeLinker clientId={clientId} suggest={suggest} linked={customerId} />}>
+    <Section action={<StripeLinker clientId={clientId} suggest={suggest} linked={customerId} />}>
       <div className="flex flex-col gap-3">
         <dl className="grid grid-cols-2 gap-2">
           <div>
@@ -63,7 +76,7 @@ export async function BillingCard({ clientId, customerId, suggest }: { clientId:
         {customer.delinquent ? <p className="text-[12px] text-error">Stripe marks this customer as delinquent: a recent payment failed.</p> : null}
 
         <section>
-          <h3 className="mb-1 text-[11.5px] font-semibold tracking-wide text-muted uppercase">Subscriptions</h3>
+          <h4 className="mb-1 text-[11.5px] font-medium text-muted">Subscriptions</h4>
           {[...live, ...ended].length ? (
             <ul className="flex flex-col gap-1.5">
               {[...live, ...ended].slice(0, 5).map((s) => (
@@ -88,7 +101,7 @@ export async function BillingCard({ clientId, customerId, suggest }: { clientId:
         </section>
 
         <section>
-          <h3 className="mb-1 text-[11.5px] font-semibold tracking-wide text-muted uppercase">Invoices</h3>
+          <h4 className="mb-1 text-[11.5px] font-medium text-muted">Invoices</h4>
           {invoices.length ? (
             <ul className="-mx-2">
               {invoices.slice(0, 6).map((i) => (
@@ -108,7 +121,7 @@ export async function BillingCard({ clientId, customerId, suggest }: { clientId:
         </section>
 
         <section>
-          <h3 className="mb-1 text-[11.5px] font-semibold tracking-wide text-muted uppercase">Payments</h3>
+          <h4 className="mb-1 text-[11.5px] font-medium text-muted">Payments</h4>
           {charges.length ? (
             <ul className="-mx-2">
               {charges.slice(0, 5).map((c) => (
@@ -132,6 +145,6 @@ export async function BillingCard({ clientId, customerId, suggest }: { clientId:
           <ArrowTopRightOnSquareIcon className="size-3.5" />
         </a>
       </div>
-    </SideCard>
+    </Section>
   );
 }

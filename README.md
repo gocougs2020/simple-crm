@@ -8,17 +8,17 @@ It's built to cover the 80% of CRM work a small team does every day, and to stay
 
 ## What it does
 
-- **Clients in three buckets.** Prospective, current and past, each with its own pipelines and stages, and a record page that fits: potential value for prospects; health, services, monthly revenue, Stripe billing, performance numbers and contact frequency for current clients; what they had, why they left and whether they'd come back for past clients. Signing, leaving and winning back are one step each.
+- **Clients in three buckets.** Prospective, current and past, each with its own pipelines and stages, and a record page that fits: potential value for prospects; health, services, monthly revenue, Stripe billing, performance numbers and how long since anyone talked to them for current clients; what they had, why they left and whether they'd come back for past clients. Signing, leaving and winning back are one step each.
 - **Services** you sell are set up once in Settings and picked per client, with their own price and dates.
 - **People, organizations, clients.** Every record has a details panel you edit in place, custom fields, related records and files, and one timeline.
 - **One timeline per record.** Notes, calls, emails, texts, meetings and tasks, plus every change (stage moves, owner changes, field edits) and every file, each attributed to the teammate who did it. Logged on a client, an activity also shows on the client's contact and organization, and received email lands there by itself.
 - **A composer that's fast to use.** Pick a tab, write a sentence, ⌘↵. Calls take a direction and an outcome; anything that happened can schedule a follow-up in the same step.
-- **Next steps are never lost.** Prospects and current clients with nothing planned are flagged on the board, their page and the home page; checking off their last task asks what's next.
+- **Next steps are never lost.** Prospects and current clients with nothing planned are flagged on the board, at the top of their page and on the home page; checking off their last task asks what's next.
 - **Board or table, per person.** Drag clients between stages (or onto Signed, Left or Won back); switch to a sortable table. Each teammate's choice is remembered.
 - **Email built in.** Add your domains and team inboxes (sales@, support@) in Settings, powered by Resend. Incoming mail lands in a shared inbox and on the timeline of the person, organization and client it's about; reply from the CRM. Send from any record through an inbox, with templates and merge fields. Campaigns go to filtered audiences (past clients open to coming back, say) with a live preview, test sends, scheduling and one-click unsubscribe. A brand kit (logo, color, address, signature) wraps every email.
 - **Import** people from CSV or Excel: match columns, merge by email, undo.
 - **Move from Pipedrive** with `pnpm import:pipedrive`: people, organizations, deals collapsed into one client per organization, products as services, notes, activities and email. See [docs/PIPEDRIVE-IMPORT.md](docs/PIPEDRIVE-IMPORT.md).
-- **Files** live in a private store and only stream to signed-in teammates.
+- **Files** attach to a record or to a note, call or meeting, and each record's Files card gathers them all, along with attachments on its email. They live in a private store and only stream to signed-in teammates.
 - **Team** is invite-only with email-and-password sign-in, roles (owner, admin, member) and deactivation that keeps history intact.
 
 ## Run it locally
