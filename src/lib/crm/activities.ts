@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
-import type { ActivityType, EntityType } from "@/lib/constants";
+import { interactionTypes, type ActivityType, type EntityType } from "@/lib/constants";
 import { zonedTime } from "@/lib/format";
 
 const zonedMidnight = (ymd: string, tz: string) => zonedTime(ymd, "00:00", tz);
@@ -50,6 +50,7 @@ export type TimelineItem =
  * A record's whole story, newest first: logged activities (by when they
  * happened), changes, and files. Open tasks are returned separately as
  * "planned", soonest first, because they're about the future.
+ * `lastContactAt` is the latest call, email, text or meeting.
  */
 export async function timeline(entity: EntityType, id: string) {
   const db = await getDb();
@@ -79,7 +80,9 @@ export async function timeline(entity: EntityType, id: string) {
   ];
   const pinned = past.filter((i) => i.kind === "activity" && i.row.activity.pinned);
   const rest = past.filter((i) => !(i.kind === "activity" && i.row.activity.pinned)).sort((a, b) => b.at.localeCompare(a.at));
-  return { planned, pinned, past: rest, files: attached };
+  const contacts = done.filter((r) => interactionTypes.includes(r.activity.type)).map((r) => (r.activity.occurredAt ?? r.activity.completedAt ?? r.activity.createdAt).toISOString());
+  const lastContactAt = contacts.length ? contacts.reduce((a, b) => (a > b ? a : b)) : null;
+  return { planned, pinned, past: rest, lastContactAt };
 }
 
 export type ActivityFilter = {

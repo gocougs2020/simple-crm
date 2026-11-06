@@ -329,9 +329,26 @@ export function ClientDetails({ client, person, organization }: { client: Client
           empty="Add contact"
           display={
             person ? (
-              <Link href={`/people/${person.id}`} className="underline-offset-2 hover:underline" onClick={(e) => e.stopPropagation()}>
-                {personName(person)}
-              </Link>
+              <span className="block min-w-0">
+                <Link href={`/people/${person.id}`} className="underline-offset-2 hover:underline" onClick={(e) => e.stopPropagation()}>
+                  {personName(person)}
+                </Link>
+                {person.title ? <span className="block text-[12px] text-muted">{person.title}</span> : null}
+                {person.email || person.phone ? (
+                  <span className="flex flex-wrap gap-x-3 text-[12px]">
+                    {person.email ? (
+                      <a href={`mailto:${person.email}`} className="truncate text-muted hover:text-primary" onClick={(e) => e.stopPropagation()}>
+                        {person.email}
+                      </a>
+                    ) : null}
+                    {person.phone ? (
+                      <a href={`tel:${person.phone.replace(/[^\d+]/g, "")}`} className="text-muted tabular-nums hover:text-primary" onClick={(e) => e.stopPropagation()}>
+                        {person.phone}
+                      </a>
+                    ) : null}
+                  </span>
+                ) : null}
+              </span>
             ) : undefined
           }
           editor={({ value, commit }) => <RecordPicker kind="person" value={value} onChange={(v) => commit(v)} allowCreate={false} autoFocus />}

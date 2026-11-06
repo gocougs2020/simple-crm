@@ -5,8 +5,8 @@ import { DynamicMarker } from "@/components/dynamic-marker";
 import { z } from "zod";
 import { BuildingOffice2Icon } from "@heroicons/react/24/outline";
 import { Composer } from "@/components/activity/composer";
+import { FocusLine } from "@/components/activity/focus-line";
 import { Timeline } from "@/components/activity/timeline";
-import { FilesPanel } from "@/components/files/files-panel";
 import { EmailThreadsCard } from "@/components/email/threads-card";
 import { OrganizationDetails, RelatedClients, RelatedPeople } from "@/components/records/details";
 import { RecordBody, RecordHeader } from "@/components/records/record-header";
@@ -60,16 +60,17 @@ async function Organization({ params }: Pick<PageProps<"/organizations/[id]">, "
             <RelatedPeople people={people} organization={org} />
             <RelatedClients clients={clients} create={{ kind: "client", defaults: { organizationId: id, organizationName: org.name, name: org.name } }} />
             <EmailThreadsCard threads={threads} />
-            <FilesPanel files={tl.files} links={{ organizationId: id }} />
           </>
         }
       >
+        <FocusLine planned={tl.planned} lastContactAt={tl.lastContactAt} context={{ type: "organization", id }} />
         <Composer links={{ organizationId: id }} />
         <Timeline
           planned={tl.planned}
           pinned={tl.pinned}
           past={tl.past}
           context={{ type: "organization", id }}
+          fileLinks={{ organizationId: id }}
           emptyHint={`Everything logged with ${org.name}'s people and clients shows up here too.`}
         />
       </RecordBody>
