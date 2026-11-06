@@ -41,9 +41,9 @@ import { useUploader } from "@/components/files/files-panel";
 import type { FileLinks } from "@/components/files/upload";
 import { RichText } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
-import type { ActivityRow, TimelineItem } from "@/lib/crm/activities";
+import type { ActivityRow, RecordFile, TimelineItem } from "@/lib/crm/activities";
 import { activityLabels, clientCategoryLabels, clientHealthLabels, interactionTypes, type ActivityType, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
-import { dayKey, dueTone, formatBytes, formatDateTime, formatDay, formatFull, formatTime, timeKey, zonedTime } from "@/lib/format";
+import { dayKey, dueTone, formatBytes, formatDateTime, formatDay, formatFull, formatTime, senderName, timeKey, zonedTime } from "@/lib/format";
 import { activityIcons } from "./composer";
 import { askNextStep } from "./next-step-dialog";
 
@@ -95,6 +95,7 @@ export function Timeline({
   context,
   emptyHint,
   fileLinks,
+  files,
 }: {
   planned: ActivityRow[];
   pinned: TimelineItem[];
@@ -103,7 +104,11 @@ export function Timeline({
   emptyHint: string;
   /** What an uploaded file is attached to. */
   fileLinks: FileLinks;
+  /** The record's files; the ones attached to an activity show on it. */
+  files: RecordFile[];
 }) {
+  const byActivity = new Map<string, RecordFile[]>();
+  for (const f of files) if (f.activityId) byActivity.set(f.activityId, [...(byActivity.get(f.activityId) ?? []), f]);
   const [filter, setFilter] = useState<Filter>("all");
   const shown = groupRoutine(past.filter((i) => matches(i, filter)));
   const input = useRef<HTMLInputElement>(null);
@@ -121,7 +126,7 @@ export function Timeline({
           </h2>
           <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
             {planned.map((row) => (
-              <PlannedItem key={row.activity.id} row={row} context={context} />
+              <PlannedItem key={row.activity.id} row={row} context={context} attachments={byActivity.get(row.activity.id)} />
             ))}
           </ul>
         </section>
@@ -131,7 +136,7 @@ export function Timeline({
         <section aria-label="Pinned">
           <h2 className="mb-2 text-[13px] font-semibold text-primary">Pinned</h2>
           <ol className="flex flex-col gap-2">
-            {pinned.map((i) => (i.kind === "activity" ? <ActivityItem key={i.row.activity.id} row={i.row} context={context} /> : null))}
+            {pinned.map((i) => (i.kind === "activity" ? <ActivityItem key={i.row.activity.id} row={i.row} context={context} attachments={byActivity.get(i.row.activity.id)} /> : null))}
           </ol>
         </section>
       ) : null}
@@ -195,7 +200,7 @@ export function Timeline({
           <ol className="relative flex flex-col gap-2 before:absolute before:top-2 before:bottom-2 before:left-[15px] before:w-px before:bg-line">
             {shown.map((i) =>
               i.kind === "activity" ? (
-                <ActivityItem key={i.row.activity.id} row={i.row} context={context} />
+                <ActivityItem key={i.row.activity.id} row={i.row} context={context} attachments={byActivity.get(i.row.activity.id)} />
               ) : i.kind === "event" ? (
                 <EventItem key={i.event.id} event={i.event} />
               ) : i.kind === "group" ? (
@@ -212,9 +217,6 @@ export function Timeline({
     </div>
   );
 }
-
-/** "Sam Lee <sam@acme.com>" → "Sam Lee". */
-const senderName = (raw: string) => /^\s*"?([^"<]+?)"?\s*</.exec(raw)?.[1]?.trim() || (/<([^>]+)>/.exec(raw)?.[1] ?? raw);
 
 function Who({ id }: { id: string | null }) {
   const { member, viewer } = useApp();
@@ -245,7 +247,7 @@ function LinkedTo({ row, context }: { row: ActivityRow; context: Context }) {
   );
 }
 
-export function PlannedItem({ row, context }: { row: ActivityRow; context: Context }) {
+export function PlannedItem({ row, context, attachments }: { row: ActivityRow; context: Context; attachments?: RecordFile[] }) {
   const { workspace, member } = useApp();
   const a = row.activity;
   const [pending, start] = useTransition();
@@ -289,6 +291,7 @@ export function PlannedItem({ row, context }: { row: ActivityRow; context: Conte
           </Tooltip>
         </div>
         {a.body ? <div className="prose-crm mt-1 line-clamp-3 text-[13px]" dangerouslySetInnerHTML={{ __html: a.body }} /> : null}
+        <Attachments files={attachments} />
         <div className="mt-1 flex min-w-0 items-center gap-2 text-[12px]">
           {assignee ? (
             <span className="flex items-center gap-1.5 text-muted">
@@ -305,7 +308,7 @@ export function PlannedItem({ row, context }: { row: ActivityRow; context: Conte
   );
 }
 
-export function ActivityItem({ row, context }: { row: ActivityRow; context: Context }) {
+export function ActivityItem({ row, context, attachments }: { row: ActivityRow; context: Context; attachments?: RecordFile[] }) {
   const { workspace } = useApp();
   const a = row.activity;
   const tz = workspace.timezone;
@@ -339,7 +342,7 @@ export function ActivityItem({ row, context }: { row: ActivityRow; context: Cont
 
   return (
     <li className="relative flex gap-3">
-      <span className={clsx("relative z-10 mt-2.5 flex size-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface", a.type === "note" && "bg-[#fefce8] border-[#fde68a]")}>
+      <span className={clsx("relative z-10 mt-2.5 flex size-8 shrink-0 items-center justify-center rounded-full border", a.type === "note" ? "border-note-border bg-note-surface" : "border-line bg-surface")}>
         <Icon className="size-4 text-secondary" aria-hidden />
       </span>
       <article className={clsx("group min-w-0 flex-1 rounded-xl border bg-surface px-3.5 py-3", a.pinned ? "border-line-strong shadow-sm" : "border-line")}>
@@ -377,6 +380,7 @@ export function ActivityItem({ row, context }: { row: ActivityRow; context: Cont
         ) : null}
         {a.subject ? <h3 className="mt-1 text-[14px] font-medium">{a.subject}</h3> : null}
         {a.body ? <CollapsibleBody html={a.body} /> : null}
+        <Attachments files={attachments} />
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] empty:hidden">
           {a.inboxThreadId ? (
             <Link href={`/email?t=${a.inboxThreadId}`} className="inline-flex items-center gap-1 font-medium text-secondary hover:text-primary">
@@ -389,6 +393,24 @@ export function ActivityItem({ row, context }: { row: ActivityRow; context: Cont
       </article>
       {editing ? <EditActivity row={row} onClose={() => setEditing(false)} /> : null}
     </li>
+  );
+}
+
+/** Files attached to an activity, as chips that open them. */
+function Attachments({ files }: { files?: RecordFile[] }) {
+  if (!files?.length) return null;
+  return (
+    <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Attachments">
+      {files.map((f) => (
+        <li key={f.id}>
+          <a href={`/api/files/${f.id}`} target="_blank" rel="noopener" className="inline-flex h-7 max-w-64 items-center gap-1.5 rounded-full border border-line bg-sunken px-2.5 text-[12px] text-secondary hover:border-line-strong hover:text-primary">
+            <PaperClipIcon className="size-3.5 shrink-0 text-faint" aria-hidden />
+            <span className="truncate">{f.name}</span>
+            <span className="shrink-0 text-faint tabular-nums">{formatBytes(f.size)}</span>
+          </a>
+        </li>
+      ))}
+    </ul>
   );
 }
 

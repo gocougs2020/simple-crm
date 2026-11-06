@@ -18,7 +18,7 @@ It's built to cover the 80% of CRM work a small team does every day, and to stay
 - **Email built in.** Add your domains and team inboxes (sales@, support@) in Settings, powered by Resend. Incoming mail lands in a shared inbox and on the timeline of the person, organization and client it's about; reply from the CRM. Send from any record through an inbox, with templates and merge fields. Campaigns go to filtered audiences (past clients open to coming back, say) with a live preview, test sends, scheduling and one-click unsubscribe. A brand kit (logo, color, address, signature) wraps every email.
 - **Import** people from CSV or Excel: match columns, merge by email, undo.
 - **Move from Pipedrive** with `pnpm import:pipedrive`: people, organizations, deals collapsed into one client per organization, products as services, notes, activities and email. See [docs/PIPEDRIVE-IMPORT.md](docs/PIPEDRIVE-IMPORT.md).
-- **Files** live in a private store and only stream to signed-in teammates.
+- **Files** attach to a record or to a note, call or meeting, and each record's Files card gathers them all, along with attachments on its email. They live in a private store and only stream to signed-in teammates.
 - **Team** is invite-only with email-and-password sign-in, roles (owner, admin, member) and deactivation that keeps history intact.
 
 ## Run it locally

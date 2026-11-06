@@ -2,6 +2,7 @@
 
 import clsx from "clsx";
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
+import { PaperClipIcon, XMarkIcon } from "@heroicons/react/20/solid";
 import {
   ArrowDownLeftIcon,
   ArrowUpRightIcon,
@@ -22,6 +23,7 @@ import { toast } from "@/components/ui/toast";
 import { activityLabels, callOutcomes, meetingOutcomes, type ActivityType } from "@/lib/constants";
 import { dayFromToday, timeKey, zonedTime } from "@/lib/format";
 import { EmailComposer, type EmailRecipient } from "./email-composer";
+import { useUploader } from "@/components/files/files-panel";
 
 export const activityIcons: Record<ActivityType, typeof PhoneIcon> = {
   note: DocumentTextIcon,
@@ -106,6 +108,10 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
   const [time, setTime] = useState(() => (type === "task" ? "" : timeKey(new Date(), tz)));
   const [assigneeId, setAssigneeId] = useState<string | null>(viewer.id);
   const [followUp, setFollowUp] = useState<number | null>(null);
+  /** Files to attach once the activity is saved. */
+  const [attached, setAttached] = useState<File[]>([]);
+  const picker = useRef<HTMLInputElement>(null);
+  const uploader = useUploader(links);
   const [pending, start] = useTransition();
 
   const now = useNow();
@@ -121,12 +127,18 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
     setSubject("");
     setDuration("");
     setFollowUp(null);
+    setAttached([]);
     setTime(isTask ? "" : timeKey(new Date(), tz));
     setDay(isTask ? dayFromToday(tz, 1) : dayFromToday(tz));
   };
 
   const submit = () =>
     start(async () => {
+      // A note that's only files: attach them to the record, no empty note needed.
+      if (type === "note" && !body && attached.length) {
+        await uploader.run(attached);
+        return reset();
+      }
       const input: ActivityInput = {
         type,
         subject: subject || null,
@@ -138,6 +150,7 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
       };
       const r = await logActivity(input);
       if (!r.ok) return void toast.error(r.error);
+      if (attached.length) await uploader.run(attached, { activityId: r.data.id });
       if (followUp !== null) {
         const f = await logActivity({ type: "task", subject: `Follow up${subject ? `: ${subject}` : ""}`, ...links, dueAt: zonedTime(dayFromToday(tz, followUp), "00:00", tz).toISOString(), dueHasTime: false, assigneeId: viewer.id });
         if (!f.ok) toast.error(f.error);
@@ -210,6 +223,12 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
         onChange={setBody}
         onSubmit={submit}
         minHeight={isTask ? 44 : 72}
+        actions={
+          <Button size="sm" variant="ghost" className="h-7" onClick={() => picker.current?.click()}>
+            <PaperClipIcon />
+            Attach
+          </Button>
+        }
         placeholder={
           {
             note: "Write a note. Only your team sees it.",
@@ -221,13 +240,36 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
           }[type]
         }
       />
-      <div className="flex items-center justify-end gap-2">
-        <span className="hidden text-[11.5px] text-faint sm:inline">
-          <Kbd>⌘</Kbd> <Kbd>↵</Kbd>
-        </span>
-        <Button variant="primary" size="sm" loading={pending} onClick={submit}>
-          {label}
-        </Button>
+      <input
+        ref={picker}
+        type="file"
+        multiple
+        hidden
+        onChange={(e) => {
+          const picked = [...(e.target.files ?? [])];
+          setAttached((list) => [...list, ...picked]);
+          e.target.value = "";
+        }}
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        {attached.map((f, i) => (
+          <span key={`${f.name}-${i}`} className="inline-flex h-7 max-w-56 items-center gap-1 rounded-full border border-line bg-sunken pr-1 pl-2.5 text-[12px] text-secondary">
+            <PaperClipIcon className="size-3.5 shrink-0 text-faint" aria-hidden />
+            <span className="truncate">{f.name}</span>
+            <button type="button" onClick={() => setAttached((list) => list.filter((_, j) => j !== i))} className="rounded-full p-0.5 text-faint hover:text-primary" aria-label={`Don't attach ${f.name}`}>
+              <XMarkIcon className="size-3.5" />
+            </button>
+          </span>
+        ))}
+        {uploader.uploads.length ? <span className="text-[12px] text-muted">Uploading {uploader.uploads.length === 1 ? uploader.uploads[0].name : `${uploader.uploads.length} files`}…</span> : null}
+        <div className="ml-auto flex items-center gap-2">
+          <span className="hidden text-[11.5px] text-faint sm:inline">
+            <Kbd>⌘</Kbd> <Kbd>↵</Kbd>
+          </span>
+          <Button variant="primary" size="sm" loading={pending} onClick={submit}>
+            {label}
+          </Button>
+        </div>
       </div>
     </div>
   );

@@ -22,6 +22,13 @@
       "when": 1793912248698,
       "tag": "0002_external-ids",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793939882350,
+      "tag": "0003_file-activity",
+      "breakpoints": true
     }
   ]
 }

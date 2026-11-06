@@ -404,13 +404,15 @@ export const files = pgTable(
     personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
     organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "set null" }),
     clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+    /** The note, call or meeting it was attached to. Deleting the activity keeps the file on the record. */
+    activityId: uuid("activity_id").references(() => activities.id, { onDelete: "set null" }),
     uploadedBy: uuid("uploaded_by")
       .notNull()
       .references(() => users.id),
     createdAt: createdAt(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
-  (t) => [index("files_person_idx").on(t.personId), index("files_org_idx").on(t.organizationId), index("files_client_idx").on(t.clientId)],
+  (t) => [index("files_person_idx").on(t.personId), index("files_org_idx").on(t.organizationId), index("files_client_idx").on(t.clientId), index("files_activity_idx").on(t.activityId)],
 );
 
 export const customFields = pgTable(

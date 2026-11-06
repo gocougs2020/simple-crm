@@ -50,4 +50,11 @@
   --neutral: #52525b;
   --neutral-surface: #f4f4f5;
   --neutral-border: #e4e4e7;
+
+  /* Notes: the soft yellow that marks a note on a timeline. */
+  --note-surface: #fefce8;
+  --note-border: #fde68a;
+
+  /* Toasts sit on a dark background, so their success icon needs a lighter green. */
+  --toast-success-icon: #4ade80;
 }

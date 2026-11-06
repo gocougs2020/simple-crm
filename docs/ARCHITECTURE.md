@@ -35,7 +35,7 @@ drizzle/             SQL migrations generated from schema.ts
 | `client_metrics` | Performance numbers logged over time per client ("Leads", "Days to fill") |
 | `activities` | Notes, calls, emails, texts, meetings and tasks in one table. Links to a person, organization and/or client |
 | `events` | Change history: who changed what, from what, to what |
-| `files` | Metadata; the bytes live in private Vercel Blob |
+| `files` | Metadata; the bytes live in private Vercel Blob. A file added to a note, call or other activity keeps its `activity_id` and takes that activity's links |
 | `custom_fields` | Field definitions per record type. Values live on the record, keyed by a stable `key` |
 | `email_templates`, `campaigns`, `outbound_emails` | Email. `outbound_emails` records every message sent |
 | `inbox_threads`, `inbox_messages` | A mirror of the workspace's Resend inboxes, linked to people, organizations and clients |

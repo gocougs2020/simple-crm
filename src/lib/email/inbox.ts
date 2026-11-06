@@ -305,23 +305,6 @@ export async function syncAllInboxes(limit = 50) {
   return { inboxes: inboxes.length, synced };
 }
 
-/** Threads about a record, newest first, for the email card on its page. */
-export async function threadsFor(link: { personIds?: string[]; organizationId?: string | null; clientId?: string | null }, limit = 8) {
-  const db = await getDb();
-  const ors = [
-    link.personIds?.length ? inArray(inboxThreads.personId, link.personIds) : null,
-    link.organizationId ? eq(inboxThreads.organizationId, link.organizationId) : null,
-    link.clientId ? eq(inboxThreads.clientId, link.clientId) : null,
-  ].filter((x): x is NonNullable<typeof x> => !!x);
-  if (!ors.length) return [];
-  return db
-    .select({ id: inboxThreads.id, subject: inboxThreads.subject, snippet: inboxThreads.snippet, read: inboxThreads.read, messageCount: inboxThreads.messageCount, lastMessageAt: inboxThreads.lastMessageAt, inboxAddress: inboxThreads.inboxAddress })
-    .from(inboxThreads)
-    .where(and(sql`(${sql.join(ors, sql` or `)})`, sql`${inboxThreads.folder} not in ('spam', 'trash')`))
-    .orderBy(desc(inboxThreads.lastMessageAt))
-    .limit(limit);
-}
-
 /** Unread conversations in the inbox folder, for the sidebar badge. */
 export async function unreadCount() {
   const db = await getDb();

@@ -6,33 +6,37 @@ import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
 import { ActionError, actionUser, isAdmin } from "@/lib/auth";
+import { uploadLinks } from "@/lib/crm/activities";
 import { recordEvent, touch } from "@/lib/crm/events";
 import { blobConfigured, cleanFileName, fileProblem } from "@/lib/files";
 
 const links = z.object({ personId: z.uuid().nullable().optional(), organizationId: z.uuid().nullable().optional(), clientId: z.uuid().nullable().optional() });
+/** An upload can also name the activity it belongs to (a file attached to a note or call). */
+const attachLinks = links.extend({ activityId: z.uuid().nullable().optional() });
 
 /**
  * Records a file the browser just uploaded to Vercel Blob. The URL must be on
  * this store and under files/, the path our upload route issues tokens for.
  */
-export async function attachUploadedFile(input: { url: string; pathname: string; name: string; size: number; contentType: string } & z.input<typeof links>): Promise<Result<{ id: string }>> {
+export async function attachUploadedFile(input: { url: string; pathname: string; name: string; size: number; contentType: string } & z.input<typeof attachLinks>): Promise<Result<{ id: string }>> {
   return run(async () => {
     const user = await actionUser();
     if (!blobConfigured()) throw new ActionError("File storage isn't set up.");
     const data = z
       .object({ url: z.url(), pathname: z.string().startsWith("files/").max(500), name: z.string().min(1).max(300), size: z.number().int().positive(), contentType: z.string().max(200) })
-      .and(links)
+      .and(attachLinks)
       .parse(input);
     const host = new URL(data.url).hostname;
     if (!host.endsWith(".blob.vercel-storage.com")) throw new ActionError("That upload didn't come from file storage.");
     const problem = fileProblem(data.name, data.size, data.contentType);
     if (problem) throw new ActionError(problem);
+    const linked = await uploadLinks(data);
     const db = await getDb();
     const [row] = await db
       .insert(schema.files)
-      .values({ ...data, name: cleanFileName(data.name), uploadedBy: user.id })
+      .values({ ...data, ...linked, name: cleanFileName(data.name), uploadedBy: user.id })
       .returning({ id: schema.files.id });
-    await touch(data);
+    await touch(linked);
     refresh();
     return row;
   });

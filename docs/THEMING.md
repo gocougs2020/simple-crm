@@ -14,6 +14,8 @@ Edit [`src/styles/theme.css`](../src/styles/theme.css). Components never use raw
 | `--text-primary` … `--text-faint` | Titles, body, supporting copy, icons and placeholders |
 | `--border`, `--border-strong`, `--ring` | Lines and focus |
 | `--success`, `--warning`, `--error`, `--info`, `--neutral` (+ `-surface`, `-border`) | Status badges. Keep their meaning; adjust shades if needed |
+| `--note-surface`, `--note-border` | The soft yellow behind a note's icon on a timeline |
+| `--toast-success-icon` | The check in a success toast (it sits on a dark background) |
 
 Example: a blue brand.
 
