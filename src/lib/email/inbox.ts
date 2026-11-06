@@ -3,7 +3,7 @@ import { and, desc, eq, gte, inArray, isNotNull, isNull, sql } from "drizzle-orm
 import type { GetInboxThreadEmailResponseSuccess } from "resend";
 import { getDb, schema } from "@/db";
 import { touch } from "@/lib/crm/events";
-import { getResend } from "@/lib/email";
+import { getResend, inEmailScope } from "@/lib/email";
 import { sanitizeHtml } from "@/lib/safe-html";
 
 const { inboxThreads, inboxMessages, activities, people, organizations, clients, outboundEmails } = schema;
@@ -77,18 +77,34 @@ function snippetOf(m: { html: string | null; text: string | null }) {
 
 type InboxSummary = { id: string; email_address: string; name: string | null; from_name: string | null; unread: number };
 
-/** Every inbox in the Resend account. */
+/** Every inbox in the Resend account on a domain this CRM manages (see RESEND_DOMAINS). */
 export async function listInboxes(): Promise<InboxSummary[]> {
   const resend = resendOrThrow();
   const out: InboxSummary[] = [];
   let after: string | undefined;
   for (let page = 0; page < 10; page++) {
     const res = must(await resend.inboxes.list({ limit: 100, ...(after ? { after } : {}) }), "list inboxes");
-    out.push(...res.data);
+    out.push(...res.data.filter((i) => inEmailScope(i.email_address)));
     if (!res.has_more || !res.data.length) break;
     after = res.data[res.data.length - 1].id;
   }
   return out;
+}
+
+const outOfScope = "That belongs to a domain this CRM doesn't manage. Add the domain to RESEND_DOMAINS to manage it here.";
+
+/** Refuses an inbox on a domain outside RESEND_DOMAINS, so the CRM can't send from or change another app's inbox. */
+export async function assertInboxInScope(inboxId: string) {
+  const inbox = must(await resendOrThrow().inboxes.get(inboxId), "load the inbox");
+  if (!inEmailScope(inbox.email_address)) throw new InboxError(outOfScope);
+  return inbox;
+}
+
+/** Refuses a domain outside RESEND_DOMAINS, so the CRM can't verify, change or remove another app's domain. */
+export async function assertDomainInScope(domainId: string) {
+  const domain = must(await resendOrThrow().domains.get(domainId), "load the domain");
+  if (!inEmailScope(domain.name)) throw new InboxError(outOfScope);
+  return domain;
 }
 
 /**
@@ -152,8 +168,10 @@ export async function applyThreadLinks(threadId: string) {
 export async function syncThread(inboxId: string, resendThreadId: string, ourAddresses?: Set<string>) {
   const resend = resendOrThrow();
   const db = await getDb();
-  const ours = ourAddresses ?? new Set((await listInboxes()).map((i) => i.email_address.toLowerCase()));
   const inbox = must(await resend.inboxes.get(inboxId), "load the inbox");
+  // The webhook hears about every inbox in the account; another app's mail is never mirrored.
+  if (!inEmailScope(inbox.email_address)) return null;
+  const ours = ourAddresses ?? new Set((await listInboxes()).map((i) => i.email_address.toLowerCase()));
   const summary = must(await resend.inboxes.threads.get({ inboxId, threadId: resendThreadId }), "load the conversation");
 
   const messages: GetInboxThreadEmailResponseSuccess[] = [];

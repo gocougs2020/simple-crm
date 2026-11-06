@@ -4,7 +4,7 @@ import { EmailDomainSettings, type DomainView, type InboxView } from "@/componen
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { getDb, schema } from "@/db";
 import { requireAdminPage } from "@/lib/auth";
-import { getResend } from "@/lib/email";
+import { emailDomainsScoped, getResend, inEmailScope } from "@/lib/email";
 import { listInboxes } from "@/lib/email/inbox";
 
 export const metadata: Metadata = { title: "Email domains" };
@@ -26,15 +26,20 @@ async function EmailDomains() {
   const [ws] = await db.select({ email: schema.workspace.email }).from(schema.workspace).limit(1);
   // Never the signing secret: only whether a webhook is connected, and where.
   const webhook = { connected: !!ws?.email.webhookId, endpoint: ws?.email.webhookEndpoint ?? null, envSecret: !!process.env.RESEND_WEBHOOK_SECRET };
-  if (!resend) return <EmailDomainSettings configured={false} domains={[]} domainsError={null} inboxes={[]} inboxesError={null} webhook={webhook} />;
+  if (!resend) return <EmailDomainSettings configured={false} domains={[]} domainsError={null} scope={{ scoped: emailDomainsScoped, hidden: 0 }} inboxes={[]} inboxesError={null} webhook={webhook} />;
 
   let domains: DomainView[] = [];
   let domainsError: string | null = null;
+  let hidden = 0;
   try {
     const list = await resend.domains.list();
     if (list.error) throw new Error(list.error.message);
+    // Only the domains in RESEND_DOMAINS, when set: the Resend account may be shared with other apps.
+    const all = list.data?.data ?? [];
+    const managed = all.filter((d) => inEmailScope(d.name));
+    hidden = all.length - managed.length;
     domains = await Promise.all(
-      (list.data?.data ?? []).map(async (d): Promise<DomainView> => {
+      managed.map(async (d): Promise<DomainView> => {
         const full = await resend.domains.get(d.id);
         return {
           id: d.id,
@@ -59,5 +64,5 @@ async function EmailDomains() {
     inboxesError = message(err);
   }
 
-  return <EmailDomainSettings configured domains={domains} domainsError={domainsError} inboxes={inboxes} inboxesError={inboxesError} webhook={webhook} />;
+  return <EmailDomainSettings configured domains={domains} domainsError={domainsError} scope={{ scoped: emailDomainsScoped, hidden }} inboxes={inboxes} inboxesError={inboxesError} webhook={webhook} />;
 }

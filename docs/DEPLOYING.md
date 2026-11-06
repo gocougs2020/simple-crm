@@ -17,6 +17,7 @@ Import the repository in Vercel. `vercel.json` sets the build command (`pnpm db:
 | `NEXT_PUBLIC_SITE_URL` | Your production URL, e.g. `https://crm.example.com` (used in email links) |
 | `RESEND_API_KEY` | From resend.com |
 | `RESEND_FROM` | A sender on a domain verified in Resend, e.g. `Acme <crm@acme.com>` |
+| `RESEND_DOMAINS` | Optional. The Resend domains this CRM manages, comma-separated, e.g. `mail.acme.com`. Set it when the Resend account is shared with another app: the CRM then never lists, syncs, sends from or removes the other domains and their inboxes. Unset means every domain in the account |
 | `CRON_SECRET` | Any long random string. Vercel sends it to the cron endpoints |
 | `STRIPE_SECRET_KEY` | Optional. A **restricted** key with read access to Customers, Subscriptions, Invoices, Charges and Products. Shows billing on current and past clients |
 | `RESEND_WEBHOOK_SECRET` | Optional. Only if you create the Resend webhook yourself; otherwise Settings → Email domains → Connect webhook creates it and stores its secret |
@@ -25,7 +26,7 @@ Mark `AUTH_SECRET`, `RESEND_API_KEY`, `CRON_SECRET`, `STRIPE_SECRET_KEY` and `RE
 
 ## 4. Set up email domains and inboxes
 
-In the CRM, Settings → Email domains:
+In the CRM, Settings → Email domains. Removing a domain or inbox here deletes it in Resend, so if the Resend account is shared with another app, set `RESEND_DOMAINS` first rather than removing the other app's domains.
 
 1. **Add a domain** (with "Receive email on this domain" on). Add the DNS records it shows (SPF, DKIM, and the MX record for receiving) at your DNS host, then **Verify**. Until a domain is verified, Resend only delivers to your own address. Use a subdomain (mail.acme.com) for receiving if your main domain's mail already goes to Google Workspace or Microsoft 365, since receiving needs the MX record.
 2. **Add inboxes** on that domain, like sales@ or hello@. Their mail shows in Email → Inbox and on the matching records.

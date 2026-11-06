@@ -8,6 +8,27 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 /** The verified sending address, e.g. `Acme <crm@acme.com>`. Its domain needs SPF and DKIM records in Resend. */
 export const emailFrom = process.env.RESEND_FROM ?? "CRM <crm@example.com>";
 
+/**
+ * The Resend domains this CRM manages, from RESEND_DOMAINS (comma-separated,
+ * e.g. `mail.acme.com,acme.com`). Unset means every domain in the account.
+ * Set it when the Resend account is shared with another app, so the CRM never
+ * lists, syncs, sends from or removes that app's domains and inboxes.
+ */
+const scopedDomains = new Set(
+  (process.env.RESEND_DOMAINS ?? "")
+    .split(",")
+    .map((d) => d.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+export const emailDomainsScoped = scopedDomains.size > 0;
+
+/** Whether a domain (`acme.com`) or an address on it (`sales@acme.com`) is one this CRM manages. */
+export function inEmailScope(domainOrAddress: string) {
+  if (!scopedDomains.size) return true;
+  return scopedDomains.has(domainOrAddress.trim().toLowerCase().split("@").pop() ?? "");
+}
+
 /** The address part of RESEND_FROM, so a teammate's display name can be put in front of it. */
 export function fromAs(displayName: string) {
   const address = /<([^>]+)>/.exec(emailFrom)?.[1] ?? emailFrom;

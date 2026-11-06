@@ -70,7 +70,7 @@ Choices worth knowing:
 
 ## Inbox (Resend)
 
-- Domains and inboxes are managed through the Resend API from Settings → Email domains (admins). Resend stays the source of truth; nothing about a domain is stored here.
+- Domains and inboxes are managed through the Resend API from Settings → Email domains (admins). Resend stays the source of truth; nothing about a domain is stored here. `RESEND_DOMAINS` (optional) limits the CRM to some of the account's domains: `inEmailScope` in `src/lib/email.ts` filters `listInboxes`, the settings list and `syncThread` (so webhook events for other inboxes are ignored), and `assertDomainInScope` / `assertInboxInScope` guard every action that changes or sends from one.
 - `src/lib/email/inbox.ts` mirrors threads into `inbox_threads` / `inbox_messages`. Each message becomes an `email` activity, so it shows on the timelines of the thread's person, organization and client. An email sent from a record (which already logged an activity) is matched by its Resend id and reused, so nothing shows twice.
 - Links come from addresses: the first participant who is a person in the CRM, else an organization whose website matches the domain; the client is the one tied to that person or organization (current first). Linking a thread by hand sets `linked_by_hand`, and later syncs keep it.
 - Freshness: the Resend webhook (`/api/webhooks/resend`, signature-verified) syncs a thread as soon as mail arrives; a cron every 15 minutes and the "Sync now" button catch anything missed. Syncing is idempotent.

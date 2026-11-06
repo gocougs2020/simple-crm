@@ -7,8 +7,8 @@ import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
 import { ActionError, actionAdmin, actionUser } from "@/lib/auth";
 import { recordEvent } from "@/lib/crm/events";
-import { getResend } from "@/lib/email";
-import { applyThreadLinks, InboxError, listInboxes, must, resendOrThrow, syncAllInboxes, syncInbox, syncThread } from "@/lib/email/inbox";
+import { getResend, inEmailScope } from "@/lib/email";
+import { applyThreadLinks, assertDomainInScope, assertInboxInScope, InboxError, listInboxes, must, resendOrThrow, syncAllInboxes, syncInbox, syncThread } from "@/lib/email/inbox";
 import { siteOrigin } from "@/lib/origin";
 import { htmlToText, sanitizeHtml } from "@/lib/safe-html";
 
@@ -50,6 +50,7 @@ async function threadOrThrow(threadId: string) {
   const db = await getDb();
   const [t] = await db.select().from(inboxThreads).where(eq(inboxThreads.id, uuid.parse(threadId)));
   if (!t) throw new ActionError("This conversation is gone. Sync the inbox and try again.");
+  if (!inEmailScope(t.inboxAddress)) throw new ActionError(`${t.inboxAddress} is on a domain this CRM doesn't manage. Add the domain to RESEND_DOMAINS to work with its mail here.`);
   return t;
 }
 
@@ -105,6 +106,7 @@ export async function composeEmail(input: z.input<typeof composeInput>): Promise
     const html = sanitizeHtml(data.body);
     if (!htmlToText(html)) throw new ActionError("Write the email first.");
     const resend = await inbox(async () => resendOrThrow());
+    await inbox(() => assertInboxInScope(data.inboxId));
     const key = crypto.randomUUID();
     const draft = await inbox(async () => must(await resend.inboxes.drafts.create({ inboxId: data.inboxId, to: data.to, cc: data.cc?.length ? data.cc : undefined, subject: data.subject, html }, { idempotencyKey: `draft-${key}` }), "prepare the email"));
     const sent = await inbox(async () => must(await resend.inboxes.drafts.send({ inboxId: data.inboxId, draftId: draft.id }, { idempotencyKey: `send-${key}` }), "send the email"));
@@ -196,6 +198,7 @@ export async function addDomain(input: z.input<typeof domainInput>): Promise<Res
   return run(async () => {
     await actionAdmin();
     const data = domainInput.parse(input);
+    if (!inEmailScope(data.name)) throw new ActionError(`${data.name} isn't in RESEND_DOMAINS. Add it there and redeploy, then add the domain here.`);
     const resend = await inbox(async () => resendOrThrow());
     const d = await inbox(async () =>
       must(await resend.domains.create({ name: data.name, region: data.region, capabilities: { sending: "enabled", receiving: data.receiving ? "enabled" : "disabled" } }), "add the domain"),
@@ -209,7 +212,9 @@ export async function verifyDomain(domainId: string): Promise<Result> {
   return run(async () => {
     await actionAdmin();
     const resend = await inbox(async () => resendOrThrow());
-    await inbox(async () => must(await resend.domains.verify(z.string().min(1).max(100).parse(domainId)), "start verification"));
+    const id = z.string().min(1).max(100).parse(domainId);
+    await inbox(() => assertDomainInScope(id));
+    await inbox(async () => must(await resend.domains.verify(id), "start verification"));
     refresh();
   });
 }
@@ -219,7 +224,9 @@ export async function setDomainCapability(domainId: string, capability: "sending
     await actionAdmin();
     const resend = await inbox(async () => resendOrThrow());
     const cap = z.enum(["sending", "receiving"]).parse(capability);
-    await inbox(async () => must(await resend.domains.update({ id: z.string().min(1).max(100).parse(domainId), capabilities: { [cap]: enabled ? "enabled" : "disabled" } }), `turn ${cap} ${enabled ? "on" : "off"}`));
+    const id = z.string().min(1).max(100).parse(domainId);
+    await inbox(() => assertDomainInScope(id));
+    await inbox(async () => must(await resend.domains.update({ id, capabilities: { [cap]: enabled ? "enabled" : "disabled" } }), `turn ${cap} ${enabled ? "on" : "off"}`));
     refresh();
   });
 }
@@ -228,7 +235,9 @@ export async function removeDomain(domainId: string): Promise<Result> {
   return run(async () => {
     await actionAdmin();
     const resend = await inbox(async () => resendOrThrow());
-    await inbox(async () => must(await resend.domains.remove(z.string().min(1).max(100).parse(domainId)), "remove the domain"));
+    const id = z.string().min(1).max(100).parse(domainId);
+    await inbox(() => assertDomainInScope(id));
+    await inbox(async () => must(await resend.domains.remove(id), "remove the domain"));
     refresh();
   });
 }
@@ -248,6 +257,7 @@ export async function createInbox(input: z.input<typeof inboxInput>): Promise<Re
   return run(async () => {
     await actionAdmin();
     const data = inboxInput.parse(input);
+    if (!inEmailScope(data.domain)) throw new ActionError(`${data.domain} isn't in RESEND_DOMAINS. Add it there and redeploy, then add inboxes on it here.`);
     const resend = await inbox(async () => resendOrThrow());
     await inbox(async () => must(await resend.inboxes.create({ emailAddress: `${data.localPart}@${data.domain}`, name: data.name || undefined, fromName: data.fromName || undefined }), "create the inbox"));
     refresh();
@@ -260,7 +270,9 @@ export async function updateInbox(inboxId: string, input: { name?: string; fromN
     const data = z.object({ name: z.string().trim().max(80).optional(), fromName: z.string().trim().max(80).optional() }).parse(input);
     if (data.name === undefined && data.fromName === undefined) return;
     const resend = await inbox(async () => resendOrThrow());
-    await inbox(async () => must(await resend.inboxes.update(z.string().min(1).max(100).parse(inboxId), data as { name: string }), "update the inbox"));
+    const id = z.string().min(1).max(100).parse(inboxId);
+    await inbox(() => assertInboxInScope(id));
+    await inbox(async () => must(await resend.inboxes.update(id, data as { name: string }), "update the inbox"));
     refresh();
   });
 }
@@ -270,7 +282,9 @@ export async function removeInbox(inboxId: string): Promise<Result> {
   return run(async () => {
     await actionAdmin();
     const resend = await inbox(async () => resendOrThrow());
-    await inbox(async () => must(await resend.inboxes.remove(z.string().min(1).max(100).parse(inboxId)), "remove the inbox"));
+    const id = z.string().min(1).max(100).parse(inboxId);
+    await inbox(() => assertInboxInScope(id));
+    await inbox(async () => must(await resend.inboxes.remove(id), "remove the inbox"));
     refresh();
   });
 }
