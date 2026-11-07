@@ -21,6 +21,8 @@ src/
                      formatting, queries (lib/crm)
   styles/theme.css   every color the app uses
 drizzle/             SQL migrations generated from schema.ts
+app.config.ts        product defaults (name, theme, layout), overridable per deployment
+                     with NEXT_PUBLIC_APP_CONFIG (src/lib/config-overrides.ts)
 ```
 
 ## Data model

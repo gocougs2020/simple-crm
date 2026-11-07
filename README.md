@@ -41,13 +41,30 @@ Settings → Workspace has **Add sample data** (local development only) to fill 
 
 ## Deploy to Vercel
 
-See [docs/DEPLOYING.md](docs/DEPLOYING.md). In short: connect Neon and a **private** Blob store from the Vercel Marketplace, set `AUTH_SECRET`, `RESEND_API_KEY`, `RESEND_FROM` and `CRON_SECRET`, and deploy. Migrations run in the build.
+See [docs/DEPLOYING.md](docs/DEPLOYING.md). In short: fork the repo (or import it directly), connect Neon and a **private** Blob store from the Vercel Marketplace, set `AUTH_SECRET`, `RESEND_API_KEY`, `RESEND_FROM` and `CRON_SECRET`, and deploy. Migrations run in the build. Optionally set `NEXT_PUBLIC_APP_NAME` and `NEXT_PUBLIC_BRAND_COLOR` to brand it.
 
 ## Make it yours
 
-- **Look and feel:** every color comes from one file, [`src/styles/theme.css`](src/styles/theme.css). See [docs/THEMING.md](docs/THEMING.md).
-- **Emails:** the brand kit in Settings → Email and brand. No code needed.
-- **Pipelines (per client category), stages, services and custom fields:** Settings.
+Every deployment can look and behave like its own product **without changing the code**, so you can fork it (or deploy this repo as is) and still pull upstream changes cleanly.
+
+| What | Where | Needs a deploy? |
+| --- | --- | --- |
+| Product name, brand color, theme tokens, layout defaults | Environment variables on the Vercel project ([below](#per-deployment-config)) | Redeploy |
+| Workspace name, email brand kit (logo, color, address, signature) | Settings → Workspace, Settings → Email and brand | No |
+| Pipelines (per client category), stages, services, custom fields | Settings | No |
+| Defaults for every deployment of your fork | [`app.config.ts`](app.config.ts) and [`src/styles/theme.css`](src/styles/theme.css) | Commit |
+
+### Per-deployment config
+
+[`app.config.ts`](app.config.ts) holds the defaults. A deployment overrides them with environment variables:
+
+| Variable | Overrides | Example |
+| --- | --- | --- |
+| `NEXT_PUBLIC_APP_NAME` | `brand.name` (browser tab, installed-app name) | `Acme CRM` |
+| `NEXT_PUBLIC_BRAND_COLOR` | `theme.brandColor`: buttons, focus rings and selected states, with hover and tint shades derived from it | `#2f629f` |
+| `NEXT_PUBLIC_APP_CONFIG` | Any key in `app.config.ts`, as JSON, deep-merged | `{"layout":{"defaultClientsView":"table"},"theme":{"tokens":{"canvas":"#f7f5f0"}}}` |
+
+Unknown keys, wrong types, invalid JSON and unsafe CSS values fail the build with a list of what to fix, so a typo never ships. These values are public (they're compiled into the page): never put secrets in them. See [docs/THEMING.md](docs/THEMING.md) for every option.
 
 ## Documentation
 
@@ -65,11 +82,16 @@ See [docs/DEPLOYING.md](docs/DEPLOYING.md). In short: connect Neon and a **priva
 | `pnpm dev` | Dev server on port 3200 |
 | `pnpm build` | Production build |
 | `pnpm lint` / `pnpm typecheck` | ESLint / TypeScript |
+| `pnpm test` | Unit tests (`src/**/*.test.ts`) |
 | `pnpm db:generate` | Create a migration from `src/db/schema.ts` changes |
 | `pnpm db:migrate` | Apply migrations to `DATABASE_URL` (runs in the Vercel build) |
 | `pnpm email:dev` | Preview the email templates in `src/emails` |
 | `pnpm import:pipedrive` | Import a Pipedrive account ([how it maps](docs/PIPEDRIVE-IMPORT.md)) |
 
+## Contributing
+
+Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately ([SECURITY.md](SECURITY.md)).
+
 ## License
 
-MIT
+[MIT](LICENSE)
