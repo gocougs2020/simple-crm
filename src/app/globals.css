@@ -2,7 +2,7 @@
 @import "../styles/theme.css";
 
 /*
- * Design foundations follow the HiringCenter design system: Geist type,
+ * Design foundations: Geist type,
  * desktop-dense layouts, flat surfaces with 1px borders, radius-md controls,
  * radius-xl cards, uppercase table headers, tabular digits and status badges
  * that always carry a word. Colors come from theme.css.
@@ -47,7 +47,7 @@
   --color-note-border: var(--note-border);
   --color-toast-success-icon: var(--toast-success-icon);
 
-  /* HiringCenter radii: sm controls, md buttons/inputs, lg tables, xl cards and dialogs. */
+  /* Radii: sm controls, md buttons/inputs, lg tables, xl cards and dialogs. */
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
