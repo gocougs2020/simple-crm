@@ -53,7 +53,7 @@ describe("isSafeCssValue", () => {
   for (const ok of ["#2f629f", "oklch(0.55 0.15 250)", "rgb(0 0 0 / 10%)", "color-mix(in oklab, red 50%, white)"]) {
     it(`allows ${ok}`, () => assert.equal(isSafeCssValue(ok), true));
   }
-  for (const bad of ["", "red;", "a{b}", "url('x')", "</style>"]) {
+  for (const bad of ["", "red;", "a{b}", "url('x')", "url(//evil.example/x)", "image-set(a)", "</style>"]) {
     it(`refuses ${JSON.stringify(bad)}`, () => assert.equal(isSafeCssValue(bad), false));
   }
 });

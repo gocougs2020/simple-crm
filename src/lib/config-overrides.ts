@@ -47,10 +47,17 @@ function isCssPath(path: string): boolean {
 /**
  * A CSS value safe to drop into a declaration: colors (`#2f629f`,
  * `oklch(0.5 0.2 250)`, `rgb(0 0 0 / 10%)`), lengths, and `color-mix(...)`.
- * Anything that could close the declaration or the tag is refused.
+ * Anything that could close the declaration or the tag is refused, and so is
+ * anything that loads a resource (`url(...)`).
  */
 export function isSafeCssValue(value: string): boolean {
-  return value.length > 0 && value.length <= 120 && /^[#a-zA-Z0-9(),.%/\s+-]+$/.test(value);
+  return (
+    value.length > 0 &&
+    value.length <= 120 &&
+    /^[#a-zA-Z0-9(),.%/\s+-]+$/.test(value) &&
+    // Colors and lengths never need to load anything.
+    !/(url|image|image-set|cross-fade|element|src)\s*\(/i.test(value)
+  );
 }
 
 function isPlain(value: unknown): value is Plain {
