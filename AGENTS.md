@@ -14,7 +14,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   - Every export in a `"use server"` file is a public endpoint: call `actionUser()` / `actionAdmin()` first, validate with zod, return through `run()`.
   - Record changes write an `events` row in the same action (`recordEvent`), so history stays complete.
   - Colors come only from `src/styles/theme.css` tokens; never hard-code hex in components.
+  - Deployment-specific product defaults (name, theme, layout defaults) live in `app.config.ts`, overridable per deployment with `NEXT_PUBLIC_APP_CONFIG` / `NEXT_PUBLIC_APP_NAME` / `NEXT_PUBLIC_BRAND_COLOR` (`src/lib/config-overrides.ts`). Add new knobs there, not in components, and document them in `docs/THEMING.md`.
   - Copy is sentence case, says what happened and what to do next, no exclamation marks.
 - `pnpm dev` (port 3200) works with no environment variables. `.claude/launch.json` starts it.
-- Before committing: `pnpm lint && pnpm typecheck && pnpm build`.
+- Before committing: `pnpm lint && pnpm typecheck && pnpm test && pnpm build`.
 - Schema change: edit `src/db/schema.ts`, then `pnpm db:generate --name <what-changed>`.

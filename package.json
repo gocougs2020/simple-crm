@@ -4,12 +4,22 @@
   "private": true,
   "description": "A light, fast, detail-focused CRM for small B2B teams. Next.js, Neon, Drizzle, Resend.",
   "license": "MIT",
+  "author": "Logan Dziuk",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gocougs2020/simple-crm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gocougs2020/simple-crm/issues"
+  },
+  "homepage": "https://github.com/gocougs2020/simple-crm#readme",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "tsx --test \"src/**/*.test.ts\"",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",

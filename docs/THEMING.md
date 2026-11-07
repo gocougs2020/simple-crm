@@ -1,10 +1,48 @@
 # Theming
 
-The app's structure (type scale, spacing, radii, shadows, table and board patterns) follows one design system; its **colors** all come from CSS variables in one file. Rebranding is editing that file.
+The app's structure (type scale, spacing, radii, shadows, table and board patterns) follows one design system; its **colors** all come from CSS variables. There are two ways to change them:
 
-## Change the colors
+- **Per deployment, with environment variables.** No code change, so a fork stays identical to upstream and one repo can serve several differently branded deployments. Start here.
+- **In the code** (`src/styles/theme.css`). Use this to change the defaults for every deployment of your fork.
 
-Edit [`src/styles/theme.css`](../src/styles/theme.css). Components never use raw hex values, so nothing else needs to change.
+## Per deployment: environment variables
+
+Set these on the Vercel project (Settings → Environment Variables), then redeploy. Locally, put them in `.env.local` and restart `pnpm dev`.
+
+```bash
+# The simplest rebrand: one color. Hover, tint and tint-text shades are derived from it.
+NEXT_PUBLIC_BRAND_COLOR="#2f629f"
+NEXT_PUBLIC_APP_NAME="Acme CRM"
+
+# Anything else in app.config.ts, as JSON. Only the keys you set change.
+NEXT_PUBLIC_APP_CONFIG='{"theme":{"brandForeground":"#ffffff","tokens":{"canvas":"#f7f5f0","accent-hover":"#1f4677"}},"layout":{"defaultClientsView":"table"}}'
+```
+
+In `.env.local`, keep the quotes: unquoted, `#` starts a comment, so `#2f629f` would load as an empty value and the JSON would be cut off at its first color. In the Vercel dashboard, paste the value without the surrounding quotes.
+
+What [`app.config.ts`](../app.config.ts) controls:
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| `brand.name` | `"CRM"` | Browser tab ("Clients · CRM") and installed-app name. The sidebar shows the workspace name from Settings → Workspace |
+| `brand.description` | | HTML meta description |
+| `theme.brandColor` | `null` | Sets `--accent` and `--ring`, and derives `--accent-hover` (15% darker), `--accent-soft` (10% tint on white) and `--accent-soft-foreground` with `color-mix()` |
+| `theme.brandForeground` | `"#ffffff"` | Text on the brand color (`--accent-foreground`). Use a dark color for light brand colors |
+| `theme.tokens` | `{}` | Any variable from the table below, without the leading `--`, e.g. `{"canvas":"#f7f5f0"}`. Wins over the derived values |
+| `theme.browserColor` | `"#fafafa"` | Browser toolbar and installed-app title bar |
+| `layout.defaultClientsView` | `"board"` | How Clients opens for a teammate who hasn't chosen board or table yet (`"board"` or `"table"`). Each person's own choice still wins |
+
+`NEXT_PUBLIC_APP_NAME` and `NEXT_PUBLIC_BRAND_COLOR` are shortcuts for `brand.name` and `theme.brandColor`, and win over the same keys in the JSON.
+
+Rules:
+
+- A key that isn't in `app.config.ts`, a wrong type, a value outside a fixed list, invalid JSON, or a CSS value that isn't a plain color **fails the build** with a list of what to fix. On Vercel the previous deployment keeps serving.
+- Values are compiled into the page at build time, so they're public and need a redeploy to change. Never put secrets in them.
+- With nothing set, no extra CSS is rendered and the app looks exactly like `theme.css`.
+
+## In the code: change the defaults
+
+Edit [`src/styles/theme.css`](../src/styles/theme.css) for every deployment of your fork. Components never use raw hex values, so nothing else needs to change. To make a new setting overridable per deployment, add it to `app.config.ts` (and, for a fixed list of values, to `ENUMS` in `src/lib/config-overrides.ts`).
 
 | Variable | Used for |
 | --- | --- |
@@ -46,4 +84,4 @@ Emails don't use the app theme: email clients need inline styles. Their look com
 
 ## Keeping a private brand out of a public fork
 
-If you deploy a public fork for your own company and don't want your colors in the public repo, keep `theme.css` neutral upstream and change it only in a private deployment branch (or a private fork that merges upstream). Everything else about your brand (logo, address, signature) already lives in the database.
+Keep the repo neutral and put your brand in the deployment: `NEXT_PUBLIC_APP_NAME`, `NEXT_PUBLIC_BRAND_COLOR` and `NEXT_PUBLIC_APP_CONFIG` on the Vercel project, and the logo, address and signature in Settings (stored in the database). Your production deployment then builds straight from the public `main` branch, with no private branch to keep merged.

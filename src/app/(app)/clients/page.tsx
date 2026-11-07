@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { appConfig } from "@/app.config";
 import { ClientsView } from "@/components/clients/clients-view";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { requireUser } from "@/lib/auth";
@@ -23,8 +24,8 @@ async function Clients({ searchParams }: Pick<PageProps<"/clients">, "searchPara
   const sp = await searchParams;
   const [user, app] = await Promise.all([requireUser(), getAppData()]);
   const category: ClientCategory = clientCategories.find((c) => c === one(sp.category)) ?? "prospective";
-  // The URL wins; otherwise each teammate's last choice.
-  const view = one(sp.view) === "table" || one(sp.view) === "board" ? (one(sp.view) as "board" | "table") : (user.prefs.clientsView ?? "board");
+  // The URL wins; otherwise each teammate's last choice, then the deployment's default.
+  const view = one(sp.view) === "table" || one(sp.view) === "board" ? (one(sp.view) as "board" | "table") : (user.prefs.clientsView ?? appConfig.layout.defaultClientsView);
   const options = app.pipelines.filter((p) => p.category === category);
   const asked = one(sp.pipeline);
   // The board shows one pipeline; the table can show them all.
