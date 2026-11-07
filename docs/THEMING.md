@@ -11,12 +11,14 @@ Set these on the Vercel project (Settings → Environment Variables), then redep
 
 ```bash
 # The simplest rebrand: one color. Hover, tint and tint-text shades are derived from it.
-NEXT_PUBLIC_BRAND_COLOR=#2f629f
-NEXT_PUBLIC_APP_NAME=Acme CRM
+NEXT_PUBLIC_BRAND_COLOR="#2f629f"
+NEXT_PUBLIC_APP_NAME="Acme CRM"
 
 # Anything else in app.config.ts, as JSON. Only the keys you set change.
-NEXT_PUBLIC_APP_CONFIG={"theme":{"brandForeground":"#ffffff","tokens":{"canvas":"#f7f5f0","accent-hover":"#1f4677"}},"layout":{"defaultClientsView":"table"}}
+NEXT_PUBLIC_APP_CONFIG='{"theme":{"brandForeground":"#ffffff","tokens":{"canvas":"#f7f5f0","accent-hover":"#1f4677"}},"layout":{"defaultClientsView":"table"}}'
 ```
+
+In `.env.local`, keep the quotes: unquoted, `#` starts a comment, so `#2f629f` would load as an empty value and the JSON would be cut off at its first color. In the Vercel dashboard, paste the value without the surrounding quotes.
 
 What [`app.config.ts`](../app.config.ts) controls:
 
