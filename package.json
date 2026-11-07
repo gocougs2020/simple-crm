@@ -46,7 +46,7 @@
     "@vercel/speed-insights": "^2.0.0",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.4",
-    "jose": "^6.2.13",
+    "jose": "^6.2.15",
     "next": "16.4.3",
     "papaparse": "^5.5.3",
     "radix-ui": "^1.4.3",
