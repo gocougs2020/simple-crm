@@ -128,7 +128,7 @@ importers:
         version: 6.11.6(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       tailwindcss:
         specifier: ^4
-        version: 4.3.3
+        version: 4.3.4
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -4259,6 +4259,9 @@ packages:
   tailwindcss@4.3.3:
     resolution: {integrity: sha512-gOhV3P7ufE62QDGg1zVaTgCR+EtPv92k2nIhVcVKcLmxT1sUBsQGhnZj175j+MqRt4zLF7ic+sCYjfhxMxj7YQ==}
 
+  tailwindcss@4.3.4:
+    resolution: {integrity: sha512-PCJZTFFdG+sL3gvnP1Do9o6GbkvH2q0p04xSs3f7cSvmAeK+sttG+/7ncK1fdRwKFfC7n+wDDJaOMBSefkI9ow==}
+
   tapable@2.3.3:
     resolution: {integrity: sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A==}
     engines: {node: '>=6'}
@@ -6016,7 +6019,7 @@ snapshots:
     dependencies:
       '@react-email/text': 0.1.6(react@19.3.0)
       react: 19.3.0
-      tailwindcss: 4.3.3
+      tailwindcss: 4.3.4
     optionalDependencies:
       '@react-email/body': 0.3.0(react@19.3.0)
       '@react-email/button': 0.2.1(react@19.3.0)
@@ -8229,7 +8232,7 @@ snapshots:
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
       socket.io: 4.8.4
-      tailwindcss: 4.3.3
+      tailwindcss: 4.3.4
       tsconfig-paths: 4.2.0
     transitivePeerDependencies:
       - bufferutil
@@ -8590,6 +8593,8 @@ snapshots:
   tailwind-merge@3.7.0: {}
 
   tailwindcss@4.3.3: {}
+
+  tailwindcss@4.3.4: {}
 
   tapable@2.3.3: {}
 
