@@ -77,6 +77,28 @@ export default function DevelopersPage() {
         </aside>
 
         <main className="min-w-0 max-w-3xl text-[14.5px] leading-relaxed text-secondary">
+          {/* The sidebar is desktop-only; on smaller screens the same links fold into one menu. */}
+          <details className="mb-6 rounded-lg border border-line bg-surface lg:hidden">
+            <summary className="cursor-pointer px-3 py-2 text-[13.5px] font-medium text-primary">On this page</summary>
+            <nav aria-label="Docs" className="grid grid-cols-2 gap-x-2 border-t border-line px-1 py-2 text-[13.5px]">
+              <ul>
+                {guides.map((g) => (
+                  <NavLink key={g.id} href={`#${g.id}`}>
+                    {g.label}
+                  </NavLink>
+                ))}
+                <NavLink href="#models">Models</NavLink>
+                <NavLink href="#tools">MCP tools</NavLink>
+              </ul>
+              <ul>
+                {tags.map((t) => (
+                  <NavLink key={t.name} href={`#${anchor(t.name)}`}>
+                    {t.name}
+                  </NavLink>
+                ))}
+              </ul>
+            </nav>
+          </details>
           <h1 className="text-[28px] font-semibold tracking-tight text-primary">API and MCP</h1>
           <p className="mt-2 text-[15.5px]">
             Read and change {name} from your own code with the REST API, or let an AI agent work in it through MCP. Both cover people, organizations, clients, tasks, notes and every other kind of activity, and both write the same history as the app.

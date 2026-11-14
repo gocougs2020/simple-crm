@@ -119,14 +119,15 @@ function KeyList({ rows, empty, showOwner, action = "Revoke" }: { rows: KeyRow[]
       {rows.map((k) => {
         const expired = !!k.expiresAt && new Date(k.expiresAt) <= new Date();
         return (
-          <li key={k.id} className="flex items-center gap-3 px-4 py-3">
+          // On phones the badges and button wrap under the name instead of squeezing it.
+          <li key={k.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3">
             <KeyIcon className="size-4 shrink-0 text-faint" />
-            <div className="min-w-0 flex-1">
+            <div className="min-w-[12rem] flex-1">
               <p className="truncate text-[14px] font-medium text-primary">
                 {k.name}
                 {showOwner && k.userName ? <span className="font-normal text-muted"> · {k.userName}</span> : null}
               </p>
-              <p className="truncate text-[12.5px] text-muted" suppressHydrationWarning>
+              <p className="text-[12.5px] text-muted sm:truncate" suppressHydrationWarning>
                 {k.kind === "oauth" ? <span>Connected app · {k.prefix}</span> : <span className="font-mono">{k.prefix}…</span>} · {k.kind === "oauth" ? "Connected" : "Created"} {formatAgo(k.createdAt, tz)} · {k.lastUsedAt ? `Last used ${formatAgo(k.lastUsedAt, tz)}` : "Never used"}
                 {k.expiresAt && !expired ? ` · Expires ${relativeDay(formatDay(k.expiresAt, tz))}` : ""}
               </p>
@@ -137,6 +138,7 @@ function KeyList({ rows, empty, showOwner, action = "Revoke" }: { rows: KeyRow[]
               size="sm"
               variant="ghost"
               disabled={pending}
+              aria-label={`${k.kind === "oauth" ? "Disconnect" : action} ${k.name}`}
               onClick={() =>
                 start(async () => {
                   if (!confirm(k.kind === "oauth" ? `Disconnect ${k.name}? It stops working right away; connect again to use it.` : `Revoke “${k.name}”? Anything using it stops working right away.`)) return;

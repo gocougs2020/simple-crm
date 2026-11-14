@@ -13,7 +13,7 @@ export function CodeBlock({ code, label }: { code: string; label?: string }) {
       {label ? <div className="border-b border-line px-3 py-1.5 text-[12px] font-medium text-muted">{label}</div> : null}
       <button
         type="button"
-        aria-label="Copy"
+        aria-label={copied ? "Copied" : label ? `Copy ${label}` : "Copy"}
         className="absolute top-1.5 right-1.5 rounded-md p-1.5 text-faint opacity-70 hover:bg-surface hover:text-primary group-hover:opacity-100 focus-visible:opacity-100"
         onClick={async () => {
           try {
@@ -26,6 +26,9 @@ export function CodeBlock({ code, label }: { code: string; label?: string }) {
         }}
       >
         {copied ? <CheckIcon className="size-4" /> : <ClipboardDocumentIcon className="size-4" />}
+        <span className="sr-only" aria-live="polite">
+          {copied ? "Copied" : ""}
+        </span>
       </button>
       <pre className="overflow-x-auto px-3 py-2.5 pr-10 font-mono text-[12.5px] leading-relaxed text-primary scroll-thin">
         <code>{shown}</code>

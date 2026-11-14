@@ -6,6 +6,7 @@ import { getDb, schema } from "@/db";
 import { ActionError, getUser } from "@/lib/auth";
 import { uploadLinks } from "@/lib/crm/activities";
 import { touch } from "@/lib/crm/events";
+import { forbiddenMessage, roleCan } from "@/lib/permissions";
 import { blobConfigured, cleanFileName, fileProblem, LOCAL_UPLOAD_DIR } from "@/lib/files";
 
 /** Local development without Vercel Blob: files are saved under .data/uploads. Never used on Vercel. */
@@ -13,6 +14,7 @@ export async function POST(request: Request) {
   if (process.env.VERCEL || blobConfigured()) return NextResponse.json({ error: "Not available." }, { status: 404 });
   const user = await getUser();
   if (!user) return NextResponse.json({ error: "Sign in to upload files." }, { status: 401 });
+  if (!roleCan(user.role, "records:write")) return NextResponse.json({ error: forbiddenMessage["records:write"] }, { status: 403 });
   const form = await request.formData();
   const file = form.get("file");
   if (!(file instanceof File)) return NextResponse.json({ error: "No file." }, { status: 400 });
