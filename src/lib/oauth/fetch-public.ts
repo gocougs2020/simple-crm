@@ -27,9 +27,8 @@ const publicOnly: LookupFunction = (hostname, options, callback) => {
 export class PublicFetchError extends Error {}
 
 export function fetchPublicText(url: string, { maxBytes = 64 * 1024, timeoutMs = 5000 } = {}): Promise<string> {
-  // Sockets skip the lookup for an IP address in the URL, so those are checked here.
-  const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
-  if (isIP(host) && isPrivateAddress(host)) return Promise.reject(new PublicFetchError("Refused: not a public address"));
+  // Sockets skip the lookup for an IP address in the URL, so the address check would never run: only domain names are fetched.
+  if (isIP(new URL(url).hostname.replace(/^\[|\]$/g, ""))) return Promise.reject(new PublicFetchError("Refused: IP address hosts aren't fetched"));
   return new Promise((resolve, reject) => {
     const fail = (why: string) => reject(new PublicFetchError(why));
     const req = request(url, { method: "GET", lookup: publicOnly, agent: false, headers: { accept: "application/json" } }, (res) => {

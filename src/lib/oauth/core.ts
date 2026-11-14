@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
 
 /**
  * OAuth 2.1 for MCP clients (Claude, ChatGPT and any agent that follows the
@@ -133,17 +133,27 @@ export function metadataUrlProblem(clientId: string): string | null {
   if (u.pathname === "/" || !u.pathname) return "The client_id URL needs a path.";
   if (u.port && u.port !== "443") return "Client metadata documents must be on the standard https port.";
   const host = u.hostname.replace(/^\[|\]$/g, "");
-  if (isIP(host) ? isPrivateAddress(host) : host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal") || host.endsWith(".local") || !host.includes(".")) {
+  // Apps publish metadata on a domain name. IP literals (in any spelling the URL parser accepts) are refused outright.
+  if (isIP(host)) return "The client_id must use a domain name, not an IP address.";
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal") || host.endsWith(".local") || !host.includes(".")) {
     return "The client_id can't point at a private address.";
   }
   return null;
 }
 
-function ipv4Number(ip: string) {
-  return ip.split(".").reduce((n, part) => n * 256 + Number(part), 0);
-}
-
-const v4Blocks: [string, number][] = [
+/**
+ * Addresses a server should never fetch for a stranger: loopback, private,
+ * link-local, carrier-grade NAT, documentation, multicast and reserved, plus
+ * every IPv6 range that wraps an IPv4 address (mapped, compatible, 6to4,
+ * NAT64, Teredo), which are blocked whole rather than unwrapped. BlockList
+ * parses every spelling of an address (::ffff:7f00:1 is ::ffff:127.0.0.1),
+ * so there's no string matching to get around. One list per family: a
+ * BlockList checks IPv4 addresses against IPv6 rules as mapped addresses, so
+ * a shared list holding ::ffff:0:0/96 would block every IPv4 address.
+ */
+const blockedV4 = new BlockList();
+const blockedV6 = new BlockList();
+for (const [base, bits] of [
   ["0.0.0.0", 8],
   ["10.0.0.0", 8],
   ["100.64.0.0", 10],
@@ -152,28 +162,35 @@ const v4Blocks: [string, number][] = [
   ["172.16.0.0", 12],
   ["192.0.0.0", 24],
   ["192.0.2.0", 24],
+  ["192.88.99.0", 24],
   ["192.168.0.0", 16],
   ["198.18.0.0", 15],
   ["198.51.100.0", 24],
   ["203.0.113.0", 24],
   ["224.0.0.0", 3],
-];
+] as const)
+  blockedV4.addSubnet(base, bits, "ipv4");
+for (const [base, bits] of [
+  ["::", 96], // unspecified, loopback and IPv4-compatible
+  ["::ffff:0:0", 96], // IPv4-mapped
+  ["64:ff9b::", 96], // NAT64
+  ["64:ff9b:1::", 48], // local-use NAT64
+  ["100::", 64], // discard
+  ["2001::", 32], // Teredo
+  ["2001:db8::", 32], // documentation
+  ["2002::", 16], // 6to4
+  ["fc00::", 7], // unique local
+  ["fe80::", 10], // link-local
+  ["fec0::", 10], // site-local (deprecated)
+  ["ff00::", 8], // multicast
+] as const)
+  blockedV6.addSubnet(base, bits, "ipv6");
 
-/** Loopback, private, link-local, carrier-grade NAT, documentation, multicast and reserved addresses: nothing a server should fetch for a stranger. */
 export function isPrivateAddress(ip: string): boolean {
   const kind = isIP(ip);
-  if (kind === 4) {
-    const n = ipv4Number(ip);
-    return v4Blocks.some(([base, bits]) => n >>> (32 - bits) === ipv4Number(base) >>> (32 - bits));
-  }
-  if (kind === 6) {
-    const lower = ip.toLowerCase();
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower);
-    if (mapped) return isPrivateAddress(mapped[1]);
-    if (lower === "::" || lower === "::1") return true;
-    const first = parseInt(lower.split(":")[0] || "0", 16);
-    return (first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80 || (first & 0xff00) === 0xff00 || lower.startsWith("2001:db8:") || lower.startsWith("64:ff9b:");
-  }
+  if (kind === 4) return blockedV4.check(ip, "ipv4");
+  if (kind === 6) return blockedV6.check(ip, "ipv6");
+  // Not an address at all: treat as unsafe.
   return true;
 }
 

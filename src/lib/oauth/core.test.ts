@@ -72,9 +72,18 @@ describe("client metadata documents", () => {
     for (const bad of ["http://app.example.com/c.json", "https://app.example.com/", "https://localhost/c.json", "https://127.0.0.1/c.json", "https://10.1.2.3/c.json", "https://[::1]/c.json", "https://metadata.internal/c.json", "https://intranet/c.json", "https://app.example.com:8443/c.json", "https://u:p@app.example.com/c.json"])
       assert.notEqual(metadataUrlProblem(bad), null, bad);
   });
+  it("refuses IP literals in any spelling the URL parser accepts", () => {
+    for (const bad of ["https://[::ffff:127.0.0.1]/c.json", "https://[0:0:0:0:0:ffff:7f00:1]/c.json", "https://0x7f000001/c.json", "https://2130706433/c.json", "https://[2606:4700::1111]/c.json", "https://8.8.8.8/c.json"])
+      assert.notEqual(metadataUrlProblem(bad), null, bad);
+  });
+  it("classifies every spelling of a private address, as URLs and DNS return them", () => {
+    for (const ip of ["::ffff:7f00:1", "0:0:0:0:0:ffff:7f00:1", "::ffff:a9fe:a9fe", "::7f00:1", "2002:7f00:1::", "2002:c0a8:101::1", "64:ff9b::7f00:1", "2001:0:4136:e378::1", "fec0::1", "ff02::1", new URL("https://[::ffff:127.0.0.1]/").hostname.slice(1, -1)])
+      assert.equal(isPrivateAddress(ip), true, ip);
+    assert.equal(isPrivateAddress("not-an-ip"), true);
+  });
   it("knows private and reserved addresses", () => {
     for (const ip of ["127.0.0.1", "10.0.0.1", "172.16.5.4", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "224.0.0.1", "::1", "fd00::1", "fe80::1", "::ffff:127.0.0.1"]) assert.equal(isPrivateAddress(ip), true, ip);
-    for (const ip of ["8.8.8.8", "1.1.1.1", "172.32.0.1", "2606:4700:4700::1111"]) assert.equal(isPrivateAddress(ip), false, ip);
+    for (const ip of ["8.8.8.8", "1.1.1.1", "104.20.23.154", "172.32.0.1", "172.66.147.243", "2606:4700:4700::1111", "2a00:1450:4001::200e"]) assert.equal(isPrivateAddress(ip), false, ip);
   });
 });
 
