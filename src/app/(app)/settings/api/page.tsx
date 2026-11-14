@@ -38,9 +38,11 @@ async function Keys() {
     createdAt: r.key.createdAt,
     lastUsedAt: r.key.lastUsedAt,
     expiresAt: r.key.expiresAt,
+    readOnly: r.key.readOnly,
   });
   const mine = rows.filter((r) => r.key.kind === "personal" && r.key.userId === user.id).map(toRow);
   const workspace = rows.filter((r) => r.key.kind === "workspace").map(toRow);
-  const teammates = rows.filter((r) => r.key.kind === "personal" && r.key.userId !== user.id).map(toRow);
-  return <ApiSettings origin={await siteOrigin()} mine={mine} workspace={admin ? workspace : null} teammates={admin ? teammates : null} />;
+  const apps = rows.filter((r) => r.key.kind === "oauth" && r.key.userId === user.id).map(toRow);
+  const teammates = rows.filter((r) => r.key.kind !== "workspace" && r.key.userId !== user.id).map(toRow);
+  return <ApiSettings origin={await siteOrigin()} mine={mine} apps={apps} workspace={admin ? workspace : null} teammates={admin ? teammates : null} />;
 }

@@ -2,11 +2,11 @@
 export const MAX_BODY_BYTES = 1024 * 1024;
 
 /**
- * Reads a request body as text, counting bytes as they stream in and giving
+ * Reads a request (or response) body as text, counting bytes as they stream in and giving
  * up as soon as there are too many, so a large or endless body (or a lying
  * Content-Length) never gets buffered whole.
  */
-export async function readBodyLimited(request: Request, max = MAX_BODY_BYTES): Promise<{ ok: true; text: string } | { ok: false }> {
+export async function readBodyLimited(request: { headers: Headers; body: ReadableStream<Uint8Array> | null }, max = MAX_BODY_BYTES): Promise<{ ok: true; text: string } | { ok: false }> {
   const declared = Number(request.headers.get("content-length") ?? 0);
   if (declared > max) return { ok: false };
   if (!request.body) return { ok: true, text: "" };

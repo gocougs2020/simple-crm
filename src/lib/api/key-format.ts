@@ -1,15 +1,15 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { ApiKeyKind } from "@/lib/constants";
+import type { ManualKeyKind } from "@/lib/constants";
 
 /**
  * API key format: a kind prefix and 32 random bytes in base64url, like
  * `crm_pk_3q2+…`. The prefix says what the key is at a glance (and lets
  * secret scanners spot one in a commit); only the SHA-256 hash is stored.
  */
-export const keyPrefixes: Record<ApiKeyKind, string> = { workspace: "crm_ws_", personal: "crm_pk_" };
+export const keyPrefixes: Record<ManualKeyKind, string> = { workspace: "crm_ws_", personal: "crm_pk_" };
 const pattern = /^crm_(ws|pk)_[A-Za-z0-9_-]{43}$/;
 
-export function generateKey(kind: ApiKeyKind) {
+export function generateKey(kind: ManualKeyKind) {
   const token = keyPrefixes[kind] + randomBytes(32).toString("base64url");
   return { token, prefix: displayPrefix(token), hash: hashKey(token) };
 }
@@ -22,7 +22,7 @@ export function hashKey(token: string) {
 }
 
 /** The kind a well-formed key claims to be, or null for anything that isn't one of our keys. */
-export function keyKind(token: string): ApiKeyKind | null {
+export function keyKind(token: string): ManualKeyKind | null {
   const m = pattern.exec(token);
   if (!m) return null;
   return m[1] === "ws" ? "workspace" : "personal";

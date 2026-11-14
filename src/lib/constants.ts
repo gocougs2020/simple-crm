@@ -11,9 +11,18 @@ export const roleHints: Record<UserRole, string> = {
   viewer: "Sees every record but can't change anything. Their MCP access is read-only too.",
 };
 
-/** API keys: a workspace key acts with full access for integrations; a personal key acts as one teammate, with their role, and is the only kind MCP accepts. */
-export const apiKeyKinds = ["workspace", "personal"] as const;
+/**
+ * API keys: a workspace key acts with full access for integrations; a
+ * personal key acts as one teammate, with their role. An "oauth" key is a
+ * connected app (Claude, ChatGPT…) a teammate approved through OAuth: it also
+ * acts as them, and its access tokens come and go while the grant stays.
+ * Personal keys and connected apps work with MCP; workspace keys don't.
+ */
+export const apiKeyKinds = ["workspace", "personal", "oauth"] as const;
 export type ApiKeyKind = (typeof apiKeyKinds)[number];
+/** The kinds people create by hand in Settings. */
+export const manualKeyKinds = ["workspace", "personal"] as const;
+export type ManualKeyKind = (typeof manualKeyKinds)[number];
 
 export const entityTypes = ["person", "organization", "client"] as const;
 export type EntityType = (typeof entityTypes)[number];

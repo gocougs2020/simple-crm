@@ -9,6 +9,7 @@ import { operations } from "@/lib/api/operations";
 import { can, type Actor } from "@/lib/crm/actor";
 import { siteOrigin } from "@/lib/origin";
 import { rateLimit } from "@/lib/rate-limit";
+import { resourceMetadataUrl, scopesSupported } from "@/lib/oauth/core";
 import { handleMessage, RpcError, splitArguments, toolOperations, toolsFor, type JsonRpcResponse, type McpServer, type ToolCallResult } from "./protocol";
 
 /** Messages per request. Batching is for a few calls at once, not bulk work. */
@@ -23,7 +24,7 @@ const MAX_BATCH = 20;
 const instructions = (name: string, actor: Actor & { kind: "user" }, readOnly: boolean) =>
   [
     `You're connected to ${name}, a CRM, acting as ${actor.user.name} (${actor.user.role}). Everything you change is recorded in history as them.`,
-    readOnly ? "This teammate has read-only access, so only reading tools are available." : "",
+    readOnly ? "This connection is read-only, so only reading tools are available." : "",
     "Records: people (contacts), organizations (companies) and clients. A client is a relationship in one of three categories: prospective, current or past, moving through its category's pipeline stages.",
     "Use search first to find ids. Money is in integer cents (12500 is 125.00). Dates are YYYY-MM-DD; times are ISO 8601 with an offset.",
     "Tasks and notes can stand alone or link to a person, organization or client. Logging on a client also shows on its contact and organization.",
@@ -73,12 +74,18 @@ export async function handleMcpRequest(request: Request) {
   }
 
   const auth = await authenticate(request.headers);
-  if (!auth.ok) return errorResponse(auth.error, { "WWW-Authenticate": 'Bearer realm="mcp"' });
+  if (!auth.ok) {
+    // Points MCP clients at OAuth discovery (RFC 9728), so Claude, ChatGPT and others can start the sign-in flow.
+    const site = await siteOrigin();
+    const challenge = [`Bearer resource_metadata="${resourceMetadataUrl(site)}"`, `scope="${scopesSupported.join(" ")}"`];
+    if (auth.error.tokenPresented) challenge.push('error="invalid_token"', `error_description="${auth.error.message.replace(/"/g, "'")}"`);
+    return errorResponse(auth.error, { "WWW-Authenticate": challenge.join(", "), "Access-Control-Expose-Headers": "WWW-Authenticate" });
+  }
   if (auth.actor.kind !== "user") {
     return errorResponse({
       status: 403,
       code: "forbidden",
-      message: "Workspace API keys can't be used with MCP. Each teammate creates their own MCP key in Settings → API, so an agent only ever has its person's access.",
+      message: "Workspace API keys can't be used with MCP. Each teammate connects their agent through OAuth or their own MCP key in Settings → API and MCP, so an agent only ever has its person's access.",
     });
   }
   const actor = auth.actor;

@@ -123,16 +123,45 @@ export default function DevelopersPage() {
 
           <Guide id="mcp" title="MCP for agents">
             <p>
-              The Model Context Protocol lets an AI agent use {name} as a set of tools. Each teammate connects their own agent with a personal key, so it acts as them and can do only what they can. A viewer&apos;s agent sees only reading tools. Server URL: <SiteUrl path="/api/mcp" /> (Streamable HTTP).
+              The Model Context Protocol lets an AI agent use {name} as a set of tools. Each teammate connects their own agent, which acts as them and can do only what they can. A viewer&apos;s agent, or one approved as read-only, sees only reading tools. Server URL: <SiteUrl path="/api/mcp" /> (Streamable HTTP).
             </p>
-            <CodeBlock label="Claude Code" code={`claude mcp add --transport http crm "$CRM_URL/api/mcp" \\\n  --header "Authorization: Bearer $CRM_KEY"`} />
+
+            <h3 className="mt-5 mb-1 text-[15px] font-semibold text-primary">Sign in with OAuth</h3>
+            <p>
+              Most agents connect by signing in: add the server URL, and the agent opens {name} in your browser. Sign in, choose whether it can change records or only read them, and approve. It works with any client that follows the MCP authorization spec, including Claude (claude.ai, the desktop app and Claude Code) and ChatGPT.
+            </p>
+            <ul className="mt-2 list-disc space-y-1.5 pl-5">
+              <li>
+                <span className="font-medium text-primary">Claude:</span> Settings → Connectors → Add custom connector, and paste the server URL.
+              </li>
+              <li>
+                <span className="font-medium text-primary">ChatGPT:</span> turn on developer mode in Settings, then add a connector with the server URL and OAuth authentication.
+              </li>
+              <li>
+                <span className="font-medium text-primary">Claude Code:</span> add the server, then run <C>/mcp</C> and choose it to sign in.
+              </li>
+              <li>
+                <span className="font-medium text-primary">Other agents:</span> add a remote MCP server with the URL. Leave the client ID and secret blank; the agent registers itself.
+              </li>
+            </ul>
+            <CodeBlock label="Claude Code" code={`claude mcp add --transport http crm "$CRM_URL/api/mcp"`} />
+            <p>
+              Connected apps are listed in{" "}
+              <Link href="/settings/api" className="text-primary underline underline-offset-2">
+                Settings → API and MCP
+              </Link>
+              , where you can disconnect them. Access tokens last an hour and renew on their own; an app that goes unused for 30 days has to sign in again.
+            </p>
+
+            <h3 className="mt-6 mb-1 text-[15px] font-semibold text-primary">Or use a key</h3>
+            <p>For clients that take a header instead of signing in, create a key in Settings → API and MCP and send it as a bearer token.</p>
             <CodeBlock label="Cursor, Windsurf and most clients (mcp.json)" code={JSON.stringify({ mcpServers: { crm: { url: "$CRM_URL/api/mcp", headers: { Authorization: "Bearer crm_pk_…" } } } }, null, 2)} />
             <CodeBlock label="VS Code (.vscode/mcp.json)" code={JSON.stringify({ servers: { crm: { type: "http", url: "$CRM_URL/api/mcp", headers: { Authorization: "Bearer crm_pk_…" } } } }, null, 2)} />
-            <CodeBlock
-              label="Claude Desktop and clients that only run local servers (claude_desktop_config.json)"
-              code={JSON.stringify({ mcpServers: { crm: { command: "npx", args: ["-y", "mcp-remote", "$CRM_URL/api/mcp", "--header", "Authorization:${CRM_AUTH}"], env: { CRM_AUTH: "Bearer crm_pk_…" } } } }, null, 2)}
-            />
-            <p>Clients that connect only by signing in with OAuth, rather than with a header, can&apos;t connect yet. See the <a href="#tools" className="text-primary underline underline-offset-2">tool list</a> for everything an agent can do.</p>
+
+            <h3 className="mt-6 mb-1 text-[15px] font-semibold text-primary">For client developers</h3>
+            <p>
+              OAuth 2.1 with PKCE (S256). Discovery starts from the 401 on <C>/api/mcp</C>, whose <C>WWW-Authenticate</C> header points to <C>/.well-known/oauth-protected-resource/api/mcp</C>; the authorization server metadata is at <C>/.well-known/oauth-authorization-server</C>. Clients register with dynamic client registration (RFC 7591) or identify themselves with a client ID metadata document (an https URL as <C>client_id</C>). Scopes are <C>crm:read</C> and <C>crm:write</C>. Refresh tokens rotate on every use. See the <a href="#tools" className="text-primary underline underline-offset-2">tool list</a> for everything an agent can do.
+            </p>
           </Guide>
 
           <Guide id="conventions" title="Conventions">

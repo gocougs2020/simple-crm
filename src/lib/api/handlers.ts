@@ -41,7 +41,7 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
     const [key] = await db.select().from(schema.apiKeys).where(eq(schema.apiKeys.id, a.keyId!));
     const ws = await getWorkspace();
     return {
-      kind: a.kind === "workspace" ? "workspace" : "personal",
+      kind: key.kind,
       key: { id: key.id, name: key.name, prefix: key.prefix, expiresAt: key.expiresAt?.toISOString() ?? null },
       user: a.kind === "user" ? q.toUser(a.user) : null,
       permissions: permissions.filter((p) => can(a, p)),

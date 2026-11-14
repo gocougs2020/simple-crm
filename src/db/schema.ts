@@ -107,8 +107,71 @@ export const apiKeys = pgTable(
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    /** Limits the key to reading, whatever its teammate's role allows. */
+    readOnly: boolean("read_only").notNull().default(false),
+    /** For connected apps: the OAuth client the teammate approved. */
+    oauthClientId: text("oauth_client_id").references((): AnyPgColumn => oauthClients.id, { onDelete: "set null" }),
   },
   (t) => [uniqueIndex("api_keys_token_idx").on(t.tokenHash), index("api_keys_user_idx").on(t.userId)],
+);
+
+// ─── OAuth (agents connecting through MCP) ───────────────────────────────
+
+/**
+ * Apps that can ask a teammate for access over OAuth: registered by the app
+ * itself (dynamic client registration), or described by a metadata document
+ * at an https URL that is its client id. Registering grants nothing; a
+ * teammate still has to approve the app.
+ */
+export const oauthClients = pgTable("oauth_clients", {
+  /** The client_id: a random id for registered apps, the document URL for metadata-document apps. */
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  redirectUris: jsonb("redirect_uris").$type<string[]>().notNull().default([]),
+  tokenEndpointAuthMethod: text("token_endpoint_auth_method").$type<"none" | "client_secret_post" | "client_secret_basic">().notNull().default("none"),
+  /** SHA-256 of the client secret, for apps that authenticate at the token endpoint. */
+  secretHash: text("secret_hash"),
+  clientUri: text("client_uri"),
+  source: text("source").$type<"registered" | "metadata_document">().notNull(),
+  /** Metadata-document apps: when the document was last read, so it's refreshed now and then. */
+  metadataFetchedAt: timestamp("metadata_fetched_at", { withTimezone: true }),
+  createdAt: createdAt(),
+});
+
+/** Single-use authorization codes, bound to the app, the redirect URI and a PKCE challenge. Only a hash is stored. */
+export const oauthCodes = pgTable("oauth_codes", {
+  codeHash: text("code_hash").primaryKey(),
+  clientId: text("client_id")
+    .notNull()
+    .references(() => oauthClients.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  redirectUri: text("redirect_uri").notNull(),
+  codeChallenge: text("code_challenge").notNull(),
+  readOnly: boolean("read_only").notNull().default(false),
+  resource: text("resource"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  /** The grant the code was exchanged for, so a replayed code can revoke it. */
+  grantId: uuid("grant_id").references(() => apiKeys.id, { onDelete: "cascade" }),
+  createdAt: createdAt(),
+});
+
+/** Access and refresh tokens for a connected app (an `api_keys` row of kind "oauth"). Only hashes are stored. */
+export const oauthTokens = pgTable(
+  "oauth_tokens",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    kind: text("kind").$type<"access" | "refresh">().notNull(),
+    grantId: uuid("grant_id")
+      .notNull()
+      .references(() => apiKeys.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("oauth_tokens_grant_idx").on(t.grantId)],
 );
 
 /** One row: the workspace's name, defaults and the brand kit used by email. */
