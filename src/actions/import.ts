@@ -4,13 +4,13 @@ import { refresh } from "next/cache";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
-import { actionUser } from "@/lib/auth";
+import { actionEditor } from "@/lib/auth";
 import { importRows, undoImport } from "@/lib/crm/import";
 import type { ImportChunkResult } from "@/lib/crm/import-fields";
 
 export async function startImport(fileName: string): Promise<Result<{ id: string }>> {
   return run(async () => {
-    const user = await actionUser();
+    const user = await actionEditor();
     const db = await getDb();
     const [row] = await db
       .insert(schema.peopleImports)
@@ -36,7 +36,7 @@ const rowSchema = z.object({
 
 export async function importChunk(importId: string, rows: unknown, defaults: { ownerId: string | null; marketingOptIn: boolean }): Promise<Result<ImportChunkResult>> {
   return run(async () => {
-    const user = await actionUser();
+    const user = await actionEditor();
     const list = z.array(rowSchema).max(250).parse(rows);
     const d = z.object({ ownerId: z.uuid().nullable(), marketingOptIn: z.boolean() }).parse(defaults);
     return importRows(z.uuid().parse(importId), list, d, user.id);
@@ -45,14 +45,14 @@ export async function importChunk(importId: string, rows: unknown, defaults: { o
 
 export async function finishImport(): Promise<Result> {
   return run(async () => {
-    await actionUser();
+    await actionEditor();
     refresh();
   });
 }
 
 export async function undoPeopleImport(importId: string): Promise<Result<{ removed: number; restored: number }>> {
   return run(async () => {
-    await actionUser();
+    await actionEditor();
     const r = await undoImport(z.uuid().parse(importId));
     refresh();
     return r;

@@ -6,6 +6,8 @@ import { connection } from "next/server";
 import { jwtVerify, SignJWT } from "jose";
 import { and, eq, gt, isNull, lt, ne } from "drizzle-orm";
 import { getDb, schema } from "@/db";
+import { ActionError, ForbiddenError } from "./errors";
+import { forbiddenMessage, roleCan, type Permission } from "./permissions";
 
 import { SESSION_COOKIE } from "./session-cookie";
 const SESSION_DAYS = 30;
@@ -114,8 +116,7 @@ export async function requireAdminPage() {
   return user;
 }
 
-/** Thrown inside server actions; the action wrapper turns it into a message. */
-export class ActionError extends Error {}
+export { ActionError, ConflictError, ForbiddenError, NotFoundError } from "./errors";
 
 /** For server actions and route handlers. Every exported action must call this (or `actionAdmin`) first. */
 export async function actionUser() {
@@ -129,6 +130,15 @@ export async function actionAdmin() {
   if (!isAdmin(user)) throw new ActionError("Only admins can do that.");
   return user;
 }
+
+/** For actions that change records. Viewers are refused with a sentence that says how to get access. */
+export async function actionCan(permission: Permission) {
+  const user = await actionUser();
+  if (!roleCan(user.role, permission)) throw new ForbiddenError(forbiddenMessage[permission]);
+  return user;
+}
+
+export const actionEditor = () => actionCan("records:write");
 
 export function toViewer(u: User): Viewer {
   return { id: u.id, name: u.name, email: u.email, role: u.role, title: u.title, prefs: u.prefs };

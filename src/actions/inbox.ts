@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
-import { ActionError, actionAdmin, actionUser } from "@/lib/auth";
+import { ActionError, actionAdmin, actionEditor, actionUser } from "@/lib/auth";
 import { recordEvent } from "@/lib/crm/events";
 import { getResend, inEmailScope } from "@/lib/email";
 import { applyThreadLinks, assertDomainInScope, assertInboxInScope, InboxError, listInboxes, must, resendOrThrow, syncAllInboxes, syncInbox, syncThread } from "@/lib/email/inbox";
@@ -39,7 +39,7 @@ export async function listSendingInboxes(): Promise<{ id: string; address: strin
 
 export async function syncNow(): Promise<Result<{ synced: number }>> {
   return run(async () => {
-    await actionUser();
+    await actionEditor();
     const r = await inbox(() => syncAllInboxes(50));
     refresh();
     return { synced: r.synced };
@@ -63,7 +63,7 @@ const replyInput = z.object({
 /** Replies to the latest message in a thread, from the inbox it arrived in. The reply is logged as the teammate who wrote it. */
 export async function replyToThread(threadId: string, input: z.input<typeof replyInput>): Promise<Result> {
   return run(async () => {
-    const user = await actionUser();
+    const user = await actionEditor();
     const data = replyInput.parse(input);
     const html = sanitizeHtml(data.body);
     if (!htmlToText(html)) throw new ActionError("Write a reply first.");
@@ -101,7 +101,7 @@ const composeInput = z.object({
 /** A new conversation from the inbox page. */
 export async function composeEmail(input: z.input<typeof composeInput>): Promise<Result> {
   return run(async () => {
-    const user = await actionUser();
+    const user = await actionEditor();
     const data = composeInput.parse(input);
     const html = sanitizeHtml(data.body);
     if (!htmlToText(html)) throw new ActionError("Write the email first.");
@@ -121,7 +121,7 @@ export async function composeEmail(input: z.input<typeof composeInput>): Promise
 /** Archive, trash, spam or back to the inbox. Changes it in Resend first, so the two never disagree. */
 export async function moveThread(threadId: string, folder: "inbox" | "archive" | "spam" | "trash"): Promise<Result> {
   return run(async () => {
-    await actionUser();
+    await actionEditor();
     const f = z.enum(["inbox", "archive", "spam", "trash"]).parse(folder);
     const t = await threadOrThrow(threadId);
     const resend = await inbox(async () => resendOrThrow());
@@ -154,7 +154,7 @@ const linkInput = z.object({ personId: z.uuid().nullable().optional(), clientId:
  */
 export async function linkThread(threadId: string, input: z.input<typeof linkInput>): Promise<Result> {
   return run(async () => {
-    const user = await actionUser();
+    const user = await actionEditor();
     const data = linkInput.parse(input);
     const t = await threadOrThrow(threadId);
     const db = await getDb();

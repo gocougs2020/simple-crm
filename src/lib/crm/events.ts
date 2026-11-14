@@ -27,7 +27,7 @@ export async function labelRelations(changes: FieldChange[]) {
 
 /** Writes one history entry. Called from every action that changes a record. */
 export async function recordEvent(
-  input: { entityType: EntityType; entityId: string; action: string; data?: Record<string, unknown>; userId: string | null },
+  input: { entityType: EntityType; entityId: string; action: string; data?: Record<string, unknown>; userId: string | null; apiKeyId?: string | null },
   db?: Database,
 ) {
   const d = db ?? (await getDb());

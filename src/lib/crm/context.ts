@@ -21,13 +21,15 @@ export type Service = typeof schema.services.$inferSelect;
  */
 export const getAppData = cache(async () => {
   const db = await getDb();
-  const [ws, users, pipelines, stages, fields, services] = await Promise.all([
+  const [ws, users, pipelines, stages, fields, services, keys] = await Promise.all([
     getWorkspace(),
     db.select().from(schema.users).orderBy(asc(schema.users.name)),
     db.select().from(schema.pipelines).orderBy(asc(schema.pipelines.position), asc(schema.pipelines.createdAt)),
     db.select().from(schema.stages).orderBy(asc(schema.stages.position)),
     db.select().from(schema.customFields).where(isNull(schema.customFields.archivedAt)).orderBy(asc(schema.customFields.position), asc(schema.customFields.createdAt)),
     db.select().from(schema.services).orderBy(asc(schema.services.position), asc(schema.services.name)),
+    // Names only (revoked ones too), so history can say which key made a change.
+    db.select({ id: schema.apiKeys.id, name: schema.apiKeys.name, kind: schema.apiKeys.kind }).from(schema.apiKeys),
   ]);
   return {
     workspace: { name: ws.name, currency: ws.currency, timezone: ws.timezone },
@@ -36,6 +38,7 @@ export const getAppData = cache(async () => {
     customFields: fields,
     /** Everything the workspace sells, archived ones included so existing subscriptions still show their name. */
     catalog: services,
+    apiKeys: keys,
     services: { blob: blobConfigured(), email: emailConfigured(), emailFrom: process.env.RESEND_FROM ?? null, stripe: stripeConfigured() },
   };
 });

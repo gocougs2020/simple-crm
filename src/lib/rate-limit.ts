@@ -16,16 +16,16 @@ export async function clientIp() {
 /**
  * Counts one request against a fixed window and reports whether the caller is over the limit.
  * Counters live in Postgres because Vercel Firewall rate-limit windows top out at one hour.
- * Daily windows reset at midnight UTC.
+ * Daily windows reset at midnight UTC. `cost` counts one request as several (an MCP batch of tool calls).
  */
-export async function rateLimit(bucket: string, id: string, { limit, windowMs = DAY_MS }: { limit: number; windowMs?: number }) {
+export async function rateLimit(bucket: string, id: string, { limit, windowMs = DAY_MS, cost = 1 }: { limit: number; windowMs?: number; cost?: number }) {
   const db = await getDb();
   const windowStart = new Date(Math.floor(Date.now() / windowMs) * windowMs);
   const key = `${bucket}:${await hashToken(id)}`;
   const [row] = await db
     .insert(schema.rateLimits)
-    .values({ key, windowStart, count: 1 })
-    .onConflictDoUpdate({ target: [schema.rateLimits.key, schema.rateLimits.windowStart], set: { count: sql`${schema.rateLimits.count} + 1` } })
+    .values({ key, windowStart, count: cost })
+    .onConflictDoUpdate({ target: [schema.rateLimits.key, schema.rateLimits.windowStart], set: { count: sql`${schema.rateLimits.count} + ${cost}` } })
     .returning({ count: schema.rateLimits.count });
 
   // Housekeeping after the response: drop counters from finished windows.

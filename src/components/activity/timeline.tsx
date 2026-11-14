@@ -218,10 +218,18 @@ export function Timeline({
   );
 }
 
-function Who({ id }: { id: string | null }) {
-  const { member, viewer } = useApp();
+/** Who did something: a teammate, a teammate through one of their API or MCP keys, or a workspace key. */
+function Who({ id, apiKeyId }: { id: string | null; apiKeyId?: string | null }) {
+  const { member, viewer, apiKey } = useApp();
   const m = member(id);
-  return <span className="font-medium text-primary">{m ? (m.id === viewer.id ? "You" : m.name) : "Someone"}</span>;
+  const key = apiKey(apiKeyId);
+  if (!m && key) return <span className="font-medium text-primary">{key.name}</span>;
+  return (
+    <>
+      <span className="font-medium text-primary">{m ? (m.id === viewer.id ? "You" : m.name) : "Someone"}</span>
+      {m && key ? <span className="text-muted"> via {key.name}</span> : null}
+    </>
+  );
 }
 
 /** Links to the other records an activity belongs to (on an organization page: which client, which person). */
@@ -348,7 +356,7 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
       <article className={clsx("group min-w-0 flex-1 rounded-xl border bg-surface px-3.5 py-3", a.pinned ? "border-line-strong shadow-sm" : "border-line")}>
         <header className="flex items-start gap-2">
           <div className="min-w-0 flex-1 text-[13px] text-muted">
-            {a.inboxThreadId && !a.userId && a.direction === "inbound" && row.inboxFrom ? <span className="font-medium text-primary">{senderName(row.inboxFrom)}</span> : a.inboxThreadId && !a.userId ? <span className="font-medium text-primary">Email</span> : <Who id={a.userId} />}{" "}
+            {a.inboxThreadId && !a.userId && a.direction === "inbound" && row.inboxFrom ? <span className="font-medium text-primary">{senderName(row.inboxFrom)}</span> : a.inboxThreadId && !a.userId ? <span className="font-medium text-primary">Email</span> : <Who id={a.userId} apiKeyId={a.apiKeyId} />}{" "}
             {verb}
             {a.direction && a.type !== "note" ? (
               a.direction === "inbound" ? (
@@ -552,7 +560,7 @@ const fieldText = (v: unknown, label: string | null | undefined, member: (id: st
 };
 
 /** One line of history: who changed what, from what, to what. */
-function EventItem({ event }: { event: { id: string; action: string; data: Record<string, unknown>; userId: string | null; createdAt: Date } }) {
+function EventItem({ event }: { event: { id: string; action: string; data: Record<string, unknown>; userId: string | null; apiKeyId: string | null; createdAt: Date } }) {
   const { workspace, member, money } = useApp();
   const tz = workspace.timezone;
   const d = event.data as {
@@ -665,7 +673,7 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
     <li className="relative flex items-start gap-3 py-0.5 pl-[9px]">
       <span className="relative z-10 mt-0.5 flex size-[14px] items-center justify-center rounded-full bg-background text-faint ring-4 ring-background">{icon}</span>
       <p className="min-w-0 flex-1 text-[12.5px] leading-5 text-muted">
-        <Who id={event.userId} /> {text}
+        <Who id={event.userId} apiKeyId={event.apiKeyId} /> {text}
         <time dateTime={new Date(event.createdAt).toISOString()} className="ml-1.5 whitespace-nowrap text-faint" title={formatFull(event.createdAt, tz)} suppressHydrationWarning>
           · {formatDateTime(event.createdAt, tz)}
         </time>
@@ -676,9 +684,11 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
 
 /** Several routine changes in a row, folded into one line that opens to show each. */
 function ChangeGroup({ events }: { events: EventEntry[] }) {
-  const { workspace, member, viewer } = useApp();
+  const { workspace, member, viewer, apiKey } = useApp();
   const [open, setOpen] = useState(false);
-  const people = [...new Set(events.map((e) => e.event.userId))].map((id) => (id === viewer.id ? "You" : (member(id)?.name ?? "Someone")));
+  const people = [...new Set(events.map((e) => e.event.userId ?? e.event.apiKeyId))].map((id) =>
+    id === viewer.id ? "You" : (member(id)?.name ?? apiKey(id)?.name ?? "Someone"),
+  );
   const newest = events[0].event.createdAt;
   return (
     <>

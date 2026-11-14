@@ -32,7 +32,7 @@ import { openCreate } from "./create-store";
 type NavItem = { href: string; label: string; icon: ComponentType<{ className?: string }>; badge?: number; badgeLabel?: string; tone?: "error" };
 
 export function AppShell({ due, unread = 0, children }: { due: { overdue: number; today: number }; unread?: number; children: ReactNode }) {
-  const { viewer, workspace } = useApp();
+  const { viewer, workspace, canEdit } = useApp();
   const pathname = usePathname();
   const [drawer, setDrawer] = useState(false);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- close the mobile drawer after navigating
@@ -63,6 +63,7 @@ export function AppShell({ due, unread = 0, children }: { due: { overdue: number
         <span className="flex-1 text-left">Search</span>
         <Kbd>⌘K</Kbd>
       </button>
+      {canEdit ? (
       <Menu>
         <MenuTrigger asChild>
           <button type="button" className="mb-3 flex h-8 items-center gap-2 rounded-md bg-accent px-2.5 text-[13px] font-medium text-accent-foreground shadow-sm hover:bg-accent-hover">
@@ -82,6 +83,7 @@ export function AppShell({ due, unread = 0, children }: { due: { overdue: number
           </MenuItem>
         </MenuContent>
       </Menu>
+      ) : null}
       {nav.map((n) => {
         const active = n.href === "/" ? pathname === "/" : pathname.startsWith(n.href);
         return (

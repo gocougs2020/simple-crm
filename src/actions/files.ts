@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
-import { ActionError, actionUser, isAdmin } from "@/lib/auth";
+import { ActionError, actionEditor, isAdmin } from "@/lib/auth";
 import { uploadLinks } from "@/lib/crm/activities";
 import { recordEvent, touch } from "@/lib/crm/events";
 import { blobConfigured, cleanFileName, fileProblem } from "@/lib/files";
@@ -20,7 +20,7 @@ const attachLinks = links.extend({ activityId: z.uuid().nullable().optional() })
  */
 export async function attachUploadedFile(input: { url: string; pathname: string; name: string; size: number; contentType: string } & z.input<typeof attachLinks>): Promise<Result<{ id: string }>> {
   return run(async () => {
-    const user = await actionUser();
+    const user = await actionEditor();
     if (!blobConfigured()) throw new ActionError("File storage isn't set up.");
     const data = z
       .object({ url: z.url(), pathname: z.string().startsWith("files/").max(500), name: z.string().min(1).max(300), size: z.number().int().positive(), contentType: z.string().max(200) })
@@ -44,7 +44,7 @@ export async function attachUploadedFile(input: { url: string; pathname: string;
 
 export async function updateFileLinks(fileId: string, patch: z.input<typeof links>): Promise<Result> {
   return run(async () => {
-    await actionUser();
+    await actionEditor();
     const data = links.parse(patch);
     const db = await getDb();
     await db.update(schema.files).set(data).where(eq(schema.files.id, z.uuid().parse(fileId)));
@@ -55,7 +55,7 @@ export async function updateFileLinks(fileId: string, patch: z.input<typeof link
 /** Removes a file from the CRM. The uploader or an admin can do this. */
 export async function deleteFile(fileId: string): Promise<Result> {
   return run(async () => {
-    const user = await actionUser();
+    const user = await actionEditor();
     const db = await getDb();
     const [f] = await db.select().from(schema.files).where(eq(schema.files.id, z.uuid().parse(fileId)));
     if (!f || f.deletedAt) return;

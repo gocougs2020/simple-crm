@@ -19,7 +19,8 @@ It's built to cover the 80% of CRM work a small team does every day, and to stay
 - **Import** people from CSV or Excel: match columns, merge by email, undo.
 - **Move from Pipedrive** with `pnpm import:pipedrive`: people, organizations, deals collapsed into one client per organization, products as services, notes, activities and email. See [docs/PIPEDRIVE-IMPORT.md](docs/PIPEDRIVE-IMPORT.md).
 - **Files** attach to a record or to a note, call or meeting, and each record's Files card gathers them all, along with attachments on its email. They live in a private store and only stream to signed-in teammates.
-- **Team** is invite-only with email-and-password sign-in, roles (owner, admin, member) and deactivation that keeps history intact.
+- **Team** is invite-only with email-and-password sign-in, roles (owner, admin, member, viewer) and deactivation that keeps history intact.
+- **API and MCP.** A REST API for integrations, secured with API keys, and an MCP server so each teammate can connect their own AI agent with their own role's access. Docs for every endpoint are served at `/developers`. See [docs/API.md](docs/API.md).
 
 ## Run it locally
 
@@ -69,6 +70,7 @@ Unknown keys, wrong types, invalid JSON and unsafe CSS values fail the build wit
 ## Documentation
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the code is organized and why
+- [docs/API.md](docs/API.md): the REST API, API keys, roles and MCP
 - [docs/SECURITY.md](docs/SECURITY.md): authentication, sessions, files, and what keeps a public repo safe to deploy
 - [docs/THEMING.md](docs/THEMING.md): changing the design
 - [docs/DEPLOYING.md](docs/DEPLOYING.md): production setup

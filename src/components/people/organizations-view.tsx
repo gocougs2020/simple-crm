@@ -20,7 +20,7 @@ import type { listOrganizations } from "@/lib/crm/records";
 type Row = Awaited<ReturnType<typeof listOrganizations>>[number];
 
 export function OrganizationsView({ rows, filtered }: { rows: Row[]; filtered: boolean }) {
-  const { viewer, customFields, money, team, member } = useApp();
+  const { viewer, customFields, money, team, member, canEdit } = useApp();
   const columns: Column<Row>[] = [
     {
       key: "name",
@@ -61,10 +61,12 @@ export function OrganizationsView({ rows, filtered }: { rows: Row[]; filtered: b
   return (
     <>
       <PageHeader title="Organizations" count={rows.length}>
-        <Button variant="primary" onClick={() => openCreate({ kind: "organization" })}>
-          <PlusIcon />
-          Organization
-        </Button>
+        {canEdit ? (
+          <Button variant="primary" onClick={() => openCreate({ kind: "organization" })}>
+            <PlusIcon />
+            Organization
+          </Button>
+        ) : null}
       </PageHeader>
       <Toolbar>
         <SearchBox placeholder="Search name, website, industry" />

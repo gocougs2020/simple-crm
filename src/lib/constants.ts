@@ -1,7 +1,28 @@
 /** Shared by the database schema and client components (keeps drizzle out of client bundles). */
 
-export const userRoles = ["owner", "admin", "member"] as const;
+export const userRoles = ["owner", "admin", "member", "viewer"] as const;
 export type UserRole = (typeof userRoles)[number];
+
+export const roleLabels: Record<UserRole, string> = { owner: "Owner", admin: "Admin", member: "Member", viewer: "Viewer" };
+export const roleHints: Record<UserRole, string> = {
+  owner: "Everything admins can do, plus deciding who owns the workspace.",
+  admin: "Works every record and manages settings, pipelines, fields, the team and workspace API keys.",
+  member: "Works every record: creates, edits and archives them, and logs activity. Can't change settings.",
+  viewer: "Sees every record but can't change anything. Their MCP access is read-only too.",
+};
+
+/**
+ * API keys: a workspace key acts with full access for integrations; a
+ * personal key acts as one teammate, with their role. An "oauth" key is a
+ * connected app (Claude, ChatGPT…) a teammate approved through OAuth: it also
+ * acts as them, and its access tokens come and go while the grant stays.
+ * Personal keys and connected apps work with MCP; workspace keys don't.
+ */
+export const apiKeyKinds = ["workspace", "personal", "oauth"] as const;
+export type ApiKeyKind = (typeof apiKeyKinds)[number];
+/** The kinds people create by hand in Settings. */
+export const manualKeyKinds = ["workspace", "personal"] as const;
+export type ManualKeyKind = (typeof manualKeyKinds)[number];
 
 export const entityTypes = ["person", "organization", "client"] as const;
 export type EntityType = (typeof entityTypes)[number];

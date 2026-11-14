@@ -16,6 +16,8 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except public pages, unsubscribe links, the email logo, cron and webhook endpoints (they check their own secrets) and static files.
-  matcher: ["/((?!sign-in|setup|forgot|reset|invite|unsubscribe|brand/logo|api/cron|api/webhooks|_next/|favicon|icon|apple-icon|robots.txt).*)"],
+  // Everything except public pages (including the API docs), unsubscribe links, the email logo, endpoints that check their own
+  // secrets (cron, webhooks, the REST API, MCP and the OAuth endpoints), OAuth discovery documents, and static files.
+  // The OAuth consent page (/oauth/authorize) stays behind it: signed-out visitors sign in first and come back.
+  matcher: ["/((?!sign-in|setup|forgot|reset|invite|unsubscribe|developers|brand/logo|api/cron|api/webhooks|api/v1|api/mcp|api/oauth|\\.well-known|_next/|favicon|icon|apple-icon|robots.txt).*)"],
 };
