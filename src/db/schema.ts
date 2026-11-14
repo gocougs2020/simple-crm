@@ -1,5 +1,5 @@
 import { bigint, boolean, date, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
-import type { ActivityType, BillingInterval, ClientCategory, ClientHealth, CustomFieldType, EntityType, UserRole } from "@/lib/constants";
+import type { ActivityType, ApiKeyKind, BillingInterval, ClientCategory, ClientHealth, CustomFieldType, EntityType, UserRole } from "@/lib/constants";
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
@@ -80,6 +80,35 @@ export const rateLimits = pgTable(
     count: integer("count").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.key, t.windowStart] })],
+);
+
+/**
+ * Keys for the REST API and MCP. Only a SHA-256 hash of the key is stored;
+ * the key itself is shown once, when it's made.
+ * - `workspace` keys are made by admins for integrations. They act with full
+ *   access, have no teammate behind them, and are refused by MCP.
+ * - `personal` keys act as `userId`, with that teammate's current role, so
+ *   an agent can never do more than its person can. Deactivating the
+ *   teammate stops their keys at once.
+ */
+export const apiKeys = pgTable(
+  "api_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    kind: text("kind").$type<ApiKeyKind>().notNull(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    /** The first characters of the key, so people can tell keys apart without seeing them. */
+    prefix: text("prefix").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    /** Updated at most once a minute, so busy keys don't write on every request. */
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("api_keys_token_idx").on(t.tokenHash), index("api_keys_user_idx").on(t.userId)],
 );
 
 /** One row: the workspace's name, defaults and the brand kit used by email. */
@@ -353,6 +382,8 @@ export const activities = pgTable(
     clientId: uuid("client_id").references(() => clients.id, { onDelete: "cascade" }),
     /** Who logged it. Never changes. Null for mail that arrived in an inbox by itself. */
     userId: uuid("user_id").references(() => users.id),
+    /** The API key it was logged through, if any. With no `userId`, a workspace key logged it. */
+    apiKeyId: uuid("api_key_id").references(() => apiKeys.id, { onDelete: "set null" }),
     /** Who it's assigned to (tasks, planned calls). Defaults to the author. */
     assigneeId: uuid("assignee_id").references(() => users.id, { onDelete: "set null" }),
     /** Set when the activity is an email the CRM sent. */
@@ -386,6 +417,8 @@ export const events = pgTable(
     /** Field-level detail: { field, label, from, to } entries, or other context for the action. */
     data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    /** The API key the change came through, if any (a workspace key when `userId` is null). */
+    apiKeyId: uuid("api_key_id").references(() => apiKeys.id, { onDelete: "set null" }),
     createdAt: createdAt(),
   },
   (t) => [index("events_entity_idx").on(t.entityType, t.entityId, t.createdAt)],

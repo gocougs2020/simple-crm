@@ -20,7 +20,10 @@ import { openCreate, useCreateRequest, type CreateRequest } from "./create-store
 /** Mounted once in the shell; opens whichever quick-create form was requested. */
 export function CreateDialogs() {
   const req = useCreateRequest();
+  const { canEdit } = useApp();
   const close = () => openCreate(null);
+  // Viewers can't create records; the menus that open these are hidden for them, and the server refuses too.
+  if (!canEdit) return null;
   // Keyed by the request so each open starts with a fresh form.
   return (
     <>

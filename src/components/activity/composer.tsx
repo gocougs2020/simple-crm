@@ -43,6 +43,9 @@ export type Links = { personId?: string | null; organizationId?: string | null; 
  */
 export function Composer({ links, recipient, initialType = "note" }: { links: Links; recipient?: EmailRecipient | null; initialType?: ActivityType }) {
   const [type, setType] = useState<ActivityType>(initialType);
+  const { canEdit } = useApp();
+  // Viewers read the timeline but can't log to it.
+  if (!canEdit) return null;
   return (
     <div className="rounded-xl border border-line bg-surface shadow-sm">
       <div role="tablist" aria-label="Add activity" className="flex gap-0.5 overflow-x-auto border-b border-line px-2 pt-1.5 [scrollbar-width:none]">

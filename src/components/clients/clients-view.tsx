@@ -41,7 +41,7 @@ export function ClientsView({
   counts: Partial<Record<ClientCategory, number>>;
   tags: string[];
 }) {
-  const { pipelines, money, viewer, customFields, member, team, catalog, workspace } = useApp();
+  const { pipelines, money, viewer, customFields, member, team, catalog, workspace, canEdit } = useApp();
   const tz = workspace.timezone;
   const { get, set } = useListParams();
   const [, start] = useTransition();
@@ -167,10 +167,12 @@ export function ClientsView({
   return (
     <div className="flex h-[calc(100dvh-3rem)] flex-col lg:h-dvh">
       <PageHeader title="Clients" sub={<p className="mt-0.5 text-[12.5px] text-muted tabular-nums">{summary}</p>}>
-        <Button variant="primary" onClick={() => openCreate({ kind: "client", defaults: { category, stageId: pipeline?.stages[0]?.id } })}>
-          <PlusIcon />
-          Client
-        </Button>
+        {canEdit ? (
+          <Button variant="primary" onClick={() => openCreate({ kind: "client", defaults: { category, stageId: pipeline?.stages[0]?.id } })}>
+            <PlusIcon />
+            Client
+          </Button>
+        ) : null}
       </PageHeader>
       <nav className="flex gap-1 border-b border-line px-4 lg:px-6" aria-label="Client categories">
         {clientCategories.map((c) => (

@@ -6,7 +6,7 @@ import { and, desc, eq, or } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
-import { ActionError, actionUser, isAdmin } from "@/lib/auth";
+import { ActionError, actionEditor, actionUser, isAdmin } from "@/lib/auth";
 import { emailBrand } from "@/lib/brand";
 import { touch } from "@/lib/crm/events";
 import { fromAs, getResend, sendEmail } from "@/lib/email";
@@ -41,7 +41,7 @@ const sendInput = z.object({
  */
 export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise<Result<{ activityId: string }>> {
   return run(async () => {
-    const user = await actionUser();
+    const user = await actionEditor();
     const data = sendInput.parse(input);
     if (data.inboxId && getResend()) {
       // Only inboxes on domains this CRM manages (RESEND_DOMAINS) can send.
@@ -142,7 +142,7 @@ const templateInput = z.object({
 
 export async function saveTemplate(templateId: string | null, input: z.input<typeof templateInput>): Promise<Result<{ id: string }>> {
   return run(async () => {
-    const user = await actionUser();
+    const user = await actionEditor();
     const data = templateInput.parse(input);
     const body = sanitizeHtml(data.body);
     const db = await getDb();
@@ -165,7 +165,7 @@ export async function saveTemplate(templateId: string | null, input: z.input<typ
 
 export async function deleteTemplate(templateId: string): Promise<Result> {
   return run(async () => {
-    const user = await actionUser();
+    const user = await actionEditor();
     const db = await getDb();
     const where = isAdmin(user) ? eq(emailTemplates.id, templateId) : and(eq(emailTemplates.id, templateId), eq(emailTemplates.createdBy, user.id));
     const rows = await db.delete(emailTemplates).where(where).returning({ id: emailTemplates.id });

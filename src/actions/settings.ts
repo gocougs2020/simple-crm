@@ -67,7 +67,7 @@ async function emailInvite(userId: string, inviterId: string, inviterName: strin
 const inviteInput = z.object({
   name: z.string().trim().min(1, "Enter their name.").max(80),
   email: z.email("Enter a valid email address.").transform((e) => e.trim().toLowerCase()),
-  role: z.enum(["admin", "member"]),
+  role: z.enum(["admin", "member", "viewer"]),
 });
 
 /** Adds a teammate and emails them a link to set their password. Locally, the link is also returned so you can open it. */

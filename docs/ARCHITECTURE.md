@@ -1,6 +1,6 @@
 # Architecture
 
-One Next.js app. Server components read the database directly; server actions change it; a handful of route handlers cover files, cron and unsubscribe. There's no separate API layer.
+One Next.js app. Server components read the database directly; server actions change it through a shared service layer; a handful of route handlers cover files, cron and unsubscribe. The REST API (`/api/v1`) and the MCP server (`/api/mcp`) go through the same service layer, so the browser, integrations and agents follow the same rules and write the same history (see [API.md](API.md)).
 
 ## Layout
 
@@ -11,14 +11,16 @@ src/
     (app)/           everything behind the login: home, clients, people, organizations,
                      activities, files, email (inbox, campaigns, templates), settings
     api/             files (upload token, local upload, download), brand logo, cron,
-                     the Resend webhook
+                     the Resend webhook, the REST API (v1/[...path]) and MCP (mcp)
+    developers/      the public API and MCP docs, generated from the operation list
     unsubscribe/     the campaign unsubscribe page and RFC 8058 one-click endpoint
   actions/           server actions, one file per area ("use server")
   components/        UI, grouped by feature; ui/ holds the primitives
   db/                schema.ts (every table) and the connection
   emails/            React Email templates (layout, invite, reset, direct, campaign)
-  lib/               server logic: auth, email (and the inbox sync), Stripe, files,
-                     formatting, queries (lib/crm)
+  lib/               server logic: auth, permissions, email (and the inbox sync), Stripe,
+                     files, formatting, queries (lib/crm), record changes (lib/crm/service),
+                     the REST API (lib/api) and MCP (lib/mcp)
   styles/theme.css   every color the app uses
 drizzle/             SQL migrations generated from schema.ts
 app.config.ts        product defaults (name, theme, layout), overridable per deployment
@@ -29,14 +31,15 @@ app.config.ts        product defaults (name, theme, layout), overridable per dep
 
 | Table | Holds |
 | --- | --- |
-| `users`, `sessions`, `auth_tokens`, `rate_limits` | Team, signed-in browsers, invite/reset links, sign-in throttling |
+| `users`, `sessions`, `auth_tokens`, `rate_limits` | Team, signed-in browsers, invite/reset links, sign-in and API throttling |
+| `api_keys` | Workspace keys (full access, REST only) and personal keys (act as one teammate; REST and MCP). Only a hash is stored |
 | `workspace` | One row: name, currency, time zone, email brand kit |
 | `organizations`, `people`, `clients` | The records. Each has an owner, `custom` JSON for custom fields, `last_activity_at`, and `archived_at` (soft delete) |
 | `pipelines`, `stages` | Each pipeline belongs to a client category. Stages carry a win probability (prospects) and a "needs attention" threshold in days |
 | `services`, `client_services` | What the workspace sells (Settings → Services), and which ones each client uses or used, at what price, from when to when |
 | `client_metrics` | Performance numbers logged over time per client ("Leads", "Days to fill") |
 | `activities` | Notes, calls, emails, texts, meetings and tasks in one table. Links to a person, organization and/or client |
-| `events` | Change history: who changed what, from what, to what |
+| `events` | Change history: who changed what, from what, to what, and through which API key |
 | `files` | Metadata; the bytes live in private Vercel Blob. A file added to a note, call or other activity keeps its `activity_id` and takes that activity's links |
 | `custom_fields` | Field definitions per record type. Values live on the record, keyed by a stable `key` |
 | `email_templates`, `campaigns`, `outbound_emails` | Email. `outbound_emails` records every message sent |
@@ -59,6 +62,8 @@ Choices worth knowing:
 
 - **Pages** are server components wrapped in `<Suspense>`. With Cache Components the static shell (sidebar, headers) streams instantly and data fills in. `getDb()` calls `connection()`, so anything that touches the database is per-request by construction.
 - **App-wide data** (team, pipelines, custom field definitions, workspace settings) loads once in the `(app)` layout and reaches client components through `AppProvider`, so pickers and menus open with no round trip.
+- **Record changes live in `src/lib/crm/service/`.** Each function takes an `Actor` (`src/lib/crm/actor.ts`): a teammate in the browser, a teammate through their personal key, or a workspace key. It checks the actor's permission (`src/lib/permissions.ts`), validates with the shared schemas (`src/lib/crm/schemas.ts`), and writes history. Server actions wrap these and call `refresh()`; the API and MCP call them directly.
+- **Roles** are one table in `src/lib/permissions.ts`: owners and admins can do everything, members work records, viewers only read. The interface hides what a role can't do; the server refuses it regardless.
 - **Server actions** return `Result<T>` (`{ ok, data }` or `{ ok: false, error }`) through `run()` in `src/lib/action.ts`. Errors meant for people are `ActionError`s with a sentence that says what to do; anything else is logged and reported generically.
 - **List state lives in the URL** (`?q=&owner=&sort=`), so views are shareable and survive reloads. View preferences that should follow a person across devices (board vs table, pipeline) are saved on `users.prefs`.
 

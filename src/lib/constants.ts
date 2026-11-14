@@ -1,7 +1,19 @@
 /** Shared by the database schema and client components (keeps drizzle out of client bundles). */
 
-export const userRoles = ["owner", "admin", "member"] as const;
+export const userRoles = ["owner", "admin", "member", "viewer"] as const;
 export type UserRole = (typeof userRoles)[number];
+
+export const roleLabels: Record<UserRole, string> = { owner: "Owner", admin: "Admin", member: "Member", viewer: "Viewer" };
+export const roleHints: Record<UserRole, string> = {
+  owner: "Everything admins can do, plus deciding who owns the workspace.",
+  admin: "Works every record and manages settings, pipelines, fields, the team and workspace API keys.",
+  member: "Works every record: creates, edits and archives them, and logs activity. Can't change settings.",
+  viewer: "Sees every record but can't change anything. Their MCP access is read-only too.",
+};
+
+/** API keys: a workspace key acts with full access for integrations; a personal key acts as one teammate, with their role, and is the only kind MCP accepts. */
+export const apiKeyKinds = ["workspace", "personal"] as const;
+export type ApiKeyKind = (typeof apiKeyKinds)[number];
 
 export const entityTypes = ["person", "organization", "client"] as const;
 export type EntityType = (typeof entityTypes)[number];

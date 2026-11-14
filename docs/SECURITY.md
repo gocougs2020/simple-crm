@@ -13,7 +13,8 @@ The code is public; the data and secrets never are. This page is how that holds.
 
 - **Every page is behind a login.** `src/proxy.ts` redirects requests without a session cookie before anything renders, and every page, action and route handler checks the session again on the server (`requireUser`, `actionUser`, `getUser`). The proxy is a fast path, not the gate.
 - **Invite-only.** The first visitor to a fresh database creates the owner (once: the insert only succeeds when no user exists). After that, admins invite teammates by email.
-- **Roles.** Members work every record. Admins also manage settings and the team. Only owners can make or remove owners, and the last owner can't be demoted. Admin pages 404 for members.
+- **Roles.** Members work every record; viewers can only read them (every action that changes data refuses them on the server). Admins also manage settings and the team. Only owners can make or remove owners, and the last owner can't be demoted. Admin pages 404 for members.
+- **API keys.** The REST API and MCP accept only API keys, never the session cookie, so a browser can't be tricked into calling them. Keys are 32 random bytes with a `crm_ws_`/`crm_pk_` prefix (easy for secret scanners to spot); only a SHA-256 hash is stored and the key is shown once. Every request rechecks the key (revoked, expired) and, for personal keys, the teammate (deactivated, current role), so changes take effect at once. Personal keys can never do more than their teammate; workspace keys (full access) are admin-only and refused by MCP. MCP refuses cross-site `Origin` headers. Each key is rate-limited to 300 requests a minute. See [API.md](API.md).
 - **Deactivation** signs a teammate out everywhere immediately and blocks sign-in; their history stays attributed to them.
 
 ## Passwords and sessions

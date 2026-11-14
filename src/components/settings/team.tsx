@@ -11,12 +11,11 @@ import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/field";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { toast } from "@/components/ui/toast";
+import { roleHints, roleLabels, type UserRole } from "@/lib/constants";
 import { formatAgo } from "@/lib/format";
 import { Section } from "./nav";
 
 export type TeamRow = { id: string; name: string; email: string; role: string; title: string | null; invited: boolean; deactivated: boolean; lastSeenAt: Date | null };
-
-const roleLabels: Record<string, string> = { owner: "Owner", admin: "Admin", member: "Member" };
 
 export function TeamSettings({ rows }: { rows: TeamRow[] }) {
   const { viewer, isAdmin, workspace } = useApp();
@@ -27,7 +26,7 @@ export function TeamSettings({ rows }: { rows: TeamRow[] }) {
     <>
       <Section
         title="Team"
-        description="Everyone here can see and edit every record. Admins also manage settings and the team. Owners can't be removed by admins."
+        description="Members see and edit every record; viewers only see them. Admins also manage settings and the team. Owners can't be removed by admins. Agents connected through MCP get their teammate's role."
         action={
           isAdmin ? (
             <Button variant="primary" onClick={() => setInviting(true)}>
@@ -55,7 +54,7 @@ export function TeamSettings({ rows }: { rows: TeamRow[] }) {
                 {u.lastSeenAt ? `Active ${formatAgo(u.lastSeenAt, workspace.timezone)}` : ""}
               </span>
               {u.deactivated ? <StatusBadge>Deactivated</StatusBadge> : u.invited ? <StatusBadge tone="warning">Invite sent</StatusBadge> : null}
-              <span className="w-16 text-right text-[13px] text-secondary">{roleLabels[u.role]}</span>
+              <span className="w-16 text-right text-[13px] text-secondary">{roleLabels[u.role as UserRole]}</span>
               {isAdmin && u.id !== viewer.id ? (
                 <Menu>
                   <MenuTrigger asChild>
@@ -64,10 +63,10 @@ export function TeamSettings({ rows }: { rows: TeamRow[] }) {
                     </Button>
                   </MenuTrigger>
                   <MenuContent className="w-52">
-                    {(["admin", "member", ...(viewer.role === "owner" ? ["owner"] : [])] as const)
+                    {(["admin", "member", "viewer", ...(viewer.role === "owner" ? ["owner"] : [])] as UserRole[])
                       .filter((r) => r !== u.role)
                       .map((r) => (
-                        <MenuItem key={r} onSelect={async () => toastResult(await setRole(u.id, r as "admin"), `${u.name} is now ${roleLabels[r].toLowerCase()}`)}>
+                        <MenuItem key={r} onSelect={async () => toastResult(await setRole(u.id, r), `${u.name} is now ${r === "admin" ? "an" : "a"} ${roleLabels[r].toLowerCase()}`)}>
                           Make {roleLabels[r].toLowerCase()}
                         </MenuItem>
                       ))}
@@ -114,7 +113,7 @@ function toastResult(r: { ok: boolean; error?: string }, message: string) {
 function InviteDialog({ onClose, onLink }: { onClose: () => void; onLink: (url: string | null) => void }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"member" | "admin">("member");
+  const [role, setRole] = useState<"member" | "admin" | "viewer">("member");
   const [pending, start] = useTransition();
   const submit = () =>
     start(async () => {
@@ -150,10 +149,11 @@ function InviteDialog({ onClose, onLink }: { onClose: () => void; onLink: (url: 
       >
         <Field label="Name">{(p) => <Input {...p} value={name} onChange={(e) => setName(e.target.value)} required />}</Field>
         <Field label="Work email">{(p) => <Input {...p} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />}</Field>
-        <Field label="Role" hint={role === "admin" ? "Admins can change settings, pipelines, fields and the team." : "Members can work every record but not change settings."}>
+        <Field label="Role" hint={roleHints[role]}>
           {(p) => (
-            <Select id={p.id} value={role} onChange={(e) => setRole(e.target.value as "member" | "admin")}>
+            <Select id={p.id} value={role} onChange={(e) => setRole(e.target.value as "member" | "admin" | "viewer")}>
               <option value="member">Member</option>
+              <option value="viewer">Viewer</option>
               <option value="admin">Admin</option>
             </Select>
           )}

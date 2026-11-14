@@ -6,7 +6,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
-import { ActionError, actionUser } from "@/lib/auth";
+import { ActionError, actionEditor, actionUser } from "@/lib/auth";
 import { emailBrand } from "@/lib/brand";
 import { audienceCount, renderCampaign, runDueCampaigns } from "@/lib/email/campaigns";
 import { sendEmail } from "@/lib/email";
@@ -33,7 +33,7 @@ const audienceSchema = z.object({
 
 export async function createCampaign(): Promise<Result<{ id: string }>> {
   return run(async () => {
-    const user = await actionUser();
+    const user = await actionEditor();
     const db = await getDb();
     const [row] = await db
       .insert(campaigns)
@@ -54,7 +54,7 @@ const saveSchema = z.object({
 /** Saves the draft and re-renders its HTML with the current brand kit. Sent and sending campaigns can't change. */
 export async function saveCampaign(campaignId: string, input: z.input<typeof saveSchema>): Promise<Result<{ recipients: number; html: string }>> {
   return run(async () => {
-    await actionUser();
+    await actionEditor();
     const data = saveSchema.parse(input);
     const db = await getDb();
     const [c] = await db.select({ status: campaigns.status }).from(campaigns).where(eq(campaigns.id, uuid.parse(campaignId)));
@@ -78,7 +78,7 @@ export async function countAudience(audience: z.input<typeof audienceSchema>) {
 /** Sends the campaign to yourself, filled in as if you were the recipient. */
 export async function sendCampaignTest(campaignId: string): Promise<Result<{ to: string }>> {
   return run(async () => {
-    const user = await actionUser();
+    const user = await actionEditor();
     const db = await getDb();
     const [c] = await db.select().from(campaigns).where(eq(campaigns.id, uuid.parse(campaignId)));
     if (!c?.html) throw new ActionError("Save the campaign first.");
@@ -97,7 +97,7 @@ export async function sendCampaignTest(campaignId: string): Promise<Result<{ to:
 /** Schedules for later, or (with no time) sends now in the background. The claim is one conditional update, so it can't start twice. */
 export async function scheduleCampaign(campaignId: string, at: string | null): Promise<Result> {
   return run(async () => {
-    await actionUser();
+    await actionEditor();
     const db = await getDb();
     const [c] = await db.select().from(campaigns).where(eq(campaigns.id, uuid.parse(campaignId)));
     if (!c) throw new ActionError("This campaign was deleted.");
@@ -124,7 +124,7 @@ export async function scheduleCampaign(campaignId: string, at: string | null): P
 
 export async function unscheduleCampaign(campaignId: string): Promise<Result> {
   return run(async () => {
-    await actionUser();
+    await actionEditor();
     const db = await getDb();
     await db
       .update(campaigns)
@@ -136,7 +136,7 @@ export async function unscheduleCampaign(campaignId: string): Promise<Result> {
 
 export async function duplicateCampaign(campaignId: string): Promise<Result<{ id: string }>> {
   return run(async () => {
-    const user = await actionUser();
+    const user = await actionEditor();
     const db = await getDb();
     const [c] = await db.select().from(campaigns).where(eq(campaigns.id, uuid.parse(campaignId)));
     if (!c) throw new ActionError("This campaign was deleted.");
@@ -151,7 +151,7 @@ export async function duplicateCampaign(campaignId: string): Promise<Result<{ id
 
 export async function deleteCampaign(campaignId: string): Promise<Result> {
   return run(async () => {
-    await actionUser();
+    await actionEditor();
     const db = await getDb();
     const rows = await db
       .delete(campaigns)

@@ -28,7 +28,7 @@ import { ImportDialog } from "./import-dialog";
 type Row = Awaited<ReturnType<typeof listPeople>>[number];
 
 export function PeopleView({ rows, tags, filtered }: { rows: Row[]; tags: string[]; filtered: boolean }) {
-  const { viewer, customFields, money, team, member } = useApp();
+  const { viewer, customFields, money, team, member, canEdit } = useApp();
   const { get, set } = useListParams();
   const [importing, setImporting] = useState(false);
 
@@ -69,14 +69,18 @@ export function PeopleView({ rows, tags, filtered }: { rows: Row[]; tags: string
   return (
     <>
       <PageHeader title="People" count={rows.length}>
-        <Button variant="outline" onClick={() => setImporting(true)}>
-          <ArrowUpTrayIcon />
-          Import
-        </Button>
-        <Button variant="primary" onClick={() => openCreate({ kind: "person" })}>
-          <PlusIcon />
-          Person
-        </Button>
+        {canEdit ? (
+          <>
+            <Button variant="outline" onClick={() => setImporting(true)}>
+              <ArrowUpTrayIcon />
+              Import
+            </Button>
+            <Button variant="primary" onClick={() => openCreate({ kind: "person" })}>
+              <PlusIcon />
+              Person
+            </Button>
+          </>
+        ) : null}
       </PageHeader>
       <Toolbar>
         <SearchBox placeholder="Search name, email, phone" />
