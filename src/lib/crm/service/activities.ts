@@ -86,7 +86,10 @@ export async function updateActivity(a: Actor, activityId: string, patch: Partia
   const before = await getActivityRow(activityId);
   // Anyone can reschedule or reassign a task; only the author (or an admin) can rewrite what was logged.
   const contentChange = data.body !== undefined || data.subject !== undefined || data.outcome !== undefined || data.direction !== undefined;
-  if (contentChange && before.userId !== actorUserId(a) && !can(a, "activities:moderate") && before.type !== "task") throw new ForbiddenError("Only the person who logged this can edit it.");
+  const authorOrModerator = before.userId === actorUserId(a) || can(a, "activities:moderate");
+  if (contentChange && !authorOrModerator && before.type !== "task") throw new ForbiddenError("Only the person who logged this can edit it.");
+  // Changing what kind of activity it is counts as rewriting it, with no exemption for tasks: otherwise turning someone's call into a task would unlock editing it.
+  if (data.type !== undefined && data.type !== before.type && !authorOrModerator) throw new ForbiddenError("Only the person who logged this, or an admin, can change what kind of activity it is.");
   if (data.type !== undefined && data.type !== before.type && (before.emailId || before.inboxThreadId)) throw new ActionError("Emails sent or received through the CRM stay emails.");
   const links = data.personId !== undefined || data.organizationId !== undefined || data.clientId !== undefined ? await resolveLinks({ ...before, ...data }) : {};
   await db

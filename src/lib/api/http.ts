@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { siteOrigin } from "@/lib/origin";
 import { rateLimit } from "@/lib/rate-limit";
 import { authenticate } from "./auth";
+import { readBodyLimited } from "./body";
 import { internalError, toApiError, type ApiError } from "./errors";
 import { executeOperation } from "./execute";
 import { API_RATE_LIMIT_PER_MINUTE } from "./limits";
@@ -12,7 +13,6 @@ import type { Operation } from "./spec";
 
 /** Requests per key per minute, shared by the REST API and MCP. */
 export const API_RATE_LIMIT = API_RATE_LIMIT_PER_MINUTE;
-const MAX_BODY_BYTES = 1024 * 1024;
 
 const baseHeaders = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
 
@@ -31,14 +31,15 @@ function queryObject(params: URLSearchParams) {
   return out;
 }
 
+export const tooLarge: ApiError = { status: 413, code: "payload_too_large", message: "The request body is over 1 MB. Send less at once." };
+
 async function readBody(request: Request): Promise<{ ok: true; body: unknown } | { ok: false; error: ApiError }> {
-  const length = Number(request.headers.get("content-length") ?? 0);
-  if (length > MAX_BODY_BYTES) return { ok: false, error: { status: 413, code: "payload_too_large", message: "The request body is over 1 MB. Send less at once." } };
-  const text = await request.text();
-  if (text.length > MAX_BODY_BYTES) return { ok: false, error: { status: 413, code: "payload_too_large", message: "The request body is over 1 MB. Send less at once." } };
-  if (!text.trim()) return { ok: true, body: {} };
   const type = request.headers.get("content-type") ?? "";
   if (type && !/^application\/(.+\+)?json\b/i.test(type)) return { ok: false, error: { status: 415, code: "unsupported_media_type", message: "Send the body as JSON with Content-Type: application/json." } };
+  const read = await readBodyLimited(request);
+  if (!read.ok) return { ok: false, error: tooLarge };
+  const text = read.text;
+  if (!text.trim()) return { ok: true, body: {} };
   try {
     return { ok: true, body: JSON.parse(text) };
   } catch {

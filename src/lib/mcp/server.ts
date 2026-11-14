@@ -3,12 +3,16 @@ import { appConfig } from "@/app.config";
 import { authenticate } from "@/lib/api/auth";
 import { internalError, toApiError } from "@/lib/api/errors";
 import { executeOperation } from "@/lib/api/execute";
-import { API_RATE_LIMIT, errorResponse } from "@/lib/api/http";
+import { readBodyLimited } from "@/lib/api/body";
+import { API_RATE_LIMIT, errorResponse, tooLarge } from "@/lib/api/http";
 import { operations } from "@/lib/api/operations";
 import { can, type Actor } from "@/lib/crm/actor";
 import { siteOrigin } from "@/lib/origin";
 import { rateLimit } from "@/lib/rate-limit";
-import { handleMessage, RpcError, splitArguments, toolOperations, toolsFor, type McpServer, type ToolCallResult } from "./protocol";
+import { handleMessage, RpcError, splitArguments, toolOperations, toolsFor, type JsonRpcResponse, type McpServer, type ToolCallResult } from "./protocol";
+
+/** Messages per request. Batching is for a few calls at once, not bulk work. */
+const MAX_BATCH = 20;
 
 /**
  * The MCP endpoint (/api/mcp). Personal keys only: an agent acts as its
@@ -79,19 +83,31 @@ export async function handleMcpRequest(request: Request) {
   }
   const actor = auth.actor;
 
-  const limit = await rateLimit("api", auth.key.id, { limit: API_RATE_LIMIT, windowMs: 60_000 });
-  if (limit.limited) return errorResponse({ status: 429, code: "rate_limited", message: `This key made over ${API_RATE_LIMIT} requests this minute. Wait a minute.` }, { "Retry-After": "60" });
-
+  const read = await readBodyLimited(request);
+  if (!read.ok) return errorResponse(tooLarge);
   let payload: unknown;
   try {
-    payload = JSON.parse(await request.text());
+    payload = JSON.parse(read.text);
   } catch {
     return Response.json({ jsonrpc: "2.0", id: null, error: { code: RpcError.parse, message: "The body isn't valid JSON." } }, { status: 400, headers: jsonHeaders });
   }
+  const messages = Array.isArray(payload) ? payload : [payload];
+  if (messages.length > MAX_BATCH) {
+    return Response.json({ jsonrpc: "2.0", id: null, error: { code: RpcError.invalidRequest, message: `Send at most ${MAX_BATCH} messages at once.` } }, { status: 400, headers: jsonHeaders });
+  }
+
+  // Every tool call counts against the key's limit, so batching can't get around it.
+  const toolCalls = messages.filter((m) => !!m && typeof m === "object" && (m as { method?: unknown }).method === "tools/call").length;
+  const limit = await rateLimit("api", auth.key.id, { limit: API_RATE_LIMIT, windowMs: 60_000, cost: Math.max(1, toolCalls) });
+  if (limit.limited) return errorResponse({ status: 429, code: "rate_limited", message: `This key made over ${API_RATE_LIMIT} requests this minute. Wait a minute.` }, { "Retry-After": "60" });
 
   const server = serverFor(actor, await siteOrigin());
-  const messages = Array.isArray(payload) ? payload : [payload];
-  const replies = (await Promise.all(messages.map((m) => handleMessage(server, m)))).filter((r) => r !== null);
+  // One at a time: a batch never runs more work at once than single requests would.
+  const replies: JsonRpcResponse[] = [];
+  for (const m of messages) {
+    const reply = await handleMessage(server, m);
+    if (reply) replies.push(reply);
+  }
   // Only notifications (or responses): nothing to say back.
   if (!replies.length) return new Response(null, { status: 202 });
   return new Response(JSON.stringify(Array.isArray(payload) ? replies : replies[0]), { status: 200, headers: jsonHeaders });

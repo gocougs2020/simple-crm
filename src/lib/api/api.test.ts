@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { z } from "zod";
 import { ActionError, ConflictError, ForbiddenError, NotFoundError } from "@/lib/errors";
 import { roleCan, rolePermissions } from "@/lib/permissions";
+import { readBodyLimited } from "./body";
 import { curlFor, exampleBody, fieldsOf, typeLabel } from "./docs";
 import { toApiError } from "./errors";
 import { displayPrefix, generateKey, hashKey, keyFromHeaders, keyKind } from "./key-format";
@@ -163,5 +164,29 @@ describe("errors", () => {
       ["a", "b"],
     );
     assert.match(e!.message, /^a: /);
+  });
+});
+
+describe("request bodies", () => {
+  const stream = (chunks: string[]) =>
+    new Request("https://crm.example.com/x", {
+      method: "POST",
+      body: new ReadableStream({
+        start(c) {
+          for (const x of chunks) c.enqueue(new TextEncoder().encode(x));
+          c.close();
+        },
+      }),
+      duplex: "half",
+    } as RequestInit);
+  it("reads bodies under the limit", async () => {
+    assert.deepEqual(await readBodyLimited(stream(["{\"a\":", "1}"]), 100), { ok: true, text: '{"a":1}' });
+  });
+  it("stops at the limit in bytes, without a Content-Length", async () => {
+    assert.deepEqual(await readBodyLimited(stream(["é".repeat(30), "é".repeat(30)]), 100), { ok: false });
+  });
+  it("trusts a Content-Length that's already too big", async () => {
+    const r = new Request("https://crm.example.com/x", { method: "POST", body: "x", headers: { "content-length": "999999999" } });
+    assert.deepEqual(await readBodyLimited(r, 100), { ok: false });
   });
 });

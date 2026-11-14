@@ -85,4 +85,6 @@ src/app/developers/page.tsx               the docs page (public, static)
 - Tasks and notes can stand alone. Calls, emails, texts and meetings need a link to a person, organization or client.
 - Bodies accept the rich-text HTML the app uses (sanitized by the same allow-list) or plain text, where blank lines start paragraphs.
 - Duplicates (a person's email, an organization's name) return 409 with `existingId`.
-- Each key can make 300 requests a minute across the API and MCP (`src/lib/api/limits.ts`), counted in Postgres.
+- Each key can make 300 requests a minute across the API and MCP (`src/lib/api/limits.ts`), counted in Postgres. Every tool call in an MCP batch counts as a request, batches hold at most 20 messages and run one at a time.
+- Request bodies are capped at 1 MB, counted in bytes as they stream in (a missing or wrong Content-Length doesn't get around it).
+- Changing an activity's `type` needs its author or an admin, even for tasks, so retyping can't be used to unlock editing someone else's activity.
