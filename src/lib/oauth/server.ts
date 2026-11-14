@@ -285,6 +285,21 @@ async function issueTokens(grantId: string, readOnly: boolean) {
   return { access_token: access, token_type: "Bearer", expires_in: ACCESS_TOKEN_SECONDS, refresh_token: refresh, scope: scopeFor(readOnly) };
 }
 
+/**
+ * Ends a connected app outright: a replayed refresh token means it may have
+ * been stolen. Revoking the grant (not only its tokens) also kills tokens a
+ * racing request issues a moment later, since every request checks the
+ * grant. The teammate reconnects to get a fresh one.
+ */
+async function revokeGrant(grantId: string) {
+  const db = await getDb();
+  await db
+    .update(apiKeys)
+    .set({ revokedAt: new Date() })
+    .where(and(eq(apiKeys.id, grantId), isNull(apiKeys.revokedAt)));
+  await revokeGrantTokens(grantId);
+}
+
 async function revokeGrantTokens(grantId: string) {
   const db = await getDb();
   await db
@@ -354,7 +369,7 @@ export async function exchangeCode(form: URLSearchParams, creds: ClientCredentia
   return issueTokens(grantId, row.readOnly);
 }
 
-/** refresh_token grant, with rotation: each refresh token works once, and a replayed one revokes the grant's tokens. */
+/** refresh_token grant, with rotation: each refresh token works once, and a replayed one (in sequence or at the same moment) ends the connection. */
 export async function refreshTokens(form: URLSearchParams, creds: ClientCredentials) {
   const token = form.get("refresh_token");
   if (!token || !creds.clientId) throw new OAuthError("invalid_request", "Send refresh_token and client_id.");
@@ -369,7 +384,7 @@ export async function refreshTokens(form: URLSearchParams, creds: ClientCredenti
   if (!client) throw new OAuthError("invalid_client", "This app isn't registered.", 401);
   authenticateClient(client, creds.secret);
   if (row.token.revokedAt) {
-    await revokeGrantTokens(row.grant.id);
+    await revokeGrant(row.grant.id);
     throw new OAuthError("invalid_grant", "This refresh token was already used. Connect again.");
   }
   if (row.token.expiresAt <= new Date() || row.grant.revokedAt) throw new OAuthError("invalid_grant", "This connection ended. Connect again.");
@@ -379,7 +394,11 @@ export async function refreshTokens(form: URLSearchParams, creds: ClientCredenti
     .set({ revokedAt: new Date() })
     .where(and(eq(oauthTokens.tokenHash, row.token.tokenHash), isNull(oauthTokens.revokedAt)))
     .returning({ hash: oauthTokens.tokenHash });
-  if (!spent.length) throw new OAuthError("invalid_grant", "This refresh token was already used. Connect again.");
+  if (!spent.length) {
+    // Another request spent this token at the same moment: one of them may be a thief. Treat it as a replay.
+    await revokeGrant(row.grant.id);
+    throw new OAuthError("invalid_grant", "This refresh token was already used. Connect again.");
+  }
   return issueTokens(row.grant.id, row.grant.readOnly);
 }
 
