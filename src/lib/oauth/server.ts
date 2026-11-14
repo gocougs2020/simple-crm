@@ -1,17 +1,14 @@
 import "server-only";
-import { lookup } from "node:dns/promises";
 import { timingSafeEqual } from "node:crypto";
 import { after } from "next/server";
 import { and, eq, isNull, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
-import { readBodyLimited } from "@/lib/api/body";
 import {
   ACCESS_TOKEN_SECONDS,
   challengePattern,
   CODE_SECONDS,
   isMetadataDocumentUrl,
-  isPrivateAddress,
   metadataUrlProblem,
   opaque,
   redirectLabel,
@@ -24,6 +21,7 @@ import {
   tokenPrefixes,
   verifyPkce,
 } from "./core";
+import { fetchPublicText, PublicFetchError } from "./fetch-public";
 
 /**
  * The OAuth authorization server behind MCP: app registration, codes,
@@ -114,9 +112,11 @@ const metadataDocument = z.object({
 });
 
 /**
- * An app identified by a URL to its metadata document. The document is
- * fetched here, so the URL is checked (https, public address after DNS
- * resolution, no redirects, 5 seconds, 64 KB) before anything is read.
+ * An app identified by a URL to its metadata document. Only fetched for a
+ * signed-in teammate on the consent page; the document comes through
+ * fetchPublicText (public addresses only, checked at connect time, no
+ * redirects, 5 seconds, 64 KB). Every failure reads the same, so the fetch
+ * can't be used to probe what's out there.
  */
 async function metadataClient(url: string): Promise<OAuthClient> {
   const problem = metadataUrlProblem(url);
@@ -125,28 +125,24 @@ async function metadataClient(url: string): Promise<OAuthClient> {
   const [cached] = await db.select().from(oauthClients).where(eq(oauthClients.id, url));
   if (cached?.metadataFetchedAt && Date.now() - cached.metadataFetchedAt.getTime() < METADATA_MAX_AGE_MS) return cached;
 
-  const host = new URL(url).hostname;
-  const addresses = await lookup(host, { all: true }).catch(() => []);
-  if (!addresses.length || addresses.some((a) => isPrivateAddress(a.address))) throw new OAuthError("invalid_client", "The app's metadata document isn't on a public address.");
-  let res: Response;
+  const unreadable = new OAuthError("invalid_client", "The app's metadata document couldn't be read. Check the app's client_id URL.");
+  let text: string;
   try {
-    res = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(5000), headers: { accept: "application/json" }, cache: "no-store" });
-  } catch {
-    throw new OAuthError("invalid_client", "The app's metadata document couldn't be fetched.");
+    text = await fetchPublicText(url);
+  } catch (err) {
+    if (err instanceof PublicFetchError) throw unreadable;
+    throw err;
   }
-  if (!res.ok) throw new OAuthError("invalid_client", `The app's metadata document returned ${res.status}.`);
-  const read = await readBodyLimited(res, 64 * 1024);
-  if (!read.ok) throw new OAuthError("invalid_client", "The app's metadata document is too large.");
   let doc: z.infer<typeof metadataDocument>;
   try {
-    doc = metadataDocument.parse(JSON.parse(read.text));
+    doc = metadataDocument.parse(JSON.parse(text));
   } catch {
-    throw new OAuthError("invalid_client", "The app's metadata document isn't valid.");
+    throw unreadable;
   }
   if (doc.client_id !== url) throw new OAuthError("invalid_client", "The app's metadata document names a different client_id.");
   if (doc.token_endpoint_auth_method && doc.token_endpoint_auth_method !== "none") throw new OAuthError("invalid_client", "Apps described by a metadata document must be public clients.");
   checkRedirects(doc.redirect_uris);
-  const values = { name: doc.client_name || host, redirectUris: doc.redirect_uris, clientUri: httpsUrl(doc.client_uri), metadataFetchedAt: new Date() };
+  const values = { name: doc.client_name || new URL(url).hostname, redirectUris: doc.redirect_uris, clientUri: httpsUrl(doc.client_uri), metadataFetchedAt: new Date() };
   const [row] = await db
     .insert(oauthClients)
     .values({ id: url, source: "metadata_document", tokenEndpointAuthMethod: "none", ...values })
@@ -155,9 +151,15 @@ async function metadataClient(url: string): Promise<OAuthClient> {
   return row;
 }
 
-export async function getClient(clientId: string | null | undefined): Promise<OAuthClient | null> {
+/**
+ * The app behind a client_id. Metadata documents are only fetched when
+ * `fetchMetadata` is set (the consent page, for a signed-in teammate); the
+ * unauthenticated token endpoints use what was stored then, so they can't be
+ * used to make this server fetch URLs.
+ */
+export async function getClient(clientId: string | null | undefined, { fetchMetadata = false } = {}): Promise<OAuthClient | null> {
   if (!clientId || clientId.length > 500) return null;
-  if (isMetadataDocumentUrl(clientId)) return metadataClient(clientId);
+  if (fetchMetadata && isMetadataDocumentUrl(clientId)) return metadataClient(clientId);
   const db = await getDb();
   const [row] = await db.select().from(oauthClients).where(eq(oauthClients.id, clientId));
   return row ?? null;
@@ -193,7 +195,7 @@ export type AuthorizationRequest = {
 export async function checkAuthorizationRequest(params: Record<string, string | undefined>, origin: string): Promise<{ ok: true; request: AuthorizationRequest } | { ok: false; message: string }> {
   let client: OAuthClient | null;
   try {
-    client = await getClient(params.client_id);
+    client = await getClient(params.client_id, { fetchMetadata: true });
   } catch (err) {
     if (err instanceof OAuthError) return { ok: false, message: err.description };
     throw err;
