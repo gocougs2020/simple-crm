@@ -14,7 +14,7 @@ Import the repository in Vercel. `vercel.json` sets the build command (`pnpm db:
 | Variable | Value |
 | --- | --- |
 | `AUTH_SECRET` | `openssl rand -base64 32`. Signs sessions and unsubscribe links. Changing it signs everyone out |
-| `NEXT_PUBLIC_SITE_URL` | Your production URL, e.g. `https://crm.example.com` (used in email links) |
+| `NEXT_PUBLIC_SITE_URL` | Your production URL with `https://`, e.g. `https://crm.example.com` (used in email links and the OAuth metadata MCP clients read) |
 | `RESEND_API_KEY` | From resend.com |
 | `RESEND_FROM` | A sender on a domain verified in Resend, e.g. `Acme <crm@acme.com>` |
 | `RESEND_DOMAINS` | Optional. The Resend domains this CRM manages, comma-separated, e.g. `mail.acme.com`. Set it when the Resend account is shared with another app: the CRM then never lists, syncs, sends from or removes the other domains and their inboxes. Unset means every domain in the account |
