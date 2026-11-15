@@ -41,7 +41,8 @@ export async function POST(request: Request) {
   }
 
   const user = gate.user;
-  const thread = await ensureThread(user.id, input.threadId);
+  const thread = await ensureThread(user.id, input.threadId).catch(() => null);
+  if (!thread) return agentError(404, "That conversation isn't yours. Start a new chat.");
   const merged = mergeIncoming(thread.messages, input.message);
   if (!merged.ok) return agentError(400, merged.error);
 

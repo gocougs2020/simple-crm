@@ -3,6 +3,7 @@ import { after } from "next/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { NotificationKind } from "@/lib/constants";
+import { isPushEndpoint } from "./device";
 import { getVapid, loadWebPush } from "./vapid";
 
 /**
@@ -52,7 +53,9 @@ export async function deliver(userId: string, notice: Notice): Promise<number> {
     .select()
     .from(subs)
     .where(and(eq(subs.userId, userId), notice.kind === "test" ? undefined : sql`${subs.alerts} @> ${JSON.stringify([notice.kind])}::jsonb`));
-  if (!devices.length) return 0;
+  // Stored before the push-host check existed, or edited by hand: never sent to.
+  const valid = devices.filter((d) => isPushEndpoint(d.endpoint));
+  if (!valid.length) return 0;
 
   const [row] = await db
     .insert(notifications)
@@ -64,7 +67,7 @@ export async function deliver(userId: string, notice: Notice): Promise<number> {
   const webpush = await loadWebPush();
   const payload = JSON.stringify({ title: notice.title.slice(0, 200), body: notice.body?.slice(0, 500) ?? "", url: notice.url, tag: notice.dedupeKey ?? row.id, kind: notice.kind });
   const results = await Promise.allSettled(
-    devices.map((d) =>
+    valid.map((d) =>
       webpush.sendNotification({ endpoint: d.endpoint, keys: { p256dh: d.p256dh, auth: d.auth } }, payload, {
         vapidDetails: { subject: vapid.subject, publicKey: vapid.publicKey, privateKey: vapid.privateKey },
         TTL: TTL_SECONDS,
@@ -78,7 +81,7 @@ export async function deliver(userId: string, notice: Notice): Promise<number> {
   const gone: string[] = [];
   const failed: string[] = [];
   results.forEach((r, i) => {
-    const id = devices[i].id;
+    const id = valid[i].id;
     if (r.status === "fulfilled") ok.push(id);
     else if (GONE.has((r.reason as { statusCode?: number })?.statusCode ?? 0)) gone.push(id);
     else {

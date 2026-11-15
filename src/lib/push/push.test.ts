@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { deviceLabel } from "./device";
+import { deviceLabel, isPushEndpoint } from "./device";
 import { keyBytes } from "./client";
 
 describe("push devices", () => {
@@ -14,5 +14,12 @@ describe("push devices", () => {
 
   it("decodes URL-safe base64 VAPID keys", () => {
     assert.deepEqual([...keyBytes("AQID_-8")], [1, 2, 3, 255, 239]);
+  });
+});
+
+describe("push endpoints", () => {
+  it("only sends to browsers' push services", () => {
+    for (const ok of ["https://fcm.googleapis.com/fcm/send/abc", "https://updates.push.services.mozilla.com/wpush/v2/x", "https://web.push.apple.com/Q", "https://db5p.notify.windows.com/w/?token=x"]) assert.equal(isPushEndpoint(ok), true, ok);
+    for (const bad of ["http://fcm.googleapis.com/x", "https://fcm.googleapis.com.evil.com/x", "https://169.254.169.254/latest", "https://localhost/x", "https://fcm.googleapis.com:8443/x", "https://user:pw@fcm.googleapis.com/x", "not a url"]) assert.equal(isPushEndpoint(bad), false, bad);
   });
 });

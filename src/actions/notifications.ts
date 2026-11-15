@@ -2,13 +2,13 @@
 
 import { headers } from "next/headers";
 import { refresh } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
 import { ActionError, actionUser } from "@/lib/auth";
 import { notificationKinds } from "@/lib/constants";
-import { deviceLabel } from "@/lib/push/device";
+import { deviceLabel, isPushEndpoint } from "@/lib/push/device";
 import { deliver } from "@/lib/push/notify";
 import { getVapid } from "@/lib/push/vapid";
 
@@ -22,7 +22,7 @@ const { pushSubscriptions: subs } = schema;
 const MAX_DEVICES = 20;
 
 const subscription = z.object({
-  endpoint: z.url().max(1000).refine((u) => u.startsWith("https://"), "Push endpoints are https URLs."),
+  endpoint: z.url().max(1000).refine(isPushEndpoint, "This browser's push service isn't supported. Try Chrome, Edge, Firefox or Safari."),
   keys: z.object({ p256dh: z.string().min(1).max(200), auth: z.string().min(1).max(100) }),
 });
 const alerts = z.array(z.enum(notificationKinds)).max(notificationKinds.length);
@@ -40,8 +40,19 @@ export async function subscribeDevice(input: z.input<typeof subscription>, opts:
     const [row] = await db
       .insert(subs)
       .values({ userId: user.id, endpoint: data.endpoint, p256dh: data.keys.p256dh, auth: data.keys.auth, label, alerts: [...notificationKinds] })
-      // The same browser again (new keys, or someone else signed in on it): it's this teammate's now, with fresh settings.
-      .onConflictDoUpdate({ target: subs.endpoint, set: { userId: user.id, p256dh: data.keys.p256dh, auth: data.keys.auth, label, failures: 0 } })
+      // The same browser again (new keys, or someone else signed in on it): it's this teammate's now.
+      .onConflictDoUpdate({
+        target: subs.endpoint,
+        set: {
+          // Someone else signed in on this browser: their alert choices don't carry over.
+          alerts: sql`case when ${subs.userId} = ${user.id} then ${subs.alerts} else ${JSON.stringify([...notificationKinds])}::jsonb end`,
+          userId: user.id,
+          p256dh: data.keys.p256dh,
+          auth: data.keys.auth,
+          label,
+          failures: 0,
+        },
+      })
       .returning({ id: subs.id });
     refresh();
     return row;

@@ -50,7 +50,8 @@ function MarkdownLink({ href, children, onNavigate, ...props }: AnchorHTMLAttrib
 export function Markdown({ text, onNavigate }: { text: string; onNavigate?: () => void }) {
   return (
     <div className="prose-crm prose-agent">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: (props) => <MarkdownLink {...props} onNavigate={onNavigate} /> }}>
+      {/* No images: a loaded image URL could carry CRM data to another site if text the assistant read told it to write one. */}
+      <ReactMarkdown remarkPlugins={[remarkGfm]} disallowedElements={["img"]} unwrapDisallowed components={{ a: (props) => <MarkdownLink {...props} onNavigate={onNavigate} /> }}>
         {text}
       </ReactMarkdown>
     </div>

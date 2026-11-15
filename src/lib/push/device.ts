@@ -7,3 +7,18 @@ export function deviceLabel(ua: string | null | undefined, standalone = false) {
   if (app && os) return `${app} on ${os}`;
   return app ?? os ?? "This browser";
 }
+
+/**
+ * The push services browsers use. The server only ever sends to these, so a
+ * crafted subscription can't point it at another host.
+ */
+const PUSH_HOSTS = [/^fcm\.googleapis\.com$/, /^android\.googleapis\.com$/, /^([a-z0-9-]+\.)*push\.services\.mozilla\.com$/, /^([a-z0-9-]+\.)*notify\.windows\.com$/, /^([a-z0-9-]+\.)*push\.apple\.com$/];
+
+export function isPushEndpoint(url: string) {
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" && (u.port === "" || u.port === "443") && !u.username && !u.password && PUSH_HOSTS.some((h) => h.test(u.hostname));
+  } catch {
+    return false;
+  }
+}
