@@ -28,6 +28,8 @@ export const Person = z.object({
   tags: z.array(z.string()),
   marketingOptIn: z.boolean(),
   unsubscribedAt: ts.nullable(),
+  emailBouncedAt: ts.nullable().describe("When an email to this address bounced for good. Campaigns skip the person until the address changes."),
+  lastCampaignAt: ts.nullable().describe("When a campaign last went to them. Campaigns don't change lastActivityAt, which is personal outreach only."),
   custom,
   lastActivityAt: ts.nullable(),
   createdAt: ts,

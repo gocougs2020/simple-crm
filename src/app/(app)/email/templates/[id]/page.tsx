@@ -26,7 +26,7 @@ async function Template({ params }: Pick<PageProps<"/email/templates/[id]">, "pa
   const db = await getDb();
   const t = schema.emailTemplates;
   const [row] = await db
-    .select({ id: t.id, name: t.name, subject: t.subject, body: t.body, shared: t.shared, createdBy: t.createdBy })
+    .select({ id: t.id, name: t.name, subject: t.subject, body: t.body, attachments: t.attachments, shared: t.shared, createdBy: t.createdBy })
     .from(t)
     .where(and(eq(t.id, id), or(eq(t.shared, true), eq(t.createdBy, user.id))));
   if (!row) notFound();

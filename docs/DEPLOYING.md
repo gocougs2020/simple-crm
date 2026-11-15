@@ -2,7 +2,7 @@
 
 ## 1. Create the project
 
-Import the repository in Vercel. `vercel.json` sets the build command (`pnpm db:migrate && pnpm build`), so migrations run before every build, and adds the campaign and inbox crons.
+Import the repository in Vercel. `vercel.json` sets the build command (`pnpm db:migrate && pnpm build`), so migrations run before every build, and adds the campaign, inbox and email-status crons. They run on the same quarter-hour blocks (never more often than every 15 minutes) so Neon can scale to zero in between.
 
 ## 2. Add storage (Vercel → Storage)
 
@@ -20,7 +20,7 @@ Import the repository in Vercel. `vercel.json` sets the build command (`pnpm db:
 | `RESEND_DOMAINS` | Optional. The Resend domains this CRM manages, comma-separated, e.g. `mail.acme.com`. Set it when the Resend account is shared with another app: the CRM then never lists, syncs, sends from or removes the other domains and their inboxes. Unset means every domain in the account |
 | `CRON_SECRET` | Any long random string. Vercel sends it to the cron endpoints |
 | `STRIPE_SECRET_KEY` | Optional. A **restricted** key with read access to Customers, Subscriptions, Invoices, Charges and Products. Shows billing on current and past clients |
-| `RESEND_WEBHOOK_SECRET` | Optional. Only if you create the Resend webhook yourself; otherwise Settings → Email domains → Connect webhook creates it and stores its secret |
+| `RESEND_WEBHOOK_SECRET` | Optional. Only if you create the Resend webhook yourself; otherwise Settings → Email domains → Connect webhook creates it and stores its secret. A webhook you create yourself needs the `inbox.*` events and, for delivery tracking, `email.sent`, `email.delivered`, `email.delivery_delayed`, `email.bounced`, `email.complained`, `email.failed` and `email.suppressed` |
 | `NEXT_PUBLIC_APP_NAME` | Optional. Product name in the browser tab, e.g. `Acme CRM`. Default `CRM` |
 | `NEXT_PUBLIC_BRAND_COLOR` | Optional. Brand color for buttons and selected states, e.g. `#2f629f` |
 | `NEXT_PUBLIC_APP_CONFIG` | Optional. JSON overrides for anything in `app.config.ts`. See [THEMING.md](THEMING.md) |
@@ -35,7 +35,7 @@ In the CRM, Settings → Email domains. Removing a domain or inbox here deletes 
 
 1. **Add a domain** (with "Receive email on this domain" on). Add the DNS records it shows (SPF, DKIM, and the MX record for receiving) at your DNS host, then **Verify**. Until a domain is verified, Resend only delivers to your own address. Use a subdomain (mail.acme.com) for receiving if your main domain's mail already goes to Google Workspace or Microsoft 365, since receiving needs the MX record.
 2. **Add inboxes** on that domain, like sales@ or hello@. Their mail shows in Email → Inbox and on the matching records.
-3. **Connect webhook** under Live updates, so new mail shows up within seconds. (Without it, the cron syncs every 15 minutes.)
+3. **Connect webhook** under Live updates, so new mail shows up within seconds and sent emails show whether they were delivered or bounced. (Without it, the cron syncs inboxes every 15 minutes and checks delivery hourly.) Open and click tracking are off by default, for deliverability; leave them off in Resend too. To use them, set `email.trackOpens` / `email.trackClicks` in `NEXT_PUBLIC_APP_CONFIG` (see [THEMING.md](THEMING.md)), turn the same tracking on for the domain in Resend, redeploy, and reconnect the webhook.
 
 ## 5. Deploy and set up
 

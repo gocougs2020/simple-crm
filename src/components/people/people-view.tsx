@@ -61,6 +61,7 @@ export function PeopleView({ rows, tags, filtered }: { rows: Row[]; tags: string
     { key: "tags", label: "Tags", render: (r) => <span className="flex gap-1">{r.person.tags.slice(0, 2).map((t) => <Tag key={t}>{t}</Tag>)}{r.person.tags.length > 2 ? <span className="text-[12px] text-muted">+{r.person.tags.length - 2}</span> : null}</span> },
     { key: "owner", label: "Owner", render: (r) => <OwnerCell id={r.person.ownerId} /> },
     { key: "last", label: "Last activity", sort: "lastActivity", render: (r) => <AgoCell at={r.person.lastActivityAt} /> },
+    { key: "campaign", label: "Last campaign", sort: "lastCampaign", render: (r) => <AgoCell at={r.person.lastCampaignAt} /> },
     ...customFields
       .filter((f) => f.entityType === "person" && f.showInTable)
       .map((f): Column<Row> => ({ key: `c-${f.key}`, label: f.label, render: (r) => formatCustomValue(f, r.person.custom[f.key], money) || <span className="text-faint">—</span> })),

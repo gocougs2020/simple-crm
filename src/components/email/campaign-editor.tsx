@@ -3,22 +3,34 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { ChevronLeftIcon, CodeBracketIcon, ComputerDesktopIcon, DevicePhoneMobileIcon } from "@heroicons/react/20/solid";
+import { ChevronLeftIcon, ComputerDesktopIcon, DevicePhoneMobileIcon, DocumentDuplicateIcon } from "@heroicons/react/20/solid";
+import { saveAudience } from "@/actions/audiences";
 import { saveCampaign, scheduleCampaign, sendCampaignTest, unscheduleCampaign } from "@/actions/campaigns";
+import { listTemplates } from "@/actions/email";
 import { useApp } from "@/components/app-context";
 import { Segmented } from "@/components/activity/composer";
-import { Tag } from "@/components/ui/badge";
 import { Button, Spinner } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
-import { Checkbox, Field, Input } from "@/components/ui/field";
+import { Field, Input, Select } from "@/components/ui/field";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "@/components/ui/menu";
 import { RichText, type RichTextHandle } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
-import type { CampaignAudience } from "@/db/schema";
-import { dayFromToday, formatDateTime, formatFull, zonedTime } from "@/lib/format";
-import { fillMergeTagsHtml, mergeTagLabels, mergeTags } from "@/lib/email/merge-tags";
-import { churnReasons, clientCategories, clientCategoryLabels } from "@/lib/constants";
+import type { CampaignAudience, EmailAttachment } from "@/db/schema";
+import type { CampaignDelivery } from "@/lib/email/delivery";
+import { dayFromToday, formatDateTime, formatFull, roundUpToQuarterHour, zonedTime } from "@/lib/format";
+import { fillMergeTagsHtml } from "@/lib/email/merge-tags";
+import { AttachmentPicker } from "./attachment-picker";
+import { AudienceFilters, hasFilters } from "./audience-filters";
+import { CampaignReport } from "./campaign-report";
+import { MergeTagMenu } from "./merge-tag-menu";
+
+export type SavedAudience = {
+  id: string;
+  name: string;
+  filters: CampaignAudience;
+};
+type Template = Awaited<ReturnType<typeof listTemplates>>[number];
 
 export type CampaignData = {
   id: string;
@@ -28,6 +40,9 @@ export type CampaignData = {
   body: string;
   html: string | null;
   audience: CampaignAudience;
+  audienceId: string | null;
+  replyTo: string | null;
+  attachments: EmailAttachment[];
   status: "draft" | "scheduled" | "sending" | "sent";
   scheduledAt: Date | null;
   sentAt: Date | null;
@@ -39,14 +54,40 @@ export type CampaignData = {
  * Write a campaign on the left, see exactly what will be sent on the right.
  * Saves as you type. The audience is a set of filters evaluated at send time.
  */
-export function CampaignEditor({ campaign, tags, clientTags, initialCount, hasAddress }: { campaign: CampaignData; tags: string[]; clientTags: string[]; initialCount: number; hasAddress: boolean }) {
-  const { team, pipelines, catalog, workspace, viewer } = useApp();
+export function CampaignEditor({
+  campaign,
+  tags,
+  clientTags,
+  initialCount,
+  hasAddress,
+  audiences: initialAudiences,
+  defaultReplyTo,
+  delivery,
+}: {
+  campaign: CampaignData;
+  tags: string[];
+  clientTags: string[];
+  initialCount: number;
+  hasAddress: boolean;
+  audiences: SavedAudience[];
+  /** What a blank reply-to falls back to: the email of whoever set the campaign up. */
+  defaultReplyTo: string | null;
+  delivery: CampaignDelivery | null;
+}) {
+  const { workspace, viewer } = useApp();
   const readOnly = campaign.status === "sent" || campaign.status === "sending";
   const [name, setName] = useState(campaign.name);
   const [subject, setSubject] = useState(campaign.subject);
   const [previewText, setPreviewText] = useState(campaign.previewText ?? "");
   const [body, setBody] = useState(campaign.body);
   const [audience, setAudience] = useState<CampaignAudience>(campaign.audience);
+  const [audienceId, setAudienceId] = useState(campaign.audienceId);
+  const [audiences, setAudiences] = useState(initialAudiences);
+  const [replyTo, setReplyTo] = useState(campaign.replyTo ?? "");
+  const [attachments, setAttachments] = useState<EmailAttachment[]>(campaign.attachments);
+  const [uploading, setUploading] = useState(false);
+  const [templates, setTemplates] = useState<Template[] | null>(null);
+  const [naming, setNaming] = useState(false);
   const [count, setCount] = useState(initialCount);
   const [html, setHtml] = useState(campaign.html);
   const [saving, setSaving] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -67,7 +108,16 @@ export function CampaignEditor({ campaign, tags, clientTags, initialCount, hasAd
     }
     setSaving("saving");
     const t = setTimeout(async () => {
-      const r = await saveCampaign(campaign.id, { name: name || "Untitled campaign", subject, previewText: previewText || null, body, audience });
+      const r = await saveCampaign(campaign.id, {
+        name: name || "Untitled campaign",
+        subject,
+        previewText: previewText || null,
+        body,
+        audience,
+        audienceId,
+        replyTo: replyTo.trim(),
+        attachmentIds: attachments.map((a) => a.fileId),
+      });
       if (!r.ok) {
         setSaving("error");
         return void toast.error(r.error);
@@ -77,17 +127,31 @@ export function CampaignEditor({ campaign, tags, clientTags, initialCount, hasAd
       setSaving("saved");
     }, 700);
     return () => clearTimeout(t);
-  }, [name, subject, previewText, body, audience, campaign.id, readOnly]);
+  }, [name, subject, previewText, body, audience, audienceId, replyTo, attachments, campaign.id, readOnly]);
+
+  useEffect(() => {
+    if (!readOnly) listTemplates().then(setTemplates, () => setTemplates([]));
+  }, [readOnly]);
+
+  const saved = audiences.find((a) => a.id === audienceId);
+  const applyTemplate = (t: Template) => {
+    if (t.subject) setSubject(t.subject);
+    setBody(t.body);
+    editor.current?.setContent(t.body);
+    setAttachments((list) => [...list, ...t.attachments.filter((a) => !list.some((x) => x.fileId === a.fileId))]);
+  };
 
   // A sample recipient for the preview: you.
-  const sample = { first_name: viewer.name.split(" ")[0], last_name: viewer.name.split(" ").slice(1).join(" "), full_name: viewer.name, company: workspace.name };
+  const sample = {
+    first_name: viewer.name.split(" ")[0],
+    last_name: viewer.name.split(" ").slice(1).join(" "),
+    full_name: viewer.name,
+    email: viewer.email,
+    company: workspace.name,
+    owner_name: viewer.name,
+    owner_first_name: viewer.name.split(" ")[0],
+  };
   const previewHtml = fillMergeTagsHtml(html ?? "", sample);
-
-  const toggle = (key: keyof Omit<CampaignAudience, "personIds" | "openToReturnOnly">, value: string) =>
-    setAudience((a) => {
-      const list = (a[key] ?? []) as string[];
-      return { ...a, [key]: list.includes(value) ? list.filter((x) => x !== value) : [...list, value] };
-    });
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -108,7 +172,11 @@ export function CampaignEditor({ campaign, tags, clientTags, initialCount, hasAd
         </span>
         {campaign.status !== "draft" ? (
           <StatusBadge tone={campaign.status === "sent" ? "success" : campaign.status === "scheduled" ? "info" : "warning"}>
-            {campaign.status === "sent" ? `Sent ${campaign.sentAt ? formatDateTime(campaign.sentAt, tz) : ""}` : campaign.status === "scheduled" ? `Scheduled ${campaign.scheduledAt ? formatDateTime(campaign.scheduledAt, tz) : ""}` : "Sending"}
+            {campaign.status === "sent"
+              ? `Sent ${campaign.sentAt ? formatDateTime(campaign.sentAt, tz) : ""}`
+              : campaign.status === "scheduled"
+                ? `Scheduled ${campaign.scheduledAt ? formatDateTime(campaign.scheduledAt, tz) : ""}`
+                : "Sending"}
           </StatusBadge>
         ) : null}
         {!readOnly ? (
@@ -131,11 +199,11 @@ export function CampaignEditor({ campaign, tags, clientTags, initialCount, hasAd
                 Unschedule
               </Button>
             ) : (
-              <Button variant="outline" onClick={() => setScheduling(true)}>
+              <Button variant="outline" onClick={() => setScheduling(true)} disabled={uploading || saving === "saving"}>
                 Schedule
               </Button>
             )}
-            <Button variant="primary" onClick={() => setConfirmSend(true)} disabled={!count || !subject.trim()}>
+            <Button variant="primary" onClick={() => setConfirmSend(true)} disabled={!count || !subject.trim() || uploading || saving === "saving"}>
               Send now
             </Button>
           </>
@@ -150,6 +218,7 @@ export function CampaignEditor({ campaign, tags, clientTags, initialCount, hasAd
 
       <div className="grid flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-5 border-line p-4 lg:border-r lg:p-6">
+          {campaign.status === "sent" || campaign.status === "sending" ? <CampaignReport campaignId={campaign.id} delivery={delivery} sending={campaign.status === "sending"} /> : null}
           <section className="flex flex-col gap-3">
             <Field label="Subject">{(p) => <Input {...p} value={subject} onChange={(e) => setSubject(e.target.value)} disabled={readOnly} placeholder="What's new at {{company}}" />}</Field>
             <Field label="Preview text" optional hint="Shown after the subject in most inboxes.">
@@ -158,27 +227,28 @@ export function CampaignEditor({ campaign, tags, clientTags, initialCount, hasAd
           </section>
 
           <section>
-            <div className="mb-1.5 flex items-center justify-between">
+            <div className="mb-1.5 flex items-center justify-between gap-2">
               <span className="text-label">Message</span>
               {!readOnly ? (
-                <Menu>
-                  <MenuTrigger asChild>
-                    <Button size="sm" variant="ghost">
-                      <CodeBracketIcon />
-                      Insert field
-                    </Button>
-                  </MenuTrigger>
-                  <MenuContent className="w-52">
-                    <MenuLabel>Filled in for each person</MenuLabel>
-                    {mergeTags
-                      .filter((t) => !t.startsWith("sender"))
-                      .map((t) => (
-                        <MenuItem key={t} onSelect={() => editor.current?.insert(`{{${t}}}`)}>
-                          {mergeTagLabels[t]}
+                <div className="flex items-center gap-1">
+                  <Menu>
+                    <MenuTrigger asChild>
+                      <Button size="sm" variant="ghost" disabled={!templates?.length}>
+                        <DocumentDuplicateIcon />
+                        Template
+                      </Button>
+                    </MenuTrigger>
+                    <MenuContent className="max-h-72 w-64 overflow-auto">
+                      <MenuLabel>Replace the message with</MenuLabel>
+                      {templates?.map((t) => (
+                        <MenuItem key={t.id} onSelect={() => applyTemplate(t)}>
+                          <span className="truncate">{t.name}</span>
                         </MenuItem>
                       ))}
-                  </MenuContent>
-                </Menu>
+                    </MenuContent>
+                  </Menu>
+                  <MergeTagMenu campaign onInsert={(t) => editor.current?.insert(`{{${t}}}`)} />
+                </div>
               ) : null}
             </div>
             {readOnly ? (
@@ -191,6 +261,31 @@ export function CampaignEditor({ campaign, tags, clientTags, initialCount, hasAd
             </p>
           </section>
 
+          <section className="flex flex-col gap-3">
+            <Field
+              label="Reply-to"
+              optional
+              hint={
+                defaultReplyTo
+                  ? `Starts as the email of whoever set up this campaign. Change it to send replies somewhere else; blank uses ${defaultReplyTo}.`
+                  : "Blank means replies go to the sending address."
+              }
+            >
+              {(p) => <Input {...p} type="email" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} disabled={readOnly} placeholder={defaultReplyTo ?? "hello@acme.com"} />}
+            </Field>
+            {readOnly && !attachments.length ? null : (
+              <div>
+                <p className="mb-1.5 text-label">Attachments</p>
+                <AttachmentPicker value={attachments} onChange={setAttachments} disabled={readOnly} onUploadingChange={setUploading} />
+                {attachments.length && !readOnly ? (
+                  <p className="mt-1.5 text-fine">
+                    Resend can&apos;t batch emails with files, so this campaign goes out one email at a time. Large audiences take longer. A link to the file is often better for deliverability.
+                  </p>
+                ) : null}
+              </div>
+            )}
+          </section>
+
           <section>
             <div className="mb-2 flex items-baseline justify-between">
               <span className="text-label">Audience</span>
@@ -198,11 +293,42 @@ export function CampaignEditor({ campaign, tags, clientTags, initialCount, hasAd
                 {count.toLocaleString()} {count === 1 ? "person" : "people"}
               </span>
             </div>
-            <div className={clsx("flex flex-col gap-3 rounded-xl border border-line p-3.5", readOnly && "pointer-events-none opacity-70")}>
-              <p className="text-[12.5px] text-muted">Everyone with an email who hasn&apos;t opted out{Object.values(audience).some((v) => (Array.isArray(v) ? v.length : !!v)) ? ", narrowed to people who match all of these:" : "."}</p>
-              <ChipGroup label="Tagged" options={tags.map((t) => ({ value: t, label: t }))} selected={audience.tags ?? []} onToggle={(v) => toggle("tags", v)} empty="No tags yet. Tag people from their page or during import." />
-              <ClientAudience audience={audience} setAudience={setAudience} toggle={toggle} pipelines={pipelines} catalog={catalog} clientTags={clientTags} />
-              <ChipGroup label="Owned by" options={team.filter((m) => m.active).map((m) => ({ value: m.id, label: m.name }))} selected={audience.ownerIds ?? []} onToggle={(v) => toggle("ownerIds", v)} />
+            <div className="flex flex-col gap-3 rounded-xl border border-line p-3.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  aria-label="Audience"
+                  value={audienceId ?? ""}
+                  disabled={readOnly}
+                  onChange={(e) => {
+                    const next = audiences.find((a) => a.id === e.target.value);
+                    setAudienceId(next?.id ?? null);
+                    if (next) setAudience(next.filters);
+                  }}
+                  className="min-w-0 flex-1 [&_select]:h-8 [&_select]:text-[13px]"
+                >
+                  <option value="">Filters set here</option>
+                  {audiences.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      Saved: {a.name}
+                    </option>
+                  ))}
+                </Select>
+                {saved ? (
+                  <Button size="sm" variant="ghost" asChild>
+                    <Link href={`/email/audiences/${saved.id}`}>Edit audience</Link>
+                  </Button>
+                ) : !readOnly && hasFilters(audience) ? (
+                  <Button size="sm" variant="ghost" onClick={() => setNaming(true)}>
+                    Save as audience
+                  </Button>
+                ) : null}
+              </div>
+              <p className="text-[12.5px] text-muted">
+                {saved
+                  ? `Uses the saved audience “${saved.name}” as it is when the campaign sends.`
+                  : `Everyone with an email who hasn't opted out or bounced${hasFilters(audience) ? ", narrowed to people who match all of these:" : "."}`}
+              </p>
+              <AudienceFilters audience={audience} onChange={setAudience} tags={tags} clientTags={clientTags} readOnly={readOnly || !!saved} />
             </div>
           </section>
         </div>
@@ -214,8 +340,16 @@ export function CampaignEditor({ campaign, tags, clientTags, initialCount, hasAd
               value={device}
               onChange={setDevice}
               options={[
-                { value: "desktop", label: "Desktop", icon: <ComputerDesktopIcon className="size-3.5" /> },
-                { value: "phone", label: "Phone", icon: <DevicePhoneMobileIcon className="size-3.5" /> },
+                {
+                  value: "desktop",
+                  label: "Desktop",
+                  icon: <ComputerDesktopIcon className="size-3.5" />,
+                },
+                {
+                  value: "phone",
+                  label: "Phone",
+                  icon: <DevicePhoneMobileIcon className="size-3.5" />,
+                },
               ]}
             />
           </div>
@@ -243,6 +377,22 @@ export function CampaignEditor({ campaign, tags, clientTags, initialCount, hasAd
         </div>
       </div>
 
+      {naming ? (
+        <NameAudienceDialog
+          onClose={() => setNaming(false)}
+          onSave={async (audienceName) => {
+            const r = await saveAudience(null, {
+              name: audienceName,
+              filters: audience,
+            });
+            if (!r.ok) return void toast.error(r.error);
+            setAudiences((list) => [...list, { id: r.data.id, name: audienceName, filters: audience }]);
+            setAudienceId(r.data.id);
+            setNaming(false);
+            toast.success(`Saved “${audienceName}”. Other campaigns can use it now.`);
+          }}
+        />
+      ) : null}
       {scheduling ? <ScheduleDialog campaignId={campaign.id} count={count} onClose={() => setScheduling(false)} /> : null}
       {confirmSend ? (
         <Dialog
@@ -282,76 +432,41 @@ export function CampaignEditor({ campaign, tags, clientTags, initialCount, hasAd
   );
 }
 
-/**
- * Client filters: people who are a matching client's contact or work at its
- * organization. Stages narrow to the chosen categories; churn reasons only
- * make sense for past clients.
- */
-function ClientAudience({
-  audience,
-  setAudience,
-  toggle,
-  pipelines,
-  catalog,
-  clientTags,
-}: {
-  audience: CampaignAudience;
-  setAudience: (fn: (a: CampaignAudience) => CampaignAudience) => void;
-  toggle: (key: "clientCategories" | "stageIds" | "serviceIds" | "churnReasons" | "clientTags", value: string) => void;
-  pipelines: ReturnType<typeof useApp>["pipelines"];
-  catalog: ReturnType<typeof useApp>["catalog"];
-  clientTags: string[];
-}) {
-  const categories = audience.clientCategories ?? [];
-  const shownPipelines = pipelines.filter((p) => !categories.length || categories.includes(p.category));
-  const multi = shownPipelines.length > 1;
-  const services = catalog.filter((s) => !s.archivedAt || audience.serviceIds?.includes(s.id));
-  const showPast = !categories.length || categories.includes("past");
-  const reasons = [...new Set([...churnReasons, ...(audience.churnReasons ?? [])])];
+function NameAudienceDialog({ onClose, onSave }: { onClose: () => void; onSave: (name: string) => Promise<void> }) {
+  const [audienceName, setAudienceName] = useState("");
+  const [pending, start] = useTransition();
+  const submit = () => start(() => onSave(audienceName.trim()));
   return (
-    <div className="flex flex-col gap-3 border-t border-line pt-3">
-      <ChipGroup label="Clients who are" options={clientCategories.map((c) => ({ value: c, label: clientCategoryLabels[c].one }))} selected={categories} onToggle={(v) => toggle("clientCategories", v)} />
-      <ChipGroup
-        label="In stage"
-        options={shownPipelines.flatMap((p) => p.stages.map((s) => ({ value: s.id, label: multi ? `${p.name}: ${s.name}` : s.name })))}
-        selected={audience.stageIds ?? []}
-        onToggle={(v) => toggle("stageIds", v)}
-      />
-      <ChipGroup label="Using or used" options={services.map((s) => ({ value: s.id, label: s.name }))} selected={audience.serviceIds ?? []} onToggle={(v) => toggle("serviceIds", v)} empty="No services yet. Add them in Settings → Services." />
-      <ChipGroup label="Client tagged" options={clientTags.map((t) => ({ value: t, label: t }))} selected={audience.clientTags ?? []} onToggle={(v) => toggle("clientTags", v)} empty="No client tags yet. Tag clients from their page." />
-      {showPast ? (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title="Save as an audience"
+      description="Reuse these filters in other campaigns. Changing the audience later changes it everywhere it's used."
+      size="sm"
+      footer={
         <>
-          <ChipGroup label="Left because" options={reasons.map((r) => ({ value: r, label: r }))} selected={audience.churnReasons ?? []} onToggle={(v) => toggle("churnReasons", v)} />
-          <Checkbox
-            checked={!!audience.openToReturnOnly}
-            onChange={(e) => setAudience((a) => ({ ...a, openToReturnOnly: e.target.checked || undefined }))}
-            label={<span className="text-[13px]">Only past clients open to coming back</span>}
-          />
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" loading={pending} disabled={!audienceName.trim()} onClick={submit}>
+            Save audience
+          </Button>
         </>
-      ) : null}
-    </div>
-  );
-}
-
-function ChipGroup({ label, options, selected, onToggle, empty }: { label: string; options: { value: string; label: string }[]; selected: string[]; onToggle: (v: string) => void; empty?: string }) {
-  return (
-    <div>
-      <p className="mb-1.5 text-[12px] font-medium text-secondary">{label}</p>
-      {options.length ? (
-        <div className="flex flex-wrap gap-1.5">
-          {options.map((o) => {
-            const on = selected.includes(o.value);
-            return (
-              <button key={o.value} type="button" aria-pressed={on} onClick={() => onToggle(o.value)} className="rounded-full">
-                <Tag className={on ? "border-accent bg-accent text-accent-foreground" : "hover:border-line-strong"}>{o.label}</Tag>
-              </button>
-            );
-          })}
-        </div>
-      ) : (
-        <p className="text-[12px] text-faint">{empty ?? "Nothing to choose yet."}</p>
-      )}
-    </div>
+      }
+    >
+      <Field label="Name">
+        {(p) => (
+          <Input
+            {...p}
+            value={audienceName}
+            onChange={(e) => setAudienceName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && audienceName.trim() && submit()}
+            placeholder="e.g. Prospects in proposal stage"
+            autoFocus
+          />
+        )}
+      </Field>
+    </Dialog>
   );
 }
 
@@ -361,13 +476,13 @@ function ScheduleDialog({ campaignId, count, onClose }: { campaignId: string; co
   const [day, setDay] = useState(dayFromToday(tz, 1));
   const [time, setTime] = useState("09:00");
   const [pending, start] = useTransition();
-  const at = zonedTime(day, time || "09:00", tz);
+  const at = roundUpToQuarterHour(zonedTime(day, time || "09:00", tz));
   return (
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
       title="Schedule campaign"
-      description={`Goes to everyone who matches the audience at that moment (${count.toLocaleString()} right now).`}
+      description={`Goes to everyone who matches the audience at that moment (${count.toLocaleString()} right now). Campaigns go out on the quarter hour.`}
       size="sm"
       footer={
         <>

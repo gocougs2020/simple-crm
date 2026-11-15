@@ -8,7 +8,7 @@ import { run, type Result } from "@/lib/action";
 import { ActionError, actionAdmin, actionEditor, actionUser } from "@/lib/auth";
 import { recordEvent } from "@/lib/crm/events";
 import { getResend, inEmailScope } from "@/lib/email";
-import { applyThreadLinks, assertDomainInScope, assertInboxInScope, InboxError, listInboxes, must, resendOrThrow, syncAllInboxes, syncInbox, syncThread } from "@/lib/email/inbox";
+import { applyThreadLinks, assertDomainInScope, assertInboxInScope, InboxError, listInboxes, must, resendOrThrow, syncAllInboxes, syncInbox, syncThread, webhookEvents } from "@/lib/email/inbox";
 import { siteOrigin } from "@/lib/origin";
 import { htmlToText, sanitizeHtml } from "@/lib/safe-html";
 
@@ -289,7 +289,6 @@ export async function removeInbox(inboxId: string): Promise<Result> {
   });
 }
 
-const webhookEvents = ["inbox.email.received", "inbox.email.sent", "inbox.thread.created", "inbox.thread.folder.updated", "inbox.deleted"] as const;
 
 /**
  * Points a Resend webhook at this deployment so new mail shows up within
@@ -307,13 +306,13 @@ export async function connectWebhook(): Promise<Result<{ endpoint: string }>> {
     const current = ws?.email ?? {};
     let next = { ...current };
     if (current.webhookId) {
-      const updated = await resend.webhooks.update(current.webhookId, { endpoint, events: [...webhookEvents], status: "enabled" });
+      const updated = await resend.webhooks.update(current.webhookId, { endpoint, events: webhookEvents(), status: "enabled" });
       if (updated.error) next = {};
-      else next = { ...current, webhookEndpoint: endpoint };
+      else next = { ...current, webhookEndpoint: endpoint, webhookEvents: webhookEvents() };
     }
     if (!next.webhookId) {
-      const created = await inbox(async () => must(await resend.webhooks.create({ endpoint, events: [...webhookEvents] }), "create the webhook"));
-      next = { webhookId: created.id, webhookSecret: created.signing_secret, webhookEndpoint: endpoint };
+      const created = await inbox(async () => must(await resend.webhooks.create({ endpoint, events: webhookEvents() }), "create the webhook"));
+      next = { webhookId: created.id, webhookSecret: created.signing_secret, webhookEndpoint: endpoint, webhookEvents: webhookEvents() };
     }
     await db.insert(schema.workspace).values({ id: 1, email: next }).onConflictDoUpdate({ target: schema.workspace.id, set: { email: next, updatedAt: new Date() } });
     refresh();

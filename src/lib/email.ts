@@ -54,6 +54,7 @@ type SendArgs = {
   replyTo?: string;
   headers?: Record<string, string>;
   tags?: { name: string; value: string }[];
+  attachments?: { filename: string; content: Buffer; contentType: string }[];
   idempotencyKey?: string;
 };
 
@@ -64,7 +65,8 @@ type SendArgs = {
 export async function sendEmail({ idempotencyKey, ...args }: SendArgs): Promise<{ id: string | null }> {
   if (!resend) {
     const text = args.react ? await render(args.react, { plainText: true }) : (args.html ?? "").replace(/<[^>]+>/g, " ");
-    console.info(`\n[email:dev] to=${args.to}${args.cc ? ` cc=${args.cc}` : ""} subject="${args.subject}"\n${text.replace(/\s+\n/g, "\n").slice(0, 2000)}\n`);
+    const files = args.attachments?.length ? ` attachments=${args.attachments.map((a) => a.filename).join(",")}` : "";
+    console.info(`\n[email:dev] to=${args.to}${args.cc ? ` cc=${args.cc}` : ""}${args.replyTo ? ` reply-to=${args.replyTo}` : ""}${files} subject="${args.subject}"\n${text.replace(/\s+\n/g, "\n").slice(0, 2000)}\n`);
     return { id: null };
   }
   const payload = { ...args, from: args.from ?? emailFrom } as Parameters<Resend["emails"]["send"]>[0];

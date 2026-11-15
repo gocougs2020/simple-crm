@@ -15,6 +15,8 @@ NEXT_PUBLIC_BRAND_COLOR="#2f629f"
 NEXT_PUBLIC_APP_NAME="Acme CRM"
 
 # Anything else in app.config.ts, as JSON. Only the keys you set change.
+# For example, to record opens and clicks: NEXT_PUBLIC_APP_CONFIG='{"email":{"trackOpens":true,"trackClicks":true}}'
+
 NEXT_PUBLIC_APP_CONFIG='{"theme":{"brandForeground":"#ffffff","tokens":{"canvas":"#f7f5f0","accent-hover":"#1f4677"}},"layout":{"defaultClientsView":"table"}}'
 ```
 
@@ -31,6 +33,8 @@ What [`app.config.ts`](../app.config.ts) controls:
 | `theme.tokens` | `{}` | Any variable from the table below, without the leading `--`, e.g. `{"canvas":"#f7f5f0"}`. Wins over the derived values |
 | `theme.browserColor` | `"#fafafa"` | Browser toolbar and installed-app title bar |
 | `layout.defaultClientsView` | `"board"` | How Clients opens for a teammate who hasn't chosen board or table yet (`"board"` or `"table"`). Each person's own choice still wins |
+| `email.trackOpens` | `false` | Record and show when people open emails (timeline, campaign report, campaign list). Off by default: tracking pixels can hurt deliverability and opens are approximate. Also turn on open tracking for the sending domain in Resend, then reconnect the webhook in Settings → Email domains |
+| `email.trackClicks` | `false` | Record and show link clicks. Same trade-off: Resend rewrites links through its tracking domain. Also turn on click tracking in Resend, then reconnect the webhook |
 
 `NEXT_PUBLIC_APP_NAME` and `NEXT_PUBLIC_BRAND_COLOR` are shortcuts for `brand.name` and `theme.brandColor`, and win over the same keys in the JSON.
 

@@ -42,6 +42,8 @@ import type { FileLinks } from "@/components/files/upload";
 import { RichText } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
 import type { ActivityRow, RecordFile, TimelineItem } from "@/lib/crm/activities";
+import { appConfig } from "@/app.config";
+import { deliveryLabels, deliveryTone } from "@/lib/email/delivery-status";
 import { activityLabels, clientCategoryLabels, clientHealthLabels, interactionTypes, type ActivityType, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
 import { dayKey, dueTone, formatBytes, formatDateTime, formatDay, formatFull, formatTime, senderName, timeKey, zonedTime } from "@/lib/format";
 import { activityIcons } from "./composer";
@@ -333,8 +335,10 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
             ? a.direction === "inbound"
               ? "emailed"
               : `sent from ${row.inboxAddress ?? "an inbox"}`
-            : a.emailId || a.inboxThreadId
-            ? "sent an email"
+            : row.campaignId
+              ? "sent the campaign"
+              : a.emailId || a.inboxThreadId
+                ? "sent an email"
             : a.direction === "inbound"
               ? "logged an email received"
               : "logged an email sent"
@@ -358,6 +362,14 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
           <div className="min-w-0 flex-1 text-[13px] text-muted">
             {a.inboxThreadId && !a.userId && a.direction === "inbound" && row.inboxFrom ? <span className="font-medium text-primary">{senderName(row.inboxFrom)}</span> : a.inboxThreadId && !a.userId ? <span className="font-medium text-primary">Email</span> : <Who id={a.userId} apiKeyId={a.apiKeyId} />}{" "}
             {verb}
+            {row.campaignId ? (
+              <>
+                {" "}
+                <Link href={`/email/campaigns/${row.campaignId}`} className="font-medium text-secondary hover:text-primary">
+                  {row.campaignName ?? "Campaign"}
+                </Link>
+              </>
+            ) : null}
             {a.direction && a.type !== "note" ? (
               a.direction === "inbound" ? (
                 <ArrowDownLeftIcon className="ml-1 inline size-3.5 align-[-2px]" aria-label="Inbound" />
@@ -377,10 +389,14 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
           <ItemMenu row={row} onEdit={() => setEditing(true)} />
         </header>
         {a.type === "email" && row.emailTo ? (
-          <p className="mt-1 text-[12px] text-muted">
-            To {row.emailTo}
-            {row.emailCc ? ` · Cc ${row.emailCc}` : ""}
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted">
+            <span>
+              To {row.emailTo}
+              {row.emailCc ? ` · Cc ${row.emailCc}` : ""}
+              {row.emailReplyTo ? ` · Replies to ${row.emailReplyTo}` : ""}
+            </span>
+            <Delivery delivery={row.delivery} />
+          </div>
         ) : a.type === "email" && a.inboxThreadId && row.inboxTo?.length ? (
           <p className="mt-1 truncate text-[12px] text-muted">
             {a.direction === "inbound" && row.inboxFrom ? `From ${row.inboxFrom} · ` : ""}To {row.inboxTo.join(", ")}
@@ -388,7 +404,7 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
         ) : null}
         {a.subject ? <h3 className="mt-1 text-[14px] font-medium">{a.subject}</h3> : null}
         {a.body ? <CollapsibleBody html={a.body} /> : null}
-        <Attachments files={attachments} />
+        <Attachments files={withEmailAttachments(attachments, row)} />
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] empty:hidden">
           {a.inboxThreadId ? (
             <Link href={`/email?t=${a.inboxThreadId}`} className="inline-flex items-center gap-1 font-medium text-secondary hover:text-primary">
@@ -402,6 +418,46 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
       {editing ? <EditActivity row={row} onClose={() => setEditing(false)} /> : null}
     </li>
   );
+}
+
+/**
+ * Where a sent email got to. Shows nothing until Resend's first report. Opens
+ * and clicks show beside it only when this deployment tracks them
+ * (`email` in app.config.ts); opens are a hint, never the status.
+ */
+function Delivery({ delivery }: { delivery: ActivityRow["delivery"] }) {
+  const { workspace } = useApp();
+  if (!delivery?.status) return null;
+  const tz = workspace.timezone;
+  const when = delivery.at ? ` ${formatDateTime(delivery.at, tz)}` : "";
+  const { trackOpens, trackClicks } = appConfig.email;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <Tooltip content={delivery.detail ?? `${deliveryLabels[delivery.status]}${when}`}>
+        <StatusBadge tone={deliveryTone[delivery.status]}>{deliveryLabels[delivery.status]}</StatusBadge>
+      </Tooltip>
+      {trackClicks && delivery.clickedAt ? (
+        <Tooltip content={`First clicked ${formatDateTime(delivery.clickedAt, tz)}`}>
+          <span className="text-secondary">Clicked{delivery.clicks > 1 ? ` ${delivery.clicks}×` : ""}</span>
+        </Tooltip>
+      ) : trackOpens && delivery.openedAt ? (
+        <Tooltip content={`First opened ${formatDateTime(delivery.openedAt, tz)}. Some mail apps open emails automatically, so treat this as a hint.`}>
+          <span className="text-secondary">Opened{delivery.opens > 1 ? ` ${delivery.opens}×` : ""}</span>
+        </Tooltip>
+      ) : null}
+    </span>
+  );
+}
+
+/** An email's attachments: the files folded into it, plus any it was sent with from elsewhere (a template's). */
+function withEmailAttachments(files: RecordFile[] | undefined, row: ActivityRow): RecordFile[] | undefined {
+  const sent = row.emailAttachments ?? [];
+  if (!sent.length) return files;
+  const have = new Set((files ?? []).map((f) => f.id));
+  const extra = sent
+    .filter((a) => !have.has(a.fileId))
+    .map((a): RecordFile => ({ id: a.fileId, name: a.name, size: a.size, contentType: a.contentType, uploadedBy: "", createdAt: row.activity.createdAt, activityId: row.activity.id, activityType: "email" }));
+  return [...(files ?? []), ...extra];
 }
 
 /** Files attached to an activity, as chips that open them. */
@@ -560,6 +616,9 @@ const fieldText = (v: unknown, label: string | null | undefined, member: (id: st
 };
 
 /** One line of history: who changed what, from what, to what. */
+/** History the CRM writes by itself, which reads as a sentence with no one in front. */
+const systemEvents = new Set(["email_bounced", "email_complained"]);
+
 function EventItem({ event }: { event: { id: string; action: string; data: Record<string, unknown>; userId: string | null; apiKeyId: string | null; createdAt: Date } }) {
   const { workspace, member, money } = useApp();
   const tz = workspace.timezone;
@@ -575,6 +634,8 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
     type?: string;
     name?: string;
     source?: string;
+    email?: string;
+    detail?: string | null;
   };
   const cat = (c?: string) => (c && c in clientCategoryLabels ? clientCategoryLabels[c as ClientCategory].one.toLowerCase() : c);
   let text: React.ReactNode;
@@ -615,6 +676,19 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
     case "stripe_unlinked":
       text = <>unlinked the Stripe customer</>;
       icon = <CreditCardIcon className="size-3.5" />;
+      break;
+    // Written by Resend's delivery reports, not by a person.
+    case "email_bounced":
+      text = (
+        <>
+          Email to {d.email} bounced{d.detail ? <> ({d.detail})</> : null}. Campaigns skip this address until it changes.
+        </>
+      );
+      icon = <XCircleIcon className="size-3.5 text-error" />;
+      break;
+    case "email_complained":
+      text = <>{d.email} marked an email as spam, so they were unsubscribed from campaigns.</>;
+      icon = <XCircleIcon className="size-3.5 text-error" />;
       break;
     case "email_linked":
       text = <>linked the conversation{d.subject ? <> “{d.subject}”</> : null}</>;
@@ -673,7 +747,12 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
     <li className="relative flex items-start gap-3 py-0.5 pl-[9px]">
       <span className="relative z-10 mt-0.5 flex size-[14px] items-center justify-center rounded-full bg-background text-faint ring-4 ring-background">{icon}</span>
       <p className="min-w-0 flex-1 text-[12.5px] leading-5 text-muted">
-        <Who id={event.userId} apiKeyId={event.apiKeyId} /> {text}
+        {systemEvents.has(event.action) ? null : (
+          <>
+            <Who id={event.userId} apiKeyId={event.apiKeyId} />{" "}
+          </>
+        )}
+        {text}
         <time dateTime={new Date(event.createdAt).toISOString()} className="ml-1.5 whitespace-nowrap text-faint" title={formatFull(event.createdAt, tz)} suppressHydrationWarning>
           · {formatDateTime(event.createdAt, tz)}
         </time>

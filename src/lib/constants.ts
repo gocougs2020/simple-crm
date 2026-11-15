@@ -109,3 +109,10 @@ export const entityLabels: Record<EntityType, { one: string; many: string; path:
 
 /** Files people can attach to records. Executables and HTML are refused because they can carry script. */
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Attachments on one email, together. Resend accepts 40 MB once encoded and an
+ * inbox draft 25 MB, so 20 MB of files leaves room for the message itself.
+ */
+export const MAX_EMAIL_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+export const MAX_EMAIL_ATTACHMENTS = 10;

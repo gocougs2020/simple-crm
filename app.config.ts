@@ -72,6 +72,17 @@ export type AppConfig = {
     /** How Clients opens for a teammate who hasn't picked board or table yet. */
     defaultClientsView: "board" | "table";
   };
+  email: {
+    /**
+     * Record and show when people open emails (Resend's webhook, email.opened).
+     * Off by default: the tracking pixel can hurt deliverability, and opens
+     * are approximate (some mail apps open everything for privacy). Turning
+     * it on also needs open tracking on for the sending domain in Resend.
+     */
+    trackOpens: boolean;
+    /** Record and show link clicks (email.clicked). Same trade-off: Resend rewrites links through its own domain. */
+    trackClicks: boolean;
+  };
 };
 
 const defaults = {
@@ -87,6 +98,10 @@ const defaults = {
   },
   layout: {
     defaultClientsView: "board",
+  },
+  email: {
+    trackOpens: false,
+    trackClicks: false,
   },
 } as const satisfies AppConfig;
 

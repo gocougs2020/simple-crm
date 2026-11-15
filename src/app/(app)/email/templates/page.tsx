@@ -21,7 +21,7 @@ async function Templates() {
   const db = await getDb();
   const t = schema.emailTemplates;
   const rows = await db
-    .select({ id: t.id, name: t.name, subject: t.subject, body: t.body, shared: t.shared, createdBy: t.createdBy })
+    .select({ id: t.id, name: t.name, subject: t.subject, body: t.body, attachments: t.attachments, shared: t.shared, createdBy: t.createdBy })
     .from(t)
     .where(or(eq(t.shared, true), eq(t.createdBy, user.id)))
     .orderBy(desc(t.updatedAt));

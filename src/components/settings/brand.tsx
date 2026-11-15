@@ -20,7 +20,6 @@ export function BrandSettings({ brand }: { brand: BrandKit }) {
     logoUrl: brand.logoUrl ?? "",
     accentColor: brand.accentColor ?? "",
     senderName: brand.senderName ?? "",
-    replyTo: brand.replyTo ?? "",
     postalAddress: brand.postalAddress ?? "",
     website: brand.website ?? "",
     signature: brand.signature ?? "",
@@ -84,14 +83,9 @@ export function BrandSettings({ brand }: { brand: BrandKit }) {
               </div>
             )}
           </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Sender name" optional hint="Campaigns come from this name. One-off emails show “Your name · Sender name”.">
-              {(p) => <Input {...p} value={kit.senderName} onChange={set("senderName")} placeholder="Acme" />}
-            </Field>
-            <Field label="Campaign reply-to" optional hint="One-off emails always reply to the sender.">
-              {(p) => <Input {...p} type="email" value={kit.replyTo} onChange={set("replyTo")} placeholder="hello@acme.com" />}
-            </Field>
-          </div>
+          <Field label="Sender name" optional hint="Campaigns come from this name. One-off emails show “Your name · Sender name”. Replies go to whoever sends the email or sets up the campaign, unless they change it.">
+            {(p) => <Input {...p} value={kit.senderName} onChange={set("senderName")} placeholder="Acme" />}
+          </Field>
           <Field label="Website" optional>
             {(p) => <Input {...p} type="url" value={kit.website} onChange={set("website")} placeholder="https://acme.com" />}
           </Field>

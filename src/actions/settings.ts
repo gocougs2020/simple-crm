@@ -154,7 +154,6 @@ const brandInput = z.object({
   logoUrl: z.union([z.url().startsWith("https://", "Use an https:// image URL."), z.literal("")]).optional(),
   accentColor: z.union([z.string().regex(/^#[0-9a-fA-F]{6}$/, "Use a hex color like #1f2937."), z.literal("")]).optional(),
   senderName: z.string().trim().max(80).optional(),
-  replyTo: z.union([z.email(), z.literal("")]).optional(),
   postalAddress: z.string().trim().max(300).optional(),
   website: z.union([z.url(), z.literal("")]).optional(),
   signature: z.string().max(1000).optional(),

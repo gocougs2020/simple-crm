@@ -194,6 +194,8 @@ export type EmailSettings = {
   webhookId?: string;
   webhookEndpoint?: string;
   webhookSecret?: string;
+  /** The events it was connected with, so Settings can tell when it needs reconnecting for newer ones (delivery reports). */
+  webhookEvents?: string[];
 };
 /** What every email from the CRM is wrapped in. Everything is optional; blanks fall back to the workspace name and plain styling. */
 export type BrandKit = {
@@ -201,7 +203,6 @@ export type BrandKit = {
   /** Hex color for buttons and links in email only. */
   accentColor?: string;
   senderName?: string;
-  replyTo?: string;
   /** Required by CAN-SPAM in marketing email. */
   postalAddress?: string;
   website?: string;
@@ -247,6 +248,17 @@ export const people = pgTable(
     /** Campaigns only go to people who haven't opted out. One-off emails from a record always send. */
     marketingOptIn: boolean("marketing_opt_in").notNull().default(true),
     unsubscribedAt: timestamp("unsubscribed_at", { withTimezone: true }),
+    /**
+     * Set when an email to this address bounced for good (Resend's webhook).
+     * Campaigns skip the person until someone fixes the address, which clears it.
+     */
+    emailBouncedAt: timestamp("email_bounced_at", { withTimezone: true }),
+    /**
+     * When a campaign last went to them. Kept apart from `lastActivityAt`
+     * (personal outreach: logged activity, one-off emails), so a newsletter
+     * never makes someone look recently contacted.
+     */
+    lastCampaignAt: timestamp("last_campaign_at", { withTimezone: true }),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -532,12 +544,17 @@ export const customFields = pgTable(
 
 // ─── Email ───────────────────────────────────────────────────────────────
 
+/** A file sent with an email. The bytes stay in `files`; this is what the email showed. */
+export type EmailAttachment = { fileId: string; name: string; size: number; contentType: string };
+
 /** Reusable emails. `body` is rich-text HTML with merge tags; the brand kit wraps it when sent. */
 export const emailTemplates = pgTable("email_templates", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   subject: text("subject").notNull().default(""),
   body: text("body").notNull().default(""),
+  /** Files that come along when the template is used. */
+  attachments: jsonb("attachments").$type<EmailAttachment[]>().notNull().default([]),
   /** Shared templates show for everyone; personal ones only for their author. */
   shared: boolean("shared").notNull().default(true),
   createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
@@ -548,6 +565,20 @@ export const emailTemplates = pgTable("email_templates", {
 /** Who a campaign goes to. Evaluated at send time, so people added later are included. */
 export type CampaignAudience = {
   tags?: string[];
+  /** Whether people need any of `tags` (the default) or all of them. */
+  tagMatch?: "any" | "all";
+  /** Leave out people with any of these tags. */
+  excludeTags?: string[];
+  /** People with something logged in the last N days. */
+  activeWithinDays?: number;
+  /** People with no personal contact logged in the last N days (or ever). Campaigns don't count. */
+  inactiveForDays?: number;
+  /** People who haven't had a campaign in the last N days (or ever). */
+  noCampaignForDays?: number;
+  /** Person custom fields: the field's value is one of `values` (a checkbox field uses "true" / "false"). */
+  customFields?: { key: string; values: string[] }[];
+  /** People connected to a client in one of these pipelines. */
+  pipelineIds?: string[];
   ownerIds?: string[];
   organizationIds?: string[];
   /** People connected to a client in one of these categories (the client's contact, or anyone at its organization). */
@@ -566,6 +597,20 @@ export type CampaignAudience = {
   personIds?: string[];
 };
 
+/**
+ * A saved audience: a named set of filters, reused by campaigns. Campaigns
+ * that use one follow its filters as they are when the campaign sends.
+ */
+export const audiences = pgTable("audiences", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  description: text("description"),
+  filters: jsonb("filters").$type<CampaignAudience>().notNull().default({}),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
 export const campaigns = pgTable(
   "campaigns",
   {
@@ -578,6 +623,12 @@ export const campaigns = pgTable(
     /** The full email (brand kit layout around the body) rendered on every save, so sending never needs React. */
     html: text("html"),
     audience: jsonb("audience").$type<CampaignAudience>().notNull().default({}),
+    /** A saved audience. When set, its filters are used instead of `audience`. */
+    audienceId: uuid("audience_id").references(() => audiences.id, { onDelete: "set null" }),
+    /** Where replies go. Starts as the email of whoever set the campaign up; blank falls back to the creator's email at send time. */
+    replyTo: text("reply_to"),
+    /** Sent with every email. Campaigns with attachments go out one at a time: Resend's batch endpoint can't carry files. */
+    attachments: jsonb("attachments").$type<EmailAttachment[]>().notNull().default([]),
     status: text("status").$type<"draft" | "scheduled" | "sending" | "sent">().notNull().default("draft"),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
     sentAt: timestamp("sent_at", { withTimezone: true }),
@@ -590,22 +641,43 @@ export const campaigns = pgTable(
   (t) => [index("campaigns_status_idx").on(t.status, t.scheduledAt)],
 );
 
+/** Where a sent email got to, from Resend's delivery reports. Only ever moves forward (src/lib/email/delivery.ts). */
+export type DeliveryStatus = "sent" | "delayed" | "delivered" | "failed" | "suppressed" | "bounced" | "complained";
+
 /** Every email the CRM sent: one-off emails from a record and each campaign recipient. */
 export const outboundEmails = pgTable(
   "outbound_emails",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
+    /** The client it was sent from, or (for a campaign) the matching client it was sent because of. */
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
     campaignId: uuid("campaign_id").references(() => campaigns.id, { onDelete: "cascade" }),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
     to: text("to").notNull(),
     cc: text("cc"),
+    replyTo: text("reply_to"),
     subject: text("subject").notNull(),
+    attachments: jsonb("attachments").$type<EmailAttachment[]>().notNull().default([]),
     resendId: text("resend_id"),
+    /** Null until Resend's first report. */
+    deliveryStatus: text("delivery_status").$type<DeliveryStatus>(),
+    deliveryStatusAt: timestamp("delivery_status_at", { withTimezone: true }),
+    /** Why it bounced, failed or was suppressed, in Resend's words. */
+    deliveryDetail: text("delivery_detail"),
+    /** Opens and clicks: filled in only when `email.trackOpens` / `email.trackClicks` are on in app.config.ts. */
+    firstOpenedAt: timestamp("first_opened_at", { withTimezone: true }),
+    openCount: integer("open_count").notNull().default(0),
+    firstClickedAt: timestamp("first_clicked_at", { withTimezone: true }),
+    clickCount: integer("click_count").notNull().default(0),
+    /** When the hourly check last asked Resend about an email with no final report. */
+    statusCheckedAt: timestamp("status_checked_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [
     index("outbound_emails_person_idx").on(t.personId),
+    index("outbound_emails_resend_idx").on(t.resendId),
+    index("outbound_emails_campaign_status_idx").on(t.campaignId, t.deliveryStatus),
     uniqueIndex("outbound_emails_campaign_person_idx").on(t.campaignId, t.personId),
   ],
 );

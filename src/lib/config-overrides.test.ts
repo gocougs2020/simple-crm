@@ -8,6 +8,7 @@ const defaults: AppConfig = {
   brand: { name: "CRM", description: "Default" },
   theme: { brandColor: null, brandForeground: "#ffffff", tokens: {}, browserColor: "#fafafa" },
   layout: { defaultClientsView: "board" },
+  email: { trackOpens: false, trackClicks: false },
 };
 
 describe("applyConfigOverrides", () => {
@@ -26,6 +27,12 @@ describe("applyConfigOverrides", () => {
     assert.equal(merged.layout.defaultClientsView, "table");
     assert.equal(merged.theme.brandColor, "#2f629f");
     assert.equal(defaults.brand.name, "CRM");
+  });
+
+  it("turns email tracking on with booleans only", () => {
+    const merged = applyConfigOverrides(defaults, { json: '{"email":{"trackOpens":true}}' });
+    assert.deepEqual(merged.email, { trackOpens: true, trackClicks: false });
+    assert.throws(() => applyConfigOverrides(defaults, { json: '{"email":{"trackClicks":"yes"}}' }), /email\.trackClicks: expected boolean, got string/);
   });
 
   it("allows new theme tokens but no other unknown keys", () => {

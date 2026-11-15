@@ -2,6 +2,20 @@
 
 Decisions made while building this, newest at the top, so the history reads as documentation.
 
+## 2026-11-15 · Email: delivery tracking, audiences, attachments, reply-to, quarter-hour jobs
+
+**Goal.** Email that a team can rely on from a person's or deal's page and for campaigns: know whether each email arrived, reuse audiences, send files, and choose where replies go. The delivery-tracking design follows the earlier project (Live Bold Idaho), adapted to people, clients and history here.
+
+- **Delivery status only moves forward.** Resend's reports arrive late, twice and out of order. A rank (sent < delayed < delivered < failed/suppressed < bounced < complained) and one conditional `UPDATE` keep the latest meaningful status. A webhook report that beats its row returns 503 so Resend retries; an hourly check covers reports that never arrive.
+- **Only our own email can flag a person.** Bounce and complaint protection runs only when the report matches a row we saved, so a shared Resend account can't unsubscribe our people.
+- **Open and click tracking are a deployment setting, off by default.** Tracking pixels and rewritten links can hurt deliverability, and opens are unreliable (some mail apps open everything for privacy), so delivery is what's always tracked. `email.trackOpens` / `email.trackClicks` in `app.config.ts` turn the rest on for deployments that want it, through the same `NEXT_PUBLIC_APP_CONFIG` override as theming, so forks configure it without code changes.
+- **Last campaign is separate from last contact.** Last contact means personal outreach (logged activity, one-off emails). Campaigns set `people.last_campaign_at` instead, so a newsletter never hides a neglected relationship, and "no campaign in N days" finds people who haven't heard from you.
+- **Campaign emails are on every timeline but aren't contact.** One activity per recipient, linked to the client they matched; excluded from "last contacted", the Activities page and the home feed.
+- **Saved audiences are filters, not lists.** A campaign that uses one reads its filters when it sends, so new people are included; it keeps a copy in case the audience is deleted.
+- **Attachments are CRM files.** Uploaded to the record first (so they show in its Files), read from Blob at send time. Resend's batch endpoint doesn't take attachments, so a campaign with files sends one email at a time and says so.
+- **Replies go to a person, not a shared default.** A one-off email replies to whoever sent it, a campaign to whoever set it up; either can be changed per email or campaign. The brand kit's workspace-wide campaign reply-to was removed.
+- **Background jobs run on quarter-hour blocks.** Every cron runs at :00/:15/:30/:45 (or :00 only) so Neon can scale to zero between runs; scheduled campaigns round up to the next block.
+
 ## 2026-10-30 · First version
 
 **Goal.** A CRM that does what a small B2B team needs every day (people, organizations, deals, logging what happened, knowing what's next, email) and nothing that makes it feel heavy. Pipedrive's model, without its sprawl.

@@ -1,5 +1,6 @@
 "use client";
 
+import { appConfig } from "@/app.config";
 import { useState, useTransition } from "react";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, ClipboardDocumentIcon, PlusIcon, TrashIcon } from "@heroicons/react/20/solid";
 import { addDomain, connectWebhook, createInbox, removeDomain, removeInbox, setDomainCapability, syncNow, updateInbox, verifyDomain } from "@/actions/inbox";
@@ -21,7 +22,7 @@ export type DomainView = {
   records: { record: string; type: string; name: string; value: string; priority: number | null; status: string }[];
 };
 export type InboxView = { id: string; address: string; name: string | null; fromName: string | null; unread: number };
-type Webhook = { connected: boolean; endpoint: string | null; envSecret: boolean };
+type Webhook = { connected: boolean; endpoint: string | null; envSecret: boolean; needsReconnect: boolean };
 /** Whether RESEND_DOMAINS limits which domains show, and how many in the account it leaves out. */
 type Scope = { scoped: boolean; hidden: number };
 
@@ -443,20 +444,31 @@ function EditInbox({ inbox, onClose }: { inbox: InboxView; onClose: () => void }
 
 function LiveUpdates({ webhook }: { webhook: Webhook }) {
   const { pending, act } = useAct();
+  const { trackOpens, trackClicks } = appConfig.email;
+  const tracking = trackOpens && trackClicks ? "opens and clicks" : trackOpens ? "opens" : trackClicks ? "clicks" : null;
   return (
-    <Section title="Live updates" description="A Resend webhook tells the CRM about new mail within seconds. A sync every 15 minutes catches anything it misses.">
+    <Section
+      title="Live updates"
+      description="A Resend webhook tells the CRM about new mail within seconds, and whether each email it sent was delivered or bounced. A sync every 15 minutes, and an hourly delivery check, catch anything it misses."
+    >
       <div className="flex flex-col gap-3 px-4 py-3 text-[13.5px]">
         <div className="flex flex-wrap items-center gap-3">
           {webhook.connected ? <StatusBadge tone="success">Connected</StatusBadge> : <StatusBadge tone="neutral">Not connected</StatusBadge>}
           <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-secondary">{webhook.endpoint ?? "/api/webhooks/resend"}</span>
-          <Button size="sm" variant={webhook.connected ? "outline" : "primary"} loading={pending} onClick={() => act(async () => connectWebhook(), "Webhook connected. New mail will show up within seconds.")}>
+          <Button size="sm" variant={webhook.connected ? "outline" : "primary"} loading={pending} onClick={() => act(async () => connectWebhook(), "Webhook connected. New mail and delivery reports will show up within seconds.")}>
             {webhook.connected ? "Reconnect" : "Connect webhook"}
           </Button>
           <Button size="sm" variant="ghost" disabled={pending} onClick={() => act(async () => syncNow(), "Inboxes synced")}>
             Sync now
           </Button>
         </div>
+        {webhook.needsReconnect ? (
+          <p className="rounded-md border border-warning-border bg-warning-surface px-3 py-2 text-[13px] text-warning">
+            This webhook&apos;s events are out of date (it was connected before delivery tracking, or open and click tracking changed since). Reconnect it to update them.
+          </p>
+        ) : null}
         <p className="text-fine">
+          {tracking ? `This deployment records ${tracking}; turn the same tracking on for the sending domain in Resend.` : "Open and click tracking are off for this deployment, to protect deliverability; leave them off in Resend too."}{" "}
           Connecting creates a webhook in Resend pointed at this site&apos;s /api/webhooks/resend and saves its signing secret. If RESEND_WEBHOOK_SECRET is set, it&apos;s used instead
           {webhook.envSecret ? " (it is set here)" : ""}. Resend can&apos;t reach localhost, so while developing use Sync now.
         </p>
