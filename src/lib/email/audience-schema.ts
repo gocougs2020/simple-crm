@@ -13,6 +13,7 @@ export const audienceSchema = z.object({
   organizationIds: z.array(uuid).max(500).optional(),
   activeWithinDays: days.optional(),
   inactiveForDays: days.optional(),
+  noCampaignForDays: days.optional(),
   customFields: z
     .array(z.object({ key: z.string().regex(/^[a-z0-9_]+$/).max(80), values: z.array(z.string().max(300)).max(50) }))
     .max(20)

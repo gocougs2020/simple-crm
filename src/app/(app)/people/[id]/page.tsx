@@ -60,7 +60,7 @@ async function Person({ params }: Pick<PageProps<"/people/[id]">, "params">) {
           </>
         }
       >
-        <FocusLine planned={tl.planned} lastContactAt={tl.lastContactAt} context={{ type: "person", id }} />
+        <FocusLine planned={tl.planned} lastContactAt={tl.lastContactAt} lastCampaignAt={person.lastCampaignAt} context={{ type: "person", id }} />
         <Composer links={{ personId: id }} recipient={{ personId: id, name, email: person.email }} />
         <Timeline planned={tl.planned} pinned={tl.pinned} past={tl.past} context={{ type: "person", id }} fileLinks={{ personId: id, organizationId: person.organizationId }} files={tl.files} emptyHint={`Log a call, note or email with ${person.firstName} above and it shows up here.`} />
       </RecordBody>

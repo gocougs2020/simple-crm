@@ -103,6 +103,7 @@ function toPerson(ctx: Ctx, r: PersonRow) {
     marketingOptIn: p.marketingOptIn,
     unsubscribedAt: iso(p.unsubscribedAt),
     emailBouncedAt: iso(p.emailBouncedAt),
+    lastCampaignAt: iso(p.lastCampaignAt),
     custom: p.custom,
     lastActivityAt: iso(p.lastActivityAt),
     createdAt: iso(p.createdAt)!,

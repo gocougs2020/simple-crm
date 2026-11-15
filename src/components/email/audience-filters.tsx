@@ -41,7 +41,7 @@ export function AudienceFilters({
       const next = list.includes(value) ? list.filter((x) => x !== value) : [...list, value];
       return { ...a, [key]: next.length ? next : undefined };
     });
-  const setDays = (key: "activeWithinDays" | "inactiveForDays", raw: string) =>
+  const setDays = (key: "activeWithinDays" | "inactiveForDays" | "noCampaignForDays", raw: string) =>
     onChange((a) => {
       const n = Math.round(Number(raw));
       return { ...a, [key]: raw && n > 0 ? Math.min(n, 3650) : undefined };
@@ -77,10 +77,12 @@ export function AudienceFilters({
       </div>
       {tags.length ? <ChipGroup label="Not tagged" options={tags.map((t) => ({ value: t, label: t }))} selected={audience.excludeTags ?? []} onToggle={(v) => toggle("excludeTags", v)} /> : null}
       <ChipGroup label="Owned by" options={team.filter((m) => m.active).map((m) => ({ value: m.id, label: m.name }))} selected={audience.ownerIds ?? []} onToggle={(v) => toggle("ownerIds", v)} />
-      <div className="grid gap-3 sm:grid-cols-2">
-        <DaysField label="Something logged in the last" value={audience.activeWithinDays} onChange={(v) => setDays("activeWithinDays", v)} />
-        <DaysField label="Nothing logged in the last" value={audience.inactiveForDays} onChange={(v) => setDays("inactiveForDays", v)} />
+      <div className="grid gap-3 sm:grid-cols-3">
+        <DaysField label="Contacted in the last" value={audience.activeWithinDays} onChange={(v) => setDays("activeWithinDays", v)} />
+        <DaysField label="Not contacted in the last" value={audience.inactiveForDays} onChange={(v) => setDays("inactiveForDays", v)} />
+        <DaysField label="No campaign in the last" value={audience.noCampaignForDays} onChange={(v) => setDays("noCampaignForDays", v)} />
       </div>
+      <p className="-mt-1 text-fine">Contact means something logged or a one-off email. Campaigns only count toward the campaign filter.</p>
       {choosable.map((f) => (
         <ChipGroup
           key={f.id}

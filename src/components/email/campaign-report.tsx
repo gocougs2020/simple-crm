@@ -8,23 +8,30 @@ import { useApp } from "@/components/app-context";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button, Spinner } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/menu";
+import { appConfig } from "@/app.config";
 import type { CampaignDelivery, RecipientFilter } from "@/lib/email/delivery";
 import { deliveryLabels, deliveryTone } from "@/lib/email/delivery-status";
 import { formatDateTime } from "@/lib/format";
 
 type Recipients = Awaited<ReturnType<typeof listCampaignRecipients>>;
 
-const filterLabels: Record<RecipientFilter, string> = {
+const { trackOpens, trackClicks } = appConfig.email;
+const engagement = trackOpens || trackClicks;
+
+const filterLabels: Partial<Record<RecipientFilter, string>> = {
   all: "Everyone",
   delivered: "Delivered",
+  ...(trackOpens ? { opened: "Opened" } : {}),
+  ...(trackClicks ? { clicked: "Clicked" } : {}),
   problems: "Didn't arrive",
   pending: "Waiting",
 };
 
 /**
  * How a sent campaign did, from Resend's delivery reports: the totals, then
- * every recipient with their email's status. Opens and clicks aren't tracked,
- * to keep deliverability high.
+ * every recipient with their email's status. Opens and clicks appear only
+ * when this deployment tracks them (`email` in app.config.ts), and come after
+ * delivery: opens are approximate.
  */
 export function CampaignReport({ campaignId, delivery, sending }: { campaignId: string; delivery: CampaignDelivery | null; sending: boolean }) {
   const { workspace } = useApp();
@@ -42,6 +49,8 @@ export function CampaignReport({ campaignId, delivery, sending }: { campaignId: 
     ? [
         { label: "Sent", value: d.sent.toLocaleString() },
         { label: "Delivered", value: d.reported ? `${d.deliveryRate}%` : "—", sub: d.reported ? `${d.delivered.toLocaleString()} emails` : "No reports yet" },
+        ...(trackOpens ? [{ label: "Opened", value: d.opened ? `${d.openRate}%` : "—", sub: d.opened ? `${d.opened.toLocaleString()} people` : undefined }] : []),
+        ...(trackClicks ? [{ label: "Clicked", value: d.clicked ? `${d.clickRate}%` : "—", sub: d.clicked ? `${d.clicked.toLocaleString()} people` : undefined }] : []),
         { label: "Didn't arrive", value: d.notDelivered.toLocaleString(), sub: d.complained ? `${d.complained} marked as spam` : undefined, bad: d.notDelivered + d.complained > 0 },
       ]
     : [];
@@ -56,7 +65,7 @@ export function CampaignReport({ campaignId, delivery, sending }: { campaignId: 
         {sending ? <span className="text-[12.5px] text-muted">Still sending. Numbers fill in as reports arrive.</span> : d && d.pending ? <span className="text-[12.5px] text-muted">{d.pending.toLocaleString()} waiting for a report</span> : null}
       </div>
       {d ? (
-        <dl className="grid grid-cols-3 gap-2">
+        <dl className={clsx("grid grid-cols-2 gap-2", stats.length > 3 ? "sm:grid-cols-5" : "sm:grid-cols-3")}>
           {stats.map((s) => (
             <div key={s.label} className="rounded-lg border border-line bg-surface px-3 py-2">
               <dt className="text-[12px] text-muted">{s.label}</dt>
@@ -94,6 +103,7 @@ export function CampaignReport({ campaignId, delivery, sending }: { campaignId: 
             <tr>
               <th className="px-3 py-2 font-medium">Recipient</th>
               <th className="px-3 py-2 font-medium">Status</th>
+              {engagement ? <th className="px-3 py-2 font-medium">Engagement</th> : null}
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -118,11 +128,14 @@ export function CampaignReport({ campaignId, delivery, sending }: { campaignId: 
                     <span className="text-[12px] text-faint">Waiting</span>
                   )}
                 </td>
+                {engagement ? (
+                  <td className="px-3 py-2 text-[12px] whitespace-nowrap text-secondary">{trackClicks && r.clickedAt ? "Clicked" : trackOpens && r.openedAt ? "Opened" : <span className="text-faint">—</span>}</td>
+                ) : null}
               </tr>
             ))}
             {data && !data.rows.length ? (
               <tr>
-                <td colSpan={2} className="px-3 py-6 text-center text-[13px] text-muted">
+                <td colSpan={engagement ? 3 : 2} className="px-3 py-6 text-center text-[13px] text-muted">
                   No one here yet.
                 </td>
               </tr>

@@ -35,6 +35,11 @@ function activityRows(where: SQL | undefined, opts: { order: SQL[]; limit: numbe
           status: schema.outboundEmails.deliveryStatus,
           at: schema.outboundEmails.deliveryStatusAt,
           detail: schema.outboundEmails.deliveryDetail,
+          /** Only filled in when this deployment tracks opens / clicks (`email` in app.config.ts). */
+          openedAt: schema.outboundEmails.firstOpenedAt,
+          opens: schema.outboundEmails.openCount,
+          clickedAt: schema.outboundEmails.firstClickedAt,
+          clicks: schema.outboundEmails.clickCount,
         },
         campaignId: schema.outboundEmails.campaignId,
         campaignName: schema.campaigns.name,

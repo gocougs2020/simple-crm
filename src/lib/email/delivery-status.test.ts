@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { addressProblem, deliveryDetail, eventStatus, eventTag, movesForward, percent, statusFromLastEvent } from "./delivery-status";
+import { addressProblem, deliveryDetail, deliveryEvents, engagementEvent, eventStatus, eventTag, movesForward, percent, statusFromLastEvent } from "./delivery-status";
 
 describe("delivery status", () => {
   it("only moves forward, so late or repeated reports can't undo a later one", () => {
@@ -10,10 +10,19 @@ describe("delivery status", () => {
     assert.equal(movesForward("delivered", "bounced"), true);
     assert.equal(movesForward("complained", "delivered"), false);
   });
-  it("doesn't track opens or clicks, and reads Resend's last event as a status", () => {
-    assert.equal(eventStatus["email.opened"], undefined);
-    assert.equal(eventStatus["email.clicked"], undefined);
+  it("tracks opens and clicks only when the deployment turns them on", () => {
+    const off = { trackOpens: false, trackClicks: false };
+    assert.equal(engagementEvent("email.opened", off), null);
+    assert.deepEqual(deliveryEvents(off).filter((e) => /opened|clicked/.test(e)), []);
+    const opens = { trackOpens: true, trackClicks: false };
+    assert.equal(engagementEvent("email.opened", opens), "opened");
+    assert.equal(engagementEvent("email.clicked", opens), null);
+    assert.ok(deliveryEvents(opens).includes("email.opened") && !deliveryEvents(opens).includes("email.clicked"));
+    assert.equal(eventStatus["email.opened"], undefined, "an open isn't a status of its own");
+  });
+  it("reads Resend's last event as a status", () => {
     assert.equal(statusFromLastEvent("delivered"), "delivered");
+    assert.equal(statusFromLastEvent("opened"), "delivered");
     assert.equal(statusFromLastEvent("queued"), null);
     assert.equal(statusFromLastEvent("canceled"), "failed");
   });

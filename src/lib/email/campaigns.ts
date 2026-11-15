@@ -52,6 +52,7 @@ function audienceWhere(a: CampaignAudience): SQL[] {
   if (a.organizationIds?.length) where.push(inArray(people.organizationId, a.organizationIds));
   if (a.activeWithinDays) where.push(sql`${people.lastActivityAt} >= now() - make_interval(days => ${a.activeWithinDays}::int)`);
   if (a.inactiveForDays) where.push(sql`(${people.lastActivityAt} is null or ${people.lastActivityAt} < now() - make_interval(days => ${a.inactiveForDays}::int))`);
+  if (a.noCampaignForDays) where.push(sql`(${people.lastCampaignAt} is null or ${people.lastCampaignAt} < now() - make_interval(days => ${a.noCampaignForDays}::int))`);
   for (const f of a.customFields ?? []) {
     if (!f.values.length) continue;
     // Single values compare as text (checkboxes read "true"/"false"); multi-selects match any chosen option.
@@ -158,7 +159,8 @@ const SINGLE_GAP_MS = 300;
  *
  * Each email is also logged as an email activity on the person (and their
  * organization, and the client they matched), so it's on their timeline.
- * Campaign emails don't count as contact: "last activity" doesn't move.
+ * Campaign emails don't count as contact: they set the person's
+ * `lastCampaignAt` and leave "last contacted" (`lastActivityAt`) alone.
  */
 export async function sendCampaign(campaignId: string, origin: string) {
   const db = await getDb();
@@ -247,6 +249,16 @@ export async function sendCampaign(campaignId: string, origin: string) {
       .returning({ id: outboundEmails.id, personId: outboundEmails.personId });
     const byPerson = new Map(messages.map((m) => [m.person.id, m]));
     if (inserted.length) {
+      // Their last campaign date, kept apart from last contact (personal outreach), which campaigns never move.
+      await db
+        .update(people)
+        .set({ lastCampaignAt: sql`greatest(coalesce(${people.lastCampaignAt}, ${now}), ${now})` })
+        .where(
+          inArray(
+            people.id,
+            inserted.map((r) => r.personId!),
+          ),
+        );
       await db.insert(schema.activities).values(
         inserted.map((row) => {
           const m = byPerson.get(row.personId!)!;

@@ -57,6 +57,13 @@
       "when": 1794713728179,
       "tag": "0007_drop-open-click-tracking",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794714566891,
+      "tag": "0008_engagement-tracking-and-last-campaign",
+      "breakpoints": true
     }
   ]
 }

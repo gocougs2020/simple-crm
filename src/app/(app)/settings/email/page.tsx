@@ -5,7 +5,7 @@ import { PageSkeleton } from "@/components/ui/skeleton";
 import { getDb, schema } from "@/db";
 import { requireAdminPage } from "@/lib/auth";
 import { emailDomainsScoped, getResend, inEmailScope } from "@/lib/email";
-import { listInboxes } from "@/lib/email/inbox";
+import { listInboxes, webhookNeedsReconnect } from "@/lib/email/inbox";
 
 export const metadata: Metadata = { title: "Email domains" };
 
@@ -29,8 +29,8 @@ async function EmailDomains() {
     connected: !!ws?.email.webhookId,
     endpoint: ws?.email.webhookEndpoint ?? null,
     envSecret: !!process.env.RESEND_WEBHOOK_SECRET,
-    // Connected before delivery reports existed: reconnecting subscribes it to them.
-    missingDeliveryReports: !!ws?.email.webhookId && !ws.email.webhookEvents?.includes("email.delivered"),
+    // Connected before delivery reports, or open/click tracking changed since: reconnecting updates its events.
+    needsReconnect: !!ws?.email.webhookId && webhookNeedsReconnect(ws.email.webhookEvents),
   };
   if (!resend) return <EmailDomainSettings configured={false} domains={[]} domainsError={null} scope={{ scoped: emailDomainsScoped, hidden: 0 }} inboxes={[]} inboxesError={null} webhook={webhook} />;
 

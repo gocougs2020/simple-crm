@@ -253,6 +253,12 @@ export const people = pgTable(
      * Campaigns skip the person until someone fixes the address, which clears it.
      */
     emailBouncedAt: timestamp("email_bounced_at", { withTimezone: true }),
+    /**
+     * When a campaign last went to them. Kept apart from `lastActivityAt`
+     * (personal outreach: logged activity, one-off emails), so a newsletter
+     * never makes someone look recently contacted.
+     */
+    lastCampaignAt: timestamp("last_campaign_at", { withTimezone: true }),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -565,8 +571,10 @@ export type CampaignAudience = {
   excludeTags?: string[];
   /** People with something logged in the last N days. */
   activeWithinDays?: number;
-  /** People with nothing logged in the last N days (or ever). */
+  /** People with no personal contact logged in the last N days (or ever). Campaigns don't count. */
   inactiveForDays?: number;
+  /** People who haven't had a campaign in the last N days (or ever). */
+  noCampaignForDays?: number;
   /** Person custom fields: the field's value is one of `values` (a checkbox field uses "true" / "false"). */
   customFields?: { key: string; values: string[] }[];
   /** People connected to a client in one of these pipelines. */
@@ -657,6 +665,11 @@ export const outboundEmails = pgTable(
     deliveryStatusAt: timestamp("delivery_status_at", { withTimezone: true }),
     /** Why it bounced, failed or was suppressed, in Resend's words. */
     deliveryDetail: text("delivery_detail"),
+    /** Opens and clicks: filled in only when `email.trackOpens` / `email.trackClicks` are on in app.config.ts. */
+    firstOpenedAt: timestamp("first_opened_at", { withTimezone: true }),
+    openCount: integer("open_count").notNull().default(0),
+    firstClickedAt: timestamp("first_clicked_at", { withTimezone: true }),
+    clickCount: integer("click_count").notNull().default(0),
     /** When the hourly check last asked Resend about an email with no final report. */
     statusCheckedAt: timestamp("status_checked_at", { withTimezone: true }),
     createdAt: createdAt(),

@@ -42,6 +42,7 @@ import type { FileLinks } from "@/components/files/upload";
 import { RichText } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
 import type { ActivityRow, RecordFile, TimelineItem } from "@/lib/crm/activities";
+import { appConfig } from "@/app.config";
 import { deliveryLabels, deliveryTone } from "@/lib/email/delivery-status";
 import { activityLabels, clientCategoryLabels, clientHealthLabels, interactionTypes, type ActivityType, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
 import { dayKey, dueTone, formatBytes, formatDateTime, formatDay, formatFull, formatTime, senderName, timeKey, zonedTime } from "@/lib/format";
@@ -419,15 +420,32 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
   );
 }
 
-/** Where a sent email got to. Shows nothing until Resend's first report. */
+/**
+ * Where a sent email got to. Shows nothing until Resend's first report. Opens
+ * and clicks show beside it only when this deployment tracks them
+ * (`email` in app.config.ts); opens are a hint, never the status.
+ */
 function Delivery({ delivery }: { delivery: ActivityRow["delivery"] }) {
   const { workspace } = useApp();
   if (!delivery?.status) return null;
-  const when = delivery.at ? ` ${formatDateTime(delivery.at, workspace.timezone)}` : "";
+  const tz = workspace.timezone;
+  const when = delivery.at ? ` ${formatDateTime(delivery.at, tz)}` : "";
+  const { trackOpens, trackClicks } = appConfig.email;
   return (
-    <Tooltip content={delivery.detail ?? `${deliveryLabels[delivery.status]}${when}`}>
-      <StatusBadge tone={deliveryTone[delivery.status]}>{deliveryLabels[delivery.status]}</StatusBadge>
-    </Tooltip>
+    <span className="inline-flex items-center gap-1.5">
+      <Tooltip content={delivery.detail ?? `${deliveryLabels[delivery.status]}${when}`}>
+        <StatusBadge tone={deliveryTone[delivery.status]}>{deliveryLabels[delivery.status]}</StatusBadge>
+      </Tooltip>
+      {trackClicks && delivery.clickedAt ? (
+        <Tooltip content={`First clicked ${formatDateTime(delivery.clickedAt, tz)}`}>
+          <span className="text-secondary">Clicked{delivery.clicks > 1 ? ` ${delivery.clicks}×` : ""}</span>
+        </Tooltip>
+      ) : trackOpens && delivery.openedAt ? (
+        <Tooltip content={`First opened ${formatDateTime(delivery.openedAt, tz)}. Some mail apps open emails automatically, so treat this as a hint.`}>
+          <span className="text-secondary">Opened{delivery.opens > 1 ? ` ${delivery.opens}×` : ""}</span>
+        </Tooltip>
+      ) : null}
+    </span>
   );
 }
 

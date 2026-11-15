@@ -3,6 +3,7 @@ import { desc } from "drizzle-orm";
 import { Suspense } from "react";
 import { CampaignList } from "@/components/email/campaign-list";
 import { PageSkeleton } from "@/components/ui/skeleton";
+import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
 import { campaignDelivery } from "@/lib/email/delivery";
 
@@ -29,7 +30,7 @@ async function Campaigns() {
     <CampaignList
       rows={rows.map((r) => {
         const d = delivery.get(r.id);
-        return { ...r, deliveryRate: d?.reported ? d.deliveryRate : null };
+        return { ...r, deliveryRate: d?.reported ? d.deliveryRate : null, openRate: appConfig.email.trackOpens && d ? d.openRate : null };
       })}
     />
   );

@@ -7,10 +7,8 @@ import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
 import { ActionError, actionAdmin, actionEditor, actionUser } from "@/lib/auth";
 import { recordEvent } from "@/lib/crm/events";
-import type { Resend } from "resend";
 import { getResend, inEmailScope } from "@/lib/email";
-import { deliveryEvents } from "@/lib/email/delivery-status";
-import { applyThreadLinks, assertDomainInScope, assertInboxInScope, InboxError, listInboxes, must, resendOrThrow, syncAllInboxes, syncInbox, syncThread } from "@/lib/email/inbox";
+import { applyThreadLinks, assertDomainInScope, assertInboxInScope, InboxError, listInboxes, must, resendOrThrow, syncAllInboxes, syncInbox, syncThread, webhookEvents } from "@/lib/email/inbox";
 import { siteOrigin } from "@/lib/origin";
 import { htmlToText, sanitizeHtml } from "@/lib/safe-html";
 
@@ -291,10 +289,6 @@ export async function removeInbox(inboxId: string): Promise<Result> {
   });
 }
 
-type WebhookEventName = Parameters<Resend["webhooks"]["create"]>[0]["events"][number];
-
-/** Inbox mail, plus delivery reports for email the CRM sends. Settings asks to reconnect when this list grows. */
-const webhookEvents = ["inbox.email.received", "inbox.email.sent", "inbox.thread.created", "inbox.thread.folder.updated", "inbox.deleted", ...deliveryEvents] as WebhookEventName[];
 
 /**
  * Points a Resend webhook at this deployment so new mail shows up within
@@ -312,13 +306,13 @@ export async function connectWebhook(): Promise<Result<{ endpoint: string }>> {
     const current = ws?.email ?? {};
     let next = { ...current };
     if (current.webhookId) {
-      const updated = await resend.webhooks.update(current.webhookId, { endpoint, events: [...webhookEvents], status: "enabled" });
+      const updated = await resend.webhooks.update(current.webhookId, { endpoint, events: webhookEvents(), status: "enabled" });
       if (updated.error) next = {};
-      else next = { ...current, webhookEndpoint: endpoint, webhookEvents: [...webhookEvents] };
+      else next = { ...current, webhookEndpoint: endpoint, webhookEvents: webhookEvents() };
     }
     if (!next.webhookId) {
-      const created = await inbox(async () => must(await resend.webhooks.create({ endpoint, events: [...webhookEvents] }), "create the webhook"));
-      next = { webhookId: created.id, webhookSecret: created.signing_secret, webhookEndpoint: endpoint, webhookEvents: [...webhookEvents] };
+      const created = await inbox(async () => must(await resend.webhooks.create({ endpoint, events: webhookEvents() }), "create the webhook"));
+      next = { webhookId: created.id, webhookSecret: created.signing_secret, webhookEndpoint: endpoint, webhookEvents: webhookEvents() };
     }
     await db.insert(schema.workspace).values({ id: 1, email: next }).onConflictDoUpdate({ target: schema.workspace.id, set: { email: next, updatedAt: new Date() } });
     refresh();

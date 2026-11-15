@@ -16,7 +16,7 @@ import { toast } from "@/components/ui/toast";
 import { formatDateTime } from "@/lib/format";
 import { EmailTabs } from "./email-tabs";
 
-export type CampaignRow = { id: string; name: string; subject: string; status: "draft" | "scheduled" | "sending" | "sent"; scheduledAt: Date | null; sentAt: Date | null; recipientCount: number; sendError: string | null; updatedAt: Date; deliveryRate: number | null };
+export type CampaignRow = { id: string; name: string; subject: string; status: "draft" | "scheduled" | "sending" | "sent"; scheduledAt: Date | null; sentAt: Date | null; recipientCount: number; sendError: string | null; updatedAt: Date; deliveryRate: number | null; openRate: number | null };
 
 const tone = { draft: "neutral", scheduled: "info", sending: "warning", sent: "success" } as const;
 const label = { draft: "Draft", scheduled: "Scheduled", sending: "Sending", sent: "Sent" } as const;
@@ -55,7 +55,7 @@ export function CampaignList({ rows }: { rows: CampaignRow[] }) {
                   {c.sendError ? <p className="mt-0.5 text-[12px] text-error">Didn&apos;t send: {c.sendError}</p> : null}
                   {c.deliveryRate !== null ? (
                     <p className="mt-0.5 text-[12px] text-secondary tabular-nums">
-                      {c.deliveryRate}% delivered
+                      {c.deliveryRate}% delivered{c.openRate !== null ? ` · ${c.openRate}% opened` : ""}
                     </p>
                   ) : null}
                 </Link>

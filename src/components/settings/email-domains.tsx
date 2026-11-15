@@ -1,5 +1,6 @@
 "use client";
 
+import { appConfig } from "@/app.config";
 import { useState, useTransition } from "react";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, ClipboardDocumentIcon, PlusIcon, TrashIcon } from "@heroicons/react/20/solid";
 import { addDomain, connectWebhook, createInbox, removeDomain, removeInbox, setDomainCapability, syncNow, updateInbox, verifyDomain } from "@/actions/inbox";
@@ -21,7 +22,7 @@ export type DomainView = {
   records: { record: string; type: string; name: string; value: string; priority: number | null; status: string }[];
 };
 export type InboxView = { id: string; address: string; name: string | null; fromName: string | null; unread: number };
-type Webhook = { connected: boolean; endpoint: string | null; envSecret: boolean; missingDeliveryReports: boolean };
+type Webhook = { connected: boolean; endpoint: string | null; envSecret: boolean; needsReconnect: boolean };
 /** Whether RESEND_DOMAINS limits which domains show, and how many in the account it leaves out. */
 type Scope = { scoped: boolean; hidden: number };
 
@@ -443,6 +444,8 @@ function EditInbox({ inbox, onClose }: { inbox: InboxView; onClose: () => void }
 
 function LiveUpdates({ webhook }: { webhook: Webhook }) {
   const { pending, act } = useAct();
+  const { trackOpens, trackClicks } = appConfig.email;
+  const tracking = trackOpens && trackClicks ? "opens and clicks" : trackOpens ? "opens" : trackClicks ? "clicks" : null;
   return (
     <Section
       title="Live updates"
@@ -459,13 +462,14 @@ function LiveUpdates({ webhook }: { webhook: Webhook }) {
             Sync now
           </Button>
         </div>
-        {webhook.missingDeliveryReports ? (
+        {webhook.needsReconnect ? (
           <p className="rounded-md border border-warning-border bg-warning-surface px-3 py-2 text-[13px] text-warning">
-            This webhook was connected before delivery tracking. Reconnect it so sent emails show whether they were delivered or bounced.
+            This webhook&apos;s events are out of date (it was connected before delivery tracking, or open and click tracking changed since). Reconnect it to update them.
           </p>
         ) : null}
         <p className="text-fine">
-          Open and click tracking stay off in Resend to protect deliverability. Connecting creates a webhook in Resend pointed at this site&apos;s /api/webhooks/resend and saves its signing secret. If RESEND_WEBHOOK_SECRET is set, it&apos;s used instead
+          {tracking ? `This deployment records ${tracking}; turn the same tracking on for the sending domain in Resend.` : "Open and click tracking are off for this deployment, to protect deliverability; leave them off in Resend too."}{" "}
+          Connecting creates a webhook in Resend pointed at this site&apos;s /api/webhooks/resend and saves its signing secret. If RESEND_WEBHOOK_SECRET is set, it&apos;s used instead
           {webhook.envSecret ? " (it is set here)" : ""}. Resend can&apos;t reach localhost, so while developing use Sync now.
         </p>
       </div>

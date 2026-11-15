@@ -20,7 +20,18 @@ const QUIET_DAYS = 30;
  * prospects and current clients a missing next step offers to schedule one in
  * place, and a current client nobody has talked to in a month is flagged.
  */
-export function FocusLine({ planned, lastContactAt, context }: { planned: ActivityRow[]; lastContactAt: string | null; context: { type: EntityType; id: string; category?: ClientCategory } }) {
+export function FocusLine({
+  planned,
+  lastContactAt,
+  lastCampaignAt,
+  context,
+}: {
+  planned: ActivityRow[];
+  lastContactAt: string | null;
+  /** People only: when a campaign last went to them. Shown beside, never instead of, last contact. */
+  lastCampaignAt?: Date | null;
+  context: { type: EntityType; id: string; category?: ClientCategory };
+}) {
   const { workspace, member, viewer } = useApp();
   const tz = workspace.timezone;
   const [scheduling, setScheduling] = useState(false);
@@ -70,6 +81,7 @@ export function FocusLine({ planned, lastContactAt, context }: { planned: Activi
         <span className={clsx("shrink-0", quiet ? "font-medium text-warning" : "text-muted")} suppressHydrationWarning>
           {lastContactAt ? `Last contact ${formatAgo(lastContactAt, tz)}` : "No contact logged yet"}
           {quiet ? ". Time for a check-in." : ""}
+          {lastCampaignAt ? <span className="text-faint"> · Last campaign {formatAgo(lastCampaignAt, tz)}</span> : null}
         </span>
       </div>
       {missing && scheduling ? (

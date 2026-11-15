@@ -35,7 +35,7 @@ In the CRM, Settings → Email domains. Removing a domain or inbox here deletes 
 
 1. **Add a domain** (with "Receive email on this domain" on). Add the DNS records it shows (SPF, DKIM, and the MX record for receiving) at your DNS host, then **Verify**. Until a domain is verified, Resend only delivers to your own address. Use a subdomain (mail.acme.com) for receiving if your main domain's mail already goes to Google Workspace or Microsoft 365, since receiving needs the MX record.
 2. **Add inboxes** on that domain, like sales@ or hello@. Their mail shows in Email → Inbox and on the matching records.
-3. **Connect webhook** under Live updates, so new mail shows up within seconds and sent emails show whether they were delivered or bounced. (Without it, the cron syncs inboxes every 15 minutes and checks delivery hourly.) Leave open and click tracking off for the sending domain in Resend: the CRM doesn't use them, and they hurt deliverability.
+3. **Connect webhook** under Live updates, so new mail shows up within seconds and sent emails show whether they were delivered or bounced. (Without it, the cron syncs inboxes every 15 minutes and checks delivery hourly.) Open and click tracking are off by default, for deliverability; leave them off in Resend too. To use them, set `email.trackOpens` / `email.trackClicks` in `NEXT_PUBLIC_APP_CONFIG` (see [THEMING.md](THEMING.md)), turn the same tracking on for the domain in Resend, redeploy, and reconnect the webhook.
 
 ## 5. Deploy and set up
 

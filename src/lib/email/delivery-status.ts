@@ -8,11 +8,7 @@ import type { DeliveryStatus } from "@/db/schema";
 /** Reports can arrive late or twice; a status only ever moves forward along this order. */
 export const deliveryRank: Record<DeliveryStatus, number> = { sent: 1, delayed: 2, delivered: 3, failed: 4, suppressed: 4, bounced: 5, complained: 6 };
 
-/**
- * Resend webhook event → the status it moves an email to. Opens and clicks
- * aren't tracked: tracking pixels and rewritten links hurt deliverability, so
- * they stay off in Resend and the webhook doesn't subscribe to them.
- */
+/** Resend webhook event → the status it moves an email to. */
 export const eventStatus: Record<string, DeliveryStatus> = {
   "email.sent": "sent",
   "email.delivery_delayed": "delayed",
@@ -23,8 +19,20 @@ export const eventStatus: Record<string, DeliveryStatus> = {
   "email.suppressed": "suppressed",
 };
 
-/** The events the CRM's Resend webhook subscribes to for delivery reports. */
-export const deliveryEvents = Object.keys(eventStatus);
+/** Which engagement this deployment records (`email` in app.config.ts). Both off by default, for deliverability. */
+export type EngagementTracking = { trackOpens: boolean; trackClicks: boolean };
+
+/** Open and click events, when tracked. Either one also means the email was delivered. */
+export function engagementEvent(type: string, t: EngagementTracking): "opened" | "clicked" | null {
+  if (type === "email.opened" && t.trackOpens) return "opened";
+  if (type === "email.clicked" && t.trackClicks) return "clicked";
+  return null;
+}
+
+/** The email events the CRM's Resend webhook subscribes to: delivery reports, plus opens and clicks only when tracked. */
+export function deliveryEvents(t: EngagementTracking) {
+  return [...Object.keys(eventStatus), ...(t.trackOpens ? ["email.opened"] : []), ...(t.trackClicks ? ["email.clicked"] : [])];
+}
 
 /** Whether a report should replace the status an email already has. */
 export function movesForward(current: DeliveryStatus | null | undefined, next: DeliveryStatus) {

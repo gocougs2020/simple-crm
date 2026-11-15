@@ -26,6 +26,7 @@ const peopleSorts: Record<string, SQL | ReturnType<typeof sql>> = {
   name: sql`lower(${people.firstName} || ' ' || coalesce(${people.lastName}, ''))`,
   organization: sql`lower(${organizations.name})`,
   lastActivity: sql`${people.lastActivityAt}`,
+  lastCampaign: sql`${people.lastCampaignAt}`,
   created: sql`${people.createdAt}`,
 };
 
@@ -40,7 +41,7 @@ export async function listPeople(f: PeopleFilter = {}) {
   if (f.organizationId) where.push(eq(people.organizationId, f.organizationId));
   if (f.tag) where.push(sql`${people.tags} ? ${f.tag}`);
   const order = peopleSorts[f.sort ?? ""] ?? peopleSorts.name;
-  const dir = f.dir ?? (f.sort === "lastActivity" || f.sort === "created" ? "desc" : "asc");
+  const dir = f.dir ?? (f.sort === "lastActivity" || f.sort === "lastCampaign" || f.sort === "created" ? "desc" : "asc");
   return db
     .select({
       person: people,

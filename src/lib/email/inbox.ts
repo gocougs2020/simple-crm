@@ -1,10 +1,12 @@
 import "server-only";
 import { and, desc, eq, gte, inArray, isNotNull, isNull, sql } from "drizzle-orm";
-import type { GetInboxThreadEmailResponseSuccess } from "resend";
+import type { GetInboxThreadEmailResponseSuccess, Resend } from "resend";
+import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
 import { touch } from "@/lib/crm/events";
 import { emailDomainsScoped, getResend, inEmailScope } from "@/lib/email";
 import { sanitizeHtml } from "@/lib/safe-html";
+import { deliveryEvents } from "./delivery-status";
 
 const { inboxThreads, inboxMessages, activities, people, organizations, clients, outboundEmails } = schema;
 
@@ -331,4 +333,22 @@ export async function unreadCount() {
     .from(inboxThreads)
     .where(and(eq(inboxThreads.folder, "inbox"), eq(inboxThreads.read, false), gte(inboxThreads.lastMessageAt, new Date(Date.now() - 90 * 86400_000))));
   return row?.n ?? 0;
+}
+
+type WebhookEventName = Parameters<Resend["webhooks"]["create"]>[0]["events"][number];
+
+/**
+ * What the CRM's Resend webhook subscribes to: inbox mail, delivery reports,
+ * and opens and clicks only when this deployment tracks them (`email` in
+ * app.config.ts). Settings asks to reconnect when the connected list differs.
+ */
+export function webhookEvents(): WebhookEventName[] {
+  return ["inbox.email.received", "inbox.email.sent", "inbox.thread.created", "inbox.thread.folder.updated", "inbox.deleted", ...deliveryEvents(appConfig.email)] as WebhookEventName[];
+}
+
+/** Whether a connected webhook's events differ from what this deployment needs (connected before delivery reports, or tracking was turned on or off since). */
+export function webhookNeedsReconnect(connected: string[] | undefined) {
+  const want = webhookEvents();
+  const have = new Set(connected ?? []);
+  return want.length !== have.size || want.some((e) => !have.has(e));
 }
