@@ -7,6 +7,7 @@ import { touch } from "@/lib/crm/events";
 import { emailDomainsScoped, getResend, inEmailScope } from "@/lib/email";
 import { sanitizeHtml } from "@/lib/safe-html";
 import { deliveryEvents } from "./delivery-status";
+import { inboundEmail } from "@/lib/push/triggers";
 
 const { inboxThreads, inboxMessages, activities, people, organizations, clients, outboundEmails } = schema;
 
@@ -276,6 +277,7 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
       continue;
     }
     if (!created) await db.update(activities).set({ inboxThreadId: thread.id, ...links }).where(eq(activities.id, activityId));
+    if (m.direction === "inbound") await inboundEmail({ id: m.id, from: m.from, subject: m.subject, sentAt, threadId: thread.id, ...links });
   }
   if (existing && !existing.linkedByHand && (existing.personId !== links.personId || existing.organizationId !== links.organizationId || existing.clientId !== links.clientId)) await applyThreadLinks(thread.id);
   else if (thread.lastMessageAt) await touch(links, thread.lastMessageAt);

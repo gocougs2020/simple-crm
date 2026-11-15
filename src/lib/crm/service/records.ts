@@ -9,6 +9,7 @@ import { diff, labelRelations, recordEvent } from "@/lib/crm/events";
 import { withCustomChanges } from "@/lib/crm/inputs";
 import { id, orgInput, personInput } from "@/lib/crm/schemas";
 import { ConflictError, NotFoundError } from "@/lib/errors";
+import { recordAssigned } from "@/lib/push/triggers";
 
 /**
  * Creating, changing and archiving people and organizations. Shared by the
@@ -58,6 +59,7 @@ export async function insertOrganization(a: Actor, input: z.input<typeof orgInpu
     .values({ ...data, ownerId: ownerFor(a, data.ownerId), custom: data.custom ? await cleanCustomValues("organization", data.custom) : {}, createdBy: actorUserId(a) })
     .returning({ id: organizations.id, name: organizations.name });
   await recordEvent({ entityType: "organization", entityId: row.id, action: "created", ...stamp(a) });
+  recordAssigned(a, { entity: "organization", id: row.id, name: row.name, ownerId: ownerFor(a, data.ownerId) });
   return row;
 }
 
@@ -85,6 +87,7 @@ export async function updateOrganization(a: Actor, orgId: string, patch: Partial
   await db.update(organizations).set({ ...data, custom, updatedAt: new Date() }).where(eq(organizations.id, before.id));
   const changes = [...diff(before, { ...data, custom: undefined }, orgLabels), ...(await withCustomChanges("organization", before.custom, custom))];
   if (changes.length) await recordEvent({ entityType: "organization", entityId: before.id, action: "updated", data: { changes }, ...stamp(a) });
+  if (data.ownerId !== undefined) recordAssigned(a, { entity: "organization", id: before.id, name: data.name ?? before.name, ownerId: data.ownerId, previousOwnerId: before.ownerId });
   return { id: before.id };
 }
 
@@ -119,6 +122,7 @@ export async function createPerson(a: Actor, input: z.input<typeof personInput> 
     .values({ ...data, organizationId, ownerId: ownerFor(a, data.ownerId), tags: data.tags ?? [], custom: data.custom ? await cleanCustomValues("person", data.custom) : {}, createdBy: actorUserId(a) })
     .returning({ id: people.id });
   await recordEvent({ entityType: "person", entityId: row.id, action: "created", ...stamp(a) });
+  recordAssigned(a, { entity: "person", id: row.id, name: [data.firstName, data.lastName].filter(Boolean).join(" ") || "a contact", ownerId: ownerFor(a, data.ownerId) });
   return row;
 }
 
@@ -146,6 +150,7 @@ export async function updatePerson(a: Actor, personId: string, patch: Partial<z.
     .where(eq(people.id, before.id));
   const changes = [...(await labelRelations(diff(before, { ...data, custom: undefined }, personLabels))), ...(await withCustomChanges("person", before.custom, custom))];
   if (changes.length) await recordEvent({ entityType: "person", entityId: before.id, action: "updated", data: { changes }, ...stamp(a) });
+  if (data.ownerId !== undefined) recordAssigned(a, { entity: "person", id: before.id, name: [data.firstName ?? before.firstName, data.lastName ?? before.lastName].filter(Boolean).join(" ") || "a contact", ownerId: data.ownerId, previousOwnerId: before.ownerId });
   return { id: before.id };
 }
 

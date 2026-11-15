@@ -40,7 +40,10 @@ function isCssPath(path: string): boolean {
     path.startsWith("theme.tokens.") ||
     path === "theme.brandColor" ||
     path === "theme.brandForeground" ||
-    path === "theme.browserColor"
+    path === "theme.browserColor" ||
+    path === "pwa.iconBackground" ||
+    path === "pwa.iconForeground" ||
+    path === "pwa.backgroundColor"
   );
 }
 

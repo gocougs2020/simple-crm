@@ -1,5 +1,5 @@
 import { bigint, boolean, date, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
-import type { ActivityType, ApiKeyKind, BillingInterval, ClientCategory, ClientHealth, CustomFieldType, EntityType, UserRole } from "@/lib/constants";
+import type { ActivityType, ApiKeyKind, BillingInterval, ClientCategory, ClientHealth, CustomFieldType, EntityType, NotificationKind, UserRole } from "@/lib/constants";
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
@@ -785,4 +785,91 @@ export const externalIds = pgTable(
     createdAt: createdAt(),
   },
   (t) => [primaryKey({ columns: [t.source, t.kind, t.externalId] }), index("external_ids_local_idx").on(t.localId)],
+);
+
+// ─── AI assistant ────────────────────────────────────────────────────────
+
+/**
+ * One message of an assistant conversation, in the AI SDK's UI message shape
+ * (`UIMessage` from "ai"): text, tool calls with their input and output, and
+ * approvals. Kept loose here so the schema doesn't depend on the SDK.
+ */
+export type AgentMessage = { id: string; role: "system" | "user" | "assistant"; parts: Record<string, unknown>[]; metadata?: Record<string, unknown> };
+
+/**
+ * A teammate's conversations with the in-app assistant. Private to them: only
+ * `userId` can list, read or continue a thread. The assistant acts with that
+ * teammate's role, and the changes it makes are attributed to them in history
+ * like any other.
+ */
+export const agentThreads = pgTable(
+  "agent_threads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull().default("New chat"),
+    /** Named by the teammate: automatic titles leave it alone. */
+    titleByHand: boolean("title_by_hand").notNull().default(false),
+    messages: jsonb("messages").$type<AgentMessage[]>().notNull().default([]),
+    /** When the teammate last wrote in it; the thread list is ordered by this. */
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("agent_threads_user_idx").on(t.userId, t.lastMessageAt)],
+);
+
+// ─── Push notifications ──────────────────────────────────────────────────
+
+/**
+ * A browser or installed app that receives push notifications for a teammate
+ * (Web Push, RFC 8030). One row per device. `alerts` is what this device
+ * wants, so a phone can get replies while the laptop only gets tasks.
+ */
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** The push service URL. Unique: subscribing the same browser again updates its row. */
+    endpoint: text("endpoint").notNull(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    /** "Chrome on macOS", from the user agent, so people can tell their devices apart. */
+    label: text("label").notNull(),
+    alerts: jsonb("alerts").$type<NotificationKind[]>().notNull().default([]),
+    createdAt: createdAt(),
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+    /** Failed sends in a row. A device the push service says is gone is deleted at once. */
+    failures: integer("failures").notNull().default(0),
+  },
+  (t) => [uniqueIndex("push_subscriptions_endpoint_idx").on(t.endpoint), index("push_subscriptions_user_idx").on(t.userId)],
+);
+
+/**
+ * Every notification sent, one row per teammate. `dedupeKey` makes sending
+ * idempotent: the cron and a retried webhook can both try, only one sends.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<NotificationKind | "test">().notNull(),
+    title: text("title").notNull(),
+    body: text("body"),
+    /** Where tapping it goes, a path on this site. */
+    url: text("url").notNull().default("/"),
+    dedupeKey: text("dedupe_key"),
+    /** Devices it reached. */
+    delivered: integer("delivered").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("notifications_dedupe_idx").on(t.userId, t.dedupeKey), index("notifications_user_idx").on(t.userId, t.createdAt)],
 );

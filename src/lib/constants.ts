@@ -17,8 +17,11 @@ export const roleHints: Record<UserRole, string> = {
  * connected app (Claude, ChatGPT…) a teammate approved through OAuth: it also
  * acts as them, and its access tokens come and go while the grant stays.
  * Personal keys and connected apps work with MCP; workspace keys don't.
+ * An "assistant" row stands for a teammate's in-app assistant: it holds no
+ * usable token (the assistant runs on their signed-in session) and exists so
+ * history can say "Sam via Assistant".
  */
-export const apiKeyKinds = ["workspace", "personal", "oauth"] as const;
+export const apiKeyKinds = ["workspace", "personal", "oauth", "assistant"] as const;
 export type ApiKeyKind = (typeof apiKeyKinds)[number];
 /** The kinds people create by hand in Settings. */
 export const manualKeyKinds = ["workspace", "personal"] as const;
@@ -116,3 +119,17 @@ export const MAX_FILE_BYTES = 25 * 1024 * 1024;
  */
 export const MAX_EMAIL_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 export const MAX_EMAIL_ATTACHMENTS = 10;
+
+/**
+ * Push notifications a teammate can turn on per device (Settings →
+ * Notifications). Each one is about the teammate's own work, so nobody is
+ * notified about something they did themselves.
+ */
+export const notificationKinds = ["task_assigned", "task_due", "record_assigned", "inbound_email"] as const;
+export type NotificationKind = (typeof notificationKinds)[number];
+export const notificationLabels: Record<NotificationKind, { label: string; hint: string }> = {
+  task_assigned: { label: "Tasks assigned to me", hint: "When a teammate (or their agent) gives you a task." },
+  task_due: { label: "Tasks coming due", hint: "When one of your tasks is due: at its time, or in the morning for tasks with only a date." },
+  record_assigned: { label: "Records assigned to me", hint: "When a teammate makes you the owner of a client, person or organization." },
+  inbound_email: { label: "Replies from my contacts", hint: "When email arrives in a connected inbox from a client, person or organization you own." },
+};

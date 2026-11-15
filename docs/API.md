@@ -19,6 +19,8 @@ Keys are made in **Settings → API and MCP**. Only a SHA-256 hash is stored; th
 
 All three are rows in `api_keys` (`kind` = `oauth`, `personal`, `workspace`), so they share one place to list, attribute and revoke.
 
+The in-app assistant needs none of these: it runs on the teammate's signed-in session and uses the same operations as MCP, with their role (see [AGENT.md](AGENT.md)). Its changes are attributed through an `assistant` row per teammate, which holds no usable token and isn't listed in Settings.
+
 - A personal key follows its teammate: a role change applies to the key at once; deactivating the teammate stops it.
 - Keys can expire (30 days, 90 days, a year, or never). Revoking takes effect on the next request. Admins see and can revoke every key, including teammates' personal keys.
 - Send the key as `Authorization: Bearer <key>` (or `X-API-Key: <key>`). The API never accepts the session cookie, so a browser can't be tricked into calling it.

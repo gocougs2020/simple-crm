@@ -15,7 +15,8 @@ const contentSecurityPolicy = [
   "img-src 'self' data: blob: https:",
   `font-src 'self' data:${toolbar ? " https://vercel.live https://assets.vercel.com" : ""}`,
   // Browser uploads go straight to Vercel Blob.
-  `connect-src 'self' https://vercel.com https://*.blob.vercel-storage.com${toolbar}${toolbar ? " wss://ws-us3.pusher.com" : ""}`,
+  // Voice chat streams audio straight to AI Gateway's realtime socket, with a short-lived token from our server.
+  `connect-src 'self' https://vercel.com https://*.blob.vercel-storage.com wss://ai-gateway.vercel.sh${toolbar}${toolbar ? " wss://ws-us3.pusher.com" : ""}`,
   "worker-src 'self' blob:",
   // The email preview renders in a sandboxed srcdoc iframe.
   `frame-src 'self'${toolbar}`,
@@ -33,7 +34,8 @@ const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "SAMEORIGIN" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), browsing-topics=()" },
+  // The microphone is for the assistant (dictation and voice chat), on this site only.
+  { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=(), browsing-topics=()" },
   // A private CRM: never indexed, even if a URL leaks.
   { key: "X-Robots-Tag", value: "noindex, nofollow" },
 ];
@@ -59,7 +61,18 @@ const nextConfig: NextConfig = {
     ];
   },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // The service worker is always fetched fresh, so a deploy's change reaches every device on its next visit.
+      {
+        source: "/sw.js",
+        headers: [
+          { key: "Content-Type", value: "application/javascript; charset=utf-8" },
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Content-Security-Policy", value: "default-src 'self'; script-src 'self'" },
+        ],
+      },
+    ];
   },
   turbopack: {
     rules: {

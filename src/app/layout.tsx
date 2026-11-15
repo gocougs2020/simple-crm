@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { appConfig } from "@/app.config";
+import { PwaRegister } from "@/components/pwa-register";
+import { pwa } from "@/lib/pwa";
 import { themeStyleSheet } from "@/lib/theme-css";
 import "./globals.css";
 
@@ -16,6 +18,9 @@ export const metadata: Metadata = {
   applicationName: brand.name,
   description: brand.description,
   robots: { index: false, follow: false },
+  // Installed on an iPhone or iPad: full screen, with its own name under the icon.
+  appleWebApp: { capable: true, title: pwa.shortName, statusBarStyle: "default" },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = { themeColor: theme.browserColor, viewportFit: "cover" };
@@ -33,6 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       ) : null}
       <body>
         {children}
+        <PwaRegister />
         {/* Vercel serves these from the site's own origin; locally there's nothing to report to. */}
         {process.env.VERCEL ? (
           <>

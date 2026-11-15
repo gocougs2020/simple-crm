@@ -35,6 +35,14 @@ What [`app.config.ts`](../app.config.ts) controls:
 | `layout.defaultClientsView` | `"board"` | How Clients opens for a teammate who hasn't chosen board or table yet (`"board"` or `"table"`). Each person's own choice still wins |
 | `email.trackOpens` | `false` | Record and show when people open emails (timeline, campaign report, campaign list). Off by default: tracking pixels can hurt deliverability and opens are approximate. Also turn on open tracking for the sending domain in Resend, then reconnect the webhook in Settings → Email domains |
 | `email.trackClicks` | `false` | Record and show link clicks. Same trade-off: Resend rewrites links through its tracking domain. Also turn on click tracking in Resend, then reconnect the webhook |
+| `agent.enabled` | `true` | The assistant's button in the bottom right corner. See [AGENT.md](AGENT.md) |
+| `agent.name` | `"Assistant"` | The assistant's name in its panel, its replies and history |
+| `agent.chatModel`, `agent.titleModel`, `agent.voiceModel`, `agent.transcriptionModel` | Claude Sonnet 5.5, Claude Haiku 5.5, Grok Voice 3.0, Grok STT | AI Gateway model ids (`creator/model`) for chat, thread titles, voice chat and dictation |
+| `agent.suggestions`, `agent.viewerSuggestions` | 4 prompts each | Suggested actions on a new chat, for teammates who can edit and for viewers. A prompt ending in `…` fills the composer instead of sending |
+| `pwa.shortName` | `null` | Name under the icon on a phone's home screen. Defaults to `brand.name`; keep it to about 12 characters |
+| `pwa.iconBackground` | `null` | The app icon's color. Defaults to `theme.brandColor`, then the default accent |
+| `pwa.iconForeground` | `"#ffffff"` | The letter on the icon (the first letter of `brand.name`) |
+| `pwa.backgroundColor` | `"#fafafa"` | The splash screen while the installed app opens. Match `--canvas` |
 
 `NEXT_PUBLIC_APP_NAME` and `NEXT_PUBLIC_BRAND_COLOR` are shortcuts for `brand.name` and `theme.brandColor`, and win over the same keys in the JSON.
 
@@ -43,6 +51,7 @@ Rules:
 - A key that isn't in `app.config.ts`, a wrong type, a value outside a fixed list, invalid JSON, or a CSS value that isn't a plain color **fails the build** with a list of what to fix. On Vercel the previous deployment keeps serving.
 - Values are compiled into the page at build time, so they're public and need a redeploy to change. Never put secrets in them.
 - With nothing set, no extra CSS is rendered and the app looks exactly like `theme.css`.
+- Installed apps keep the icon they were installed with until the phone refreshes it, which can take a day or a reinstall.
 
 ## In the code: change the defaults
 

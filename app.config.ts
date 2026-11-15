@@ -83,6 +83,33 @@ export type AppConfig = {
     /** Record and show link clicks (email.clicked). Same trade-off: Resend rewrites links through its own domain. */
     trackClicks: boolean;
   };
+  agent: {
+    /** Show the assistant button in the bottom right corner. It also needs AI Gateway access (docs/AGENT.md). */
+    enabled: boolean;
+    /** What the assistant is called in its panel and its own replies. */
+    name: string;
+    /** AI Gateway model ids (creator/model). Change them to try another model; nothing else needs to change. */
+    chatModel: string;
+    /** Names threads from their first messages. Small and fast is enough. */
+    titleModel: string;
+    /** Speech-to-speech for voice chat (a realtime model with tool use). */
+    voiceModel: string;
+    /** Speech-to-text for the composer's microphone. */
+    transcriptionModel: string;
+    /** Suggested actions on a new chat, one tap away. Read-only teammates see only `viewerSuggestions`. */
+    suggestions: readonly string[];
+    viewerSuggestions: readonly string[];
+  };
+  pwa: {
+    /** Name under the icon on a phone's home screen (12 characters or fewer reads best). Defaults to `brand.name`. */
+    shortName: string | null;
+    /** Icon tile color. `null` uses `theme.brandColor`, or the default accent. */
+    iconBackground: string | null;
+    /** The letter on the icon. */
+    iconForeground: string;
+    /** Splash screen behind the icon while the installed app opens. Match `--canvas`. */
+    backgroundColor: string;
+  };
 };
 
 const defaults = {
@@ -102,6 +129,22 @@ const defaults = {
   email: {
     trackOpens: false,
     trackClicks: false,
+  },
+  agent: {
+    enabled: true,
+    name: "Assistant",
+    chatModel: "anthropic/claude-sonnet-5.5",
+    titleModel: "anthropic/claude-haiku-5.5",
+    voiceModel: "spacexai/grok-voice-3.0",
+    transcriptionModel: "spacexai/grok-stt",
+    suggestions: ["What's on my plate today?", "Which clients need attention?", "Add a task to follow up with…", "Log a call with…"],
+    viewerSuggestions: ["What's due today across the team?", "Which clients need attention?", "Summarize a client for me", "Who are our newest contacts?"],
+  },
+  pwa: {
+    shortName: null,
+    iconBackground: null,
+    iconForeground: "#ffffff",
+    backgroundColor: "#fafafa",
   },
 } as const satisfies AppConfig;
 
