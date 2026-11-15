@@ -9,6 +9,7 @@ export function EmailTabs() {
   const tabs = [
     { href: "/email", label: "Inbox", active: pathname === "/email" },
     { href: "/email/campaigns", label: "Campaigns", active: pathname.startsWith("/email/campaigns") },
+    { href: "/email/audiences", label: "Audiences", active: pathname.startsWith("/email/audiences") },
     { href: "/email/templates", label: "Templates", active: pathname.startsWith("/email/templates") },
   ];
   return (

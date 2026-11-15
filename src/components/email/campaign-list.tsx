@@ -16,7 +16,7 @@ import { toast } from "@/components/ui/toast";
 import { formatDateTime } from "@/lib/format";
 import { EmailTabs } from "./email-tabs";
 
-export type CampaignRow = { id: string; name: string; subject: string; status: "draft" | "scheduled" | "sending" | "sent"; scheduledAt: Date | null; sentAt: Date | null; recipientCount: number; sendError: string | null; updatedAt: Date };
+export type CampaignRow = { id: string; name: string; subject: string; status: "draft" | "scheduled" | "sending" | "sent"; scheduledAt: Date | null; sentAt: Date | null; recipientCount: number; sendError: string | null; updatedAt: Date; deliveryRate: number | null; openRate: number | null };
 
 const tone = { draft: "neutral", scheduled: "info", sending: "warning", sent: "success" } as const;
 const label = { draft: "Draft", scheduled: "Scheduled", sending: "Sending", sent: "Sent" } as const;
@@ -53,6 +53,11 @@ export function CampaignList({ rows }: { rows: CampaignRow[] }) {
                   <p className="truncate text-[14px] font-medium text-primary">{c.name}</p>
                   <p className="truncate text-[12.5px] text-muted">{c.subject || "No subject yet"}</p>
                   {c.sendError ? <p className="mt-0.5 text-[12px] text-error">Didn&apos;t send: {c.sendError}</p> : null}
+                  {c.deliveryRate !== null ? (
+                    <p className="mt-0.5 text-[12px] text-secondary tabular-nums">
+                      {c.deliveryRate}% delivered{c.openRate !== null ? ` · ${c.openRate}% opened` : ""}
+                    </p>
+                  ) : null}
                 </Link>
                 <span className="hidden text-right text-[12.5px] text-muted sm:block" suppressHydrationWarning>
                   {c.status === "sent" && c.sentAt

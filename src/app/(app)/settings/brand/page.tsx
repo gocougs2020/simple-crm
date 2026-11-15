@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { BrandSettings } from "@/components/settings/brand";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { requireAdminPage } from "@/lib/auth";
+import { defaultReplyTo } from "@/lib/email";
 import { getWorkspace } from "@/lib/workspace";
 
 export const metadata: Metadata = { title: "Email and brand" };
@@ -18,5 +19,5 @@ export default function BrandPage() {
 async function Brand() {
   await requireAdminPage();
   const ws = await getWorkspace();
-  return <BrandSettings brand={ws.brand} />;
+  return <BrandSettings brand={ws.brand} defaultReplyTo={defaultReplyTo} />;
 }

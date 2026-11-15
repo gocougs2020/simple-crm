@@ -21,7 +21,7 @@ export type DomainView = {
   records: { record: string; type: string; name: string; value: string; priority: number | null; status: string }[];
 };
 export type InboxView = { id: string; address: string; name: string | null; fromName: string | null; unread: number };
-type Webhook = { connected: boolean; endpoint: string | null; envSecret: boolean };
+type Webhook = { connected: boolean; endpoint: string | null; envSecret: boolean; missingDeliveryReports: boolean };
 /** Whether RESEND_DOMAINS limits which domains show, and how many in the account it leaves out. */
 type Scope = { scoped: boolean; hidden: number };
 
@@ -444,20 +444,28 @@ function EditInbox({ inbox, onClose }: { inbox: InboxView; onClose: () => void }
 function LiveUpdates({ webhook }: { webhook: Webhook }) {
   const { pending, act } = useAct();
   return (
-    <Section title="Live updates" description="A Resend webhook tells the CRM about new mail within seconds. A sync every 15 minutes catches anything it misses.">
+    <Section
+      title="Live updates"
+      description="A Resend webhook tells the CRM about new mail within seconds, and whether each email it sent was delivered, bounced, opened or clicked. A sync every 15 minutes, and an hourly delivery check, catch anything it misses."
+    >
       <div className="flex flex-col gap-3 px-4 py-3 text-[13.5px]">
         <div className="flex flex-wrap items-center gap-3">
           {webhook.connected ? <StatusBadge tone="success">Connected</StatusBadge> : <StatusBadge tone="neutral">Not connected</StatusBadge>}
           <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-secondary">{webhook.endpoint ?? "/api/webhooks/resend"}</span>
-          <Button size="sm" variant={webhook.connected ? "outline" : "primary"} loading={pending} onClick={() => act(async () => connectWebhook(), "Webhook connected. New mail will show up within seconds.")}>
+          <Button size="sm" variant={webhook.connected ? "outline" : "primary"} loading={pending} onClick={() => act(async () => connectWebhook(), "Webhook connected. New mail and delivery reports will show up within seconds.")}>
             {webhook.connected ? "Reconnect" : "Connect webhook"}
           </Button>
           <Button size="sm" variant="ghost" disabled={pending} onClick={() => act(async () => syncNow(), "Inboxes synced")}>
             Sync now
           </Button>
         </div>
+        {webhook.missingDeliveryReports ? (
+          <p className="rounded-md border border-warning-border bg-warning-surface px-3 py-2 text-[13px] text-warning">
+            This webhook was connected before delivery tracking. Reconnect it so sent emails show delivered, bounced and opened.
+          </p>
+        ) : null}
         <p className="text-fine">
-          Connecting creates a webhook in Resend pointed at this site&apos;s /api/webhooks/resend and saves its signing secret. If RESEND_WEBHOOK_SECRET is set, it&apos;s used instead
+          Opens and clicks need tracking turned on for the sending domain in Resend. Connecting creates a webhook in Resend pointed at this site&apos;s /api/webhooks/resend and saves its signing secret. If RESEND_WEBHOOK_SECRET is set, it&apos;s used instead
           {webhook.envSecret ? " (it is set here)" : ""}. Resend can&apos;t reach localhost, so while developing use Sync now.
         </p>
       </div>

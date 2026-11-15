@@ -138,7 +138,12 @@ export async function updatePerson(a: Actor, personId: string, patch: Partial<z.
     if (dupe) throw new ConflictError(`Someone else already has ${data.email}.`, { cause: { id: dupe.id } });
   }
   const custom = data.custom ? { ...before.custom, ...(await cleanCustomValues("person", data.custom)) } : undefined;
-  await db.update(people).set({ ...data, custom, updatedAt: new Date() }).where(eq(people.id, before.id));
+  // A new address gets a fresh start after a bounce.
+  const newAddress = data.email !== undefined && (data.email ?? null)?.toLowerCase() !== before.email?.toLowerCase();
+  await db
+    .update(people)
+    .set({ ...data, custom, ...(newAddress ? { emailBouncedAt: null } : {}), updatedAt: new Date() })
+    .where(eq(people.id, before.id));
   const changes = [...(await labelRelations(diff(before, { ...data, custom: undefined }, personLabels))), ...(await withCustomChanges("person", before.custom, custom))];
   if (changes.length) await recordEvent({ entityType: "person", entityId: before.id, action: "updated", data: { changes }, ...stamp(a) });
   return { id: before.id };

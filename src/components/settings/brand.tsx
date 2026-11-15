@@ -14,7 +14,7 @@ import { Section } from "./nav";
  * and campaigns both use it, so they look consistent without anyone thinking
  * about it. The app's own look is set in code (src/styles/theme.css).
  */
-export function BrandSettings({ brand }: { brand: BrandKit }) {
+export function BrandSettings({ brand, defaultReplyTo }: { brand: BrandKit; /** RESEND_REPLY_TO, if set. */ defaultReplyTo: string | null }) {
   const { services } = useApp();
   const [kit, setKit] = useState<Required<{ [K in keyof BrandKit]: string }>>({
     logoUrl: brand.logoUrl ?? "",
@@ -88,8 +88,16 @@ export function BrandSettings({ brand }: { brand: BrandKit }) {
             <Field label="Sender name" optional hint="Campaigns come from this name. One-off emails show “Your name · Sender name”.">
               {(p) => <Input {...p} value={kit.senderName} onChange={set("senderName")} placeholder="Acme" />}
             </Field>
-            <Field label="Campaign reply-to" optional hint="One-off emails always reply to the sender.">
-              {(p) => <Input {...p} type="email" value={kit.replyTo} onChange={set("replyTo")} placeholder="hello@acme.com" />}
+            <Field
+              label="Campaign reply-to"
+              optional
+              hint={
+                defaultReplyTo
+                  ? `Blank uses ${defaultReplyTo} (RESEND_REPLY_TO). A campaign can set its own.`
+                  : "A campaign can set its own. One-off emails reply to the sender unless RESEND_REPLY_TO is set."
+              }
+            >
+              {(p) => <Input {...p} type="email" value={kit.replyTo} onChange={set("replyTo")} placeholder={defaultReplyTo ?? "hello@acme.com"} />}
             </Field>
           </div>
           <Field label="Website" optional>

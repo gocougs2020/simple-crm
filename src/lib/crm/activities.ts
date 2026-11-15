@@ -11,6 +11,12 @@ const { activities, events, files, people, organizations, clients } = schema;
 
 export type ActivityRow = Awaited<ReturnType<typeof activityRows>>[number];
 
+/**
+ * Leaves out emails a campaign sent. They're on each person's timeline, but
+ * they aren't contact: they don't move "last contacted" or fill the feeds.
+ */
+const notCampaignEmail = sql`not exists (select 1 from outbound_emails oe where oe.id = ${activities.emailId} and oe.campaign_id is not null)`;
+
 /** Activities with the names of what they're linked to, for timelines and lists. */
 function activityRows(where: SQL | undefined, opts: { order: SQL[]; limit: number }) {
   return getDb().then((db) =>
@@ -22,6 +28,20 @@ function activityRows(where: SQL | undefined, opts: { order: SQL[]; limit: numbe
         clientName: clients.name,
         emailCc: schema.outboundEmails.cc,
         emailTo: schema.outboundEmails.to,
+        emailReplyTo: schema.outboundEmails.replyTo,
+        emailAttachments: schema.outboundEmails.attachments,
+        /** Where the email got to, from Resend's delivery reports. */
+        delivery: {
+          status: schema.outboundEmails.deliveryStatus,
+          at: schema.outboundEmails.deliveryStatusAt,
+          detail: schema.outboundEmails.deliveryDetail,
+          openedAt: schema.outboundEmails.firstOpenedAt,
+          opens: schema.outboundEmails.openCount,
+          clickedAt: schema.outboundEmails.firstClickedAt,
+          clicks: schema.outboundEmails.clickCount,
+        },
+        campaignId: schema.outboundEmails.campaignId,
+        campaignName: schema.campaigns.name,
         /** For mail in a connected inbox: who sent it, and which inbox it's in. */
         inboxFrom: sql<string | null>`(select m."from" from inbox_messages m where m.activity_id = ${activities.id} limit 1)`,
         inboxTo: sql<string[] | null>`(select m."to" from inbox_messages m where m.activity_id = ${activities.id} limit 1)`,
@@ -32,6 +52,7 @@ function activityRows(where: SQL | undefined, opts: { order: SQL[]; limit: numbe
       .leftJoin(organizations, eq(organizations.id, activities.organizationId))
       .leftJoin(clients, eq(clients.id, activities.clientId))
       .leftJoin(schema.outboundEmails, eq(schema.outboundEmails.id, activities.emailId))
+      .leftJoin(schema.campaigns, eq(schema.campaigns.id, schema.outboundEmails.campaignId))
       .leftJoin(schema.inboxThreads, eq(schema.inboxThreads.id, activities.inboxThreadId))
       .where(where)
       .orderBy(...opts.order)
@@ -103,7 +124,7 @@ export async function timeline(entity: EntityType, id: string) {
     db
       .select({ at: sql<Date | null>`max(coalesce(${activities.occurredAt}, ${activities.completedAt}, ${activities.createdAt}))` })
       .from(activities)
-      .where(and(eq(link, id), inArray(activities.type, interactionTypes), or(isNotNull(activities.completedAt), isNull(activities.dueAt)))),
+      .where(and(eq(link, id), inArray(activities.type, interactionTypes), or(isNotNull(activities.completedAt), isNull(activities.dueAt)), notCampaignEmail)),
   ]);
   const past: TimelineItem[] = [
     ...done.map((row): TimelineItem => ({ kind: "activity", at: (row.activity.occurredAt ?? row.activity.completedAt ?? row.activity.createdAt).toISOString(), row })),
@@ -178,13 +199,13 @@ export async function listActivities(f: ActivityFilter, tz: string) {
     if (f.range === "week") where.push(lt(activities.dueAt, endOfWeek));
     return activityRows(and(...where), { order: [asc(activities.dueAt)], limit: 500 });
   }
-  where.push(or(isNotNull(activities.completedAt), isNull(activities.dueAt))!);
+  where.push(or(isNotNull(activities.completedAt), isNull(activities.dueAt))!, notCampaignEmail);
   return activityRows(and(...where), { order: [desc(sql`coalesce(${activities.completedAt}, ${activities.occurredAt}, ${activities.createdAt})`)], limit: 200 });
 }
 
 /** Recent interactions and notes from everyone, for the home page feed. */
 export async function teamFeed(limit = 25) {
-  return activityRows(or(isNotNull(activities.completedAt), isNull(activities.dueAt)), {
+  return activityRows(and(or(isNotNull(activities.completedAt), isNull(activities.dueAt)), notCampaignEmail), {
     order: [desc(sql`coalesce(${activities.occurredAt}, ${activities.completedAt}, ${activities.createdAt})`)],
     limit,
   });

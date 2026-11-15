@@ -43,6 +43,13 @@
       "when": 1794682085818,
       "tag": "0005_oauth",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794708109382,
+      "tag": "0006_email-delivery-audiences-attachments",
+      "breakpoints": true
     }
   ]
 }

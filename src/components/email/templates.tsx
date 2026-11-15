@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
-import { ChevronLeftIcon, CodeBracketIcon, PlusIcon } from "@heroicons/react/20/solid";
+import { ChevronLeftIcon, PaperClipIcon, PlusIcon } from "@heroicons/react/20/solid";
 import { DocumentDuplicateIcon } from "@heroicons/react/24/outline";
 import { deleteTemplate, saveTemplate } from "@/actions/email";
 import { useApp } from "@/components/app-context";
@@ -12,14 +12,15 @@ import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Checkbox, Field, Input } from "@/components/ui/field";
-import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "@/components/ui/menu";
 import { RichText, type RichTextHandle } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
-import { mergeTagLabels, mergeTags } from "@/lib/email/merge-tags";
+import type { EmailAttachment } from "@/db/schema";
+import { AttachmentPicker } from "./attachment-picker";
+import { MergeTagMenu } from "./merge-tag-menu";
 import { htmlToText } from "@/lib/safe-html";
 import { EmailTabs } from "./email-tabs";
 
-export type TemplateRow = { id: string; name: string; subject: string; body: string; shared: boolean; createdBy: string | null };
+export type TemplateRow = { id: string; name: string; subject: string; body: string; attachments: EmailAttachment[]; shared: boolean; createdBy: string | null };
 
 export function TemplateList({ rows }: { rows: TemplateRow[] }) {
   const { member } = useApp();
@@ -46,7 +47,15 @@ export function TemplateList({ rows }: { rows: TemplateRow[] }) {
                   </div>
                   <p className="mt-0.5 truncate text-[13px] text-secondary">{t.subject || "No subject"}</p>
                   <p className="mt-2 line-clamp-2 text-[12.5px] text-muted">{htmlToText(t.body)}</p>
-                  <p className="mt-2 text-[11.5px] text-faint">By {member(t.createdBy)?.name ?? "a former teammate"}</p>
+                  <p className="mt-2 flex items-center gap-2 text-[11.5px] text-faint">
+                    By {member(t.createdBy)?.name ?? "a former teammate"}
+                    {t.attachments.length ? (
+                      <span className="inline-flex items-center gap-0.5">
+                        <PaperClipIcon className="size-3" aria-hidden />
+                        {t.attachments.length} {t.attachments.length === 1 ? "file" : "files"}
+                      </span>
+                    ) : null}
+                  </p>
                 </Link>
               </li>
             ))}
@@ -76,11 +85,13 @@ export function TemplateEditor({ template }: { template: TemplateRow | null }) {
   const [subject, setSubject] = useState(template?.subject ?? "");
   const [body, setBody] = useState(template?.body ?? "");
   const [shared, setShared] = useState(template?.shared ?? true);
+  const [attachments, setAttachments] = useState<EmailAttachment[]>(template?.attachments ?? []);
+  const [uploading, setUploading] = useState(false);
   const [pending, start] = useTransition();
   const canEdit = !template || template.createdBy === viewer.id || isAdmin;
   const save = () =>
     start(async () => {
-      const r = await saveTemplate(template?.id ?? null, { name, subject, body, shared });
+      const r = await saveTemplate(template?.id ?? null, { name, subject, body, shared, attachmentIds: attachments.map((a) => a.fileId) });
       if (!r.ok) return void toast.error(r.error);
       toast.success("Template saved");
       router.push("/email/templates");
@@ -100,24 +111,17 @@ export function TemplateEditor({ template }: { template: TemplateRow | null }) {
         <div>
           <div className="mb-1.5 flex items-center justify-between">
             <span className="text-label">Message</span>
-            <Menu>
-              <MenuTrigger asChild>
-                <Button size="sm" variant="ghost" disabled={!canEdit}>
-                  <CodeBracketIcon />
-                  Insert field
-                </Button>
-              </MenuTrigger>
-              <MenuContent className="w-52">
-                <MenuLabel>Filled in when sent</MenuLabel>
-                {mergeTags.map((t) => (
-                  <MenuItem key={t} onSelect={() => editor.current?.insert(`{{${t}}}`)}>
-                    {mergeTagLabels[t]}
-                  </MenuItem>
-                ))}
-              </MenuContent>
-            </Menu>
+            <MergeTagMenu onInsert={(t) => editor.current?.insert(`{{${t}}}`)} disabled={!canEdit} />
           </div>
           <RichText handle={editor} value={body} onChange={setBody} minHeight={220} placeholder="Hi {{first_name}}," onSubmit={save} />
+          <p className="mt-1.5 text-fine">
+            Add a fallback for when a field is empty: <code className="font-mono">{"{{first_name|there}}"}</code>.
+          </p>
+        </div>
+        <div>
+          <p className="mb-1.5 text-label">Attachments</p>
+          <AttachmentPicker value={attachments} onChange={setAttachments} disabled={!canEdit} onUploadingChange={setUploading} />
+          <p className="mt-1.5 text-fine">Sent every time the template is used. You can take them off a single email before sending.</p>
         </div>
         <Checkbox checked={shared} onChange={(e) => setShared(e.target.checked)} label="Share with the team" disabled={!canEdit} />
         <div className="flex items-center gap-2 border-t border-line pt-4">
@@ -141,7 +145,7 @@ export function TemplateEditor({ template }: { template: TemplateRow | null }) {
             <Button variant="ghost" asChild>
               <Link href="/email/templates">Cancel</Link>
             </Button>
-            <Button variant="primary" loading={pending} onClick={save} disabled={!canEdit}>
+            <Button variant="primary" loading={pending} onClick={save} disabled={!canEdit || uploading}>
               Save template
             </Button>
           </div>

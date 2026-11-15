@@ -8,28 +8,17 @@ import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
 import { ActionError, actionEditor, actionUser } from "@/lib/auth";
 import { emailBrand } from "@/lib/brand";
-import { audienceCount, renderCampaign, runDueCampaigns } from "@/lib/email/campaigns";
-import { sendEmail } from "@/lib/email";
+import { audienceSchema } from "@/lib/email/audience-schema";
+import { loadAttachments, resolveAttachments } from "@/lib/email/attachments";
+import { audienceCount, campaignAudience, renderCampaign, runDueCampaigns } from "@/lib/email/campaigns";
+import { campaignRecipients, recipientFilters } from "@/lib/email/delivery";
+import { campaignReplyTo, sendEmail } from "@/lib/email";
 import { escapeHtml, fillMergeTags, fillMergeTagsHtml, mergeValues } from "@/lib/email/merge-tags";
 import { siteOrigin } from "@/lib/origin";
 import { sanitizeHtml } from "@/lib/safe-html";
-import { clientCategories } from "@/lib/constants";
 
 const { campaigns } = schema;
 const uuid = z.uuid();
-
-const audienceSchema = z.object({
-  tags: z.array(z.string().max(40)).max(50).optional(),
-  ownerIds: z.array(uuid).max(100).optional(),
-  organizationIds: z.array(uuid).max(500).optional(),
-  stageIds: z.array(uuid).max(100).optional(),
-  clientCategories: z.array(z.enum(clientCategories)).max(3).optional(),
-  clientTags: z.array(z.string().max(40)).max(50).optional(),
-  serviceIds: z.array(uuid).max(100).optional(),
-  churnReasons: z.array(z.string().max(300)).max(50).optional(),
-  openToReturnOnly: z.boolean().optional(),
-  personIds: z.array(uuid).max(5000).optional(),
-});
 
 export async function createCampaign(): Promise<Result<{ id: string }>> {
   return run(async () => {
@@ -49,25 +38,43 @@ const saveSchema = z.object({
   previewText: z.string().trim().max(200).nullable(),
   body: z.string().max(300_000),
   audience: audienceSchema,
+  /** A saved audience to use instead of `audience`. */
+  audienceId: uuid.nullable().optional(),
+  replyTo: z.union([z.email("The reply-to address isn't valid."), z.literal("")]).nullable().optional(),
+  attachmentIds: z.array(uuid).max(20).optional(),
 });
 
 /** Saves the draft and re-renders its HTML with the current brand kit. Sent and sending campaigns can't change. */
 export async function saveCampaign(campaignId: string, input: z.input<typeof saveSchema>): Promise<Result<{ recipients: number; html: string }>> {
   return run(async () => {
     await actionEditor();
-    const data = saveSchema.parse(input);
+    const { attachmentIds, ...data } = saveSchema.parse(input);
     const db = await getDb();
     const [c] = await db.select({ status: campaigns.status }).from(campaigns).where(eq(campaigns.id, uuid.parse(campaignId)));
     if (!c) throw new ActionError("This campaign was deleted.");
     if (c.status === "sent" || c.status === "sending") throw new ActionError("This campaign has already gone out and can't be changed.");
     const body = sanitizeHtml(data.body);
     const html = await renderCampaign(body, data.previewText);
+    let audience = data.audience;
+    if (data.audienceId) {
+      // Keep a copy of the saved audience's filters, so the campaign still has an audience if it's deleted.
+      const [saved] = await db.select({ filters: schema.audiences.filters }).from(schema.audiences).where(eq(schema.audiences.id, data.audienceId));
+      if (!saved) throw new ActionError("That saved audience was deleted. Pick another or set filters here.");
+      audience = saved.filters;
+    }
+    const attachments = attachmentIds ? await resolveAttachments(attachmentIds) : undefined;
     await db
       .update(campaigns)
-      .set({ ...data, body, html, updatedAt: new Date() })
+      .set({ ...data, audience, audienceId: data.audienceId ?? null, replyTo: data.replyTo || null, body, html, ...(attachments ? { attachments } : {}), updatedAt: new Date() })
       .where(eq(campaigns.id, campaignId));
-    return { recipients: await audienceCount(data.audience), html };
+    return { recipients: await audienceCount(audience), html };
   });
+}
+
+/** One page of a sent campaign's recipients with how each email did. */
+export async function listCampaignRecipients(campaignId: string, filter: string, page: number) {
+  await actionUser();
+  return campaignRecipients(uuid.parse(campaignId), z.enum(recipientFilters).catch("all").parse(filter), z.number().int().min(0).max(10_000).catch(0).parse(page));
 }
 
 export async function countAudience(audience: z.input<typeof audienceSchema>) {
@@ -83,11 +90,14 @@ export async function sendCampaignTest(campaignId: string): Promise<Result<{ to:
     const [c] = await db.select().from(campaigns).where(eq(campaigns.id, uuid.parse(campaignId)));
     if (!c?.html) throw new ActionError("Save the campaign first.");
     const [first, ...rest] = user.name.split(" ");
-    const values = mergeValues({ firstName: first, lastName: rest.join(" ") || null, organizationName: (await emailBrand()).workspaceName });
+    const brand = await emailBrand();
+    const values = mergeValues({ firstName: first, lastName: rest.join(" ") || null, email: user.email, title: user.title, organizationName: brand.workspaceName, ownerName: user.name });
     await sendEmail({
       to: user.email,
+      replyTo: campaignReplyTo(c.replyTo, brand.replyTo),
       subject: `[Test] ${fillMergeTags(c.subject || c.name, values)}`,
       html: fillMergeTagsHtml(c.html, values).replace(/\{\{\s*unsubscribe_url\s*\}\}/gi, escapeHtml(`${await siteOrigin()}/unsubscribe`)),
+      attachments: await loadAttachments(c.attachments),
       tags: [{ name: "type", value: "campaign-test" }],
     });
     return { to: user.email };
@@ -104,7 +114,7 @@ export async function scheduleCampaign(campaignId: string, at: string | null): P
     if (!c.subject.trim()) throw new ActionError("Add a subject line first.");
     if (!c.html) throw new ActionError("Write the email first.");
     if (!(await emailBrand()).postalAddress) throw new ActionError("Add your postal address in Settings → Email and brand first. Marketing email must include one.");
-    if (!(await audienceCount(c.audience))) throw new ActionError("No one matches this audience yet.");
+    if (!(await audienceCount(await campaignAudience(c)))) throw new ActionError("No one matches this audience yet.");
     const when = at ? new Date(z.iso.datetime({ offset: true }).parse(at)) : new Date();
     if (at && when.getTime() < Date.now() - 60_000) throw new ActionError("Pick a time in the future.");
     const [claimed] = await db
@@ -142,7 +152,18 @@ export async function duplicateCampaign(campaignId: string): Promise<Result<{ id
     if (!c) throw new ActionError("This campaign was deleted.");
     const [row] = await db
       .insert(campaigns)
-      .values({ name: `${c.name} (copy)`, subject: c.subject, previewText: c.previewText, body: c.body, html: c.html, audience: c.audience, createdBy: user.id })
+      .values({
+        name: `${c.name} (copy)`,
+        subject: c.subject,
+        previewText: c.previewText,
+        body: c.body,
+        html: c.html,
+        audience: c.audience,
+        audienceId: c.audienceId,
+        replyTo: c.replyTo,
+        attachments: c.attachments,
+        createdBy: user.id,
+      })
       .returning({ id: campaigns.id });
     refresh();
     return row;

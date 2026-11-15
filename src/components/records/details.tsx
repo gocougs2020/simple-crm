@@ -159,7 +159,20 @@ export function PersonDetails({ person, organization }: { person: Person; organi
         <InlineField<boolean>
           label="Email opt-in"
           value={person.marketingOptIn && !person.unsubscribedAt}
-          display={person.unsubscribedAt ? <StatusBadge tone="neutral">Unsubscribed</StatusBadge> : person.marketingOptIn ? "Gets campaigns" : "No campaigns"}
+          display={
+            person.unsubscribedAt ? (
+              <StatusBadge tone="neutral">Unsubscribed</StatusBadge>
+            ) : person.emailBouncedAt ? (
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                <StatusBadge tone="error">Address bounced</StatusBadge>
+                <span className="text-[12px] text-muted">Campaigns skip them until the email changes</span>
+              </span>
+            ) : person.marketingOptIn ? (
+              "Gets campaigns"
+            ) : (
+              "No campaigns"
+            )
+          }
           editor={({ value, commit }) => <Checkbox checked={value} onChange={(e) => commit(e.target.checked)} label="Include in email campaigns" autoFocus />}
           onSave={(marketingOptIn) => save({ marketingOptIn })}
           readOnly={!!person.unsubscribedAt}
