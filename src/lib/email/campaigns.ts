@@ -209,46 +209,36 @@ export async function sendCampaign(campaignId: string, origin: string) {
       }),
     );
 
-    let ids: (string | null)[] = messages.map(() => null);
-    if (resend && !files.length) {
-      if (i > 0) await sleep(250); // stay well under Resend's per-second request limit
-      const { data, error } = await resend.batch.send(
-        messages.map((m) => m.payload),
-        { idempotencyKey: `campaign-${c.id}-${chunk[0].id}-${chunk.length}` },
-      );
-      if (error) throw new Error(`Resend: ${error.message}`);
-      ids = data?.data?.map((d) => d.id) ?? ids;
-    } else if (resend) {
-      for (const [j, m] of messages.entries()) {
-        if (i > 0 || j > 0) await sleep(SINGLE_GAP_MS);
-        const { data, error } = await resend.emails.send({ ...m.payload, attachments: files }, { idempotencyKey: `campaign-${c.id}-${m.person.id}` });
-        if (error) throw new Error(`Resend: ${error.message}`);
-        ids[j] = data?.id ?? null;
-      }
-    } else {
-      for (const m of messages) console.info(`[email:dev] campaign "${m.payload.subject}" → ${m.payload.to}${files.length ? ` (+${files.length} attachments)` : ""}`);
-    }
-
-    const now = new Date();
-    const inserted = await db
-      .insert(outboundEmails)
-      .values(
-        messages.map((m, j) => ({
-          personId: m.person.id,
-          clientId: m.person.clientId,
-          campaignId: c.id,
-          to: m.person.email,
-          replyTo: replyTo ?? null,
-          subject: m.payload.subject,
-          attachments: c.attachments,
-          resendId: ids[j],
-          userId: c.createdBy,
-        })),
-      )
-      .onConflictDoNothing()
-      .returning({ id: outboundEmails.id, personId: outboundEmails.personId });
-    const byPerson = new Map(messages.map((m) => [m.person.id, m]));
-    if (inserted.length) {
+    /**
+     * Saves what Resend accepted: the outbound row, the timeline activity and
+     * the person's last campaign date. Runs right after each send, so a failure
+     * part way through never leaves an email that went out unrecorded (it
+     * would be sent again by a retry more than a day later, when Resend no
+     * longer remembers the idempotency key, and its delivery reports would
+     * find no row).
+     */
+    const record = async (sent: { m: (typeof messages)[number]; id: string | null }[]) => {
+      if (!sent.length) return;
+      const now = new Date();
+      const inserted = await db
+        .insert(outboundEmails)
+        .values(
+          sent.map(({ m, id }) => ({
+            personId: m.person.id,
+            clientId: m.person.clientId,
+            campaignId: c.id,
+            to: m.person.email,
+            replyTo: replyTo ?? null,
+            subject: m.payload.subject,
+            attachments: c.attachments,
+            resendId: id,
+            userId: c.createdBy,
+          })),
+        )
+        .onConflictDoNothing()
+        .returning({ id: outboundEmails.id, personId: outboundEmails.personId });
+      if (!inserted.length) return;
+      const byPerson = new Map(sent.map(({ m }) => [m.person.id, m]));
       // Their last campaign date, kept apart from last contact (personal outreach), which campaigns never move.
       await db
         .update(people)
@@ -277,7 +267,30 @@ export async function sendCampaign(campaignId: string, origin: string) {
           };
         }),
       );
+    };
+
+    if (resend && !files.length) {
+      // The whole group in one call: it all went or none of it did.
+      if (i > 0) await sleep(250); // stay well under Resend's per-second request limit
+      const { data, error } = await resend.batch.send(
+        messages.map((m) => m.payload),
+        { idempotencyKey: `campaign-${c.id}-${chunk[0].id}-${chunk.length}` },
+      );
+      if (error) throw new Error(`Resend: ${error.message}`);
+      await record(messages.map((m, j) => ({ m, id: data?.data?.[j]?.id ?? null })));
+    } else if (resend) {
+      // One at a time (the batch endpoint can't carry files), each recorded as soon as it's accepted.
+      for (const [j, m] of messages.entries()) {
+        if (i > 0 || j > 0) await sleep(SINGLE_GAP_MS);
+        const { data, error } = await resend.emails.send({ ...m.payload, attachments: files }, { idempotencyKey: `campaign-${c.id}-${m.person.id}` });
+        if (error) throw new Error(`Resend: ${error.message}`);
+        await record([{ m, id: data?.id ?? null }]);
+      }
+    } else {
+      for (const m of messages) console.info(`[email:dev] campaign "${m.payload.subject}" → ${m.payload.to}${files.length ? ` (+${files.length} attachments)` : ""}`);
+      await record(messages.map((m) => ({ m, id: null })));
     }
+
     // Heartbeat, so the cron only resumes sends that have actually stalled.
     await db
       .update(campaigns)

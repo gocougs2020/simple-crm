@@ -81,6 +81,14 @@ export async function recordEmailEvent(event: EmailEvent): Promise<{ handled: bo
   const at = new Date(event.created_at ?? d.created_at ?? Date.now());
   const db = await getDb();
 
+  /**
+   * No row for this email. A report can beat the insert that follows the send, so for email we
+   * always record, ask Resend to deliver it again rather than lose it. Anything else is someone
+   * else's email on a shared account: acknowledge it and touch nothing.
+   */
+  const noRow = () =>
+    recordedTypes.has(eventTag(d.tags, "type") ?? "") && Date.now() - at.getTime() < ROW_GRACE_MS ? { handled: false, status, retryLater: true } : { handled: false };
+
   if (engaged) {
     const counted = await db
       .update(o)
@@ -91,18 +99,13 @@ export async function recordEmailEvent(event: EmailEvent): Promise<{ handled: bo
       )
       .where(eq(o.resendId, id))
       .returning({ id: o.id });
-    if (!counted.length) return { handled: false };
+    if (!counted.length) return noRow();
   }
 
   const updated = await applyDeliveryStatus(id, status, at, deliveryDetail(status, d));
   if (!updated.length) {
     const [exists] = await db.select({ id: o.id }).from(o).where(eq(o.resendId, id)).limit(1);
-    if (!exists) {
-      // A report can beat the insert that follows the send. Ask Resend to deliver it again rather than lose it.
-      if (recordedTypes.has(eventTag(d.tags, "type") ?? "") && Date.now() - at.getTime() < ROW_GRACE_MS) return { handled: false, status, retryLater: true };
-      // Someone else's email on a shared account: acknowledge it and touch nothing.
-      return { handled: false };
-    }
+    if (!exists) return noRow();
   }
 
   const problem = addressProblem(status, d);

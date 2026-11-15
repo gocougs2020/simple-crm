@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { PaperClipIcon, XMarkIcon } from "@heroicons/react/20/solid";
 import { useApp } from "@/components/app-context";
 import { Button, Spinner } from "@/components/ui/button";
@@ -23,7 +23,8 @@ export function AttachmentPicker({
   onUploadingChange,
 }: {
   value: EmailAttachment[];
-  onChange: (next: EmailAttachment[]) => void;
+  /** A state setter: uploads finish at their own pace, so changes apply to the latest list, not the one an upload started from. */
+  onChange: Dispatch<SetStateAction<EmailAttachment[]>>;
   links?: FileLinks;
   disabled?: boolean;
   /** True while files are still uploading, so the email can't go without them. */
@@ -56,7 +57,7 @@ export function AttachmentPicker({
     }
     busy.current -= 1;
     if (!busy.current) onUploadingChange?.(false);
-    if (added.length) onChange([...value, ...added]);
+    if (added.length) onChange((list) => [...list, ...added.filter((a) => !list.some((x) => x.fileId === a.fileId))]);
   };
 
   return (
@@ -69,7 +70,7 @@ export function AttachmentPicker({
           </a>
           <span className="shrink-0 text-faint tabular-nums">{formatBytes(a.size)}</span>
           {!disabled ? (
-            <button type="button" onClick={() => onChange(value.filter((x) => x.fileId !== a.fileId))} className="rounded-full p-0.5 text-faint hover:bg-surface hover:text-primary" aria-label={`Remove ${a.name}`}>
+            <button type="button" onClick={() => onChange((list) => list.filter((x) => x.fileId !== a.fileId))} className="rounded-full p-0.5 text-faint hover:bg-surface hover:text-primary" aria-label={`Remove ${a.name}`}>
               <XMarkIcon className="size-3.5" />
             </button>
           ) : null}
