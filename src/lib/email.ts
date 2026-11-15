@@ -35,22 +35,6 @@ export function fromAs(displayName: string) {
   return `${displayName.replace(/[<>"]/g, "")} <${address}>`;
 }
 
-/**
- * Where replies go by default, from RESEND_REPLY_TO (e.g. `sales@acme.com`).
- * One-off emails start with it filled in (otherwise the sender's own
- * address), and campaigns use it when neither the campaign nor the brand kit
- * names one. The sender can always change it for one email.
- */
-export const defaultReplyTo = (() => {
-  const v = process.env.RESEND_REPLY_TO?.trim();
-  return v && /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(v) ? v : null;
-})();
-
-/** Reply-To for a campaign: its own, else the brand kit's, else RESEND_REPLY_TO. */
-export function campaignReplyTo(campaign: string | null | undefined, brandKit: string | null | undefined) {
-  return campaign?.trim() || brandKit?.trim() || defaultReplyTo || undefined;
-}
-
 export function emailConfigured() {
   return !!resend;
 }

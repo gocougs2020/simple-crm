@@ -9,7 +9,7 @@ import { run, type Result } from "@/lib/action";
 import { ActionError, actionEditor, actionUser, isAdmin } from "@/lib/auth";
 import { emailBrand } from "@/lib/brand";
 import { touch } from "@/lib/crm/events";
-import { defaultReplyTo, fromAs, getResend, sendEmail } from "@/lib/email";
+import { fromAs, getResend, sendEmail } from "@/lib/email";
 import { loadAttachments, resolveAttachments } from "@/lib/email/attachments";
 import { assertInboxInScope, InboxError } from "@/lib/email/inbox";
 import { fillMergeTags, fillMergeTagsHtml, mergeValues } from "@/lib/email/merge-tags";
@@ -27,7 +27,7 @@ const sendInput = z.object({
     .array(z.email("One of the CC addresses isn't valid."))
     .max(10)
     .optional(),
-  /** Where replies go. Blank uses RESEND_REPLY_TO, then the sender's own address. Ignored when sending from an inbox, whose replies come back to it. */
+  /** Where replies go. Blank means the sender's own address. Ignored when sending from an inbox, whose replies come back to it. */
   replyTo: z.union([z.email("The reply-to address isn't valid."), z.literal("")]).nullable().optional(),
   subject: z.string().trim().min(1, "Add a subject.").max(200),
   body: z.string().min(1, "Write the email first.").max(200_000),
@@ -37,18 +37,13 @@ const sendInput = z.object({
   copyMe: z.boolean().optional(),
 });
 
-/** What the composer needs to know before sending: the reply-to it starts with. */
-export async function composerDefaults() {
-  const user = await actionUser();
-  return { replyTo: defaultReplyTo ?? user.email, replyToIsDefault: !!defaultReplyTo };
-}
 
 /**
  * Sends a one-off email to a person from their record (or a client's), as the
  * signed-in teammate. From an inbox, the teammate's name goes in front of the
  * inbox address and replies thread back into the CRM. Without one, From is
- * RESEND_FROM and Reply-To is the teammate, so replies land in their own
- * mailbox. Either way the email is logged on the timeline.
+ * RESEND_FROM and Reply-To is the teammate's own address unless they changed
+ * it for this email. Either way the email is logged on the timeline.
  */
 export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise<Result<{ activityId: string }>> {
   return run(async () => {
@@ -76,7 +71,7 @@ export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise
     }
     const attachments = await resolveAttachments(data.attachmentIds ?? []);
     const files = await loadAttachments(attachments);
-    const replyTo = data.inboxId ? null : data.replyTo || defaultReplyTo || user.email;
+    const replyTo = data.inboxId ? null : data.replyTo || user.email;
 
     const values = mergeValues({ ...row.person, organizationName: row.organizationName, ownerName: row.ownerName, clientName: client?.name }, user);
     const subject = fillMergeTags(data.subject, values);

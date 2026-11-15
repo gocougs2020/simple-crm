@@ -168,3 +168,9 @@ export function timeKey(d: DateInput, tz: string) {
 
 /** "Sam Lee <sam@acme.com>" → "Sam Lee"; a bare address stays as it is. */
 export const senderName = (raw: string) => /^\s*"?([^"<]+?)"?\s*</.exec(raw)?.[1]?.trim() || (/<([^>]+)>/.exec(raw)?.[1] ?? raw);
+
+/** The next quarter hour (or the time itself if it's on one), when scheduled background work runs. */
+export function roundUpToQuarterHour(d: Date) {
+  const step = 15 * 60_000;
+  return new Date(Math.ceil(d.getTime() / step) * step);
+}

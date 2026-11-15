@@ -14,13 +14,12 @@ import { Section } from "./nav";
  * and campaigns both use it, so they look consistent without anyone thinking
  * about it. The app's own look is set in code (src/styles/theme.css).
  */
-export function BrandSettings({ brand, defaultReplyTo }: { brand: BrandKit; /** RESEND_REPLY_TO, if set. */ defaultReplyTo: string | null }) {
+export function BrandSettings({ brand }: { brand: BrandKit }) {
   const { services } = useApp();
   const [kit, setKit] = useState<Required<{ [K in keyof BrandKit]: string }>>({
     logoUrl: brand.logoUrl ?? "",
     accentColor: brand.accentColor ?? "",
     senderName: brand.senderName ?? "",
-    replyTo: brand.replyTo ?? "",
     postalAddress: brand.postalAddress ?? "",
     website: brand.website ?? "",
     signature: brand.signature ?? "",
@@ -84,22 +83,9 @@ export function BrandSettings({ brand, defaultReplyTo }: { brand: BrandKit; /** 
               </div>
             )}
           </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Sender name" optional hint="Campaigns come from this name. One-off emails show “Your name · Sender name”.">
-              {(p) => <Input {...p} value={kit.senderName} onChange={set("senderName")} placeholder="Acme" />}
-            </Field>
-            <Field
-              label="Campaign reply-to"
-              optional
-              hint={
-                defaultReplyTo
-                  ? `Blank uses ${defaultReplyTo} (RESEND_REPLY_TO). A campaign can set its own.`
-                  : "A campaign can set its own. One-off emails reply to the sender unless RESEND_REPLY_TO is set."
-              }
-            >
-              {(p) => <Input {...p} type="email" value={kit.replyTo} onChange={set("replyTo")} placeholder={defaultReplyTo ?? "hello@acme.com"} />}
-            </Field>
-          </div>
+          <Field label="Sender name" optional hint="Campaigns come from this name. One-off emails show “Your name · Sender name”. Replies go to whoever sends the email or sets up the campaign, unless they change it.">
+            {(p) => <Input {...p} value={kit.senderName} onChange={set("senderName")} placeholder="Acme" />}
+          </Field>
           <Field label="Website" optional>
             {(p) => <Input {...p} type="url" value={kit.website} onChange={set("website")} placeholder="https://acme.com" />}
           </Field>

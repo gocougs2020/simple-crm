@@ -8,13 +8,15 @@ import type { DeliveryStatus } from "@/db/schema";
 /** Reports can arrive late or twice; a status only ever moves forward along this order. */
 export const deliveryRank: Record<DeliveryStatus, number> = { sent: 1, delayed: 2, delivered: 3, failed: 4, suppressed: 4, bounced: 5, complained: 6 };
 
-/** Resend webhook event → the status it moves an email to. Opens and clicks are counted separately (and mean it was delivered). */
+/**
+ * Resend webhook event → the status it moves an email to. Opens and clicks
+ * aren't tracked: tracking pixels and rewritten links hurt deliverability, so
+ * they stay off in Resend and the webhook doesn't subscribe to them.
+ */
 export const eventStatus: Record<string, DeliveryStatus> = {
   "email.sent": "sent",
   "email.delivery_delayed": "delayed",
   "email.delivered": "delivered",
-  "email.opened": "delivered",
-  "email.clicked": "delivered",
   "email.bounced": "bounced",
   "email.complained": "complained",
   "email.failed": "failed",
@@ -29,7 +31,11 @@ export function movesForward(current: DeliveryStatus | null | undefined, next: D
   return !current || deliveryRank[current] <= deliveryRank[next];
 }
 
-/** Resend's `last_event` on GET /emails/:id → our status, for the hourly check. Queued and scheduled aren't news yet. */
+/**
+ * Resend's `last_event` on GET /emails/:id → our status, for the hourly check.
+ * Queued and scheduled aren't news yet. Opened and clicked only appear if
+ * tracking is ever turned on in Resend; they still mean it was delivered.
+ */
 const lastEventStatus: Partial<Record<string, DeliveryStatus>> = {
   sent: "sent",
   delivery_delayed: "delayed",

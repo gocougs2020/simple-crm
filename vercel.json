@@ -4,15 +4,15 @@
   "crons": [
     {
       "path": "/api/cron/campaigns",
-      "schedule": "*/5 * * * *"
+      "schedule": "0,15,30,45 * * * *"
     },
     {
       "path": "/api/cron/inbox",
-      "schedule": "*/15 * * * *"
+      "schedule": "0,15,30,45 * * * *"
     },
     {
       "path": "/api/cron/email-status",
-      "schedule": "17 * * * *"
+      "schedule": "0 * * * *"
     }
   ]
 }

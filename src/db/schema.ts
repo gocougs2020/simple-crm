@@ -203,7 +203,6 @@ export type BrandKit = {
   /** Hex color for buttons and links in email only. */
   accentColor?: string;
   senderName?: string;
-  replyTo?: string;
   /** Required by CAN-SPAM in marketing email. */
   postalAddress?: string;
   website?: string;
@@ -618,7 +617,7 @@ export const campaigns = pgTable(
     audience: jsonb("audience").$type<CampaignAudience>().notNull().default({}),
     /** A saved audience. When set, its filters are used instead of `audience`. */
     audienceId: uuid("audience_id").references(() => audiences.id, { onDelete: "set null" }),
-    /** Where replies go. Blank uses the brand kit's campaign reply-to, then RESEND_REPLY_TO. */
+    /** Where replies go. Starts as the email of whoever set the campaign up; blank falls back to the creator's email at send time. */
     replyTo: text("reply_to"),
     /** Sent with every email. Campaigns with attachments go out one at a time: Resend's batch endpoint can't carry files. */
     attachments: jsonb("attachments").$type<EmailAttachment[]>().notNull().default([]),
@@ -658,11 +657,6 @@ export const outboundEmails = pgTable(
     deliveryStatusAt: timestamp("delivery_status_at", { withTimezone: true }),
     /** Why it bounced, failed or was suppressed, in Resend's words. */
     deliveryDetail: text("delivery_detail"),
-    /** Opens and clicks, when tracking is on for the sending domain in Resend. Opens are approximate: some mail apps load images for privacy. */
-    firstOpenedAt: timestamp("first_opened_at", { withTimezone: true }),
-    openCount: integer("open_count").notNull().default(0),
-    firstClickedAt: timestamp("first_clicked_at", { withTimezone: true }),
-    clickCount: integer("click_count").notNull().default(0),
     /** When the hourly check last asked Resend about an email with no final report. */
     statusCheckedAt: timestamp("status_checked_at", { withTimezone: true }),
     createdAt: createdAt(),

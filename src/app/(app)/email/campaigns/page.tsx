@@ -29,7 +29,7 @@ async function Campaigns() {
     <CampaignList
       rows={rows.map((r) => {
         const d = delivery.get(r.id);
-        return { ...r, deliveryRate: d?.reported ? d.deliveryRate : null, openRate: d?.opened ? d.openRate : null };
+        return { ...r, deliveryRate: d?.reported ? d.deliveryRate : null };
       })}
     />
   );

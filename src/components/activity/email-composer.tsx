@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { DocumentDuplicateIcon } from "@heroicons/react/20/solid";
-import { composerDefaults, listTemplates, sendRecordEmail } from "@/actions/email";
+import { listTemplates, sendRecordEmail } from "@/actions/email";
 import { listSendingInboxes } from "@/actions/inbox";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Input, Kbd, Select } from "@/components/ui/field";
+import { useApp } from "@/components/app-context";
 import { AttachmentPicker } from "@/components/email/attachment-picker";
 import { MergeTagMenu } from "@/components/email/merge-tag-menu";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "@/components/ui/menu";
@@ -33,21 +34,16 @@ export function EmailComposer({ links, recipient }: { links: Links; recipient: E
   const [inboxes, setInboxes] = useState<SendingInbox[]>([]);
   /** "" sends from the default address, with replies to `replyTo`. */
   const [inboxId, setInboxId] = useState("");
-  const [replyTo, setReplyTo] = useState("");
-  const [defaultReplyTo, setDefaultReplyTo] = useState("");
+  const { viewer } = useApp();
+  /** Replies go to the sender unless they change it for this email. */
+  const [replyTo, setReplyTo] = useState(viewer.email);
   const [editReplyTo, setEditReplyTo] = useState(false);
   const [attachments, setAttachments] = useState<EmailAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     listTemplates().then(setTemplates, () => setTemplates([]));
-    composerDefaults().then(
-      (d) => {
-        setReplyTo(d.replyTo);
-        setDefaultReplyTo(d.replyTo);
-      },
-      () => {},
-    );
+
     listSendingInboxes().then(
       (list) => {
         setInboxes(list);
@@ -93,7 +89,7 @@ export function EmailComposer({ links, recipient }: { links: Links; recipient: E
       setSubject("");
       setCc("");
       setAttachments([]);
-      setReplyTo(defaultReplyTo);
+      setReplyTo(viewer.email);
       setEditReplyTo(false);
     });
   };
@@ -190,11 +186,11 @@ export function EmailComposer({ links, recipient }: { links: Links; recipient: E
           <label htmlFor="email-reply-to" className="shrink-0 text-muted">
             Replies go to
           </label>
-          <Input id="email-reply-to" type="email" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} placeholder={defaultReplyTo} className="h-8 text-[13px]" autoFocus />
+          <Input id="email-reply-to" type="email" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} placeholder={viewer.email} className="h-8 text-[13px]" autoFocus />
         </div>
       ) : (
         <p className="text-fine">
-          Replies go to <span className="text-secondary">{replyTo || defaultReplyTo || "your own inbox"}</span>.{" "}
+          Replies go to <span className="text-secondary">{replyTo.trim() || viewer.email}</span>.{" "}
           <button type="button" className="font-medium text-secondary underline-offset-2 hover:text-primary hover:underline" onClick={() => setEditReplyTo(true)}>
             Change
           </button>{" "}

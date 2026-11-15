@@ -10,10 +10,10 @@ describe("delivery status", () => {
     assert.equal(movesForward("delivered", "bounced"), true);
     assert.equal(movesForward("complained", "delivered"), false);
   });
-  it("treats opens and clicks as delivered", () => {
-    assert.equal(eventStatus["email.opened"], "delivered");
-    assert.equal(eventStatus["email.clicked"], "delivered");
-    assert.equal(statusFromLastEvent("clicked"), "delivered");
+  it("doesn't track opens or clicks, and reads Resend's last event as a status", () => {
+    assert.equal(eventStatus["email.opened"], undefined);
+    assert.equal(eventStatus["email.clicked"], undefined);
+    assert.equal(statusFromLastEvent("delivered"), "delivered");
     assert.equal(statusFromLastEvent("queued"), null);
     assert.equal(statusFromLastEvent("canceled"), "failed");
   });

@@ -70,21 +70,21 @@ Choices worth knowing:
 ## Email
 
 - `src/lib/email.ts` wraps Resend. Without `RESEND_API_KEY` it prints to the terminal.
-- One-off emails (`src/actions/email.ts`) send from a person's or client's page as the teammate (their name in From) and are logged as an `email` activity. Reply-To starts as `RESEND_REPLY_TO` (else the teammate's own address) and can be changed per email. Sending from a Resend inbox skips Reply-To: replies come back to that inbox.
+- One-off emails (`src/actions/email.ts`) send from a person's or client's page as the teammate (their name in From) and are logged as an `email` activity. Reply-To is the teammate's own address unless they change it for that email. Sending from a Resend inbox skips Reply-To: replies come back to that inbox.
 - **Attachments** are ordinary CRM files (`src/lib/email/attachments.ts`). The composer uploads them to the record first, so they also show in its Files; the email stores the list (`EmailAttachment[]`) and the bytes are read from Blob at send time. Up to 10 files and 20 MB per email. Templates and campaigns can carry attachments too.
 - Campaigns render their HTML on every save with the current brand kit, keep merge tags as `{{tags}}`, and fill them per recipient at send time. Sending claims the campaign with one conditional `UPDATE`, sends in batches of 100 through Resend's batch endpoint with idempotency keys, records each recipient, and the cron resumes interrupted sends. A send can be retried safely at any point. Resend's batch endpoint can't carry attachments, so a campaign with files sends the same groups one email at a time (idempotency key per recipient), which is slower.
 - Each campaign recipient also gets an `email` activity linked to the person, their organization and the client they matched, so campaign emails are on every timeline. They don't count as contact: `notCampaignEmail` (`src/lib/crm/activities.ts`) keeps them out of "last contacted", the Activities page and the home feed, and they don't move `last_activity_at`.
-- Reply-To for campaigns: the campaign's own, else the brand kit's campaign reply-to, else `RESEND_REPLY_TO`.
+- Reply-To for campaigns starts as the email of whoever set the campaign up, and can be changed on the campaign. A blank one falls back to the creator at send time. Duplicating a campaign keeps a shared reply-to (sales@…) but swaps the original author's own address for yours. There is no workspace-wide reply-to.
 - Merge tags (`src/lib/email/merge-tags.ts`): `{{first_name}}`, `{{email}}`, `{{job_title}}`, `{{company}}`, `{{client_name}}`, `{{owner_name}}`, a person's custom fields as `{{custom.<key>}}`, and a fallback after a bar (`{{company|your team}}`).
 - **Audiences** (`src/lib/email/campaigns.ts`, `audienceWhere`): tags (any or all), excluded tags, owner, organization, recent or no recent activity, person custom fields (select, multi-select, checkbox), and client filters: category, pipeline, stage, service, client tag, churn reason and "open to coming back". A person matches a client filter when they're a matching client's contact or work at its organization. Filters are saved on the campaign or as a named audience (`audiences`, Email → Audiences) that campaigns reference; a campaign using one reads its filters when it sends and keeps a copy in case it's deleted. People without an email, archived, unsubscribed or whose address bounced are never included.
 
 ## Delivery tracking (Resend)
 
-- Sends carry a `type` tag (`direct`, `campaign`). The Resend webhook (`/api/webhooks/resend`) receives `email.*` reports and `src/lib/email/delivery.ts` moves the matching `outbound_emails` row forward: sent → delayed → delivered → failed/suppressed → bounced → complained. One conditional `UPDATE` keeps a late or repeated report from moving it back. Opens and clicks are counted (first time and total) when tracking is on for the domain in Resend; opens are approximate.
+- Sends carry a `type` tag (`direct`, `campaign`). The Resend webhook (`/api/webhooks/resend`) receives `email.*` reports and `src/lib/email/delivery.ts` moves the matching `outbound_emails` row forward: sent → delayed → delivered → failed/suppressed → bounced → complained. One conditional `UPDATE` keeps a late or repeated report from moving it back. Opens and clicks aren't tracked: tracking pixels and rewritten links hurt deliverability, so tracking stays off in Resend and the webhook doesn't subscribe to those events.
 - A report that beats its row (the send is still saving) gets a 503 so Resend retries; a report for email another app sent on the same account matches nothing and is ignored, so it can never flag our people.
 - A permanent bounce sets `people.email_bounced_at` (campaigns skip them; changing the address clears it). A spam complaint unsubscribes them. Both write a history entry on the person.
 - Safety net: `/api/cron/email-status` runs hourly and asks Resend (`GET /emails/:id`) about emails with no final report after 20 minutes, for a week.
-- Where it shows: a status badge (and Opened/Clicked) on each sent email in the timeline, delivery and open rates in the campaign list, and a report with every recipient on a sent campaign.
+- Where it shows: a status badge on each sent email in the timeline, the delivery rate in the campaign list, and a report with every recipient on a sent campaign.
 - Settings → Email domains → Connect webhook subscribes to inbox and delivery events. A webhook connected before delivery tracking shows a notice to reconnect.
 
 ## Inbox (Resend)
@@ -94,6 +94,10 @@ Choices worth knowing:
 - Links come from addresses: the first participant who is a person in the CRM, else an organization whose website matches the domain; the client is the one tied to that person or organization (current first). Linking a thread by hand sets `linked_by_hand`, and later syncs keep it.
 - Freshness: the Resend webhook (`/api/webhooks/resend`, signature-verified) syncs a thread as soon as mail arrives; a cron every 15 minutes and the "Sync now" button catch anything missed. Syncing is idempotent.
 - Received HTML goes through the same allow-list sanitizer as notes. The plain-text part is preferred when present, because sanitized marketing HTML reads poorly.
+
+## Background jobs
+
+Vercel Cron, all on the same quarter-hour blocks so the database can scale to zero between them (Neon suspends after a few idle minutes): the campaign cron and the inbox sync run at :00, :15, :30 and :45, and the delivery check runs at :00. Nothing runs more often than every 15 minutes, and nothing in the browser polls. Scheduled campaigns are rounded up to the next quarter hour, so they go out exactly when the cron runs. Work someone starts by hand ("Send now", "Sync now") runs right away.
 
 ## Stripe
 

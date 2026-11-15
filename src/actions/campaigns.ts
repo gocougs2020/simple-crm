@@ -10,10 +10,11 @@ import { ActionError, actionEditor, actionUser } from "@/lib/auth";
 import { emailBrand } from "@/lib/brand";
 import { audienceSchema } from "@/lib/email/audience-schema";
 import { loadAttachments, resolveAttachments } from "@/lib/email/attachments";
-import { audienceCount, campaignAudience, renderCampaign, runDueCampaigns } from "@/lib/email/campaigns";
+import { audienceCount, campaignAudience, campaignCreatorEmail, campaignReplyTo, renderCampaign, runDueCampaigns } from "@/lib/email/campaigns";
 import { campaignRecipients, recipientFilters } from "@/lib/email/delivery";
-import { campaignReplyTo, sendEmail } from "@/lib/email";
+import { sendEmail } from "@/lib/email";
 import { escapeHtml, fillMergeTags, fillMergeTagsHtml, mergeValues } from "@/lib/email/merge-tags";
+import { roundUpToQuarterHour } from "@/lib/format";
 import { siteOrigin } from "@/lib/origin";
 import { sanitizeHtml } from "@/lib/safe-html";
 
@@ -26,7 +27,8 @@ export async function createCampaign(): Promise<Result<{ id: string }>> {
     const db = await getDb();
     const [row] = await db
       .insert(campaigns)
-      .values({ name: "Untitled campaign", body: "<p>Hi {{first_name|there}},</p><p></p>", createdBy: user.id })
+      // Replies go to whoever sets the campaign up, unless they change it.
+      .values({ name: "Untitled campaign", body: "<p>Hi {{first_name|there}},</p><p></p>", replyTo: user.email, createdBy: user.id })
       .returning({ id: campaigns.id });
     return row;
   });
@@ -94,7 +96,7 @@ export async function sendCampaignTest(campaignId: string): Promise<Result<{ to:
     const values = mergeValues({ firstName: first, lastName: rest.join(" ") || null, email: user.email, title: user.title, organizationName: brand.workspaceName, ownerName: user.name });
     await sendEmail({
       to: user.email,
-      replyTo: campaignReplyTo(c.replyTo, brand.replyTo),
+      replyTo: (await campaignReplyTo(c)) ?? user.email,
       subject: `[Test] ${fillMergeTags(c.subject || c.name, values)}`,
       html: fillMergeTagsHtml(c.html, values).replace(/\{\{\s*unsubscribe_url\s*\}\}/gi, escapeHtml(`${await siteOrigin()}/unsubscribe`)),
       attachments: await loadAttachments(c.attachments),
@@ -115,8 +117,9 @@ export async function scheduleCampaign(campaignId: string, at: string | null): P
     if (!c.html) throw new ActionError("Write the email first.");
     if (!(await emailBrand()).postalAddress) throw new ActionError("Add your postal address in Settings → Email and brand first. Marketing email must include one.");
     if (!(await audienceCount(await campaignAudience(c)))) throw new ActionError("No one matches this audience yet.");
-    const when = at ? new Date(z.iso.datetime({ offset: true }).parse(at)) : new Date();
-    if (at && when.getTime() < Date.now() - 60_000) throw new ActionError("Pick a time in the future.");
+    // The cron runs on the quarter hour, so a scheduled send goes out at the next one. Saying so up front keeps the time shown honest.
+    const when = at ? roundUpToQuarterHour(new Date(z.iso.datetime({ offset: true }).parse(at))) : new Date();
+    if (at && when.getTime() < Date.now()) throw new ActionError("Pick a time in the future.");
     const [claimed] = await db
       .update(campaigns)
       .set({ status: "scheduled", scheduledAt: when, sendError: null, updatedAt: new Date() })
@@ -150,6 +153,9 @@ export async function duplicateCampaign(campaignId: string): Promise<Result<{ id
     const db = await getDb();
     const [c] = await db.select().from(campaigns).where(eq(campaigns.id, uuid.parse(campaignId)));
     if (!c) throw new ActionError("This campaign was deleted.");
+    // A shared address (sales@…) carries over; the original author's own address becomes yours.
+    const creatorEmail = await campaignCreatorEmail(c.createdBy);
+    const replyTo = !c.replyTo || c.replyTo.toLowerCase() === creatorEmail?.toLowerCase() ? user.email : c.replyTo;
     const [row] = await db
       .insert(campaigns)
       .values({
@@ -160,7 +166,7 @@ export async function duplicateCampaign(campaignId: string): Promise<Result<{ id
         html: c.html,
         audience: c.audience,
         audienceId: c.audienceId,
-        replyTo: c.replyTo,
+        replyTo,
         attachments: c.attachments,
         createdBy: user.id,
       })

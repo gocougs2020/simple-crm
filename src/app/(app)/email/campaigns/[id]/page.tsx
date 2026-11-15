@@ -7,8 +7,7 @@ import { CampaignEditor } from "@/components/email/campaign-editor";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { getDb, schema } from "@/db";
 import { emailBrand } from "@/lib/brand";
-import { campaignReplyTo } from "@/lib/email";
-import { audienceCount, campaignAudience, renderCampaign } from "@/lib/email/campaigns";
+import { audienceCount, campaignAudience, campaignCreatorEmail, renderCampaign } from "@/lib/email/campaigns";
 import { campaignDelivery } from "@/lib/email/delivery";
 import { allClientTags, allTags } from "@/lib/crm/records";
 
@@ -29,13 +28,14 @@ async function Campaign({ params }: Pick<PageProps<"/email/campaigns/[id]">, "pa
   const [c] = await db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id));
   if (!c) notFound();
   const sent = c.status === "sent" || c.status === "sending";
-  const [tags, clientTags, count, brand, audiences, delivery] = await Promise.all([
+  const [tags, clientTags, count, brand, audiences, delivery, creatorEmail] = await Promise.all([
     allTags(),
     allClientTags(),
     sent ? Promise.resolve(c.recipientCount) : campaignAudience(c).then(audienceCount),
     emailBrand(),
     db.select({ id: schema.audiences.id, name: schema.audiences.name, filters: schema.audiences.filters }).from(schema.audiences).orderBy(asc(schema.audiences.name)),
     sent ? campaignDelivery([c.id]).then((m) => m.get(c.id) ?? null) : Promise.resolve(null),
+    campaignCreatorEmail(c.createdBy),
   ]);
   // Drafts always preview with the current brand kit.
   const html = sent ? c.html : await renderCampaign(c.body, c.previewText);
@@ -47,7 +47,7 @@ async function Campaign({ params }: Pick<PageProps<"/email/campaigns/[id]">, "pa
       initialCount={count}
       hasAddress={!!brand.postalAddress}
       audiences={audiences}
-      defaultReplyTo={campaignReplyTo(null, brand.replyTo) ?? null}
+      defaultReplyTo={creatorEmail}
       delivery={delivery}
     />
   );

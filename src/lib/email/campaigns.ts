@@ -5,7 +5,7 @@ import { getDb, schema } from "@/db";
 import type { CampaignAudience } from "@/db/schema";
 import { signUnsubscribe } from "@/lib/auth";
 import { emailBrand } from "@/lib/brand";
-import { campaignReplyTo, getResend, emailFrom, fromAs } from "@/lib/email";
+import { getResend, emailFrom, fromAs } from "@/lib/email";
 import { loadAttachments } from "./attachments";
 import CampaignEmail from "@/emails/campaign";
 import { escapeHtml, fillMergeTags, fillMergeTagsHtml, mergeValues } from "./merge-tags";
@@ -120,6 +120,19 @@ export async function audienceCount(a: CampaignAudience) {
   return row.n;
 }
 
+/** The email of whoever set the campaign up, which is where its replies go unless it names another address. */
+export async function campaignCreatorEmail(createdBy: string | null) {
+  if (!createdBy) return null;
+  const db = await getDb();
+  const [u] = await db.select({ email: schema.users.email }).from(schema.users).where(eq(schema.users.id, createdBy));
+  return u?.email ?? null;
+}
+
+/** Where a campaign's replies go: its own reply-to, else its creator. With neither (the creator was removed), replies go to the sending address. */
+export async function campaignReplyTo(c: { replyTo: string | null; createdBy: string | null }) {
+  return c.replyTo?.trim() || (await campaignCreatorEmail(c.createdBy)) || undefined;
+}
+
 /** A campaign's audience: its saved audience's filters as they are now, or its own. */
 export async function campaignAudience(c: { audienceId: string | null; audience: CampaignAudience }) {
   if (!c.audienceId) return c.audience;
@@ -162,7 +175,7 @@ export async function sendCampaign(campaignId: string, origin: string) {
   const pending = audience.filter((p) => !done.has(p.id));
   const resend = getResend();
   const from = brand.senderName ? fromAs(brand.senderName) : emailFrom;
-  const replyTo = campaignReplyTo(c.replyTo, brand.replyTo);
+  const replyTo = await campaignReplyTo(c);
   // Read once: the same files go to everyone.
   const files = pending.length ? await loadAttachments(c.attachments) : [];
   let sent = 0;

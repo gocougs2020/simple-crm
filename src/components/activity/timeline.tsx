@@ -419,35 +419,15 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
   );
 }
 
-/**
- * Where a sent email got to. Shows nothing until Resend's first report.
- * Opens are approximate (some mail apps load images for privacy), so they
- * read as a hint next to the status, never instead of it.
- */
+/** Where a sent email got to. Shows nothing until Resend's first report. */
 function Delivery({ delivery }: { delivery: ActivityRow["delivery"] }) {
   const { workspace } = useApp();
   if (!delivery?.status) return null;
-  const tz = workspace.timezone;
-  const when = delivery.at ? ` ${formatDateTime(delivery.at, tz)}` : "";
+  const when = delivery.at ? ` ${formatDateTime(delivery.at, workspace.timezone)}` : "";
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <Tooltip content={delivery.detail ?? `${deliveryLabels[delivery.status]}${when}`}>
-        <StatusBadge tone={deliveryTone[delivery.status]}>{deliveryLabels[delivery.status]}</StatusBadge>
-      </Tooltip>
-      {delivery.clickedAt ? (
-        <Tooltip content={`First clicked ${formatDateTime(delivery.clickedAt, tz)}`}>
-          <span className="text-secondary">
-            Clicked{delivery.clicks > 1 ? ` ${delivery.clicks}×` : ""}
-          </span>
-        </Tooltip>
-      ) : delivery.openedAt ? (
-        <Tooltip content={`First opened ${formatDateTime(delivery.openedAt, tz)}. Some mail apps open emails automatically, so treat this as a hint.`}>
-          <span className="text-secondary">
-            Opened{delivery.opens > 1 ? ` ${delivery.opens}×` : ""}
-          </span>
-        </Tooltip>
-      ) : null}
-    </span>
+    <Tooltip content={delivery.detail ?? `${deliveryLabels[delivery.status]}${when}`}>
+      <StatusBadge tone={deliveryTone[delivery.status]}>{deliveryLabels[delivery.status]}</StatusBadge>
+    </Tooltip>
   );
 }
 

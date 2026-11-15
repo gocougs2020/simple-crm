@@ -446,7 +446,7 @@ function LiveUpdates({ webhook }: { webhook: Webhook }) {
   return (
     <Section
       title="Live updates"
-      description="A Resend webhook tells the CRM about new mail within seconds, and whether each email it sent was delivered, bounced, opened or clicked. A sync every 15 minutes, and an hourly delivery check, catch anything it misses."
+      description="A Resend webhook tells the CRM about new mail within seconds, and whether each email it sent was delivered or bounced. A sync every 15 minutes, and an hourly delivery check, catch anything it misses."
     >
       <div className="flex flex-col gap-3 px-4 py-3 text-[13.5px]">
         <div className="flex flex-wrap items-center gap-3">
@@ -461,11 +461,11 @@ function LiveUpdates({ webhook }: { webhook: Webhook }) {
         </div>
         {webhook.missingDeliveryReports ? (
           <p className="rounded-md border border-warning-border bg-warning-surface px-3 py-2 text-[13px] text-warning">
-            This webhook was connected before delivery tracking. Reconnect it so sent emails show delivered, bounced and opened.
+            This webhook was connected before delivery tracking. Reconnect it so sent emails show whether they were delivered or bounced.
           </p>
         ) : null}
         <p className="text-fine">
-          Opens and clicks need tracking turned on for the sending domain in Resend. Connecting creates a webhook in Resend pointed at this site&apos;s /api/webhooks/resend and saves its signing secret. If RESEND_WEBHOOK_SECRET is set, it&apos;s used instead
+          Open and click tracking stay off in Resend to protect deliverability. Connecting creates a webhook in Resend pointed at this site&apos;s /api/webhooks/resend and saves its signing secret. If RESEND_WEBHOOK_SECRET is set, it&apos;s used instead
           {webhook.envSecret ? " (it is set here)" : ""}. Resend can&apos;t reach localhost, so while developing use Sync now.
         </p>
       </div>

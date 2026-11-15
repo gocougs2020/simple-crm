@@ -17,16 +17,14 @@ type Recipients = Awaited<ReturnType<typeof listCampaignRecipients>>;
 const filterLabels: Record<RecipientFilter, string> = {
   all: "Everyone",
   delivered: "Delivered",
-  opened: "Opened",
-  clicked: "Clicked",
   problems: "Didn't arrive",
   pending: "Waiting",
 };
 
 /**
  * How a sent campaign did, from Resend's delivery reports: the totals, then
- * every recipient with their email's status. Opens are approximate (some mail
- * apps open emails for privacy), so delivery comes first.
+ * every recipient with their email's status. Opens and clicks aren't tracked,
+ * to keep deliverability high.
  */
 export function CampaignReport({ campaignId, delivery, sending }: { campaignId: string; delivery: CampaignDelivery | null; sending: boolean }) {
   const { workspace } = useApp();
@@ -44,8 +42,6 @@ export function CampaignReport({ campaignId, delivery, sending }: { campaignId: 
     ? [
         { label: "Sent", value: d.sent.toLocaleString() },
         { label: "Delivered", value: d.reported ? `${d.deliveryRate}%` : "—", sub: d.reported ? `${d.delivered.toLocaleString()} emails` : "No reports yet" },
-        { label: "Opened", value: d.opened ? `${d.openRate}%` : "—", sub: d.opened ? `${d.opened.toLocaleString()} people` : "Needs open tracking in Resend" },
-        { label: "Clicked", value: d.clicked ? `${d.clickRate}%` : "—", sub: d.clicked ? `${d.clicked.toLocaleString()} people` : undefined },
         { label: "Didn't arrive", value: d.notDelivered.toLocaleString(), sub: d.complained ? `${d.complained} marked as spam` : undefined, bad: d.notDelivered + d.complained > 0 },
       ]
     : [];
@@ -60,7 +56,7 @@ export function CampaignReport({ campaignId, delivery, sending }: { campaignId: 
         {sending ? <span className="text-[12.5px] text-muted">Still sending. Numbers fill in as reports arrive.</span> : d && d.pending ? <span className="text-[12.5px] text-muted">{d.pending.toLocaleString()} waiting for a report</span> : null}
       </div>
       {d ? (
-        <dl className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        <dl className="grid grid-cols-3 gap-2">
           {stats.map((s) => (
             <div key={s.label} className="rounded-lg border border-line bg-surface px-3 py-2">
               <dt className="text-[12px] text-muted">{s.label}</dt>
@@ -98,7 +94,6 @@ export function CampaignReport({ campaignId, delivery, sending }: { campaignId: 
             <tr>
               <th className="px-3 py-2 font-medium">Recipient</th>
               <th className="px-3 py-2 font-medium">Status</th>
-              <th className="px-3 py-2 font-medium">Engagement</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -123,12 +118,11 @@ export function CampaignReport({ campaignId, delivery, sending }: { campaignId: 
                     <span className="text-[12px] text-faint">Waiting</span>
                   )}
                 </td>
-                <td className="px-3 py-2 text-[12px] whitespace-nowrap text-secondary">{r.clickedAt ? "Clicked" : r.openedAt ? "Opened" : <span className="text-faint">—</span>}</td>
               </tr>
             ))}
             {data && !data.rows.length ? (
               <tr>
-                <td colSpan={3} className="px-3 py-6 text-center text-[13px] text-muted">
+                <td colSpan={2} className="px-3 py-6 text-center text-[13px] text-muted">
                   No one here yet.
                 </td>
               </tr>

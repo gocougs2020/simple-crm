@@ -10,7 +10,7 @@ export const maxDuration = 60;
 /**
  * Resend calls this when mail arrives in (or leaves) a connected inbox, and
  * with delivery reports for email the CRM sent (sent, delivered, delayed,
- * bounced, complained, failed, suppressed, opened, clicked). The signature is
+ * bounced, complained, failed, suppressed). The signature is
  * checked against the secret saved when the webhook was connected (or
  * RESEND_WEBHOOK_SECRET). Anything we can't verify is refused, so this can't
  * be used to inject mail or fake a bounce.

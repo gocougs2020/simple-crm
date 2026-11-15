@@ -9,7 +9,7 @@ import { addressProblem, deliveryDetail, deliveryRank, eventStatus, eventTag, mo
 /**
  * Delivery reports from Resend's webhook (/api/webhooks/resend). Each report
  * moves the matching outbound_emails row forward (sent → delivered, or
- * bounced, complained…), counts opens and clicks, and, for a permanent
+ * bounced, complained…) and, for a permanent
  * bounce or a spam complaint, protects the sending address: campaigns stop
  * going to that person, and their history says why.
  *
@@ -77,20 +77,6 @@ export async function recordEmailEvent(event: EmailEvent): Promise<{ handled: bo
   const at = new Date(event.created_at ?? d.created_at ?? Date.now());
   const db = await getDb();
 
-  if (event.type === "email.opened" || event.type === "email.clicked") {
-    const opened = event.type === "email.opened";
-    const counted = await db
-      .update(o)
-      .set(
-        opened
-          ? { openCount: sql`${o.openCount} + 1`, firstOpenedAt: sql`coalesce(${o.firstOpenedAt}, ${at})` }
-          : { clickCount: sql`${o.clickCount} + 1`, firstClickedAt: sql`coalesce(${o.firstClickedAt}, ${at})` },
-      )
-      .where(eq(o.resendId, id))
-      .returning({ id: o.id });
-    if (!counted.length) return { handled: false };
-  }
-
   const updated = await applyDeliveryStatus(id, status, at, deliveryDetail(status, d));
   if (!updated.length) {
     const [exists] = await db.select({ id: o.id }).from(o).where(eq(o.resendId, id)).limit(1);
@@ -118,15 +104,11 @@ export type CampaignDelivery = {
   /** Bounced, failed, or skipped because the address was suppressed. */
   notDelivered: number;
   complained: number;
-  opened: number;
-  clicked: number;
   /** No final report yet. */
   pending: number;
   /** Whether any report has come in. */
   reported: boolean;
   deliveryRate: number;
-  openRate: number;
-  clickRate: number;
 };
 
 /** Delivery counts for campaigns, keyed by campaign id. */
@@ -141,8 +123,6 @@ export async function campaignDelivery(campaignIds: string[]): Promise<Map<strin
       delivered: sql<number>`(count(*) filter (where ${o.deliveryStatus} in ('delivered', 'complained')))::int`,
       notDelivered: sql<number>`(count(*) filter (where ${o.deliveryStatus} in ('bounced', 'failed', 'suppressed')))::int`,
       complained: sql<number>`(count(*) filter (where ${o.deliveryStatus} = 'complained'))::int`,
-      opened: sql<number>`(count(*) filter (where ${o.firstOpenedAt} is not null))::int`,
-      clicked: sql<number>`(count(*) filter (where ${o.firstClickedAt} is not null))::int`,
       reported: sql<number>`(count(*) filter (where ${o.deliveryStatus} is not null))::int`,
     })
     .from(o)
@@ -154,13 +134,11 @@ export async function campaignDelivery(campaignIds: string[]): Promise<Map<strin
       pending: r.sent - r.delivered - r.notDelivered,
       reported: r.reported > 0,
       deliveryRate: percent(r.delivered, r.sent),
-      openRate: percent(r.opened, r.delivered),
-      clickRate: percent(r.clicked, r.delivered),
     });
   return out;
 }
 
-export const recipientFilters = ["all", "delivered", "opened", "clicked", "problems", "pending"] as const;
+export const recipientFilters = ["all", "delivered", "problems", "pending"] as const;
 export type RecipientFilter = (typeof recipientFilters)[number];
 
 const RECIPIENT_PAGE = 100;
@@ -172,15 +150,11 @@ export async function campaignRecipients(campaignId: string, filter: RecipientFi
     eq(o.campaignId, campaignId),
     filter === "delivered"
       ? inArray(o.deliveryStatus, ["delivered", "complained"])
-      : filter === "opened"
-        ? isNotNull(o.firstOpenedAt)
-        : filter === "clicked"
-          ? isNotNull(o.firstClickedAt)
-          : filter === "problems"
-            ? inArray(o.deliveryStatus, ["bounced", "failed", "suppressed", "complained"])
-            : filter === "pending"
-              ? sql`(${o.deliveryStatus} is null or ${o.deliveryStatus} in ('sent', 'delayed'))`
-              : undefined,
+      : filter === "problems"
+        ? inArray(o.deliveryStatus, ["bounced", "failed", "suppressed", "complained"])
+        : filter === "pending"
+          ? sql`(${o.deliveryStatus} is null or ${o.deliveryStatus} in ('sent', 'delayed'))`
+          : undefined,
   );
   const p = schema.people;
   const [rows, [{ total }]] = await Promise.all([
@@ -193,8 +167,6 @@ export async function campaignRecipients(campaignId: string, filter: RecipientFi
         status: o.deliveryStatus,
         statusAt: o.deliveryStatusAt,
         detail: o.deliveryDetail,
-        openedAt: o.firstOpenedAt,
-        clickedAt: o.firstClickedAt,
       })
       .from(o)
       .leftJoin(p, eq(p.id, o.personId))
