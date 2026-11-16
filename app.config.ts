@@ -120,6 +120,78 @@ export type AppConfig = {
     /** The hour (0–23, workspace time zone) the morning push summary and agenda emails go out. */
     morningHour: number;
   };
+  records: {
+    /**
+     * What a starred person at an organization is called: the people who make
+     * or sign off on the decision. Shown on the star's tooltip, the person's
+     * page and the audience filter.
+     */
+    keyContactLabel: string;
+  };
+  microsoft: {
+    /**
+     * Connecting Microsoft 365 (Outlook, Exchange Online) mailboxes and
+     * calendars, per teammate. Also needs MICROSOFT_CLIENT_ID and
+     * MICROSOFT_CLIENT_SECRET (docs/MICROSOFT.md); without them it hides itself.
+     */
+    enabled: boolean;
+    /** How often mailboxes are synced: 15, 30 or 60 minutes. Less often means fewer database wake-ups. */
+    syncEveryMinutes: number;
+    /** How far back the first sync of a newly connected mailbox reads. */
+    firstSyncDays: number;
+    /** Also copy mail teammates send from Outlook itself (Sent Items) to the records it's addressed to. */
+    syncSent: boolean;
+    /**
+     * Screen each email with a decision model before it goes on a record, and
+     * keep sensitive ones out. Needs AI_GATEWAY_API_KEY; when the screen isn't
+     * available, mail goes in unscreened. Emails Outlook marks Private or
+     * Confidential are always kept out, screen or not.
+     */
+    screenMail: boolean;
+    /**
+     * The screening model: an AI Gateway decision model (type "evaluation"),
+     * which answers with a probability instead of writing text, so it's fast
+     * and costs a fraction of a cent per email.
+     */
+    screenModel: string;
+    /** What counts as sensitive, in plain words. */
+    screenInstructions: string;
+    /** Keep an email out when the model is at least this sure (0–1) it's sensitive. Lower keeps more out. */
+    screenThreshold: number;
+    /**
+     * Mark kept-out emails in Outlook with this category, so the teammate can
+     * see which ones didn't go into the CRM. `null` names it after the app
+     * ("Not in CRM"); an empty string turns marking off.
+     */
+    withheldCategory: string | null;
+    /** Copy planned activities of these types to the assignee's Outlook calendar. */
+    calendarTypes: readonly ("meeting" | "call")[];
+    /** How long a copied meeting is when no duration was given, in minutes. */
+    calendarDefaultMinutes: number;
+    /** Invite the person the meeting is with (Outlook emails them an invitation). Off: only the teammate's calendar changes. */
+    inviteContacts: boolean;
+  };
+  phone: {
+    /**
+     * Calling and texting through Twilio. Also needs TWILIO_ACCOUNT_SID and
+     * TWILIO_AUTH_TOKEN (docs/PHONE.md); without them it hides itself.
+     */
+    enabled: boolean;
+    /** Country calling code added to numbers typed without one ("1" for the US and Canada). */
+    defaultCountryCode: string;
+    /** Where new numbers are bought (Settings → Phone numbers), as a two-letter country code. Area codes work in "US" and "CA". */
+    numberCountry: string;
+    /** Caller ID on a forwarded call: the caller's own number (so the cell phone shows who it is), or the team's number. */
+    forwardCallerId: "caller" | "number";
+    /** Seconds a forwarded call rings before it's treated as missed. */
+    forwardTimeoutSeconds: number;
+    /** Said to callers when the forwarded call isn't answered. `null` just hangs up. */
+    missedCallMessage: string | null;
+    /** Text campaigns only go to people marked as having agreed to marketing texts. Turning this off is your legal call. */
+    textCampaignsNeedConsent: boolean;
+    /** Added to the end of every campaign text. Carriers expect a way to opt out. */
+    textCampaignFooter: string;
+  };
   pwa: {
     /** Name under the icon on a phone's home screen (12 characters or fewer reads best). Defaults to `brand.name`. */
     shortName: string | null;
@@ -168,6 +240,34 @@ const defaults = {
   },
   notifications: {
     morningHour: 7,
+  },
+  records: {
+    keyContactLabel: "Decision maker",
+  },
+  microsoft: {
+    enabled: true,
+    syncEveryMinutes: 15,
+    firstSyncDays: 14,
+    syncSent: true,
+    screenMail: true,
+    screenModel: "typesafe-ai/jev",
+    screenInstructions:
+      "Anything not about recruiting, broadly speaking. Above all: compensation, pay, salary, bonuses, commissions, benefits or other money matters about a person; and conversations between members of our own team (listed in ourTeam), even when a teammate also happens to be in the CRM as a person. Also personal matters (health, family), HR issues, legal disputes, and passwords or security codes.",
+    screenThreshold: 0.6,
+    withheldCategory: null,
+    calendarTypes: ["meeting"],
+    calendarDefaultMinutes: 30,
+    inviteContacts: false,
+  },
+  phone: {
+    enabled: true,
+    defaultCountryCode: "1",
+    numberCountry: "US",
+    forwardCallerId: "caller",
+    forwardTimeoutSeconds: 25,
+    missedCallMessage: null,
+    textCampaignsNeedConsent: true,
+    textCampaignFooter: "Reply STOP to opt out.",
   },
   pwa: {
     shortName: null,

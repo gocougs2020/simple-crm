@@ -32,9 +32,10 @@ export function EmailComposer({ links, recipient }: { links: Links; recipient: E
   const [pending, start] = useTransition();
   const [lastFocus, setLastFocus] = useState<"subject" | "body">("body");
   const [inboxes, setInboxes] = useState<SendingInbox[]>([]);
-  /** "" sends from the default address, with replies to `replyTo`. */
-  const [inboxId, setInboxId] = useState("");
-  const { viewer } = useApp();
+  const { viewer, comms } = useApp();
+  /** "microsoft" sends from the teammate's own Outlook; an inbox id from that Resend inbox; "" from the default address, with replies to `replyTo`. */
+  const [inboxId, setInboxId] = useState(comms.mailbox && !comms.mailbox.needsReconnect ? "microsoft" : "");
+  const viaMailbox = inboxId === "microsoft";
   /** Replies go to the sender unless they change it for this email. */
   const [replyTo, setReplyTo] = useState(viewer.email);
   const [editReplyTo, setEditReplyTo] = useState(false);
@@ -47,7 +48,7 @@ export function EmailComposer({ links, recipient }: { links: Links; recipient: E
     listSendingInboxes().then(
       (list) => {
         setInboxes(list);
-        if (list[0]) setInboxId(list[0].id);
+        if (list[0]) setInboxId((current) => (current === "microsoft" ? current : list[0].id));
       },
       () => setInboxes([]),
     );
@@ -74,9 +75,10 @@ export function EmailComposer({ links, recipient }: { links: Links; recipient: E
       const r = await sendRecordEmail({
         personId: recipient.personId,
         clientId: links.clientId ?? null,
-        inboxId: inboxId || null,
+        inboxId: viaMailbox ? null : inboxId || null,
+        via: viaMailbox ? "microsoft" : "crm",
         cc: ccList,
-        replyTo: inboxId ? null : replyTo.trim(),
+        replyTo: viaMailbox ? (replyTo.trim() === viewer.email ? null : replyTo.trim()) : inboxId ? null : replyTo.trim(),
         subject,
         body,
         attachmentIds: attachments.map((a) => a.fileId),
@@ -96,12 +98,17 @@ export function EmailComposer({ links, recipient }: { links: Links; recipient: E
 
   return (
     <div className="flex flex-col gap-2.5">
-      {inboxes.length ? (
+      {inboxes.length || comms.mailbox ? (
         <div className="flex items-center gap-2 text-[13px]">
           <label htmlFor="email-from" className="w-10 text-muted">
             From
           </label>
           <Select id="email-from" value={inboxId} onChange={(e) => setInboxId(e.target.value)} className="min-w-0 flex-1 [&_select]:h-8 [&_select]:text-[13px]">
+            {comms.mailbox ? (
+              <option value="microsoft" disabled={comms.mailbox.needsReconnect}>
+                {comms.mailbox.email} (your Outlook{comms.mailbox.needsReconnect ? ", reconnect in Settings" : ""})
+              </option>
+            ) : null}
             {inboxes.map((i) => (
               <option key={i.id} value={i.id}>
                 {i.name ? `${i.name} <${i.address}>` : i.address}
@@ -180,7 +187,9 @@ export function EmailComposer({ links, recipient }: { links: Links; recipient: E
           </Button>
         </div>
       </div>
-      {inboxId ? (
+      {viaMailbox ? (
+        <p className="text-fine">Sends from your Outlook and is saved in your Sent Items. Replies come to your mailbox and onto this timeline with the next sync.</p>
+      ) : inboxId ? (
         <p className="text-fine">Replies come back to the CRM inbox. The email is saved to this timeline.</p>
       ) : editReplyTo ? (
         <div className="flex items-center gap-2 text-[13px]">

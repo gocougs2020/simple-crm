@@ -9,20 +9,23 @@ src/
   app/
     (auth)/          sign-in, setup, forgot, reset/[token], invite/[token]
     (app)/           everything behind the login: home, clients, people, organizations,
-                     activities, files, email (inbox, campaigns, audiences, templates), settings
+                     activities, calendar, files, email (inbox, campaigns, audiences, templates), settings
     api/             files (upload token, local upload, download), brand logo, cron
-                     (campaigns, inbox, email-status, notifications), the Resend webhook, the REST API
+                     (campaigns, inbox, email-status, notifications, microsoft), the Resend and Twilio
+                     webhooks, Microsoft sign-in (integrations/microsoft), the REST API
                      (v1/[...path]), MCP (mcp) and the assistant (agent: chat, transcribe, voice)
     manifest.ts, icon.tsx, apple-icon.tsx   the installable app: manifest and generated icons
     developers/      the public API and MCP docs, generated from the operation list
     unsubscribe/     the campaign unsubscribe page and RFC 8058 one-click endpoint
   actions/           server actions, one file per area ("use server")
-  components/        UI, grouped by feature; ui/ holds the primitives; agent/ is the assistant panel
+  components/        UI, grouped by feature; ui/ holds the primitives; agent/ is the assistant panel;
+                     phone/ is the call panel, call buttons and the text composer
   db/                schema.ts (every table) and the connection
   emails/            React Email templates (layout, invite, reset, direct, campaign)
   lib/               server logic: auth, permissions, email (and the inbox sync), Stripe,
                      files, formatting, queries (lib/crm), record changes (lib/crm/service),
-                     the REST API (lib/api), MCP (lib/mcp), the assistant (lib/agent), push (lib/push)
+                     the REST API (lib/api), MCP (lib/mcp), the assistant (lib/agent), push (lib/push),
+                     Microsoft 365 (lib/microsoft), Twilio (lib/twilio), phone-number rules (lib/phone)
                      and the optional knowledge source (lib/knowledge)
   styles/theme.css   every color the app uses
 public/sw.js         the service worker: shows push notifications, opens the page they point to
@@ -52,6 +55,8 @@ app.config.ts        product defaults (name, theme, layout), overridable per dep
 | `inbox_threads`, `inbox_messages` | A mirror of the workspace's Resend inboxes, linked to people, organizations and clients |
 | `people_imports` | What each spreadsheet import created and changed, so it can be undone |
 | `external_ids` | Which record here came from which record in Pipedrive, so the [Pipedrive import](PIPEDRIVE-IMPORT.md) can run again without duplicating and be removed cleanly |
+| `connected_accounts`, `synced_emails` | Each teammate's connected Microsoft 365 mailbox and calendar (tokens encrypted), and every message the mailbox sync looked at: copied or kept out, why, and the screen's probability. See [MICROSOFT.md](MICROSOFT.md) |
+| `phone_numbers`, `phone_number_users`, `phone_calls`, `text_messages` | The Twilio numbers the team uses and who may use each, and every call and text through them. Each call and text is also an activity on the record it matched. See [PHONE.md](PHONE.md) |
 
 Choices worth knowing:
 
@@ -59,10 +64,13 @@ Choices worth knowing:
 - **Monthly revenue is derived, never stored.** It's the sum of a client's open `client_services`, normalized to a month, so changing a price or ending a service is the only thing to keep up to date.
 - **Activities are one table.** "Log a call" and "add a task" are the same gesture with different fields, and a record's timeline is one query. An open activity with a `due_at` is planned; one with `completed_at` or no `due_at` is history.
 - **Links roll up.** Logging on a client fills in its contact and organization; logging on a person fills in their organization. The organization page is the whole story without joins across clients.
+- **Messages land on people.** Mail (Resend inboxes and synced Microsoft 365 mailboxes), calls and texts are matched to a person by address or phone number (`src/lib/crm/match.ts`), else to an organization by website domain or main line, and roll up from there like anything logged by hand.
+- **Decision makers are a star.** `people.decision_maker` marks the people at an organization who make or sign off on the decision; they sort first in the organization's people and are an audience filter. What the star is called is a setting (`records.keyContactLabel`).
 - **Money is integer cents** (`bigint`), so sums never drift.
 - **Board order uses fractional ranks** (`src/lib/rank.ts`): moving a card writes only that card.
 - **Custom field keys never change.** Renaming a field keeps its data; archiving hides it without deleting values.
 - **History is written by the server**, next to each change, in the same action. Nothing in the UI can forge it.
+- **Anything on a timeline can be deleted**, for everyone: notes, tasks, meetings, and calls, texts and emails sent or received through the CRM (a sensitive email that got through, say). Admins can delete anything; everyone else what they sent or logged themselves, plus mail copied from their own mailbox (`deleteActivity` in `src/lib/crm/service/activities.ts`). What was behind it stays as a tombstone, emptied of content, so a later sync or webhook never brings it back; the history says something was deleted, without an email's or text's subject.
 
 ## Requests
 
@@ -101,6 +109,14 @@ Choices worth knowing:
 - Freshness: the Resend webhook (`/api/webhooks/resend`, signature-verified) syncs a thread as soon as mail arrives; a cron every 15 minutes and the "Sync now" button catch anything missed. Syncing is idempotent.
 - Received HTML goes through the same allow-list sanitizer as notes. The plain-text part is preferred when present, because sanitized marketing HTML reads poorly.
 
+## Microsoft 365
+
+Each teammate connects their own mailbox and calendar (Settings → Email and calendar, OAuth with PKCE, tokens encrypted with `src/lib/crypto.ts`). Email from records can go out through it (Graph, saved in their Sent Items); a quarter-hour cron copies mail with people and organizations in the CRM onto their timelines, after Outlook's sensitivity label and a decision model (Jev, a yes/no probability) keep private mail out (marked with a category in Outlook); planned meetings assigned to them are kept in step on their calendar; and Calendar shows teammates' Outlook events live, as much as each shares. See [MICROSOFT.md](MICROSOFT.md).
+
+## Calling and texting
+
+Twilio numbers, managed in Settings → Phone numbers. Calls are placed from the browser with the Twilio Voice SDK through a TwiML app whose webhook only dials calls the teammate prepared; incoming calls are forwarded to a cell phone, logged on the caller, and leave a write-up task. Texts both ways are activities; STOP opts a person out. Text campaigns share the email campaigns' audiences and claim-and-resume sending. Every Twilio webhook is signature-checked and idempotent. See [PHONE.md](PHONE.md).
+
 ## The assistant
 
 Record pages open with an AI summary of the record, shared by the team and rewritten once a day. A chat panel in the bottom right corner that reads and changes records as the signed-in teammate, with their role, through the same operations as MCP. Threads are saved per teammate; it can talk (speech to speech) and take dictation. Everything runs through Vercel AI Gateway. See [AGENT.md](AGENT.md).
@@ -130,7 +146,7 @@ Record pages open with an AI summary of the record, shared by the team and rewri
 
 ## Background jobs
 
-Vercel Cron, all on the same quarter-hour blocks so the database can scale to zero between them (Neon suspends after a few idle minutes): the campaign cron, the inbox sync and the notifications cron (meeting and task pushes, morning summaries and agenda emails) run at :00, :15, :30 and :45, and the delivery check runs at :00. Nothing runs more often than every 15 minutes, and nothing in the browser polls. Scheduled campaigns are rounded up to the next quarter hour, so they go out exactly when the cron runs. Work someone starts by hand ("Send now", "Sync now") runs right away.
+Vercel Cron, all on the same quarter-hour blocks so the database can scale to zero between them (Neon suspends after a few idle minutes): the campaign cron (email and text campaigns), the inbox sync, the Microsoft 365 mailbox sync (which skips the blocks that don't fit `microsoft.syncEveryMinutes`) and the notifications cron (meeting and task pushes, morning summaries and agenda emails) run at :00, :15, :30 and :45, and the delivery check runs at :00. Nothing runs more often than every 15 minutes, and nothing in the browser polls. Scheduled campaigns are rounded up to the next quarter hour, so they go out exactly when the cron runs. Work someone starts by hand ("Send now", "Sync now") runs right away.
 
 ## Knowledge source
 

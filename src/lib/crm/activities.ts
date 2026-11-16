@@ -12,10 +12,10 @@ const { activities, events, files, people, organizations, clients } = schema;
 export type ActivityRow = Awaited<ReturnType<typeof activityRows>>[number];
 
 /**
- * Leaves out emails a campaign sent. They're on each person's timeline, but
- * they aren't contact: they don't move "last contacted" or fill the feeds.
+ * Leaves out emails and texts a campaign sent. They're on each person's
+ * timeline, but they aren't contact: they don't move "last contacted" or fill the feeds.
  */
-const notCampaignEmail = sql`not exists (select 1 from outbound_emails oe where oe.id = ${activities.emailId} and oe.campaign_id is not null)`;
+const notCampaignEmail = sql`not exists (select 1 from outbound_emails oe where oe.id = ${activities.emailId} and oe.campaign_id is not null) and not exists (select 1 from text_messages tm where tm.id = ${activities.textMessageId} and tm.campaign_id is not null)`;
 
 /** Activities with the names of what they're linked to, for timelines and lists. */
 function activityRows(where: SQL | undefined, opts: { order: SQL[]; limit: number }) {
@@ -41,8 +41,14 @@ function activityRows(where: SQL | undefined, opts: { order: SQL[]; limit: numbe
           clickedAt: schema.outboundEmails.firstClickedAt,
           clicks: schema.outboundEmails.clickCount,
         },
-        campaignId: schema.outboundEmails.campaignId,
+        campaignId: schema.campaigns.id,
         campaignName: schema.campaigns.name,
+        /** Calls through the team's numbers (Twilio): how it went. */
+        call: { status: schema.phoneCalls.status, seconds: schema.phoneCalls.durationSeconds, from: schema.phoneCalls.from, to: schema.phoneCalls.to, forwardedTo: schema.phoneCalls.forwardedTo },
+        /** Texts through the team's numbers: delivery and the numbers. */
+        text: { status: schema.textMessages.status, error: schema.textMessages.error, from: schema.textMessages.from, to: schema.textMessages.to, media: schema.textMessages.media },
+        /** Mail copied from a teammate's connected mailbox: who it's from and whose mailbox it came through. */
+        synced: { from: schema.syncedEmails.from, to: schema.syncedEmails.to, mailboxUserId: schema.connectedAccounts.userId },
         /** For mail in a connected inbox: who sent it, and which inbox it's in. */
         inboxFrom: sql<string | null>`(select m."from" from inbox_messages m where m.activity_id = ${activities.id} limit 1)`,
         inboxTo: sql<string[] | null>`(select m."to" from inbox_messages m where m.activity_id = ${activities.id} limit 1)`,
@@ -53,7 +59,11 @@ function activityRows(where: SQL | undefined, opts: { order: SQL[]; limit: numbe
       .leftJoin(organizations, eq(organizations.id, activities.organizationId))
       .leftJoin(clients, eq(clients.id, activities.clientId))
       .leftJoin(schema.outboundEmails, eq(schema.outboundEmails.id, activities.emailId))
-      .leftJoin(schema.campaigns, eq(schema.campaigns.id, schema.outboundEmails.campaignId))
+      .leftJoin(schema.phoneCalls, eq(schema.phoneCalls.id, activities.callId))
+      .leftJoin(schema.textMessages, eq(schema.textMessages.id, activities.textMessageId))
+      .leftJoin(schema.syncedEmails, eq(schema.syncedEmails.id, activities.syncedEmailId))
+      .leftJoin(schema.connectedAccounts, eq(schema.connectedAccounts.id, schema.syncedEmails.accountId))
+      .leftJoin(schema.campaigns, or(eq(schema.campaigns.id, schema.outboundEmails.campaignId), eq(schema.campaigns.id, schema.textMessages.campaignId)))
       .leftJoin(schema.inboxThreads, eq(schema.inboxThreads.id, activities.inboxThreadId))
       .where(where)
       .orderBy(...opts.order)

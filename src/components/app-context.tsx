@@ -2,12 +2,15 @@
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import type { Viewer } from "@/lib/auth";
+import type { Comms } from "@/lib/comms";
 import type { AppData, Pipeline, Stage, TeamMember } from "@/lib/crm/context";
 import { formatMoney } from "@/lib/format";
 import { roleCan } from "@/lib/permissions";
 
 type Ctx = AppData & {
   viewer: Viewer;
+  /** What the viewer can call, text and email from (src/lib/comms.ts). */
+  comms: Comms;
   member: (id: string | null | undefined) => TeamMember | undefined;
   stage: (id: string) => (Stage & { pipeline: Pipeline }) | undefined;
   money: (cents: number, opts?: { compact?: boolean }) => string;
@@ -20,7 +23,9 @@ type Ctx = AppData & {
 const AppContext = createContext<Ctx | null>(null);
 
 /** Team, pipelines, custom fields and the signed-in viewer, available to every client component. */
-export function AppProvider({ data, viewer, children }: { data: AppData; viewer: Viewer; children: ReactNode }) {
+const noComms: Comms = { phone: false, numbers: [], defaultNumberId: null, texting: false, calling: false, microsoft: false, mailbox: null };
+
+export function AppProvider({ data, viewer, comms = noComms, children }: { data: AppData; viewer: Viewer; comms?: Comms; children: ReactNode }) {
   const value = useMemo<Ctx>(() => {
     const members = new Map(data.team.map((m) => [m.id, m]));
     const stages = new Map(data.pipelines.flatMap((p) => p.stages.map((s) => [s.id, { ...s, pipeline: p }] as const)));
@@ -28,6 +33,7 @@ export function AppProvider({ data, viewer, children }: { data: AppData; viewer:
     return {
       ...data,
       viewer,
+      comms,
       member: (id) => (id ? members.get(id) : undefined),
       stage: (id) => stages.get(id),
       money: (cents, opts) => formatMoney(cents, data.workspace.currency, opts),
@@ -35,7 +41,7 @@ export function AppProvider({ data, viewer, children }: { data: AppData; viewer:
       canEdit: roleCan(viewer.role, "records:write"),
       apiKey: (id) => (id ? keys.get(id) : undefined),
     };
-  }, [data, viewer]);
+  }, [data, viewer, comms]);
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 

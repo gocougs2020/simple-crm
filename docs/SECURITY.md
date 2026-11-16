@@ -48,6 +48,23 @@ The code is public; the data and secrets never are. This page is how that holds.
 - Received email is sanitized with the same allow-list as notes before it's stored or shown. Scripts, styles, images and tracking pixels are dropped.
 - Managing domains, inboxes and the webhook is admin-only. Every teammate can read and reply to the shared inboxes.
 
+## Microsoft 365
+
+- Each teammate connects only their own account (delegated permissions), through the authorization code flow with PKCE. The state and verifier are in an encrypted, HttpOnly, 10-minute cookie scoped to the callback path and bound to the teammate who started, so a callback can't be replayed or completed in someone else's session.
+- Access and refresh tokens are encrypted at rest with AES-256-GCM (`src/lib/crypto.ts`, keyed from `TOKEN_ENCRYPTION_KEY` or `AUTH_SECRET`), never sent to the browser, and only sent to `graph.microsoft.com` (the Graph helper refuses any other host, including in paging links). Disconnecting deletes them at once.
+- Mail marked Private, Personal or Confidential in Outlook is never copied, whatever else happens. Every other email is screened by a decision model before it's stored; if the screen can't answer, the email goes in (a deliberate choice: the Outlook label is the guarantee, the screen a second net). Nothing of a kept-out email's content is stored. Copied mail is plain text, sanitized like notes. The email reaches the model as structured fields (state), separate from the question, so its text can't rewrite what's being asked.
+- A sensitive email that gets through can be deleted from the records by the teammate whose mailbox it came from, or by an admin. It's gone for everyone, never re-copied, and the history entry doesn't repeat its subject. The same goes for texts and Resend inbox mail (hidden from the shared inbox's conversation too); only admins can delete what someone else sent or logged.
+- What teammates see of each other's calendars is each owner's choice (nothing, free/busy, details); events marked Private always show as busy.
+
+## Phone (Twilio)
+
+- Every Twilio webhook verifies `X-Twilio-Signature` (HMAC-SHA1 with the auth token, compared in constant time) and is refused without it. Each is idempotent on Twilio's id.
+- Browser call tokens are signed per teammate for an hour, can only place calls (never receive), and only through the CRM's TwiML app. The voice webhook only dials a call that teammate prepared in the last five minutes, after the server checked their access to the number and their role, so a token can't be used to dial arbitrary numbers from arbitrary lines.
+- Access to each number is checked on the server for every call, text and campaign. Viewers can't call or text.
+- The CRM never lists or touches the Twilio account's other numbers: admins buy numbers by area code, and editing, reconnecting and deleting (releasing) only ever act on numbers in the CRM's own table. Buying and deleting are admin-only.
+- TwiML is built with every value escaped, so a caller's number or a typed message can't change what Twilio does. The Twilio API key secret Settings creates is stored encrypted.
+- STOP replies opt people out immediately, and text campaigns need recorded consent by default.
+
 ## Knowledge source
 
 - Optional and read-only: `GET` only, to paths under `KNOWLEDGE_API_URL` (https). Paths that could climb out of the base (`..`, `;`, encoded slashes, dots or semicolons, backslashes, another host) are refused before anything is fetched, and redirects aren't followed, so the key is never sent anywhere else. It's never returned in a result or an error. Use a read-only key, and a base that excludes anything holding personal data. `KNOWLEDGE_FIXED_QUERY` and `KNOWLEDGE_BLOCKED_PATHS` keep unpublished content out when the key can see it; they match the decoded, lowercased path, so case and percent-encoding don't get around them. See [KNOWLEDGE.md](KNOWLEDGE.md).

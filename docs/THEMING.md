@@ -43,6 +43,9 @@ What [`app.config.ts`](../app.config.ts) controls:
 | `agent.summaryModel`, `agent.summaryReasoning` | GPT-6.1 Sol, `"low"` | The model and reasoning effort for the AI summary at the top of client, person and organization pages |
 | `agent.suggestions`, `agent.viewerSuggestions` | 4 prompts each | Suggested actions on a new chat, for teammates who can edit and for viewers. A prompt ending in `…` fills the composer instead of sending |
 | `notifications.morningHour` | `7` | The hour (0–23, workspace time zone) the morning push summary and the agenda emails go out |
+| `records.keyContactLabel` | `"Decision maker"` | What a starred person at an organization is called (the star's tooltip, their page and the audience filter) |
+| `microsoft.*` | | Microsoft 365: sync frequency, the mail screen (decision model, what counts as sensitive, threshold), the Outlook category for kept-out mail, which activities go on calendars. See [MICROSOFT.md](MICROSOFT.md#settings-per-deployment) |
+| `phone.*` | | Calling and texting: default country code, forwarded caller ID, ring time, missed-call message, text campaign consent and footer. See [PHONE.md](PHONE.md#settings-per-deployment) |
 | `pwa.shortName` | `null` | Name under the icon on a phone's home screen. Defaults to `brand.name`; keep it to about 12 characters |
 | `pwa.iconBackground` | `null` | The app icon's color. Defaults to `theme.brandColor`, then the default accent |
 | `pwa.iconForeground` | `"#ffffff"` | The letter on the icon (the first letter of `brand.name`) |

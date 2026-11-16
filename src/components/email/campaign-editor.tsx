@@ -58,6 +58,7 @@ export function CampaignEditor({
   campaign,
   tags,
   clientTags,
+  industries,
   initialCount,
   hasAddress,
   audiences: initialAudiences,
@@ -67,6 +68,7 @@ export function CampaignEditor({
   campaign: CampaignData;
   tags: string[];
   clientTags: string[];
+  industries: string[];
   initialCount: number;
   hasAddress: boolean;
   audiences: SavedAudience[];
@@ -328,7 +330,7 @@ export function CampaignEditor({
                   ? `Uses the saved audience “${saved.name}” as it is when the campaign sends.`
                   : `Everyone with an email who hasn't opted out or bounced${hasFilters(audience) ? ", narrowed to people who match all of these:" : "."}`}
               </p>
-              <AudienceFilters audience={audience} onChange={setAudience} tags={tags} clientTags={clientTags} readOnly={readOnly || !!saved} />
+              <AudienceFilters audience={audience} onChange={setAudience} tags={tags} clientTags={clientTags} industries={industries} readOnly={readOnly || !!saved} />
             </div>
           </section>
         </div>
@@ -432,7 +434,7 @@ export function CampaignEditor({
   );
 }
 
-function NameAudienceDialog({ onClose, onSave }: { onClose: () => void; onSave: (name: string) => Promise<void> }) {
+export function NameAudienceDialog({ onClose, onSave }: { onClose: () => void; onSave: (name: string) => Promise<void> }) {
   const [audienceName, setAudienceName] = useState("");
   const [pending, start] = useTransition();
   const submit = () => start(() => onSave(audienceName.trim()));
@@ -470,7 +472,7 @@ function NameAudienceDialog({ onClose, onSave }: { onClose: () => void; onSave: 
   );
 }
 
-function ScheduleDialog({ campaignId, count, onClose }: { campaignId: string; count: number; onClose: () => void }) {
+export function ScheduleDialog({ campaignId, count, onClose }: { campaignId: string; count: number; onClose: () => void }) {
   const { workspace } = useApp();
   const tz = workspace.timezone;
   const [day, setDay] = useState(dayFromToday(tz, 1));

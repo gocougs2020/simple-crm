@@ -6,9 +6,10 @@ import { Segmented } from "@/components/activity/composer";
 import { Tag } from "@/components/ui/badge";
 import { Checkbox, Input } from "@/components/ui/field";
 import type { CampaignAudience } from "@/db/schema";
+import { appConfig } from "@/app.config";
 import { churnReasons, clientCategories, clientCategoryLabels } from "@/lib/constants";
 
-type ListKey = "tags" | "excludeTags" | "ownerIds" | "clientCategories" | "pipelineIds" | "stageIds" | "serviceIds" | "churnReasons" | "clientTags";
+type ListKey = "tags" | "excludeTags" | "ownerIds" | "clientCategories" | "pipelineIds" | "stageIds" | "serviceIds" | "churnReasons" | "clientTags" | "organizationIndustries";
 
 /** Whether any filter is set, so the summary can say "everyone" or "people who match all of these". */
 export function hasFilters(a: CampaignAudience) {
@@ -26,12 +27,15 @@ export function AudienceFilters({
   onChange,
   tags,
   clientTags,
+  industries = [],
   readOnly,
 }: {
   audience: CampaignAudience;
   onChange: (fn: (a: CampaignAudience) => CampaignAudience) => void;
   tags: string[];
   clientTags: string[];
+  /** Organizations' industries, to filter by the company people work at. */
+  industries?: string[];
   readOnly?: boolean;
 }) {
   const { team, pipelines, catalog, customFields } = useApp();
@@ -47,15 +51,17 @@ export function AudienceFilters({
       return { ...a, [key]: raw && n > 0 ? Math.min(n, 3650) : undefined };
     });
   const choosable = customFields.filter((f) => f.entityType === "person" && (f.type === "select" || f.type === "multiselect" || f.type === "checkbox"));
-  const toggleCustom = (key: string, value: string) =>
+  const toggleField = (list: "customFields" | "organizationFields", key: string, value: string) =>
     onChange((a) => {
-      const current = a.customFields ?? [];
+      const current = a[list] ?? [];
       const values = current.find((f) => f.key === key)?.values ?? [];
       const nextValues = values.includes(value) ? values.filter((v) => v !== value) : [...values, value];
       const rest = current.filter((f) => f.key !== key);
       const next = nextValues.length ? [...rest, { key, values: nextValues }] : rest;
-      return { ...a, customFields: next.length ? next : undefined };
+      return { ...a, [list]: next.length ? next : undefined };
     });
+  const toggleCustom = (key: string, value: string) => toggleField("customFields", key, value);
+  const orgChoosable = customFields.filter((f) => f.entityType === "organization" && (f.type === "select" || f.type === "multiselect" || f.type === "checkbox"));
 
   return (
     <div className={clsx("flex flex-col gap-3", readOnly && "pointer-events-none opacity-70")} aria-disabled={readOnly || undefined}>
@@ -92,6 +98,30 @@ export function AudienceFilters({
           onToggle={(v) => toggleCustom(f.key, v)}
         />
       ))}
+      <div className="flex flex-col gap-3 border-t border-line pt-3">
+        <Checkbox
+          checked={!!audience.decisionMakersOnly}
+          onChange={(e) => onChange((a) => ({ ...a, decisionMakersOnly: e.target.checked || undefined }))}
+          label={<span className="text-[13px]">Only {appConfig.records.keyContactLabel.toLowerCase()}s (people starred at their organization)</span>}
+        />
+        {industries.length || audience.organizationIndustries?.length ? (
+          <ChipGroup
+            label="At organizations in"
+            options={[...new Set([...industries, ...(audience.organizationIndustries ?? [])])].map((i) => ({ value: i, label: i }))}
+            selected={audience.organizationIndustries ?? []}
+            onToggle={(v) => toggle("organizationIndustries", v)}
+          />
+        ) : null}
+        {orgChoosable.map((f) => (
+          <ChipGroup
+            key={f.id}
+            label={`Organization: ${f.label}`}
+            options={f.type === "checkbox" ? [{ value: "true", label: "Yes" }, { value: "false", label: "No" }] : f.options.map((o) => ({ value: o, label: o }))}
+            selected={audience.organizationFields?.find((c) => c.key === f.key)?.values ?? []}
+            onToggle={(v) => toggleField("organizationFields", f.key, v)}
+          />
+        ))}
+      </div>
       <ClientFilters audience={audience} onChange={onChange} toggle={toggle} pipelines={pipelines} catalog={catalog} clientTags={clientTags} />
     </div>
   );

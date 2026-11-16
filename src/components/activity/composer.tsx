@@ -22,6 +22,8 @@ import { RichText, type RichTextHandle } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
 import { activityLabels, callOutcomes, meetingOutcomes, type ActivityType } from "@/lib/constants";
 import { dayFromToday, timeKey, zonedTime } from "@/lib/format";
+import { CallButton } from "@/components/phone/contact-actions";
+import { TextComposer } from "@/components/phone/text-composer";
 import { EmailComposer, type EmailRecipient } from "./email-composer";
 import { useUploader } from "@/components/files/files-panel";
 
@@ -41,7 +43,7 @@ export type Links = { personId?: string | null; organizationId?: string | null; 
  * what that kind of activity needs; everything defaults to "now, by me", so
  * logging a call is two clicks and a sentence.
  */
-export function Composer({ links, recipient, initialType = "note" }: { links: Links; recipient?: EmailRecipient | null; initialType?: ActivityType }) {
+export function Composer({ links, recipient, initialType = "note" }: { links: Links; recipient?: (EmailRecipient & { phone?: string | null; textOptedOut?: boolean }) | null; initialType?: ActivityType }) {
   const [type, setType] = useState<ActivityType>(initialType);
   const { canEdit } = useApp();
   // Viewers read the timeline but can't log to it.
@@ -71,7 +73,16 @@ export function Composer({ links, recipient, initialType = "note" }: { links: Li
         })}
       </div>
       <div className="p-3">
-        {type === "email" ? <EmailTab links={links} recipient={recipient} /> : <ActivityForm key={type} type={type} links={links} />}
+        {type === "email" ? (
+          <EmailTab links={links} recipient={recipient} />
+        ) : type === "text" ? (
+          <TextTab links={links} recipient={recipient} />
+        ) : (
+          <>
+            {type === "call" && recipient?.phone ? <CallNow links={links} recipient={recipient} /> : null}
+            <ActivityForm key={type} type={type} links={links} />
+          </>
+        )}
       </div>
     </div>
   );
@@ -93,6 +104,48 @@ function EmailTab({ links, recipient }: { links: Links; recipient?: EmailRecipie
         {mode === "send" && !recipient?.email ? <span className="ml-2 text-[12px] text-muted">Add an email address to this person first.</span> : null}
       </div>
       {mode === "send" && recipient?.email ? <EmailComposer links={links} recipient={recipient} /> : mode === "log" ? <ActivityForm type="email" links={links} /> : null}
+    </div>
+  );
+}
+
+/** Texting through the team's numbers when it's set up and the person has a phone; logging a text sent some other way otherwise. */
+function TextTab({ links, recipient }: { links: Links; recipient?: (EmailRecipient & { phone?: string | null; textOptedOut?: boolean }) | null }) {
+  const { comms } = useApp();
+  const canSend = comms.texting && !!recipient?.phone;
+  const [mode, setMode] = useState<"send" | "log">(canSend ? "send" : "log");
+  if (!comms.texting) return <ActivityForm type="text" links={links} />;
+  return (
+    <div>
+      <div className="mb-3 flex items-center gap-1">
+        <Segmented
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: "send", label: "Send from CRM" },
+            { value: "log", label: "Log a text" },
+          ]}
+        />
+        {mode === "send" && !recipient?.phone ? <span className="ml-2 text-[12px] text-muted">{recipient ? "Add a phone number to this person first." : "Text a person from their page."}</span> : null}
+      </div>
+      {mode === "send" && recipient?.phone ? (
+        <TextComposer recipient={{ personId: recipient.personId, name: recipient.name, phone: recipient.phone, optedOut: recipient.textOptedOut }} clientId={links.clientId} />
+      ) : mode === "log" ? (
+        <ActivityForm type="text" links={links} />
+      ) : null}
+    </div>
+  );
+}
+
+/** "Call Sam now" above the call form, when calling from the browser is set up. The call logs itself; this form is for calls made some other way. */
+function CallNow({ links, recipient }: { links: Links; recipient: EmailRecipient & { phone?: string | null } }) {
+  const { comms } = useApp();
+  if (!comms.calling) return null;
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-sunken px-3 py-2">
+      <span className="min-w-0 flex-1 text-[13px] text-secondary">
+        Call {recipient.name} from the browser. It&apos;s logged here with how long it lasted, and you can take notes as you talk.
+      </span>
+      <CallButton target={{ name: recipient.name, phone: recipient.phone, personId: recipient.personId, clientId: links.clientId }} variant="primary" label="Call now" />
     </div>
   );
 }
