@@ -1,5 +1,6 @@
-import { experimental_transcribe as transcribe, gateway } from "ai";
+import { experimental_transcribe as transcribe } from "ai";
 import { appConfig } from "@/app.config";
+import { aiGateway } from "@/lib/agent/gateway";
 import { agentError, agentRequest } from "@/lib/agent/http";
 import { aiFeatures, aiOffMessage } from "@/lib/agent/config";
 
@@ -29,7 +30,7 @@ export async function POST(request: Request) {
 
   try {
     const result = await transcribe({
-      model: gateway.transcription(appConfig.agent.transcriptionModel),
+      model: aiGateway.transcription(appConfig.agent.transcriptionModel),
       audio: new Uint8Array(await file.arrayBuffer()),
       abortSignal: request.signal,
     });

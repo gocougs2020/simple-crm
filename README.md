@@ -40,7 +40,7 @@ Open http://localhost:3200 and create the owner account. With no environment var
 | Stripe | The billing card explains how to connect |
 | Files | Saved to `.data/uploads/` |
 | Push notifications | VAPID keys are made once and kept in `.data/vapid.json` |
-| AI features (assistant, voice, dictation, summaries) | Need `AI_GATEWAY_API_KEY` (Vercel dashboard → AI Gateway → API keys). Without it they hide themselves or say they aren't set up. Each can be turned off per deployment; see [docs/AGENT.md](docs/AGENT.md#configure-your-deployment) |
+| AI features (assistant, voice, dictation, summaries) | Need `AI_GATEWAY_API_KEY` (Vercel dashboard → AI Gateway → API keys), locally and when deployed. Without it they hide themselves. Each can be turned off per deployment; see [docs/AGENT.md](docs/AGENT.md#configure-your-deployment) |
 
 Settings → Workspace has **Add sample data** (local development only) to fill an empty workspace with realistic records.
 

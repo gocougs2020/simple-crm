@@ -4,6 +4,7 @@ import { z } from "zod";
 import { appConfig } from "@/app.config";
 import type { AgentMessage } from "@/db/schema";
 import { assistantActor } from "@/lib/agent/actor";
+import { aiGateway } from "@/lib/agent/gateway";
 import { agentError, agentRequest, readJson } from "@/lib/agent/http";
 import { mergeIncoming } from "@/lib/agent/messages";
 import { agentInstructions } from "@/lib/agent/prompt";
@@ -60,7 +61,7 @@ export async function POST(request: Request) {
   if (merged.submitted) await saveMessages(user.id, thread.id, messages as AgentMessage[], { touched: true });
 
   const result = streamText({
-    model: appConfig.agent.chatModel,
+    model: aiGateway(appConfig.agent.chatModel),
     reasoning: appConfig.agent.chatReasoning,
     system: agentInstructions({
       user,

@@ -23,7 +23,7 @@ Import the repository in Vercel. `vercel.json` sets the build command (`pnpm db:
 | `RESEND_WEBHOOK_SECRET` | Optional. Only if you create the Resend webhook yourself; otherwise Settings → Email domains → Connect webhook creates it and stores its secret. A webhook you create yourself needs the `inbox.*` events and, for delivery tracking, `email.sent`, `email.delivered`, `email.delivery_delayed`, `email.bounced`, `email.complained`, `email.failed` and `email.suppressed` |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Optional, for push notifications. Generate once with `pnpm dlx web-push generate-vapid-keys` and keep them: changing them turns notifications off on every device until people turn them on again |
 | `VAPID_SUBJECT` | Optional. A `mailto:` or `https:` contact for push services, e.g. `mailto:it@acme.com`. Defaults to `NEXT_PUBLIC_SITE_URL` |
-| `AI_GATEWAY_API_KEY` | Only outside Vercel. On Vercel the assistant authenticates to AI Gateway with the deployment's OIDC token, so leave it unset. See [AGENT.md](AGENT.md) |
+| `AI_GATEWAY_API_KEY` | Required for the AI features (assistant, voice, dictation, summaries), on Vercel too. Create it in the Vercel dashboard → AI Gateway → API keys and set a budget on it: that budget caps what the CRM spends on AI. Without it the AI features are hidden. See [AGENT.md](AGENT.md) |
 | `NEXT_PUBLIC_APP_NAME` | Optional. Product name in the browser tab, e.g. `Acme CRM`. Default `CRM` |
 | `NEXT_PUBLIC_BRAND_COLOR` | Optional. Brand color for buttons and selected states, e.g. `#2f629f` |
 | `NEXT_PUBLIC_APP_CONFIG` | Optional. JSON overrides for anything in `app.config.ts`. See [THEMING.md](THEMING.md) |
@@ -53,7 +53,7 @@ Open the deployment. The first visit goes to **Set up your CRM**: the person who
 
 ## Optional
 
-- **The assistant** works on Vercel with no setup: AI Gateway authenticates with the deployment's OIDC token and bills the Vercel team. Set a spending limit in the Vercel dashboard (AI Gateway → Settings). `agent.enabled: false` in `NEXT_PUBLIC_APP_CONFIG` hides it.
+- **The AI features** (assistant, voice, dictation, summaries) need `AI_GATEWAY_API_KEY`; they never fall back to the deployment's OIDC token, so the key's budget is the ceiling on AI spend. Each can be turned off with `agent.*` in `NEXT_PUBLIC_APP_CONFIG` (see [AGENT.md](AGENT.md#configure-your-deployment)).
 - **On phones:** open the CRM in Safari (iPhone, iPad) and tap Share → Add to Home Screen, or in Chrome (Android) tap Install app. Then Settings → Notifications → Turn on notifications on that device. iPhones and iPads only allow notifications for the installed app. The same page turns on the daily and weekly agenda emails, which need Resend (`RESEND_API_KEY`, `RESEND_FROM`).
 - **Custom domain:** add it in Vercel, then update `NEXT_PUBLIC_SITE_URL`.
 - **Deployment protection:** the app has its own login, but you can also turn on Vercel Authentication for preview deployments.
