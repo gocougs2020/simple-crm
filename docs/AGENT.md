@@ -17,6 +17,7 @@ It works on the teammate's signed-in session. There's no API key to create and n
 - **Archive and delete wait for a button.** In text chat they pause with a confirm card (the AI SDK's tool approval). Voice chat doesn't offer them at all.
 - **It knows the context:** who's asking, their role and user id ("assign it to me"), today's date in the workspace's time zone, and the page open behind the panel ("summarize this client").
 - **It can't send email or texts.** It points the teammate to the record's composer instead.
+- **It can read the organization's own website**, when the deployment connects a [knowledge source](KNOWLEDGE.md): services, team, articles and resources, through the `get_knowledge` tool. Its instructions then name the source and tell it to look the organization's own facts up there and link what it finds, instead of answering from memory.
 
 ## Threads
 
@@ -55,7 +56,7 @@ The assistant, voice, dictation and summaries use [Vercel AI Gateway](https://ve
 
 Everything about the AI features is a setting, so a fork or a self-hosted copy changes environment variables, never code. Two kinds:
 
-- **Secrets** stay in server-only environment variables: `AI_GATEWAY_API_KEY` (required for any AI feature), plus the existing `RESEND_API_KEY`, `VAPID_PRIVATE_KEY`, `CRON_SECRET` and `STRIPE_SECRET_KEY`.
+- **Secrets** stay in server-only environment variables: `AI_GATEWAY_API_KEY` (required for any AI feature), `KNOWLEDGE_API_URL` and `KNOWLEDGE_API_KEY` for an optional [knowledge source](KNOWLEDGE.md), plus the existing `RESEND_API_KEY`, `VAPID_PRIVATE_KEY`, `CRON_SECRET` and `STRIPE_SECRET_KEY`.
 - **Choices** (which features are on, which models, the assistant's name and suggestions) are `agent.*` in `app.config.ts`. A deployment overrides any of them with `NEXT_PUBLIC_APP_CONFIG`, without touching the file. They're public (compiled into the page, since voice chat picks its model in the browser) and need a redeploy to change.
 
 For example, a deployment that keeps chat and dictation, turns voice chat off and summarizes with a cheaper model:

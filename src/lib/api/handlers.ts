@@ -7,6 +7,7 @@ import * as activities from "@/lib/crm/service/activities";
 import * as clients from "@/lib/crm/service/clients";
 import * as records from "@/lib/crm/service/records";
 import { NotFoundError } from "@/lib/errors";
+import { fetchKnowledge } from "@/lib/knowledge/source";
 import { permissions } from "@/lib/permissions";
 import { getWorkspace } from "@/lib/workspace";
 import type { OperationId, Operations } from "./operations";
@@ -236,4 +237,7 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
   listServices: async () => ({ data: await q.listServices(), nextCursor: null }),
   listUsers: async () => ({ data: await q.listUsers(), nextCursor: null }),
   listCustomFields: async (_a, { query }) => ({ data: await q.listCustomFields(query.entityType), nextCursor: null }),
+
+  // Knowledge
+  getKnowledge: (_a, { query }) => fetchKnowledge(query.path ?? "/"),
 };

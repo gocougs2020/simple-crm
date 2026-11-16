@@ -2,6 +2,7 @@ import "server-only";
 import { jsonSchema, tool, type ToolSet } from "ai";
 import { internalError, toApiError } from "@/lib/api/errors";
 import { executeOperation } from "@/lib/api/execute";
+import { deploymentToolDescription, enabledFeatures } from "@/lib/api/features";
 import type { HandlerContext } from "@/lib/api/handlers";
 import { operations } from "@/lib/api/operations";
 import { can, type Actor } from "@/lib/crm/actor";
@@ -18,14 +19,14 @@ export { needsConfirmation } from "./policy";
  */
 
 /** The tools this actor may use. */
-export const allowedTools = (actor: Actor, opts: { voice?: boolean } = {}) => allowedOperations((p) => can(actor, p), opts);
+export const allowedTools = (actor: Actor, opts: { voice?: boolean } = {}) => allowedOperations((p) => can(actor, p), { ...opts, features: enabledFeatures() });
 
 export function agentTools(actor: Actor, ctx: HandlerContext, opts: { voice?: boolean } = {}): ToolSet {
   const tools: ToolSet = {};
   for (const op of allowedTools(actor, opts)) {
     const def = toolFor(op);
     tools[op.tool] = tool({
-      description: def.description,
+      description: deploymentToolDescription(op.tool, def.description),
       inputSchema: jsonSchema(def.inputSchema as Parameters<typeof jsonSchema>[0]),
       execute: (args) => runTool(actor, op.tool, (args ?? {}) as Record<string, unknown>, ctx, opts),
     });
