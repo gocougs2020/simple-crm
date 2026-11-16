@@ -22,7 +22,7 @@ It's built to cover the 80% of CRM work a small team does every day, and to stay
 - **Team** is invite-only with email-and-password sign-in, roles (owner, admin, member, viewer) and deactivation that keeps history intact.
 - **API and MCP.** A REST API for integrations, secured with API keys, and an MCP server so each teammate can connect their own AI agent with their own role's access. Docs for every endpoint are served at `/developers`. See [docs/API.md](docs/API.md).
 - **An assistant in every page.** Ask about clients and tasks, or have it log calls, add tasks and update records, by typing, dictating or talking it through in a live voice chat. It acts as you, with your role, so there's no key to set up; conversations are saved per teammate. See [docs/AGENT.md](docs/AGENT.md).
-- **On your phone.** Install the CRM to your home screen and get push notifications for tasks assigned to you, tasks coming due, records you now own and replies from your contacts, chosen per device.
+- **On your phone, and in your inbox.** Install the CRM to your home screen and get push notifications for tasks assigned to you, tasks coming due, a morning summary of today's tasks, meetings 15 minutes before they start, records you now own and replies from your contacts, chosen per device. A daily or weekly agenda email lists your meetings and what's due or overdue.
 
 ## Run it locally
 

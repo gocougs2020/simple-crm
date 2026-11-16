@@ -7,7 +7,9 @@ import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
 import { ActionError, actionUser } from "@/lib/auth";
-import { notificationKinds } from "@/lib/constants";
+import { emailDigestKinds, notificationKinds } from "@/lib/constants";
+import { sendAgenda } from "@/lib/notifications/agenda";
+import { rateLimit } from "@/lib/rate-limit";
 import { deviceLabel, isPushEndpoint } from "@/lib/push/device";
 import { deliver } from "@/lib/push/notify";
 import { getVapid } from "@/lib/push/vapid";
@@ -93,5 +95,33 @@ export async function sendTestNotification(): Promise<Result<{ delivered: number
     if (!delivered) throw new ActionError("The test didn't reach any device. Turn notifications off and on again on this device.");
     refresh();
     return { delivered };
+  });
+}
+
+const digests = z.object({ daily: z.boolean(), weekly: z.boolean() });
+
+/** Turns the daily and weekly agenda emails on or off for the signed-in teammate. */
+export async function setEmailDigests(input: z.input<typeof digests>): Promise<Result> {
+  return run(async () => {
+    const user = await actionUser();
+    const data = digests.parse(input);
+    const db = await getDb();
+    // Merged in the database, so a view preference saved at the same moment isn't lost.
+    await db
+      .update(schema.users)
+      .set({ prefs: sql`coalesce(${schema.users.prefs}, '{}'::jsonb) || ${JSON.stringify({ emailDigests: data })}::jsonb` })
+      .where(eq(schema.users.id, user.id));
+    refresh();
+  });
+}
+
+/** Sends this morning's agenda now, so a teammate can see what it looks like. */
+export async function sendAgendaPreview(kind: string): Promise<Result<{ to: string }>> {
+  return run(async () => {
+    const user = await actionUser();
+    const which = z.enum(emailDigestKinds).parse(kind);
+    if ((await rateLimit("agenda-preview", user.id, { limit: 10, windowMs: 3600_000 })).limited) throw new ActionError("That's a lot of previews. Try again in an hour.");
+    await sendAgenda(user, which, new Date(), { preview: true });
+    return { to: user.email };
   });
 }

@@ -1,5 +1,5 @@
 import { bigint, boolean, date, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
-import type { ActivityType, ApiKeyKind, BillingInterval, ClientCategory, ClientHealth, CustomFieldType, EntityType, NotificationKind, UserRole } from "@/lib/constants";
+import type { ActivityType, ApiKeyKind, BillingInterval, ClientCategory, ClientHealth, CustomFieldType, EmailDigestKind, EntityType, NotificationKind, UserRole } from "@/lib/constants";
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
@@ -16,6 +16,8 @@ export type UserPrefs = {
   organizationsSort?: string;
   clientsSort?: string;
   timelineFilter?: string;
+  /** Agenda emails this teammate wants (Settings → Notifications). Off unless turned on. */
+  emailDigests?: Partial<Record<EmailDigestKind, boolean>>;
 };
 
 // ─── Team and access ─────────────────────────────────────────────────────
@@ -851,8 +853,9 @@ export const pushSubscriptions = pgTable(
 );
 
 /**
- * Every notification sent, one row per teammate. `dedupeKey` makes sending
- * idempotent: the cron and a retried webhook can both try, only one sends.
+ * Every notification sent, push or agenda email, one row per teammate.
+ * `dedupeKey` makes sending idempotent: the cron and a retried webhook can
+ * both try, only one sends.
  */
 export const notifications = pgTable(
   "notifications",
@@ -861,7 +864,8 @@ export const notifications = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    kind: text("kind").$type<NotificationKind | "test">().notNull(),
+    /** A push alert, a push test, or an agenda email (`daily_email`, `weekly_email`), which uses the same dedupe key to go out once. */
+    kind: text("kind").$type<NotificationKind | "test" | `${EmailDigestKind}_email`>().notNull(),
     title: text("title").notNull(),
     body: text("body"),
     /** Where tapping it goes, a path on this site. */

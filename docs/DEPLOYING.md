@@ -54,7 +54,7 @@ Open the deployment. The first visit goes to **Set up your CRM**: the person who
 ## Optional
 
 - **The assistant** works on Vercel with no setup: AI Gateway authenticates with the deployment's OIDC token and bills the Vercel team. Set a spending limit in the Vercel dashboard (AI Gateway → Settings). `agent.enabled: false` in `NEXT_PUBLIC_APP_CONFIG` hides it.
-- **On phones:** open the CRM in Safari (iPhone, iPad) and tap Share → Add to Home Screen, or in Chrome (Android) tap Install app. Then Settings → Notifications → Turn on notifications on that device. iPhones and iPads only allow notifications for the installed app.
+- **On phones:** open the CRM in Safari (iPhone, iPad) and tap Share → Add to Home Screen, or in Chrome (Android) tap Install app. Then Settings → Notifications → Turn on notifications on that device. iPhones and iPads only allow notifications for the installed app. The same page turns on the daily and weekly agenda emails, which need Resend (`RESEND_API_KEY`, `RESEND_FROM`).
 - **Custom domain:** add it in Vercel, then update `NEXT_PUBLIC_SITE_URL`.
 - **Deployment protection:** the app has its own login, but you can also turn on Vercel Authentication for preview deployments.
 - **Analytics and Speed Insights** load automatically on Vercel; enable them in the project to see data.

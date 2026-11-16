@@ -71,7 +71,7 @@ export async function deliver(userId: string, notice: Notice): Promise<number> {
       webpush.sendNotification({ endpoint: d.endpoint, keys: { p256dh: d.p256dh, auth: d.auth } }, payload, {
         vapidDetails: { subject: vapid.subject, publicKey: vapid.publicKey, privateKey: vapid.privateKey },
         TTL: TTL_SECONDS,
-        urgency: notice.kind === "task_due" || notice.kind === "test" ? "high" : "normal",
+        urgency: notice.kind === "task_due" || notice.kind === "meeting_soon" || notice.kind === "test" ? "high" : "normal",
         timeout: 10_000,
       }),
     ),

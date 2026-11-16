@@ -2,14 +2,15 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { BellAlertIcon, DevicePhoneMobileIcon, ComputerDesktopIcon } from "@heroicons/react/24/outline";
-import { removeDevice, sendTestNotification, setDeviceAlerts, subscribeDevice } from "@/actions/notifications";
+import { removeDevice, sendAgendaPreview, sendTestNotification, setDeviceAlerts, setEmailDigests, subscribeDevice } from "@/actions/notifications";
 import { useApp } from "@/components/app-context";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
-import { notificationKinds, notificationLabels, type NotificationKind } from "@/lib/constants";
+import { emailDigestKinds, emailDigestLabels, notificationKinds, notificationLabels, type EmailDigestKind, type NotificationKind } from "@/lib/constants";
 import { formatAgo } from "@/lib/format";
+import { morningHour } from "@/lib/notifications/schedule";
 import { currentSubscription, isIos, isStandalone, keyBytes, pushSupported, registerServiceWorker } from "@/lib/push/client";
 import { Section } from "./nav";
 
@@ -96,8 +97,9 @@ export function NotificationSettings({ publicKey, devices }: { publicKey: string
 
   return (
     <>
+      <EmailDigests />
       <Section
-        title="This device"
+        title="Push on this device"
         description={`Get alerts from ${workspace.name}'s CRM on this browser, or on your phone once it's installed. Each device has its own alerts.`}
         action={devices.length ? <Button size="sm" onClick={test} loading={pending}>Send a test</Button> : null}
       >
@@ -125,7 +127,7 @@ export function NotificationSettings({ publicKey, devices }: { publicKey: string
       </Section>
 
       {others.length ? (
-        <Section title="Other devices" description="Browsers and phones where you turned notifications on. Remove the ones you don't use anymore.">
+        <Section title="Push on other devices" description="Browsers and phones where you turned notifications on. Remove the ones you don't use anymore.">
           <ul className="divide-y divide-line">
             {others.map((d) => (
               <li key={d.id} className="p-5">
@@ -170,3 +172,46 @@ function DeviceRow({ device, current, pending, tz, onToggle, onRemove }: { devic
     </div>
   );
 }
+
+/** The daily and weekly agenda emails: on or off for this teammate, with a preview to see what they look like. */
+function EmailDigests() {
+  const { viewer, services } = useApp();
+  const [wants, setWants] = useState({ daily: !!viewer.prefs.emailDigests?.daily, weekly: !!viewer.prefs.emailDigests?.weekly });
+  const [pending, start] = useTransition();
+  const toggle = (kind: EmailDigestKind, on: boolean) => {
+    const next = { ...wants, [kind]: on };
+    setWants(next);
+    start(async () => {
+      const r = await setEmailDigests(next);
+      if (!r.ok) {
+        setWants(wants);
+        toast.error(r.error);
+      }
+    });
+  };
+  const preview = (kind: EmailDigestKind) =>
+    start(async () => {
+      const r = await sendAgendaPreview(kind);
+      if (r.ok) toast.success(services.email ? `Sent to ${r.data.to}` : "Email isn't connected here, so the preview was printed to the server log.");
+      else toast.error(r.error);
+    });
+  return (
+    <Section title="Email" description={`A morning email with your meetings and tasks. It goes out around ${hourLabel(morningHour())} in the workspace's time zone, and not at all on days with nothing on it.`}>
+      <ul className="divide-y divide-line">
+        {emailDigestKinds.map((k) => (
+          <li key={k} className="flex flex-wrap items-start justify-between gap-3 p-5">
+            <div className="min-w-0 flex-1">
+              <Checkbox label={emailDigestLabels[k].label} checked={wants[k]} disabled={pending} onChange={(e) => toggle(k, e.target.checked)} />
+              <p className="mt-0.5 pl-6 text-[12px] text-muted">{emailDigestLabels[k].hint}</p>
+            </div>
+            <Button size="sm" variant="ghost" onClick={() => preview(k)} disabled={pending}>
+              Send me a preview
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
+const hourLabel = (h: number) => `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}`;

@@ -109,20 +109,27 @@ A chat panel in the bottom right corner that reads and changes records as the si
 - **Installable.** `src/app/manifest.ts` and the generated icons (`icon.tsx`, `apple-icon.tsx`, from `app.config.ts`'s `pwa` settings and brand color) make the CRM installable from the browser: Add to Home Screen on iPhone and iPad, Install app on Android and desktop. It opens full screen and respects the notch (`viewport-fit=cover`, safe-area padding in the shell and the assistant). The proxy lets the manifest, icons and service worker through without a session, since phones fetch them before anyone signs in.
 - **The service worker** (`public/sw.js`, always served fresh) shows notifications and, when one is tapped, focuses an open CRM window and navigates it, or opens one. It doesn't cache pages: everything is behind a login and changes constantly.
 - **Push** is Web Push with VAPID keys (`src/lib/push/vapid.ts`; locally a pair is made in `.data/vapid.json`, deployed it needs `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`). Settings → Notifications turns it on per device and picks that device's alerts. iPhones and iPads need the app installed to the Home Screen first; the page says so.
-- **What notifies** (`src/lib/push/triggers.ts`, called from the service layer, so the browser, API, MCP and the assistant all notify the same way, and nobody hears about their own change):
+- **What notifies** (`src/lib/push/triggers.ts`, called from the service layer, so the browser, API, MCP and the assistant all notify the same way, and nobody hears about their own change). Each device picks its own:
 
-  | Alert | When |
+  | Push alert | When |
   | --- | --- |
   | Tasks assigned to me | Someone else creates or reassigns a task, or a planned call or meeting, to you |
-  | Tasks coming due | 15 minutes before a task with a time; tasks with only a date in one summary from 8 AM workspace time (the notifications cron) |
+  | Tasks with a time | On the day, 15 minutes before a task or planned call with a time is due |
+  | Today's tasks, in the morning | One summary of today's tasks with no time, from `notifications.morningHour` (7 AM) workspace time |
+  | Meetings | 15 minutes before each of your meetings |
   | Records assigned to me | Someone else makes you the owner of a client, person or organization |
   | Replies from my contacts | Mail arrives in a connected inbox from a record you own (received in the last day, so a first sync doesn't flood you) |
 
+  The scheduled ones run on the quarter-hour notifications cron (`src/lib/push/due.ts`, rules in `src/lib/notifications/schedule.ts`), so a reminder lands 0–15 minutes before its time: exactly 15 for meetings on the quarter hour.
+- **Agenda emails** (`src/lib/notifications/agenda.ts`, template `src/emails/agenda.tsx`), chosen per teammate (`users.prefs.emailDigests`), off until turned on:
+  - **Daily**, every weekday morning: today's meetings, tasks due today and anything overdue.
+  - **Weekly**, every Monday morning: this week's meetings, tasks due today or overdue, and tasks coming up later in the week. On a Monday with both on, only the weekly one goes out.
+  - Sent from `notifications.morningHour` in the workspace's time zone by the same cron, once per teammate per day (claimed in `notifications` before sending, released if the send fails), and skipped when there's nothing on the agenda. Settings → Notifications can send a preview.
 - **Sending** happens after the response (`after()`), so a slow push service never slows the change. Each notification is a row in `notifications` with a dedupe key, so a retried webhook or overlapping crons send it once. A device the push service reports gone (404/410) is deleted; one that fails 5 times in a row is dropped.
 
 ## Background jobs
 
-Vercel Cron, all on the same quarter-hour blocks so the database can scale to zero between them (Neon suspends after a few idle minutes): the campaign cron, the inbox sync and the notifications cron (tasks coming due) run at :00, :15, :30 and :45, and the delivery check runs at :00. Nothing runs more often than every 15 minutes, and nothing in the browser polls. Scheduled campaigns are rounded up to the next quarter hour, so they go out exactly when the cron runs. Work someone starts by hand ("Send now", "Sync now") runs right away.
+Vercel Cron, all on the same quarter-hour blocks so the database can scale to zero between them (Neon suspends after a few idle minutes): the campaign cron, the inbox sync and the notifications cron (meeting and task pushes, morning summaries and agenda emails) run at :00, :15, :30 and :45, and the delivery check runs at :00. Nothing runs more often than every 15 minutes, and nothing in the browser polls. Scheduled campaigns are rounded up to the next quarter hour, so they go out exactly when the cron runs. Work someone starts by hand ("Send now", "Sync now") runs right away.
 
 ## Stripe
 

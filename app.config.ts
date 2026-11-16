@@ -102,6 +102,10 @@ export type AppConfig = {
     suggestions: readonly string[];
     viewerSuggestions: readonly string[];
   };
+  notifications: {
+    /** The hour (0–23, workspace time zone) the morning push summary and agenda emails go out. */
+    morningHour: number;
+  };
   pwa: {
     /** Name under the icon on a phone's home screen (12 characters or fewer reads best). Defaults to `brand.name`. */
     shortName: string | null;
@@ -142,6 +146,9 @@ const defaults = {
     transcriptionModel: "spacexai/grok-stt",
     suggestions: ["What's on my plate today?", "Which clients need attention?", "Add a task to follow up with…", "Log a call with…"],
     viewerSuggestions: ["What's due today across the team?", "Which clients need attention?", "Summarize a client for me", "Who are our newest contacts?"],
+  },
+  notifications: {
+    morningHour: 7,
   },
   pwa: {
     shortName: null,
