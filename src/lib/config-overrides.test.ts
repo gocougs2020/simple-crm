@@ -9,7 +9,7 @@ const defaults: AppConfig = {
   theme: { brandColor: null, brandForeground: "#ffffff", tokens: {}, browserColor: "#fafafa" },
   layout: { defaultClientsView: "board" },
   email: { trackOpens: false, trackClicks: false },
-  agent: { enabled: true, name: "Assistant", chatModel: "a/chat", chatReasoning: "medium", titleModel: "a/title", voiceModel: "a/voice", transcriptionModel: "a/stt", suggestions: ["One"], viewerSuggestions: ["Two"] },
+  agent: { enabled: true, name: "Assistant", chatModel: "a/chat", chatReasoning: "medium", summaryModel: "a/sum", summaryReasoning: "low", titleModel: "a/title", voiceModel: "a/voice", transcriptionModel: "a/stt", suggestions: ["One"], viewerSuggestions: ["Two"] },
   notifications: { morningHour: 7 },
   pwa: { shortName: null, iconBackground: null, iconForeground: "#ffffff", backgroundColor: "#fafafa" },
 };

@@ -39,6 +39,7 @@ What [`app.config.ts`](../app.config.ts) controls:
 | `agent.name` | `"Assistant"` | The assistant's name in its panel, its replies and history |
 | `agent.chatModel`, `agent.titleModel`, `agent.voiceModel`, `agent.transcriptionModel` | GPT-6.1 Sol, Claude Haiku 5.5, Grok Voice 3.0, Grok STT | AI Gateway model ids (`creator/model`) for chat, thread titles, voice chat and dictation |
 | `agent.chatReasoning` | `"medium"` | Reasoning effort for chat: `"provider-default"`, `"none"`, `"minimal"`, `"low"`, `"medium"` or `"high"` |
+| `agent.summaryModel`, `agent.summaryReasoning` | GPT-6.1 Sol, `"low"` | The model and reasoning effort for the AI summary at the top of client, person and organization pages |
 | `agent.suggestions`, `agent.viewerSuggestions` | 4 prompts each | Suggested actions on a new chat, for teammates who can edit and for viewers. A prompt ending in `…` fills the composer instead of sending |
 | `notifications.morningHour` | `7` | The hour (0–23, workspace time zone) the morning push summary and the agenda emails go out |
 | `pwa.shortName` | `null` | Name under the icon on a phone's home screen. Defaults to `brand.name`; keep it to about 12 characters |

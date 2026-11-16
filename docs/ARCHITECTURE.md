@@ -39,7 +39,7 @@ app.config.ts        product defaults (name, theme, layout), overridable per dep
 | `agent_threads` | A teammate's conversations with the assistant: title and messages (AI SDK UI messages, as JSON). Private to them |
 | `push_subscriptions`, `notifications` | Devices that get push notifications (one per browser or installed app, each with its own alert types), and every notification sent, deduplicated by key |
 | `workspace` | One row: name, currency, time zone, email brand kit |
-| `organizations`, `people`, `clients` | The records. Each has an owner, `custom` JSON for custom fields, `last_activity_at`, and `archived_at` (soft delete) |
+| `organizations`, `people`, `clients` | The records. Each has an owner, `custom` JSON for custom fields, `last_activity_at`, `archived_at` (soft delete), and an AI summary (`summary`, `summary_at`, `summary_started_at`) refreshed daily ([AGENT.md](AGENT.md#record-summaries)) |
 | `pipelines`, `stages` | Each pipeline belongs to a client category. Stages carry a win probability (prospects) and a "needs attention" threshold in days |
 | `services`, `client_services` | What the workspace sells (Settings → Services), and which ones each client uses or used, at what price, from when to when |
 | `client_metrics` | Performance numbers logged over time per client ("Leads", "Days to fill") |
@@ -102,7 +102,7 @@ Choices worth knowing:
 
 ## The assistant
 
-A chat panel in the bottom right corner that reads and changes records as the signed-in teammate, with their role, through the same operations as MCP. Threads are saved per teammate; it can talk (speech to speech) and take dictation. Everything runs through Vercel AI Gateway. See [AGENT.md](AGENT.md).
+Record pages open with an AI summary of the record, shared by the team and rewritten once a day. A chat panel in the bottom right corner that reads and changes records as the signed-in teammate, with their role, through the same operations as MCP. Threads are saved per teammate; it can talk (speech to speech) and take dictation. Everything runs through Vercel AI Gateway. See [AGENT.md](AGENT.md).
 
 ## Phone app and notifications
 

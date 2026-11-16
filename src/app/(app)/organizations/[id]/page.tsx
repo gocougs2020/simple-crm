@@ -6,6 +6,7 @@ import { z } from "zod";
 import { BuildingOffice2Icon } from "@heroicons/react/24/outline";
 import { Composer } from "@/components/activity/composer";
 import { FocusLine } from "@/components/activity/focus-line";
+import { RecordSummary } from "@/components/records/record-summary";
 import { Timeline } from "@/components/activity/timeline";
 import { FilesCard } from "@/components/files/files-panel";
 import { OrganizationDetails, RelatedClients, RelatedPeople } from "@/components/records/details";
@@ -61,6 +62,7 @@ async function Organization({ params }: Pick<PageProps<"/organizations/[id]">, "
           </>
         }
       >
+        <RecordSummary entity="organization" id={id} summary={org.summary} summaryAt={org.summaryAt} />
         <FocusLine planned={tl.planned} lastContactAt={tl.lastContactAt} context={{ type: "organization", id }} />
         <Composer links={{ organizationId: id }} />
         <Timeline

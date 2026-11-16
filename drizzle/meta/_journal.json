@@ -71,6 +71,13 @@
       "when": 1794717649691,
       "tag": "0009_assistant-and-push",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794805450652,
+      "tag": "0010_record-summaries",
+      "breakpoints": true
     }
   ]
 }

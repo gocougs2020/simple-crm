@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { z } from "zod";
 import { Composer } from "@/components/activity/composer";
 import { FocusLine } from "@/components/activity/focus-line";
+import { RecordSummary } from "@/components/records/record-summary";
 import { Timeline } from "@/components/activity/timeline";
 import { BillingCard } from "@/components/clients/billing-card";
 import { CategoryActions, CategoryBadge, CategoryDate, HealthBadge } from "@/components/clients/client-controls";
@@ -105,6 +106,7 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
           </>
         }
       >
+        <RecordSummary entity="client" id={id} summary={client.summary} summaryAt={client.summaryAt} />
         <FocusLine planned={tl.planned} lastContactAt={tl.lastContactAt} context={{ type: "client", id, category: c }} />
         <Composer links={{ clientId: id }} recipient={person ? { personId: person.id, name: personName(person), email: person.email } : null} />
         <Timeline

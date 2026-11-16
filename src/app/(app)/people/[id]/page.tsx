@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { DynamicMarker } from "@/components/dynamic-marker";
 import { Composer } from "@/components/activity/composer";
 import { FocusLine } from "@/components/activity/focus-line";
+import { RecordSummary } from "@/components/records/record-summary";
 import { Timeline } from "@/components/activity/timeline";
 import { FilesCard } from "@/components/files/files-panel";
 import { OrganizationCard, PersonDetails, RelatedClients } from "@/components/records/details";
@@ -60,6 +61,7 @@ async function Person({ params }: Pick<PageProps<"/people/[id]">, "params">) {
           </>
         }
       >
+        <RecordSummary entity="person" id={id} summary={person.summary} summaryAt={person.summaryAt} />
         <FocusLine planned={tl.planned} lastContactAt={tl.lastContactAt} lastCampaignAt={person.lastCampaignAt} context={{ type: "person", id }} />
         <Composer links={{ personId: id }} recipient={{ personId: id, name, email: person.email }} />
         <Timeline planned={tl.planned} pinned={tl.pinned} past={tl.past} context={{ type: "person", id }} fileLinks={{ personId: id, organizationId: person.organizationId }} files={tl.files} emptyHint={`Log a call, note or email with ${person.firstName} above and it shows up here.`} />

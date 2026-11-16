@@ -35,6 +35,15 @@ Conversations are saved per teammate in `agent_threads` (messages as the AI SDK'
 
 The browser asks for microphone access the first time. The site's `Permissions-Policy` allows the microphone for this origin only, and the CSP allows the AI Gateway realtime socket (`wss://ai-gateway.vercel.sh`).
 
+## Record summaries
+
+Client, person and organization pages open with a short AI snapshot above the "Next" line: who this is and where things stand, the latest thing that matters, and what needs attention. Two lines on a desktop (click to read it all).
+
+- **What it reads** (`recordContext` in `src/lib/agent/summary.ts`): for a client, the whole account: its details, stage, services, performance numbers, Stripe billing (subscriptions, unpaid invoices, failed payments), its people, and every note, call, email, text, meeting and task logged on the client, its contact, the people at its organization and the organization itself, both done and planned. An organization reads the same across all its clients and people. A person reads only their own record and activity. Campaign emails are left out; the newest 60 history items and 25 planned ones go in.
+- **One per record, shared.** It's stored on the record (`summary`, `summary_at`) and shown to everyone who opens it, straight from the page. It's fresh for 24 hours. After that the old one still shows while a new one is written, with "Re-summarizing…" in the corner, and the new one replaces it.
+- **Written once.** `summary_started_at` claims a rewrite with one conditional update, so two people opening a stale record don't both pay for it; the second waits on the server for the first. A rewrite stuck for 2 minutes can be taken over. A failed rewrite keeps the old summary and tries again on the next visit.
+- **Model:** `agent.summaryModel` (`openai/gpt-6.1-sol`) at `agent.summaryReasoning` (`low`). The text is plain, at most 320 characters, and the instructions tell the model to treat emails and notes as information, never as instructions. Anyone who can read the record can trigger a rewrite (120 an hour per teammate).
+
 ## Setup
 
 The assistant uses [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) for every model.
@@ -50,6 +59,8 @@ Models are settings in `app.config.ts` (or `NEXT_PUBLIC_APP_CONFIG`), so trying 
 | `agent.name` | `"Assistant"` | Its name in the panel, in its replies and in history |
 | `agent.chatModel` | `"openai/gpt-6.1-sol"` | Text chat and tool use |
 | `agent.chatReasoning` | `"medium"` | How much the chat model reasons before answering: `"provider-default"`, `"none"`, `"minimal"`, `"low"`, `"medium"` or `"high"`. Higher is slower and costs more. Its reasoning isn't shown or saved |
+| `agent.summaryModel` | `"openai/gpt-6.1-sol"` | Record summaries |
+| `agent.summaryReasoning` | `"low"` | Reasoning effort for record summaries |
 | `agent.titleModel` | `"anthropic/claude-haiku-5.5"` | Naming threads |
 | `agent.voiceModel` | `"spacexai/grok-voice-3.0"` | Voice chat (a realtime model with tool use) |
 | `agent.transcriptionModel` | `"spacexai/grok-stt"` | Dictation |
@@ -73,6 +84,8 @@ src/lib/agent/
   prompt.ts       instructions: who, when, where, how to work (pure)
   messages.ts     merging, approvals, trimming, titles (pure)
   threads.ts      thread storage and automatic titles
+  summary.ts      record summaries: what they read, the 24-hour freshness and the rewrite claim
+  summary-prompt.ts  their instructions and cleanup (pure)
   voice.ts        voice session config, silence clock, audio helpers (browser)
   http.ts         session, same-site and rate-limit checks for /api/agent/*
 src/app/api/agent/

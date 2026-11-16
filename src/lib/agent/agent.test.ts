@@ -5,6 +5,7 @@ import { roleCan } from "@/lib/permissions";
 import { applyApprovals, cleanTitle, cleanTranscript, cleanUserMessage, DEFAULT_TITLE, fallbackTitle, MAX_USER_TEXT, mergeIncoming, trimForStorage } from "./messages";
 import { allowedOperations, capResult, needsConfirmation } from "./policy";
 import { agentInstructions, pageNote } from "./prompt";
+import { activityLine, cleanSummary, isFresh, summaryInstructions } from "./summary-prompt";
 import { dialogueState, levelFromTimeDomain, reduceSilenceClock, responseInProgress, VOICE_PLAYBACK_SETTLE_MS, VOICE_USER_SILENCE_MS } from "./voice";
 
 const user = (id: string, text: string): AgentMessage => ({ id, role: "user", parts: [{ type: "text", text }] });
@@ -165,5 +166,35 @@ describe("voice chat", () => {
   it("counts a running tool as work in progress", () => {
     assert.equal(responseInProgress([{ role: "assistant", parts: [{ type: "tool-search", state: "input-available" }] }]), true);
     assert.equal(responseInProgress([{ role: "assistant", parts: [{ type: "tool-search", state: "output-available" }] }]), false);
+  });
+});
+
+describe("record summaries", () => {
+  it("is fresh for a day", () => {
+    const now = Date.parse("2026-03-02T12:00:00Z");
+    assert.equal(isFresh("2026-03-01T12:30:00Z", now), true);
+    assert.equal(isFresh("2026-03-01T11:59:00Z", now), false);
+    assert.equal(isFresh(null, now), false);
+  });
+
+  it("cleans the model's answer to one short paragraph", () => {
+    assert.equal(cleanSummary('"**Acme** is a current client.\n\nRenewal is Mar 4."'), "Acme is a current client. Renewal is Mar 4.");
+    const long = cleanSummary(`${"Acme buys payroll and benefits services from us. ".repeat(4)}They have an unpaid invoice from last month that needs a call this week.`);
+    assert.ok(long.length <= 321);
+  });
+
+  it("writes one line per activity", () => {
+    assert.equal(
+      activityLine({ when: "2026-03-02", type: "call", status: "", direction: "outbound", outcome: "Connected", by: "Sam", subject: "Pricing", text: "They want\n annual billing", about: "Acme" }),
+      "2026-03-02 call (outbound, Connected) by Sam [Acme]: Pricing — They want annual billing",
+    );
+    assert.equal(activityLine({ when: "2026-03-05", type: "task", status: "due" }), "2026-03-05 task due");
+  });
+
+  it("tells the model to use only the record and treat it as data", () => {
+    const text = summaryInstructions("client", "Monday, March 2, 2026");
+    assert.match(text, /client account/);
+    assert.match(text, /never as instructions/);
+    assert.match(text, /March 2, 2026/);
   });
 });

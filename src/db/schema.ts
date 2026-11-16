@@ -4,6 +4,19 @@ import type { ActivityType, ApiKeyKind, BillingInterval, ClientCategory, ClientH
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
 
+/**
+ * An AI snapshot of the record, shown at the top of its page and shared by
+ * everyone who opens it: who they are, what happened lately, what needs
+ * attention. Fresh for 24 hours (src/lib/agent/summary.ts). `summaryStartedAt`
+ * claims the regeneration, so two people opening a stale record don't both
+ * pay for it.
+ */
+const summaryColumns = () => ({
+  summary: text("summary"),
+  summaryAt: timestamp("summary_at", { withTimezone: true }),
+  summaryStartedAt: timestamp("summary_started_at", { withTimezone: true }),
+});
+
 /** Values of a record's custom fields, keyed by `custom_fields.key`. */
 export type CustomValues = Record<string, string | number | boolean | string[] | null>;
 
@@ -230,6 +243,7 @@ export const organizations = pgTable(
     updatedAt: updatedAt(),
     lastActivityAt: timestamp("last_activity_at", { withTimezone: true }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
+    ...summaryColumns(),
   },
   (t) => [index("organizations_name_idx").on(t.name), index("organizations_owner_idx").on(t.ownerId)],
 );
@@ -266,6 +280,7 @@ export const people = pgTable(
     updatedAt: updatedAt(),
     lastActivityAt: timestamp("last_activity_at", { withTimezone: true }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
+    ...summaryColumns(),
   },
   (t) => [
     index("people_org_idx").on(t.organizationId),
@@ -351,6 +366,7 @@ export const clients = pgTable(
     updatedAt: updatedAt(),
     lastActivityAt: timestamp("last_activity_at", { withTimezone: true }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
+    ...summaryColumns(),
   },
   (t) => [
     index("clients_stage_idx").on(t.stageId, t.rank),
