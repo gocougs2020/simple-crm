@@ -10,6 +10,8 @@ import type { ModelName } from "./models";
  * page can read it.
  */
 export type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
+/** Parts of the API a deployment turns on with its own configuration. Their MCP and assistant tools only appear where they're set up. */
+export type OptionalFeature = "knowledge";
 type Obj = z.ZodObject;
 
 export type Operation<P extends Obj | undefined = Obj | undefined, Q extends Obj | undefined = Obj | undefined, B extends Obj | undefined = Obj | undefined> = {
@@ -33,6 +35,8 @@ export type Operation<P extends Obj | undefined = Obj | undefined, Q extends Obj
   toolDescription?: string;
   /** A request body for the docs' example. Generated from the schema when left out. */
   example?: Record<string, unknown>;
+  /** Only offered as a tool where this feature is set up (the REST endpoint explains how when it isn't). */
+  feature?: OptionalFeature;
 };
 
 export const op = <P extends Obj | undefined = undefined, Q extends Obj | undefined = undefined, B extends Obj | undefined = undefined>(o: Operation<P, Q, B>) => o;

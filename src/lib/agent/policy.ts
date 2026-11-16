@@ -1,5 +1,6 @@
+import type { OptionalFeature } from "@/lib/api/spec";
 import type { Permission } from "@/lib/permissions";
-import { toolOperations } from "@/lib/mcp/protocol";
+import { offered, toolOperations } from "@/lib/mcp/protocol";
 
 /**
  * Which tools the assistant gets, and which wait for a button press. Pure
@@ -9,8 +10,8 @@ import { toolOperations } from "@/lib/mcp/protocol";
 /** Archive and delete: the teammate confirms with a button in text chat. Voice chat leaves them out, since there's no button to press. */
 export const needsConfirmation = (name: string) => toolOperations.some((o) => o.tool === name && o.method === "DELETE");
 
-export function allowedOperations(allowed: (p: Permission) => boolean, opts: { voice?: boolean } = {}) {
-  return toolOperations.filter((o) => allowed(o.permission) && !(opts.voice && o.method === "DELETE"));
+export function allowedOperations(allowed: (p: Permission) => boolean, opts: { voice?: boolean; features?: readonly OptionalFeature[] } = {}) {
+  return toolOperations.filter((o) => allowed(o.permission) && offered(o, opts.features ?? []) && !(opts.voice && o.method === "DELETE"));
 }
 
 /** Tool output the model sees. Long lists are trimmed so one call can't fill the context. */

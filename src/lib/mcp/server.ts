@@ -3,6 +3,7 @@ import { appConfig } from "@/app.config";
 import { authenticate } from "@/lib/api/auth";
 import { internalError, toApiError } from "@/lib/api/errors";
 import { executeOperation } from "@/lib/api/execute";
+import { deploymentToolDescription, enabledFeatures, featureInstructions } from "@/lib/api/features";
 import { readBodyLimited } from "@/lib/api/body";
 import { API_RATE_LIMIT, errorResponse, tooLarge } from "@/lib/api/http";
 import { operations } from "@/lib/api/operations";
@@ -29,13 +30,14 @@ const instructions = (name: string, actor: Actor & { kind: "user" }, readOnly: b
     "Use search first to find ids. Money is in integer cents (12500 is 125.00). Dates are YYYY-MM-DD; times are ISO 8601 with an offset.",
     "Tasks and notes can stand alone or link to a person, organization or client. Logging on a client also shows on its contact and organization.",
     "Archiving hides a record but keeps its history. Lists return nextCursor; pass it back as cursor for the next page.",
+    featureInstructions() ?? "",
   ]
     .filter(Boolean)
     .join("\n");
 
 function serverFor(actor: Actor & { kind: "user" }, origin: string): McpServer {
   const allowed = (p: Parameters<typeof can>[1]) => can(actor, p);
-  const tools = toolsFor(allowed);
+  const tools = toolsFor(allowed, enabledFeatures()).map((t) => ({ ...t, description: deploymentToolDescription(t.name, t.description) }));
   return {
     info: { name: "crm", title: appConfig.brand.name, version: "1.0.0" },
     instructions: instructions(appConfig.brand.name, actor, !can(actor, "records:write")),

@@ -190,6 +190,13 @@ export const SearchResult = z.object({
 
 export const Deleted = z.object({ id: uuid, deleted: z.literal(true) });
 
+export const Knowledge = z.object({
+  source: z.string().describe("The knowledge source's name."),
+  path: z.string().describe("The path that was read, relative to the source's base, with its query."),
+  url: z.string().describe("The full URL that was read (the key is never part of it)."),
+  content: z.unknown().describe("What the source returned: its JSON as is, or text."),
+});
+
 /** Named schemas, in the order the docs list them. */
-export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, ClientService, Metric, User, CustomField, Me, SearchResult, Deleted } as const;
+export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, ClientService, Metric, User, CustomField, Me, SearchResult, Knowledge, Deleted } as const;
 export type ModelName = keyof typeof models;

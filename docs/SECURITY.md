@@ -48,6 +48,10 @@ The code is public; the data and secrets never are. This page is how that holds.
 - Received email is sanitized with the same allow-list as notes before it's stored or shown. Scripts, styles, images and tracking pixels are dropped.
 - Managing domains, inboxes and the webhook is admin-only. Every teammate can read and reply to the shared inboxes.
 
+## Knowledge source
+
+- Optional and read-only: `GET` only, to paths under `KNOWLEDGE_API_URL` (https). Paths that could climb out of the base (`..`, `;`, encoded slashes, dots or semicolons, backslashes, another host) are refused before anything is fetched, and redirects aren't followed, so the key is never sent anywhere else. It's never returned in a result or an error. Use a read-only key, and a base that excludes anything holding personal data. `KNOWLEDGE_FIXED_QUERY` and `KNOWLEDGE_BLOCKED_PATHS` keep unpublished content out when the key can see it; they match the decoded, lowercased path, so case and percent-encoding don't get around them. See [KNOWLEDGE.md](KNOWLEDGE.md).
+
 ## Stripe
 
 - Read-only: the CRM only ever calls `GET` endpoints. Use a restricted key with read access; it's never sent to the browser, and billing is fetched on the server per request.
