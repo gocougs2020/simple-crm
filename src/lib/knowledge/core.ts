@@ -118,21 +118,30 @@ export function canonicalPath(base: URL, url: URL) {
 const ruleRegex = (pattern: string) =>
   new RegExp(`^${pattern.replace(/\/\*$/, "\u0000").replace(/[.]/g, "\\.").replace(/\*/g, "[^/]+").replace("\u0000", "/.+")}$`);
 
+/** With rules set, paths are plain segments only, so an upstream that reads "/posts.json" or "/posts%20" as "/posts" can't route around them. */
+const PLAIN_PATH = /^(\/[a-z0-9_-]+)*\/?$/;
+/** On a path with fixed parameters, plain names only: "status[]" or "status.x" can mean "status" to some upstreams. */
+const PLAIN_KEY = /^[A-Za-z0-9_-]+$/;
+
 /**
- * Applies the deployment's rules to a request: null when the path is blocked,
- * else the URL with any fixed parameters set (replacing the caller's, in any
- * letter case, so `status=draft` or `Status=draft` can't widen what's read).
+ * Applies the deployment's rules to a request. Fails closed: a blocked path,
+ * or one that isn't plainly written while rules are set, is refused; a path
+ * with fixed parameters gets them set, replacing the caller's in any letter
+ * case, and refuses parameter names that aren't plain.
  */
-export function applyKnowledgeRules(source: Pick<KnowledgeSource, "base" | "fixedQuery" | "blocked">, url: URL): URL | null {
+export function applyKnowledgeRules(source: Pick<KnowledgeSource, "base" | "fixedQuery" | "blocked">, url: URL): { url: URL } | { refused: "blocked" | "path" | "query" } {
+  if (!source.fixedQuery.length && !source.blocked.length) return { url };
   const path = canonicalPath(source.base, url);
-  if (path === null || source.blocked.some((b) => ruleRegex(b).test(path))) return null;
+  if (path === null || !PLAIN_PATH.test(path)) return { refused: "path" };
+  if (source.blocked.some((b) => ruleRegex(b).test(path))) return { refused: "blocked" };
   const fixed = source.fixedQuery.filter((f) => f.path === path).flatMap((f) => f.params);
-  if (!fixed.length) return url;
+  if (!fixed.length) return { url };
   const out = new URL(url);
+  if ([...out.searchParams.keys()].some((k) => !PLAIN_KEY.test(k))) return { refused: "query" };
   const keys = new Set(fixed.map(([k]) => k.toLowerCase()));
   for (const k of [...out.searchParams.keys()]) if (keys.has(k.toLowerCase())) out.searchParams.delete(k);
   for (const [k, v] of fixed) out.searchParams.append(k, v);
-  return out;
+  return { url: out };
 }
 
 /**
@@ -215,8 +224,14 @@ export function knowledgeInstructions(source: Pick<KnowledgeSource, "name" | "de
 export async function readKnowledge(source: KnowledgeSource, path: string, fetchImpl: typeof fetch = fetch) {
   const asked = knowledgeUrl(source.base, path);
   if (!asked) throw new ApiFailure({ status: 400, code: "bad_request", message: `"${oneLine(path, 200)}" isn't a path under ${source.name}. Use a path like "/" or "/posts?q=onboarding".` });
-  const url = applyKnowledgeRules(source, asked);
-  if (!url) throw new ApiFailure({ status: 403, code: "forbidden", message: `This CRM doesn't read ${relativePath(source.base, asked).split("?")[0]} from ${source.name}. Ask for "/" to see what it offers, and use another path.` });
+  const ruled = applyKnowledgeRules(source, asked);
+  const askedPath = relativePath(source.base, asked).split("?")[0];
+  if ("refused" in ruled) {
+    if (ruled.refused === "blocked") throw new ApiFailure({ status: 403, code: "forbidden", message: `This CRM doesn't read ${askedPath} from ${source.name}. Ask for "/" to see what it offers, and use another path.` });
+    if (ruled.refused === "path") throw new ApiFailure({ status: 400, code: "bad_request", message: `Write the path to ${source.name} plainly: letters, digits, - and _ between slashes, with no file extension.` });
+    throw new ApiFailure({ status: 400, code: "bad_request", message: `Use plain parameter names (letters, digits, - and _) on ${askedPath}.` });
+  }
+  const url = ruled.url;
   const shown = relativePath(source.base, url);
 
   let res: Response;

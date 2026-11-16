@@ -106,7 +106,8 @@ describe("knowledge rules", () => {
   const rule = (path: string) => {
     const url = knowledgeUrl(ri.base, path);
     assert.ok(url, path);
-    return applyKnowledgeRules(ri, url)?.href ?? null;
+    const r = applyKnowledgeRules(ri, url);
+    return "url" in r ? r.url.href : null;
   };
 
   it("parses rules and refuses malformed ones", () => {
@@ -133,6 +134,16 @@ describe("knowledge rules", () => {
     assert.notEqual(rule("/posts"), null);
     assert.notEqual(rule("/drafts-archive"), null);
     assert.equal(rule("/posts/%E0%A4%A"), null);
+  });
+
+  it("fails closed on spellings some upstreams read as a ruled path", () => {
+    for (const odd of ["/posts.json?status=draft", "/posts.?status=draft", "/posts%20?status=draft", "/posts/slug.json", "/p%C3%B6sts"]) assert.equal(rule(odd), null, odd);
+    for (const key of ["status[]=draft", "status[0]=draft", "status.x=draft", "status%20=draft", "st+atus=draft"]) assert.equal(rule(`/posts?${key}`), null, key);
+    assert.notEqual(rule("/search?q=what is retention&limit=5"), null);
+    const none = parseKnowledgeEnv({ KNOWLEDGE_API_URL: "https://example.com/api" });
+    assert.ok(none && !("error" in none));
+    const url = knowledgeUrl(none.base, "/files/guide.pdf")!;
+    assert.deepEqual(applyKnowledgeRules(none, url), { url });
   });
 
   it("refuses a blocked path without fetching", async () => {

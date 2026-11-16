@@ -58,7 +58,7 @@ Every teammate (viewers too) can read whatever the key can, with any query param
 - **`KNOWLEDGE_FIXED_QUERY`** pins parameters on a path. `/posts?status=live` makes every request to `/posts` ask for live posts: a caller's own `status` (in any letter case, repeated or percent-encoded) is dropped first. Other parameters pass through.
 - **`KNOWLEDGE_BLOCKED_PATHS`** refuses paths outright with a 403, before anything is fetched. Use it for endpoints that return a record of any status by id, like `/posts/*`.
 
-Rules match the path relative to the base, percent-decoded and in lowercase, so `/Posts/x` and `/p%6Fsts/x` are caught by `/posts/*`. A key that can't see unpublished content at all is still the stronger option when the source offers one.
+Rules match the path relative to the base, percent-decoded and in lowercase, so `/Posts/x` and `/p%6Fsts/x` are caught by `/posts/*`. They fail closed: while any rule is set, paths must be plain (letters, digits, `-` and `_` between slashes, no file extension), since some servers read `/posts.json` as `/posts`; and a path with fixed parameters only takes plain parameter names, since some read `status[]` as `status`. Anything else is refused with a 400. A key that can't see unpublished content at all is still the stronger option when the source offers one.
 
 Status codes the source returns are passed on as: 400 and 404 with its message; 401 and 403 as a 502 that asks an admin to check the key; 429 and 503 as a 503 to try later; anything else, a timeout (10 seconds) or a redirect as a 502. Redirects aren't followed, so the key can't be carried anywhere else; trailing slashes are dropped from paths because many sites redirect them away.
 
