@@ -247,7 +247,14 @@ export async function readKnowledge(source: KnowledgeSource, path: string, fetch
     throw new ApiFailure({ status: 502, code: "knowledge_unavailable", message: `${source.name} didn't answer in time. Try again in a minute.` });
   }
 
-  const read = await readBodyLimited(res, MAX_KNOWLEDGE_BYTES).catch(() => ({ ok: false as const }));
+  let read: Awaited<ReturnType<typeof readBodyLimited>>;
+  try {
+    read = await readBodyLimited(res, MAX_KNOWLEDGE_BYTES);
+  } catch (err) {
+    // Timed out or cut off mid-answer: worth retrying, unlike an answer that's too large.
+    console.warn(`[knowledge] ${url.origin}${url.pathname}`, err instanceof Error ? err.message : err);
+    throw new ApiFailure({ status: 502, code: "knowledge_unavailable", message: `${source.name} didn't finish answering. Try again in a minute.` });
+  }
   if (!read.ok) {
     if (res.ok) throw new ApiFailure({ status: 502, code: "knowledge_too_large", message: `${source.name}'s answer for ${shown} was over 2 MB. Ask for less at once (a smaller limit, or a summary view if it has one).` });
     throw new ApiFailure(knowledgeFailure(source.name, shown, res.status, null));

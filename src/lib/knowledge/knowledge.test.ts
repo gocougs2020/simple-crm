@@ -215,6 +215,20 @@ describe("reading the knowledge source", () => {
     await assert.rejects(readKnowledge(source(), "/", offline), (e: unknown) => e instanceof ApiFailure && e.error.status === 502);
   });
 
+  it("asks for a retry, not a smaller request, when the answer is cut off", async () => {
+    const cut: typeof fetch = async () =>
+      new Response(
+        new ReadableStream({
+          start(c) {
+            c.enqueue(new TextEncoder().encode('{"posts":['));
+            c.error(new Error("socket hang up"));
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    await assert.rejects(readKnowledge(source(), "/posts", cut), (e: unknown) => e instanceof ApiFailure && e.error.code === "knowledge_unavailable" && /Try again/.test(e.error.message));
+  });
+
   it("refuses answers over 2 MB", async () => {
     await assert.rejects(readKnowledge(source(), "/posts", fake(200, "x".repeat(2 * 1024 * 1024 + 1))), (e: unknown) => e instanceof ApiFailure && e.error.code === "knowledge_too_large");
   });
