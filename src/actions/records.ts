@@ -115,6 +115,7 @@ const prefsSchema = z.object({
   organizationsSort: z.string().max(40).optional(),
   clientsSort: z.string().max(40).optional(),
   timelineFilter: z.string().max(40).optional(),
+  calendarPeople: z.array(z.uuid()).max(20).optional(),
 });
 
 /** Remembers a view choice for this teammate, on every device. */

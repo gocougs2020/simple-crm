@@ -18,6 +18,7 @@ import {
   PlusIcon,
   UserIcon,
   XMarkIcon,
+  CalendarDaysIcon,
 } from "@heroicons/react/24/outline";
 import { signOut } from "@/actions/auth";
 import { useApp } from "@/components/app-context";
@@ -45,6 +46,7 @@ export function AppShell({ due, unread = 0, children }: { due: { overdue: number
     { href: "/people", label: "People", icon: UserIcon },
     { href: "/organizations", label: "Organizations", icon: BuildingOffice2Icon },
     { href: "/activities", label: "Activities", icon: CheckCircleIcon, badge: due.overdue + due.today || undefined, badgeLabel: "due", tone: due.overdue ? "error" : undefined },
+    { href: "/calendar", label: "Calendar", icon: CalendarDaysIcon },
     { href: "/files", label: "Files", icon: FolderIcon },
     { href: "/email", label: "Email", icon: EnvelopeIcon, badge: unread || undefined, badgeLabel: "unread" },
   ];

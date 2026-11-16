@@ -78,7 +78,17 @@ export function AudienceList({ rows }: { rows: AudienceRow[] }) {
 type Preview = Awaited<ReturnType<typeof previewAudience>>;
 
 /** Name and filters on the left, who matches right now on the right. */
-export function AudienceEditor({ audience, tags, clientTags }: { audience: { id: string; name: string; description: string | null; filters: CampaignAudience; createdBy: string | null } | null; tags: string[]; clientTags: string[] }) {
+export function AudienceEditor({
+  audience,
+  tags,
+  clientTags,
+  industries,
+}: {
+  audience: { id: string; name: string; description: string | null; filters: CampaignAudience; createdBy: string | null } | null;
+  tags: string[];
+  clientTags: string[];
+  industries: string[];
+}) {
   const router = useRouter();
   const { viewer, isAdmin, canEdit } = useApp();
   const [name, setName] = useState(audience?.name ?? "");
@@ -130,7 +140,7 @@ export function AudienceEditor({ audience, tags, clientTags }: { audience: { id:
             <p className="mb-1.5 text-label">Who&apos;s in it</p>
             <div className="flex flex-col gap-3 rounded-xl border border-line p-3.5">
               <p className="text-[12.5px] text-muted">Everyone with an email who hasn&apos;t opted out or bounced{hasFilters(filters) ? ", narrowed to people who match all of these:" : "."}</p>
-              <AudienceFilters audience={filters} onChange={setFilters} tags={tags} clientTags={clientTags} readOnly={!canEdit} />
+              <AudienceFilters audience={filters} onChange={setFilters} tags={tags} clientTags={clientTags} industries={industries} readOnly={!canEdit} />
             </div>
           </div>
           {canEdit ? (

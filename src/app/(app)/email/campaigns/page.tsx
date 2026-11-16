@@ -21,7 +21,7 @@ async function Campaigns() {
   const db = await getDb();
   const c = schema.campaigns;
   const rows = await db
-    .select({ id: c.id, name: c.name, subject: c.subject, status: c.status, scheduledAt: c.scheduledAt, sentAt: c.sentAt, recipientCount: c.recipientCount, sendError: c.sendError, updatedAt: c.updatedAt })
+    .select({ id: c.id, name: c.name, subject: c.subject, channel: c.channel, textBody: c.textBody, status: c.status, scheduledAt: c.scheduledAt, sentAt: c.sentAt, recipientCount: c.recipientCount, sendError: c.sendError, updatedAt: c.updatedAt })
     .from(c)
     .orderBy(desc(c.updatedAt))
     .limit(200);

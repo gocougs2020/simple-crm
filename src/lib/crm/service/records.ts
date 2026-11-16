@@ -5,6 +5,7 @@ import { getDb, schema } from "@/db";
 import type { EntityType } from "@/lib/constants";
 import { actorUserId, assertCan, stamp, type Actor } from "@/lib/crm/actor";
 import { cleanCustomValues } from "@/lib/crm/custom-fields";
+import { appConfig } from "@/app.config";
 import { diff, labelRelations, recordEvent } from "@/lib/crm/events";
 import { withCustomChanges } from "@/lib/crm/inputs";
 import { id, orgInput, personInput } from "@/lib/crm/schemas";
@@ -21,7 +22,25 @@ import { recordAssigned } from "@/lib/push/triggers";
 const { people, organizations, clients } = schema;
 
 /** Fields whose changes show up in a record's history, with the words the timeline uses. */
-const personLabels = { firstName: "First name", lastName: "Last name", email: "Email", phone: "Phone", title: "Job title", organizationId: "Organization", ownerId: "Owner", tags: "Tags", marketingOptIn: "Email opt-in" } as const;
+const personLabels = {
+  firstName: "First name",
+  lastName: "Last name",
+  email: "Email",
+  phone: "Phone",
+  title: "Job title",
+  organizationId: "Organization",
+  ownerId: "Owner",
+  tags: "Tags",
+  marketingOptIn: "Email opt-in",
+  decisionMaker: appConfig.records.keyContactLabel,
+  textConsent: "Agreed to marketing texts",
+} as const;
+
+/** `textConsent` is a yes/no in the API; the record keeps when it was given. */
+function consentColumns(textConsent: boolean | undefined, before?: Date | null) {
+  if (textConsent === undefined) return {};
+  return { textConsentAt: textConsent ? (before ?? new Date()) : null };
+}
 const orgLabels = { name: "Name", domain: "Website", phone: "Phone", address: "Address", industry: "Industry", ownerId: "Owner" } as const;
 
 /** A new record's owner: whoever was named, else the teammate creating it (a workspace key leaves it unowned). */
@@ -107,7 +126,7 @@ export async function insertPersonByName(a: Actor, fullName: string, organizatio
 
 export async function createPerson(a: Actor, input: z.input<typeof personInput> & { newOrganizationName?: string }) {
   assertCan(a, "records:write");
-  const data = personInput.parse(input);
+  const { textConsent, ...data } = personInput.parse(input);
   await Promise.all([assertUser(data.ownerId, "owner"), assertOrganization(data.organizationId)]);
   const db = await getDb();
   let organizationId = data.organizationId ?? null;
@@ -119,7 +138,7 @@ export async function createPerson(a: Actor, input: z.input<typeof personInput> 
   }
   const [row] = await db
     .insert(people)
-    .values({ ...data, organizationId, ownerId: ownerFor(a, data.ownerId), tags: data.tags ?? [], custom: data.custom ? await cleanCustomValues("person", data.custom) : {}, createdBy: actorUserId(a) })
+    .values({ ...data, ...consentColumns(textConsent), organizationId, ownerId: ownerFor(a, data.ownerId), tags: data.tags ?? [], custom: data.custom ? await cleanCustomValues("person", data.custom) : {}, createdBy: actorUserId(a) })
     .returning({ id: people.id });
   await recordEvent({ entityType: "person", entityId: row.id, action: "created", ...stamp(a) });
   recordAssigned(a, { entity: "person", id: row.id, name: [data.firstName, data.lastName].filter(Boolean).join(" ") || "a contact", ownerId: ownerFor(a, data.ownerId) });
@@ -128,7 +147,7 @@ export async function createPerson(a: Actor, input: z.input<typeof personInput> 
 
 export async function updatePerson(a: Actor, personId: string, patch: Partial<z.input<typeof personInput>>) {
   assertCan(a, "records:write");
-  const data = personInput.partial().parse(patch);
+  const { textConsent, ...data } = personInput.partial().parse(patch);
   await Promise.all([assertUser(data.ownerId, "owner"), assertOrganization(data.organizationId)]);
   const db = await getDb();
   const [before] = await db.select().from(people).where(eq(people.id, id.parse(personId)));
@@ -146,9 +165,12 @@ export async function updatePerson(a: Actor, personId: string, patch: Partial<z.
   const newAddress = data.email !== undefined && (data.email ?? null)?.toLowerCase() !== before.email?.toLowerCase();
   await db
     .update(people)
-    .set({ ...data, custom, ...(newAddress ? { emailBouncedAt: null } : {}), updatedAt: new Date() })
+    .set({ ...data, ...consentColumns(textConsent, before.textConsentAt), custom, ...(newAddress ? { emailBouncedAt: null } : {}), updatedAt: new Date() })
     .where(eq(people.id, before.id));
-  const changes = [...(await labelRelations(diff(before, { ...data, custom: undefined }, personLabels))), ...(await withCustomChanges("person", before.custom, custom))];
+  const changes = [
+    ...(await labelRelations(diff({ ...before, textConsent: !!before.textConsentAt }, { ...data, ...(textConsent !== undefined ? { textConsent } : {}), custom: undefined }, personLabels))),
+    ...(await withCustomChanges("person", before.custom, custom)),
+  ];
   if (changes.length) await recordEvent({ entityType: "person", entityId: before.id, action: "updated", data: { changes }, ...stamp(a) });
   if (data.ownerId !== undefined) recordAssigned(a, { entity: "person", id: before.id, name: [data.firstName ?? before.firstName, data.lastName ?? before.lastName].filter(Boolean).join(" ") || "a contact", ownerId: data.ownerId, previousOwnerId: before.ownerId });
   return { id: before.id };

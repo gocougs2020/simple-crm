@@ -34,6 +34,7 @@ const ENUMS: Readonly<Record<string, readonly string[]>> = {
   "layout.defaultClientsView": ["board", "table"],
   "agent.chatReasoning": ["provider-default", "none", "minimal", "low", "medium", "high"],
   "agent.summaryReasoning": ["provider-default", "none", "minimal", "low", "medium", "high"],
+  "phone.forwardCallerId": ["caller", "number"],
 };
 
 /** Paths that hold CSS colors and are written into a <style> tag. */

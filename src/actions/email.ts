@@ -13,6 +13,9 @@ import { fromAs, getResend, sendEmail } from "@/lib/email";
 import { loadAttachments, resolveAttachments } from "@/lib/email/attachments";
 import { assertInboxInScope, InboxError } from "@/lib/email/inbox";
 import { fillMergeTags, fillMergeTagsHtml, mergeValues } from "@/lib/email/merge-tags";
+import { microsoftConfigured } from "@/lib/microsoft/config";
+import { accountOf, GraphError } from "@/lib/microsoft/graph";
+import { sendFromMailbox } from "@/lib/microsoft/mail";
 import { htmlToText, sanitizeHtml } from "@/lib/safe-html";
 import DirectEmail from "@/emails/direct";
 
@@ -23,6 +26,8 @@ const sendInput = z.object({
   clientId: z.uuid().nullable().optional(),
   /** Send from one of the workspace's Resend inboxes, so replies come back into the CRM. Otherwise from RESEND_FROM, with replies to the teammate. */
   inboxId: z.string().max(100).nullable().optional(),
+  /** Send from the teammate's own connected Microsoft 365 mailbox instead. Takes precedence over `inboxId`. */
+  via: z.enum(["crm", "microsoft"]).optional(),
   cc: z
     .array(z.email("One of the CC addresses isn't valid."))
     .max(10)
@@ -49,6 +54,13 @@ export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise
   return run(async () => {
     const user = await actionEditor();
     const data = sendInput.parse(input);
+    const mailbox = data.via === "microsoft" ? await accountOf(user.id) : null;
+    if (data.via === "microsoft") {
+      if (!microsoftConfigured() || !mailbox) throw new ActionError("Connect your Microsoft account in Settings → Email and calendar first, or send from the CRM.");
+      if (mailbox.status !== "active") throw new ActionError("Your Microsoft account needs reconnecting. Reconnect it in Settings → Email and calendar, or send from the CRM.");
+      if (!mailbox.sendMail) throw new ActionError("Sending from your mailbox is off. Turn it on in Settings → Email and calendar, or send from the CRM.");
+      data.inboxId = null;
+    }
     if (data.inboxId && getResend()) {
       // Only inboxes on domains this CRM manages (RESEND_DOMAINS) can send.
       await assertInboxInScope(data.inboxId).catch((err) => {
@@ -71,7 +83,8 @@ export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise
     }
     const attachments = await resolveAttachments(data.attachmentIds ?? []);
     const files = await loadAttachments(attachments);
-    const replyTo = data.inboxId ? null : data.replyTo || user.email;
+    // From their own mailbox, replies come back to it unless they name another address.
+    const replyTo = data.inboxId ? null : mailbox ? data.replyTo || null : data.replyTo || user.email;
 
     const values = mergeValues({ ...row.person, organizationName: row.organizationName, ownerName: row.ownerName, clientName: client?.name }, user);
     const subject = fillMergeTags(data.subject, values);
@@ -84,13 +97,22 @@ export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise
 
     const [outbound] = await db
       .insert(outboundEmails)
-      .values({ personId: row.person.id, clientId: data.clientId ?? null, userId: user.id, to: row.person.email, cc: data.cc?.join(", ") || null, replyTo, subject, attachments })
+      .values({ personId: row.person.id, clientId: data.clientId ?? null, userId: user.id, to: row.person.email, cc: data.cc?.join(", ") || null, replyTo, subject, attachments, provider: mailbox ? "microsoft" : "resend" })
       .returning({ id: outboundEmails.id });
     const fromName = brand.senderName ? `${user.name} · ${brand.senderName}` : user.name;
     const preview = htmlToText(html).split("\n").find(Boolean)?.slice(0, 120) ?? "";
     const email = DirectEmail({ brand, html, preview, signature });
-    let resendId: string | null;
-    if (data.inboxId) {
+    let resendId: string | null = null;
+    if (mailbox) {
+      try {
+        const sent = await sendFromMailbox(mailbox, { to: row.person.email, cc: data.cc, bcc: data.copyMe ? [user.email] : undefined, replyTo, subject, html: await render(email), attachments: files });
+        await db.update(outboundEmails).set({ messageId: sent.messageId }).where(eq(outboundEmails.id, outbound.id));
+      } catch (err) {
+        await db.delete(outboundEmails).where(eq(outboundEmails.id, outbound.id));
+        if (err instanceof GraphError) throw new ActionError(err.message);
+        throw err;
+      }
+    } else if (data.inboxId) {
       const resend = getResend();
       if (!resend) throw new ActionError("Email isn't connected yet, so inboxes can't send. Send without an inbox, or add RESEND_API_KEY.");
       const draft = await resend.inboxes.drafts.create(
@@ -117,7 +139,7 @@ export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise
         })
       ).id;
     }
-    await db.update(outboundEmails).set({ resendId }).where(eq(outboundEmails.id, outbound.id));
+    if (resendId) await db.update(outboundEmails).set({ resendId }).where(eq(outboundEmails.id, outbound.id));
 
     const now = new Date();
     const links = { personId: row.person.id, organizationId: row.person.organizationId ?? client?.organizationId ?? null, clientId: data.clientId ?? null };

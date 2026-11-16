@@ -228,6 +228,17 @@ export async function clientCounts() {
 }
 
 /** Every tag used on a client, for filters and campaign audiences. */
+/** Every industry organizations have, for audience filters. */
+export async function allIndustries() {
+  const db = await getDb();
+  const rows = await db
+    .selectDistinct({ industry: organizations.industry })
+    .from(organizations)
+    .where(and(isNull(organizations.archivedAt), sql`coalesce(${organizations.industry}, '') <> ''`))
+    .orderBy(organizations.industry);
+  return rows.map((r) => r.industry!);
+}
+
 export async function allClientTags() {
   const db = await getDb();
   const rows = await db.execute<{ tag: string }>(sql`select distinct jsonb_array_elements_text(tags) as tag from clients where archived_at is null order by 1`);

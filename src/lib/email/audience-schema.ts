@@ -25,6 +25,12 @@ export const audienceSchema = z.object({
   serviceIds: z.array(uuid).max(100).optional(),
   churnReasons: z.array(z.string().max(300)).max(50).optional(),
   openToReturnOnly: z.boolean().optional(),
+  decisionMakersOnly: z.boolean().optional(),
+  organizationIndustries: z.array(z.string().max(80)).max(100).optional(),
+  organizationFields: z
+    .array(z.object({ key: z.string().regex(/^[a-z0-9_]+$/).max(80), values: z.array(z.string().max(300)).max(50) }))
+    .max(20)
+    .optional(),
   personIds: z.array(uuid).max(5000).optional(),
 });
 

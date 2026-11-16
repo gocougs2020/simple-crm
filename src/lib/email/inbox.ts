@@ -1,15 +1,16 @@
 import "server-only";
-import { and, desc, eq, gte, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import type { GetInboxThreadEmailResponseSuccess, Resend } from "resend";
 import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
 import { touch } from "@/lib/crm/events";
+import { linksForEmails } from "@/lib/crm/match";
 import { emailDomainsScoped, getResend, inEmailScope } from "@/lib/email";
 import { sanitizeHtml } from "@/lib/safe-html";
 import { deliveryEvents } from "./delivery-status";
 import { inboundEmail } from "@/lib/push/triggers";
 
-const { inboxThreads, inboxMessages, activities, people, organizations, clients, outboundEmails } = schema;
+const { inboxThreads, inboxMessages, activities, outboundEmails } = schema;
 
 /**
  * Resend inboxes, mirrored into the CRM. Resend receives and stores the mail;
@@ -110,49 +111,8 @@ export async function assertDomainInScope(domainId: string) {
   if (!inEmailScope(domain.name)) throw new InboxError(outOfScope);
 }
 
-/**
- * Who a thread is about, from the other side's addresses: the first one that
- * belongs to a person, else an organization whose website matches the
- * domain. The client is the one tied to that person or organization, current
- * clients first.
- */
-async function findLinks(participants: string[]) {
-  const db = await getDb();
-  let personId: string | null = null;
-  let organizationId: string | null = null;
-  if (participants.length) {
-    const found = await db
-      .select({ id: people.id, email: people.email, organizationId: people.organizationId })
-      .from(people)
-      .where(and(isNull(people.archivedAt), inArray(sql`lower(${people.email})`, participants)));
-    const first = participants.map((p) => found.find((f) => f.email?.toLowerCase() === p)).find(Boolean);
-    personId = first?.id ?? null;
-    organizationId = first?.organizationId ?? null;
-    if (!organizationId) {
-      const domains = [...new Set(participants.map((p) => p.split("@")[1]).filter(Boolean))];
-      if (domains.length) {
-        const [org] = await db
-          .select({ id: organizations.id })
-          .from(organizations)
-          .where(and(isNull(organizations.archivedAt), inArray(organizations.domain, domains)))
-          .limit(1);
-        organizationId = org?.id ?? null;
-      }
-    }
-  }
-  let clientId: string | null = null;
-  if (personId || organizationId) {
-    const match = personId && organizationId ? sql`(${clients.personId} = ${personId} or ${clients.organizationId} = ${organizationId})` : personId ? eq(clients.personId, personId) : eq(clients.organizationId, organizationId!);
-    const [c] = await db
-      .select({ id: clients.id })
-      .from(clients)
-      .where(and(isNull(clients.archivedAt), match))
-      .orderBy(sql`case ${clients.category} when 'current' then 0 when 'prospective' then 1 else 2 end`, desc(clients.updatedAt))
-      .limit(1);
-    clientId = c?.id ?? null;
-  }
-  return { personId, organizationId, clientId };
-}
+/** Who a thread is about, from the other side's addresses (src/lib/crm/match.ts). */
+const findLinks = linksForEmails;
 
 /** Keeps every message's timeline entry pointing at the thread's current links. */
 export async function applyThreadLinks(threadId: string) {

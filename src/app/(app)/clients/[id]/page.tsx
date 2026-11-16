@@ -11,6 +11,7 @@ import { CategoryActions, CategoryBadge, CategoryDate, HealthBadge } from "@/com
 import { PerformanceCard, ServicesCard } from "@/components/clients/client-panels";
 import { StageBar } from "@/components/clients/client-controls";
 import { DynamicMarker } from "@/components/dynamic-marker";
+import { CallButton } from "@/components/phone/contact-actions";
 import { FilesCard } from "@/components/files/files-panel";
 import { ClientDetails } from "@/components/records/details";
 import { RecordBody, RecordHeader } from "@/components/records/record-header";
@@ -85,7 +86,12 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
             {person ? <span>· {personName(person)}</span> : null}
           </span>
         }
-        actions={<CategoryActions clientId={id} name={client.name} category={c} previousServiceIds={c === "past" ? [...new Set(services.filter((s) => s.endedOn === lastEnded).map((s) => s.serviceId))] : undefined} />}
+        actions={
+          <span className="flex items-center gap-2">
+            {person ? <CallButton target={{ name: personName(person), phone: person.phone, personId: person.id, clientId: id }} /> : organization ? <CallButton target={{ name: organization.name, phone: organization.phone, organizationId: organization.id, clientId: id }} /> : null}
+            <CategoryActions clientId={id} name={client.name} category={c} previousServiceIds={c === "past" ? [...new Set(services.filter((s) => s.endedOn === lastEnded).map((s) => s.serviceId))] : undefined} />
+          </span>
+        }
       />
       <div className="border-b border-line pt-3">
         <StageBar clientId={id} stageId={client.stageId} category={c} stageChangedAt={client.stageChangedAt} />
@@ -108,7 +114,7 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
       >
         <RecordSummary entity="client" id={id} summary={client.summary} summaryAt={client.summaryAt} />
         <FocusLine planned={tl.planned} lastContactAt={tl.lastContactAt} context={{ type: "client", id, category: c }} />
-        <Composer links={{ clientId: id }} recipient={person ? { personId: person.id, name: personName(person), email: person.email } : null} />
+        <Composer links={{ clientId: id }} recipient={person ? { personId: person.id, name: personName(person), email: person.email, phone: person.phone, textOptedOut: !!person.textOptOutAt } : null} />
         <Timeline
           planned={tl.planned}
           pinned={tl.pinned}

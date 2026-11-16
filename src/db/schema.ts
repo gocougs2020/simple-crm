@@ -1,5 +1,19 @@
+import { sql } from "drizzle-orm";
 import { bigint, boolean, date, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
-import type { ActivityType, ApiKeyKind, BillingInterval, ClientCategory, ClientHealth, CustomFieldType, EmailDigestKind, EntityType, NotificationKind, UserRole } from "@/lib/constants";
+import type {
+  ActivityType,
+  ApiKeyKind,
+  BillingInterval,
+  CalendarSharing,
+  CampaignChannel,
+  ClientCategory,
+  ClientHealth,
+  CustomFieldType,
+  EmailDigestKind,
+  EntityType,
+  NotificationKind,
+  UserRole,
+} from "@/lib/constants";
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
@@ -31,6 +45,10 @@ export type UserPrefs = {
   timelineFilter?: string;
   /** Agenda emails this teammate wants (Settings → Notifications). Off unless turned on. */
   emailDigests?: Partial<Record<EmailDigestKind, boolean>>;
+  /** The phone number they last called or texted from, picked first next time. */
+  phoneNumberId?: string;
+  /** Teammates whose calendars they last had on in Calendar. */
+  calendarPeople?: string[];
 };
 
 // ─── Team and access ─────────────────────────────────────────────────────
@@ -197,8 +215,23 @@ export const workspace = pgTable("workspace", {
   timezone: text("timezone").notNull().default("America/Denver"),
   brand: jsonb("brand").$type<BrandKit>().notNull().default({}),
   email: jsonb("email").$type<EmailSettings>().notNull().default({}),
+  phone: jsonb("phone").$type<PhoneSettings>().notNull().default({}),
   updatedAt: updatedAt(),
 });
+
+/**
+ * Twilio pieces Settings → Phone numbers creates for browser calling: an API
+ * key (its secret encrypted, src/lib/crypto.ts) and a TwiML app that tells
+ * Twilio where to ask what a browser call should do. TWILIO_API_KEY_SID,
+ * TWILIO_API_KEY_SECRET and TWILIO_TWIML_APP_SID, when set, take precedence.
+ */
+export type PhoneSettings = {
+  apiKeySid?: string;
+  apiKeySecret?: string;
+  twimlAppSid?: string;
+  /** The origin the TwiML app and numbers point at, so Settings can tell when they need reconnecting. */
+  webhookOrigin?: string;
+};
 
 /**
  * How the CRM hears about new mail. Set when an admin connects the Resend
@@ -245,7 +278,11 @@ export const organizations = pgTable(
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     ...summaryColumns(),
   },
-  (t) => [index("organizations_name_idx").on(t.name), index("organizations_owner_idx").on(t.ownerId)],
+  (t) => [
+    index("organizations_name_idx").on(t.name),
+    index("organizations_owner_idx").on(t.ownerId),
+    index("organizations_phone_digits_idx").on(sql`right(regexp_replace(${t.phone}, '[^0-9]', '', 'g'), 10)`),
+  ],
 );
 
 export const people = pgTable(
@@ -275,6 +312,16 @@ export const people = pgTable(
      * never makes someone look recently contacted.
      */
     lastCampaignAt: timestamp("last_campaign_at", { withTimezone: true }),
+    /**
+     * Starred at their organization: someone who decides (or signs off on)
+     * buying. Shown as a star on the organization's people, and usable as an
+     * audience filter. The label is a setting (`records.keyContactLabel`).
+     */
+    decisionMaker: boolean("decision_maker").notNull().default(false),
+    /** When they agreed to receive marketing texts. Text campaigns need it unless `phone.textCampaignsNeedConsent` is off. */
+    textConsentAt: timestamp("text_consent_at", { withTimezone: true }),
+    /** When they replied STOP (or similar). Nothing is texted to them until they reply START. */
+    textOptOutAt: timestamp("text_opt_out_at", { withTimezone: true }),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -287,6 +334,8 @@ export const people = pgTable(
     index("people_owner_idx").on(t.ownerId),
     index("people_email_idx").on(t.email),
     index("people_name_idx").on(t.firstName, t.lastName),
+    // Calls and texts are matched on the last 10 digits, whatever way the number was typed (src/lib/phone/numbers.ts).
+    index("people_phone_digits_idx").on(sql`right(regexp_replace(${t.phone}, '[^0-9]', '', 'g'), 10)`),
   ],
 );
 
@@ -483,6 +532,15 @@ export const activities = pgTable(
     emailId: uuid("email_id").references((): AnyPgColumn => outboundEmails.id, { onDelete: "set null" }),
     /** Set when the activity is a message in a connected inbox, so the timeline can open the conversation. */
     inboxThreadId: uuid("inbox_thread_id").references((): AnyPgColumn => inboxThreads.id, { onDelete: "set null" }),
+    /** Set when the activity is mail synced from a teammate's connected mailbox (Microsoft 365). */
+    syncedEmailId: uuid("synced_email_id").references((): AnyPgColumn => syncedEmails.id, { onDelete: "set null" }),
+    /** Set when the activity is a call made or received through the CRM's phone numbers (Twilio). */
+    callId: uuid("call_id").references((): AnyPgColumn => phoneCalls.id, { onDelete: "set null" }),
+    /** Set when the activity is a text sent or received through the CRM's phone numbers. */
+    textMessageId: uuid("text_message_id").references((): AnyPgColumn => textMessages.id, { onDelete: "set null" }),
+    /** A planned meeting copied to the assignee's Outlook calendar: the event there, and the account it's in. */
+    calendarEventId: text("calendar_event_id"),
+    calendarAccountId: uuid("calendar_account_id").references((): AnyPgColumn => connectedAccounts.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -491,6 +549,8 @@ export const activities = pgTable(
     index("activities_org_idx").on(t.organizationId, t.createdAt),
     index("activities_client_idx").on(t.clientId, t.createdAt),
     index("activities_assignee_due_idx").on(t.assigneeId, t.completedAt, t.dueAt),
+    index("activities_call_idx").on(t.callId),
+    index("activities_text_idx").on(t.textMessageId),
   ],
 );
 
@@ -611,6 +671,12 @@ export type CampaignAudience = {
   churnReasons?: string[];
   /** Leave out past clients marked as not open to coming back. */
   openToReturnOnly?: boolean;
+  /** Only people starred as decision makers at their organization. */
+  decisionMakersOnly?: boolean;
+  /** People at organizations in one of these industries. */
+  organizationIndustries?: string[];
+  /** Organization custom fields of the person's organization, matched like `customFields`. */
+  organizationFields?: { key: string; values: string[] }[];
   /** A fixed list instead of filters. */
   personIds?: string[];
 };
@@ -647,6 +713,11 @@ export const campaigns = pgTable(
     replyTo: text("reply_to"),
     /** Sent with every email. Campaigns with attachments go out one at a time: Resend's batch endpoint can't carry files. */
     attachments: jsonb("attachments").$type<EmailAttachment[]>().notNull().default([]),
+    /** Email (through Resend) or text (through Twilio, from `phoneNumberId`). Fixed when the campaign is created. */
+    channel: text("channel").$type<CampaignChannel>().notNull().default("email"),
+    /** Text campaigns: the message, plain text with merge tags. */
+    textBody: text("text_body").notNull().default(""),
+    phoneNumberId: uuid("phone_number_id").references((): AnyPgColumn => phoneNumbers.id, { onDelete: "set null" }),
     status: text("status").$type<"draft" | "scheduled" | "sending" | "sent">().notNull().default("draft"),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
     sentAt: timestamp("sent_at", { withTimezone: true }),
@@ -678,6 +749,10 @@ export const outboundEmails = pgTable(
     subject: text("subject").notNull(),
     attachments: jsonb("attachments").$type<EmailAttachment[]>().notNull().default([]),
     resendId: text("resend_id"),
+    /** How it went out: Resend (the CRM's address or an inbox), or the teammate's own Microsoft 365 mailbox. */
+    provider: text("provider").$type<"resend" | "microsoft">().notNull().default("resend"),
+    /** Sent through Microsoft: the Internet Message-ID, so the mailbox sync recognizes it in Sent Items. */
+    messageId: text("message_id"),
     /** Null until Resend's first report. */
     deliveryStatus: text("delivery_status").$type<DeliveryStatus>(),
     deliveryStatusAt: timestamp("delivery_status_at", { withTimezone: true }),
@@ -697,6 +772,7 @@ export const outboundEmails = pgTable(
     index("outbound_emails_resend_idx").on(t.resendId),
     index("outbound_emails_campaign_status_idx").on(t.campaignId, t.deliveryStatus),
     uniqueIndex("outbound_emails_campaign_person_idx").on(t.campaignId, t.personId),
+    index("outbound_emails_message_idx").on(t.messageId),
   ],
 );
 
@@ -892,4 +968,192 @@ export const notifications = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("notifications_dedupe_idx").on(t.userId, t.dedupeKey), index("notifications_user_idx").on(t.userId, t.createdAt)],
+);
+
+// ─── Connected accounts (Microsoft 365) ──────────────────────────────────
+
+/**
+ * A teammate's own mailbox and calendar, connected over OAuth (Settings →
+ * Email and calendar). Tokens are encrypted at rest (src/lib/crypto.ts). One
+ * per teammate per provider. Each part can be switched off on its own.
+ */
+export const connectedAccounts = pgTable(
+  "connected_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").$type<"microsoft">().notNull(),
+    /** The account's id at the provider (Microsoft's object id), so reconnecting another mailbox is noticed. */
+    externalId: text("external_id").notNull(),
+    email: text("email").notNull(),
+    name: text("name"),
+    accessToken: text("access_token").notNull(),
+    refreshToken: text("refresh_token"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    scopes: jsonb("scopes").$type<string[]>().notNull().default([]),
+    /** Send email from records through this mailbox instead of the CRM's address. */
+    sendMail: boolean("send_mail").notNull().default(true),
+    /** Copy mail to and from contacts onto their records. */
+    syncMail: boolean("sync_mail").notNull().default(true),
+    /** Put meetings assigned to them in this calendar, and show it in Calendar. */
+    syncCalendar: boolean("sync_calendar").notNull().default(true),
+    /** What teammates see of this calendar in Calendar. */
+    calendarSharing: text("calendar_sharing").$type<CalendarSharing>().notNull().default("busy"),
+    /** The newest message already looked at, per folder, so each sync only reads what's new. */
+    mailCursor: jsonb("mail_cursor").$type<{ inbox?: string; sent?: string }>().notNull().default({}),
+    lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+    /** The last thing that went wrong, in words, cleared by the next good sync. */
+    lastError: text("last_error"),
+    /** `reconnect`: the provider refused the refresh token (password changed, access revoked). */
+    status: text("status").$type<"active" | "reconnect">().notNull().default("active"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("connected_accounts_user_idx").on(t.userId, t.provider)],
+);
+
+/**
+ * Every message the mailbox sync looked at, so it never imports one twice.
+ * `imported` ones became an email activity. `withheld` ones looked private or
+ * confidential (Outlook's sensitivity, or the AI screen): nothing of their
+ * content is kept, only that they were skipped and why. `pending` ones wait
+ * for the screen to be available and are retried.
+ */
+export const syncedEmails = pgTable(
+  "synced_emails",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** The mailbox it came from. Kept (as null) after the teammate disconnects, so copied mail still says who it was from. */
+    accountId: uuid("account_id").references(() => connectedAccounts.id, { onDelete: "set null" }),
+    /** The message's id in the mailbox. */
+    externalId: text("external_id").notNull(),
+    /** The Internet Message-ID, shared by every copy of the message, so two teammates on one thread don't log it twice. */
+    internetMessageId: text("internet_message_id"),
+    conversationId: text("conversation_id"),
+    direction: text("direction").$type<"inbound" | "outbound">().notNull(),
+    from: text("from"),
+    to: jsonb("to").$type<string[]>().notNull().default([]),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull(),
+    status: text("status").$type<"imported" | "withheld" | "pending">().notNull(),
+    /** Why it was withheld or is pending, in words. */
+    reason: text("reason"),
+    attempts: integer("attempts").notNull().default(0),
+    personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
+    organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "set null" }),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("synced_emails_account_msg_idx").on(t.accountId, t.externalId),
+    index("synced_emails_internet_idx").on(t.internetMessageId),
+    index("synced_emails_status_idx").on(t.accountId, t.status),
+  ],
+);
+
+// ─── Phone (Twilio) ──────────────────────────────────────────────────────
+
+/**
+ * A Twilio number the team calls and texts from (Settings → Phone numbers).
+ * Calls to it ring `forwardTo` (a cell phone); `forwardUserId` gets the task
+ * to write up the call. `access` decides who may call and text from it.
+ */
+export const phoneNumbers = pgTable(
+  "phone_numbers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    twilioSid: text("twilio_sid").notNull(),
+    /** E.164, like +13035550123. */
+    number: text("number").notNull(),
+    label: text("label").notNull(),
+    forwardTo: text("forward_to"),
+    forwardUserId: uuid("forward_user_id").references(() => users.id, { onDelete: "set null" }),
+    access: text("access").$type<"everyone" | "selected">().notNull().default("everyone"),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("phone_numbers_sid_idx").on(t.twilioSid), uniqueIndex("phone_numbers_number_idx").on(t.number)],
+);
+
+/** With `access: "selected"`, the teammates who may use the number. */
+export const phoneNumberUsers = pgTable(
+  "phone_number_users",
+  {
+    phoneNumberId: uuid("phone_number_id")
+      .notNull()
+      .references(() => phoneNumbers.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.phoneNumberId, t.userId] })],
+);
+
+export type CallStatus = "initiated" | "ringing" | "in-progress" | "completed" | "busy" | "no-answer" | "failed" | "canceled";
+
+/**
+ * A call through one of the numbers: one made from the browser, or one that
+ * came in and was forwarded. Each is a call activity on the record it matched
+ * (`activities.call_id`); Twilio's status reports fill in how it went.
+ */
+export const phoneCalls = pgTable(
+  "phone_calls",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Twilio's id for the call. Browser calls get it when Twilio first asks what to do. */
+    callSid: text("call_sid"),
+    phoneNumberId: uuid("phone_number_id").references(() => phoneNumbers.id, { onDelete: "set null" }),
+    /** Who made it, or who it was forwarded to. */
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    direction: text("direction").$type<"inbound" | "outbound">().notNull(),
+    from: text("from").notNull(),
+    to: text("to").notNull(),
+    status: text("status").$type<CallStatus>().notNull().default("initiated"),
+    /** Incoming calls: the cell phone it rang. */
+    forwardedTo: text("forwarded_to"),
+    durationSeconds: integer("duration_seconds"),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
+    organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "set null" }),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("phone_calls_sid_idx").on(t.callSid), index("phone_calls_person_idx").on(t.personId)],
+);
+
+export type TextStatus = "queued" | "sending" | "sent" | "delivered" | "undelivered" | "failed" | "received";
+
+/** A text through one of the numbers, either way. Each is a text activity on the person it matched. */
+export const textMessages = pgTable(
+  "text_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    messageSid: text("message_sid"),
+    phoneNumberId: uuid("phone_number_id").references(() => phoneNumbers.id, { onDelete: "set null" }),
+    direction: text("direction").$type<"inbound" | "outbound">().notNull(),
+    from: text("from").notNull(),
+    to: text("to").notNull(),
+    body: text("body").notNull().default(""),
+    /** Pictures and files sent with an incoming text (Twilio media URLs, which need the account's credentials to open). */
+    media: jsonb("media").$type<{ url: string; contentType: string }[]>().notNull().default([]),
+    status: text("status").$type<TextStatus>().notNull().default("queued"),
+    /** Why it wasn't delivered, in Twilio's words. */
+    error: text("error"),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
+    organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "set null" }),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+    campaignId: uuid("campaign_id").references(() => campaigns.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("text_messages_sid_idx").on(t.messageSid),
+    uniqueIndex("text_messages_campaign_person_idx").on(t.campaignId, t.personId),
+    index("text_messages_person_idx").on(t.personId, t.createdAt),
+  ],
 );

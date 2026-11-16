@@ -7,9 +7,12 @@ import { CampaignEditor } from "@/components/email/campaign-editor";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { getDb, schema } from "@/db";
 import { emailBrand } from "@/lib/brand";
-import { audienceCount, campaignAudience, campaignCreatorEmail, renderCampaign } from "@/lib/email/campaigns";
+import { audienceCount, campaignAudience, campaignCreatorEmail, renderCampaign, textCampaignStats } from "@/lib/email/campaigns";
+import { TextCampaignEditor } from "@/components/email/text-campaign-editor";
+import { requireUser } from "@/lib/auth";
+import { numbersFor } from "@/lib/twilio/access";
 import { campaignDelivery } from "@/lib/email/delivery";
-import { allClientTags, allTags } from "@/lib/crm/records";
+import { allClientTags, allIndustries, allTags } from "@/lib/crm/records";
 
 export const metadata: Metadata = { title: "Campaign" };
 
@@ -28,9 +31,36 @@ async function Campaign({ params }: Pick<PageProps<"/email/campaigns/[id]">, "pa
   const [c] = await db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id));
   if (!c) notFound();
   const sent = c.status === "sent" || c.status === "sending";
-  const [tags, clientTags, count, brand, audiences, delivery, creatorEmail] = await Promise.all([
+  if (c.channel === "text") {
+    const [tags, clientTags, industries, count, audiences, stats, numbers] = await Promise.all([
+      allTags(),
+      allClientTags(),
+      allIndustries(),
+      sent ? Promise.resolve(c.recipientCount) : campaignAudience(c).then((a) => audienceCount(a, "text")),
+      db.select({ id: schema.audiences.id, name: schema.audiences.name, filters: schema.audiences.filters }).from(schema.audiences).orderBy(asc(schema.audiences.name)),
+      sent ? textCampaignStats(c.id) : Promise.resolve(null),
+      // Its own number too, so a sent campaign names it even after access changed.
+      db.select({ id: schema.phoneNumbers.id, label: schema.phoneNumbers.label, number: schema.phoneNumbers.number, archivedAt: schema.phoneNumbers.archivedAt }).from(schema.phoneNumbers).orderBy(asc(schema.phoneNumbers.label)),
+    ]);
+    const user = await requireUser();
+    const mine = new Set((await numbersFor(user)).map((n) => n.id));
+    return (
+      <TextCampaignEditor
+        campaign={c}
+        tags={tags}
+        clientTags={clientTags}
+        industries={industries}
+        initialCount={count}
+        audiences={audiences}
+        stats={stats}
+        numbers={numbers.filter((n) => n.id === c.phoneNumberId || (mine.has(n.id) && !n.archivedAt))}
+      />
+    );
+  }
+  const [tags, clientTags, industries, count, brand, audiences, delivery, creatorEmail] = await Promise.all([
     allTags(),
     allClientTags(),
+    allIndustries(),
     sent ? Promise.resolve(c.recipientCount) : campaignAudience(c).then(audienceCount),
     emailBrand(),
     db.select({ id: schema.audiences.id, name: schema.audiences.name, filters: schema.audiences.filters }).from(schema.audiences).orderBy(asc(schema.audiences.name)),
@@ -44,6 +74,7 @@ async function Campaign({ params }: Pick<PageProps<"/email/campaigns/[id]">, "pa
       campaign={{ ...c, html }}
       tags={tags}
       clientTags={clientTags}
+      industries={industries}
       initialCount={count}
       hasAddress={!!brand.postalAddress}
       audiences={audiences}

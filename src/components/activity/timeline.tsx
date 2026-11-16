@@ -46,6 +46,8 @@ import { appConfig } from "@/app.config";
 import { deliveryLabels, deliveryTone } from "@/lib/email/delivery-status";
 import { activityLabels, clientCategoryLabels, clientHealthLabels, interactionTypes, type ActivityType, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
 import { dayKey, dueTone, formatBytes, formatDateTime, formatDay, formatFull, formatTime, senderName, timeKey, zonedTime } from "@/lib/format";
+import { formatPhone } from "@/lib/phone/numbers";
+import { formatCallDuration, textStatusLabels } from "@/lib/phone/rules";
 import { activityIcons } from "./composer";
 import { askNextStep } from "./next-step-dialog";
 
@@ -325,11 +327,26 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
   const [editing, setEditing] = useState(false);
   const Icon = activityIcons[a.type];
   const at = a.occurredAt ?? a.completedAt ?? a.createdAt;
+  // Calls, texts and mail that arrived by themselves: the other side is who did it.
+  const arrived = !a.userId && (a.callId || a.textMessageId || a.syncedEmailId || a.inboxThreadId);
+  const otherSide = a.type === "email" ? (row.inboxFrom ? senderName(row.inboxFrom) : row.synced?.from ?? null) : (row.personName ?? row.organizationName ?? formatPhone(row.call?.from ?? row.text?.from ?? ""));
   const verb =
     a.type === "note"
       ? "added a note"
       : a.type === "task"
         ? "completed a task"
+        : a.callId
+          ? "called"
+          : a.textMessageId
+            ? a.direction === "inbound"
+              ? "texted"
+              : row.campaignId
+                ? "sent the text campaign"
+                : "texted"
+            : a.syncedEmailId
+              ? a.direction === "inbound"
+                ? "emailed"
+                : "sent an email from Outlook"
         : a.type === "email"
           ? a.inboxThreadId && !a.userId
             ? a.direction === "inbound"
@@ -360,7 +377,13 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
       <article className={clsx("group min-w-0 flex-1 rounded-xl border bg-surface px-3.5 py-3", a.pinned ? "border-line-strong shadow-sm" : "border-line")}>
         <header className="flex items-start gap-2">
           <div className="min-w-0 flex-1 text-[13px] text-muted">
-            {a.inboxThreadId && !a.userId && a.direction === "inbound" && row.inboxFrom ? <span className="font-medium text-primary">{senderName(row.inboxFrom)}</span> : a.inboxThreadId && !a.userId ? <span className="font-medium text-primary">Email</span> : <Who id={a.userId} apiKeyId={a.apiKeyId} />}{" "}
+            {arrived && a.direction === "inbound" && otherSide ? (
+              <span className="font-medium text-primary">{otherSide}</span>
+            ) : arrived ? (
+              <span className="font-medium text-primary">{activityLabels[a.type]}</span>
+            ) : (
+              <Who id={a.userId} apiKeyId={a.apiKeyId} />
+            )}{" "}
             {verb}
             {row.campaignId ? (
               <>
@@ -377,8 +400,8 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
                 <ArrowUpRightIcon className="ml-1 inline size-3.5 align-[-2px]" aria-label="Outbound" />
               )
             ) : null}
-            {a.outcome ? <span className="ml-1.5 rounded-sm bg-sunken px-1.5 py-0.5 text-[11.5px] font-medium text-secondary">{a.outcome}</span> : null}
-            {a.durationMinutes ? <span className="ml-1.5 text-[12px] tabular-nums">{a.durationMinutes} min</span> : null}
+            {a.outcome ? <span className="ml-1.5 rounded-sm bg-sunken px-1.5 py-0.5 text-[11.5px] font-medium text-secondary">{a.outcome}</span> : a.callId && row.call?.status && !["completed", "busy", "no-answer", "failed", "canceled"].includes(row.call.status) ? <span className="ml-1.5 rounded-sm bg-sunken px-1.5 py-0.5 text-[11.5px] font-medium text-secondary">In progress</span> : null}
+            {a.callId ? (row.call?.seconds ? <span className="ml-1.5 text-[12px] tabular-nums">{formatCallDuration(row.call.seconds)}</span> : null) : a.durationMinutes ? <span className="ml-1.5 text-[12px] tabular-nums">{a.durationMinutes} min</span> : null}
             <Tooltip content={formatFull(at, tz)}>
               <time dateTime={new Date(at).toISOString()} className="ml-1.5 text-[12px] whitespace-nowrap text-faint" suppressHydrationWarning>
                 · {formatDateTime(at, tz)}
@@ -401,6 +424,25 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
           <p className="mt-1 truncate text-[12px] text-muted">
             {a.direction === "inbound" && row.inboxFrom ? `From ${row.inboxFrom} · ` : ""}To {row.inboxTo.join(", ")}
           </p>
+        ) : a.syncedEmailId && row.synced ? (
+          <p className="mt-1 truncate text-[12px] text-muted">
+            {a.direction === "inbound" && row.synced.from ? `From ${row.synced.from} · ` : ""}
+            {row.synced.to?.length ? `To ${row.synced.to.join(", ")}` : ""}
+          </p>
+        ) : a.textMessageId && row.text ? (
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted">
+            <span className="tabular-nums">
+              {a.direction === "inbound" ? `From ${formatPhone(row.text.from)} to ${formatPhone(row.text.to)}` : `To ${formatPhone(row.text.to)} from ${formatPhone(row.text.from)}`}
+            </span>
+            {a.direction === "outbound" && row.text.status ? (
+              <Tooltip content={row.text.error ?? textStatusLabels[row.text.status]}>
+                <StatusBadge tone={row.text.status === "delivered" ? "success" : row.text.status === "failed" || row.text.status === "undelivered" ? "error" : "neutral"}>{textStatusLabels[row.text.status]}</StatusBadge>
+              </Tooltip>
+            ) : null}
+            {row.text.media?.length ? <span>{row.text.media.length === 1 ? "1 picture or file (open it in Twilio)" : `${row.text.media.length} pictures or files (open them in Twilio)`}</span> : null}
+          </div>
+        ) : a.callId && row.call ? (
+          <p className="mt-1 truncate text-[12px] text-muted tabular-nums">{a.direction === "inbound" ? `From ${formatPhone(row.call.from)} to ${formatPhone(row.call.to)}` : `To ${formatPhone(row.call.to)} from ${formatPhone(row.call.from)}`}</p>
         ) : null}
         {a.subject ? <h3 className="mt-1 text-[14px] font-medium">{a.subject}</h3> : null}
         {a.body ? <CollapsibleBody html={a.body} /> : null}
@@ -497,8 +539,10 @@ function CollapsibleBody({ html }: { html: string }) {
 function ItemMenu({ row, onEdit }: { row: ActivityRow; onEdit: () => void }) {
   const { viewer, isAdmin } = useApp();
   const a = row.activity;
-  const canEdit = a.userId === viewer.id || isAdmin || a.type === "task" || !a.completedAt;
-  const canDelete = (a.userId === viewer.id || isAdmin) && !a.emailId && !a.inboxThreadId;
+  // Calls and texts through the team's numbers stay on the record; their notes can still be edited. Mail from someone's mailbox is theirs to take off.
+  const viaCrm = !!(a.emailId || a.inboxThreadId || a.callId || a.textMessageId);
+  const canEdit = a.userId === viewer.id || isAdmin || a.type === "task" || !a.completedAt || (!!a.callId && (a.assigneeId === viewer.id || !a.userId));
+  const canDelete = (a.userId === viewer.id || isAdmin || (!!a.syncedEmailId && row.synced?.mailboxUserId === viewer.id)) && !viaCrm;
   return (
     <Menu>
       <MenuTrigger asChild>
@@ -507,7 +551,7 @@ function ItemMenu({ row, onEdit }: { row: ActivityRow; onEdit: () => void }) {
         </button>
       </MenuTrigger>
       <MenuContent className="w-44">
-        {canEdit && !a.emailId && !a.inboxThreadId ? (
+        {canEdit && !a.emailId && !a.inboxThreadId && !a.textMessageId && !a.syncedEmailId ? (
           <MenuItem icon={<PencilSquareIcon />} onSelect={onEdit}>
             Edit
           </MenuItem>
@@ -617,7 +661,7 @@ const fieldText = (v: unknown, label: string | null | undefined, member: (id: st
 
 /** One line of history: who changed what, from what, to what. */
 /** History the CRM writes by itself, which reads as a sentence with no one in front. */
-const systemEvents = new Set(["email_bounced", "email_complained"]);
+const systemEvents = new Set(["email_bounced", "email_complained", "texts_opted_out", "texts_opted_in"]);
 
 function EventItem({ event }: { event: { id: string; action: string; data: Record<string, unknown>; userId: string | null; apiKeyId: string | null; createdAt: Date } }) {
   const { workspace, member, money } = useApp();
@@ -636,6 +680,7 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
     source?: string;
     email?: string;
     detail?: string | null;
+    phone?: string;
   };
   const cat = (c?: string) => (c && c in clientCategoryLabels ? clientCategoryLabels[c as ClientCategory].one.toLowerCase() : c);
   let text: React.ReactNode;
@@ -689,6 +734,13 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
     case "email_complained":
       text = <>{d.email} marked an email as spam, so they were unsubscribed from campaigns.</>;
       icon = <XCircleIcon className="size-3.5 text-error" />;
+      break;
+    case "texts_opted_out":
+      text = <>{d.phone ? <>{d.phone} replied STOP</> : <>They replied STOP</>}, so texts to them are blocked until they reply START.</>;
+      icon = <XCircleIcon className="size-3.5 text-error" />;
+      break;
+    case "texts_opted_in":
+      text = <>{d.phone ? <>{d.phone} replied START</> : <>They replied START</>}, so they can be texted again.</>;
       break;
     case "email_linked":
       text = <>linked the conversation{d.subject ? <> “{d.subject}”</> : null}</>;

@@ -2,6 +2,19 @@
 
 Decisions made while building this, newest at the top, so the history reads as documentation.
 
+## 2026-11-16 · Microsoft 365, calling and texting, decision makers, text campaigns
+
+**Goal.** Let each teammate work from their own Outlook and calendar inside the CRM, call and text from records, and reach the right people at an organization, the way Pipedrive's mail and calendar sync and its calling add-ons do, while staying configurable per deployment for an open-source project.
+
+- **Configured by environment, not by code.** Credentials are environment variables (`MICROSOFT_*`, `TWILIO_*`); behavior is `app.config.ts` keys (`microsoft.*`, `phone.*`, `records.keyContactLabel`) overridable with `NEXT_PUBLIC_APP_CONFIG`. Without credentials each feature hides itself. Browser-calling plumbing (a TwiML app and an API key) is created from Settings rather than asked for, the same way the Resend webhook is.
+- **Each teammate's own mailbox, not a shared one.** Microsoft is connected per person with delegated permissions, so mail goes out as them and nobody's mailbox is readable through anyone else's account. Tokens are encrypted at rest.
+- **Only mail with known contacts, and private mail never.** Copying everything would flood timelines and the database. Mail is copied only when a person or organization in the CRM is on the other side, never between teammates. Outlook's own Private/Confidential label is honored without asking a model; everything else is screened by a small model with deployment-written rules. When unsure, or when the screen isn't available, mail stays out (or waits), never in. Kept-out mail is marked in Outlook so people can see what happened, and no content of it is stored.
+- **Read calendars live, store nothing.** Teammates' Outlook events are fetched when Calendar opens, as much as each shares, so they're always current and cost the database nothing. Only CRM meetings are pushed to calendars, and kept in step.
+- **Calls and texts are activities.** A call made or forwarded and a text either way is one row in its own table (Twilio's ids, status, length) plus an activity, so timelines, "last contact" and the assistant see them with no new concepts. Call notes are the activity's body.
+- **Incoming calls forward, they don't ring browsers.** Forwarding to a cell phone works with nobody at a desk; the CRM logs who called and gives the person who answers a task to write it up.
+- **Consent first for text campaigns.** Text campaigns need a recorded agreement to marketing texts by default, STOP is honored immediately, and every campaign text carries an opt-out line. All three are settings, because the right answer depends on the deployment's country and use.
+- **One audience model for both channels.** Text campaigns reuse email campaigns' filters, saved audiences, scheduling and the claim-and-resume sender. New filters (decision makers only, organization industry, organization custom fields) work for both.
+
 ## 2026-11-15 · Email: delivery tracking, audiences, attachments, reply-to, quarter-hour jobs
 
 **Goal.** Email that a team can rely on from a person's or deal's page and for campaigns: know whether each email arrived, reuse audiences, send files, and choose where replies go. The delivery-tracking design follows the earlier project (Live Bold Idaho), adapted to people, clients and history here.

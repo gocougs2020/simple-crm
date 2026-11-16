@@ -9,7 +9,9 @@ import { Timeline } from "@/components/activity/timeline";
 import { FilesCard } from "@/components/files/files-panel";
 import { OrganizationCard, PersonDetails, RelatedClients } from "@/components/records/details";
 import { RecordBody, RecordHeader } from "@/components/records/record-header";
+import { CallButton, StarToggle } from "@/components/phone/contact-actions";
 import { Avatar } from "@/components/ui/avatar";
+import { appConfig } from "@/app.config";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { timeline } from "@/lib/crm/activities";
 import { clientsOfPerson, getPerson } from "@/lib/crm/records";
@@ -49,7 +51,14 @@ async function Person({ params }: Pick<PageProps<"/people/[id]">, "params">) {
         title={name}
         archived={!!person.archivedAt}
         avatar={<Avatar name={name} size="xl" />}
-        sub={[person.title, organization?.name].filter(Boolean).join(" at ") || undefined}
+        sub={
+          <span className="flex flex-wrap items-center gap-x-1.5">
+            {[person.title, organization?.name].filter(Boolean).join(" at ") || null}
+            {person.organizationId ? <StarToggle personId={id} starred={person.decisionMaker} name={person.firstName} className="-my-1" /> : null}
+            {person.decisionMaker ? <span className="text-[12.5px] text-muted">{appConfig.records.keyContactLabel}</span> : null}
+          </span>
+        }
+        actions={<CallButton target={{ name, phone: person.phone, personId: id }} />}
       />
       <RecordBody
         side={
@@ -63,7 +72,7 @@ async function Person({ params }: Pick<PageProps<"/people/[id]">, "params">) {
       >
         <RecordSummary entity="person" id={id} summary={person.summary} summaryAt={person.summaryAt} />
         <FocusLine planned={tl.planned} lastContactAt={tl.lastContactAt} lastCampaignAt={person.lastCampaignAt} context={{ type: "person", id }} />
-        <Composer links={{ personId: id }} recipient={{ personId: id, name, email: person.email }} />
+        <Composer links={{ personId: id }} recipient={{ personId: id, name, email: person.email, phone: person.phone, textOptedOut: !!person.textOptOutAt }} />
         <Timeline planned={tl.planned} pinned={tl.pinned} past={tl.past} context={{ type: "person", id }} fileLinks={{ personId: id, organizationId: person.organizationId }} files={tl.files} emptyHint={`Log a call, note or email with ${person.firstName} above and it shows up here.`} />
       </RecordBody>
     </>

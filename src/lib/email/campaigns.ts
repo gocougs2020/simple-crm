@@ -1,14 +1,19 @@
 import "server-only";
 import { render } from "@react-email/render";
 import { and, eq, inArray, isNotNull, isNull, lt, lte, or, sql, type SQL } from "drizzle-orm";
+import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
 import type { CampaignAudience } from "@/db/schema";
+import type { CampaignChannel } from "@/lib/constants";
+import { toE164 } from "@/lib/phone/numbers";
+import { phoneConfigured } from "@/lib/twilio/config";
+import { logSentText, sendText } from "@/lib/twilio/texts";
 import { signUnsubscribe } from "@/lib/auth";
 import { emailBrand } from "@/lib/brand";
 import { getResend, emailFrom, fromAs } from "@/lib/email";
 import { loadAttachments } from "./attachments";
 import CampaignEmail from "@/emails/campaign";
-import { escapeHtml, fillMergeTags, fillMergeTagsHtml, mergeValues } from "./merge-tags";
+import { escapeHtml, fillMergeTags, fillMergeTagsHtml, mergeValues, type MergeValues } from "./merge-tags";
 
 const { people, organizations, campaigns, outboundEmails } = schema;
 
@@ -41,11 +46,22 @@ function clientConditions(a: CampaignAudience): SQL[] {
 const clientOf = (conds: SQL[]) =>
   sql`clients c where c.archived_at is null and (c.person_id = ${people.id} or (c.organization_id is not null and c.organization_id = ${people.organizationId})) and ${sql.join(conds, sql` and `)}`;
 
-function audienceWhere(a: CampaignAudience): SQL[] {
-  // Never: no address, archived, unsubscribed, or an address that bounced for good.
-  const where: SQL[] = [isNotNull(people.email), isNull(people.archivedAt), isNull(people.unsubscribedAt), isNull(people.emailBouncedAt)];
+/** Who can get a campaign on this channel at all, whatever the filters. */
+function reachable(channel: CampaignChannel): SQL[] {
+  // Email, never: no address, archived, unsubscribed, or an address that bounced for good.
+  if (channel === "email") return [isNotNull(people.email), isNull(people.archivedAt), isNull(people.unsubscribedAt), isNull(people.emailBouncedAt)];
+  // Texts, never: no phone, archived, or replied STOP. Consent is checked with the filters, so a fixed list needs it too.
+  return [sql`coalesce(${people.phone}, '') <> ''`, isNull(people.archivedAt), isNull(people.textOptOutAt), ...(appConfig.phone.textCampaignsNeedConsent ? [isNotNull(people.textConsentAt)] : [])];
+}
+
+/** One custom field filter on a JSON column: single values compare as text (checkboxes read "true"/"false"); multi-selects match any chosen option. */
+const fieldMatches = (col: SQL | typeof people.custom, f: { key: string; values: string[] }) =>
+  sql`(coalesce(${col} ->> ${f.key}, '') in (${list(f.values)}) or (jsonb_typeof(${col} -> ${f.key}) = 'array' and ${col} -> ${f.key} ?| array[${list(f.values)}]))`;
+
+function audienceWhere(a: CampaignAudience, channel: CampaignChannel = "email"): SQL[] {
+  const where: SQL[] = reachable(channel);
   if (a.personIds?.length) return [...where, inArray(people.id, a.personIds)];
-  where.push(eq(people.marketingOptIn, true));
+  if (channel === "email") where.push(eq(people.marketingOptIn, true));
   if (a.tags?.length) where.push(a.tagMatch === "all" ? sql`${people.tags} ?& array[${list(a.tags)}]` : sql`${people.tags} ?| array[${list(a.tags)}]`);
   if (a.excludeTags?.length) where.push(sql`not (${people.tags} ?| array[${list(a.excludeTags)}])`);
   if (a.ownerIds?.length) where.push(inArray(people.ownerId, a.ownerIds));
@@ -55,11 +71,14 @@ function audienceWhere(a: CampaignAudience): SQL[] {
   if (a.noCampaignForDays) where.push(sql`(${people.lastCampaignAt} is null or ${people.lastCampaignAt} < now() - make_interval(days => ${a.noCampaignForDays}::int))`);
   for (const f of a.customFields ?? []) {
     if (!f.values.length) continue;
-    // Single values compare as text (checkboxes read "true"/"false"); multi-selects match any chosen option.
-    where.push(
-      sql`(coalesce(${people.custom} ->> ${f.key}, '') in (${list(f.values)}) or (jsonb_typeof(${people.custom} -> ${f.key}) = 'array' and ${people.custom} -> ${f.key} ?| array[${list(f.values)}]))`,
-    );
+    where.push(fieldMatches(people.custom, f));
   }
+  if (a.decisionMakersOnly) where.push(eq(people.decisionMaker, true));
+  // Organization filters: the person's own organization.
+  const org: SQL[] = [];
+  if (a.organizationIndustries?.length) org.push(sql`o.industry in (${list(a.organizationIndustries)})`);
+  for (const f of a.organizationFields ?? []) if (f.values.length) org.push(fieldMatches(sql`o.custom`, f));
+  if (org.length) where.push(sql`exists (select 1 from organizations o where o.id = ${people.organizationId} and o.archived_at is null and ${sql.join(org, sql` and `)})`);
   const client = clientConditions(a);
   if (client.length) where.push(sql`exists (select 1 from ${clientOf(client)})`);
   return where;
@@ -67,7 +86,9 @@ function audienceWhere(a: CampaignAudience): SQL[] {
 
 export type AudienceMember = {
   id: string;
+  /** Empty for text campaigns' people without an email. */
   email: string;
+  phone: string | null;
   firstName: string;
   lastName: string | null;
   title: string | null;
@@ -85,7 +106,7 @@ export type AudienceMember = {
  * filters who has an email, hasn't unsubscribed or bounced, and is opted in.
  * Ordered by id so a resumed send makes the same batches.
  */
-export async function resolveAudience(a: CampaignAudience, limit?: number): Promise<AudienceMember[]> {
+export async function resolveAudience(a: CampaignAudience, limit?: number, channel: CampaignChannel = "email"): Promise<AudienceMember[]> {
   const db = await getDb();
   const client = clientConditions(a);
   const matched = (col: "id" | "name") =>
@@ -93,7 +114,8 @@ export async function resolveAudience(a: CampaignAudience, limit?: number): Prom
   const q = db
     .select({
       id: people.id,
-      email: sql<string>`${people.email}`,
+      email: sql<string>`coalesce(${people.email}, '')`,
+      phone: people.phone,
       firstName: people.firstName,
       lastName: people.lastName,
       title: people.title,
@@ -107,17 +129,17 @@ export async function resolveAudience(a: CampaignAudience, limit?: number): Prom
     .from(people)
     .leftJoin(organizations, eq(organizations.id, people.organizationId))
     .leftJoin(schema.users, eq(schema.users.id, people.ownerId))
-    .where(and(...audienceWhere(a)))
+    .where(and(...audienceWhere(a, channel)))
     .orderBy(people.id);
   return limit ? q.limit(limit) : q;
 }
 
-export async function audienceCount(a: CampaignAudience) {
+export async function audienceCount(a: CampaignAudience, channel: CampaignChannel = "email") {
   const db = await getDb();
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(people)
-    .where(and(...audienceWhere(a)));
+    .where(and(...audienceWhere(a, channel)));
   return row.n;
 }
 
@@ -167,6 +189,7 @@ export async function sendCampaign(campaignId: string, origin: string) {
   const [c] = await db.select().from(campaigns).where(eq(campaigns.id, campaignId));
   if (!c) throw new Error("Campaign not found.");
   if (c.status === "sent") return { sent: 0 };
+  if (c.channel === "text") return sendTextCampaign(c, origin);
   if (!c.subject.trim()) throw new Error("Add a subject line first.");
   if (!c.html) throw new Error("Write the email first.");
   const brand = await emailBrand();
@@ -336,3 +359,80 @@ export async function runDueCampaigns(origin: string, onlyId?: string) {
   return { checkedAt: now.toISOString(), campaigns: results };
 }
 
+
+// ─── Text campaigns ──────────────────────────────────────────────────────
+
+/** The text a person gets: the message with their merge tags filled in, and the opt-out line. */
+export function campaignText(body: string, values: MergeValues) {
+  const footer = appConfig.phone.textCampaignFooter.trim();
+  const text = fillMergeTags(body, values).trim();
+  return footer && !text.toLowerCase().includes(footer.toLowerCase()) ? `${text}\n\n${footer}` : text;
+}
+
+/** Between texts, so a long code isn't flooded (Twilio queues the rest at about one a second). */
+const TEXT_GAP_MS = 120;
+
+/**
+ * Texts a claimed campaign to everyone in its audience who hasn't had it.
+ * Each recipient is a row before Twilio is asked (unique campaign + person),
+ * so a resumed send never texts anyone twice. One that Twilio refuses (a
+ * landline, an opted-out number) is kept as failed and the send goes on.
+ */
+async function sendTextCampaign(c: typeof campaigns.$inferSelect, origin: string) {
+  const db = await getDb();
+  if (!phoneConfigured()) throw new Error("Texting isn't set up. Add the Twilio account first (docs/PHONE.md).");
+  if (!c.textBody.trim()) throw new Error("Write the text first.");
+  const [number] = c.phoneNumberId ? await db.select().from(schema.phoneNumbers).where(eq(schema.phoneNumbers.id, c.phoneNumberId)) : [];
+  if (!number || number.archivedAt) throw new Error("Pick the number this campaign texts from.");
+
+  const audience = await resolveAudience(await campaignAudience(c), undefined, "text");
+  const done = new Set((await db.select({ id: schema.textMessages.personId }).from(schema.textMessages).where(eq(schema.textMessages.campaignId, c.id))).map((r) => r.id));
+  const pending = audience.filter((p) => !done.has(p.id));
+  let sent = 0;
+  for (const [i, p] of pending.entries()) {
+    const to = toE164(p.phone, appConfig.phone.defaultCountryCode);
+    if (!to) continue;
+    if (i > 0) await sleep(TEXT_GAP_MS);
+    const result = await sendText({
+      number,
+      to,
+      body: campaignText(c.textBody, mergeValues(p)),
+      userId: c.createdBy,
+      campaignId: c.id,
+      links: { personId: p.id, organizationId: p.organizationId, clientId: p.clientId },
+      origin,
+    });
+    if (result.row && result.sent) {
+      await logSentText(result.row, { campaign: true });
+      const now = new Date();
+      await db
+        .update(people)
+        .set({ lastCampaignAt: sql`greatest(coalesce(${people.lastCampaignAt}, ${now}), ${now})` })
+        .where(eq(people.id, p.id));
+    }
+    if (result.row) sent++;
+    // Heartbeat, so the cron only resumes sends that have actually stalled.
+    if (sent % 20 === 0) await db.update(campaigns).set({ updatedAt: new Date(), recipientCount: done.size + sent }).where(eq(campaigns.id, c.id));
+  }
+  await db
+    .update(campaigns)
+    .set({ status: "sent", sentAt: new Date(), recipientCount: done.size + sent, updatedAt: new Date() })
+    .where(eq(campaigns.id, c.id));
+  return { sent };
+}
+
+/** How a text campaign's texts did, for its report: counts by delivery status. */
+export async function textCampaignStats(campaignId: string) {
+  const db = await getDb();
+  const t = schema.textMessages;
+  const [row] = await db
+    .select({
+      total: sql<number>`count(*)::int`,
+      delivered: sql<number>`count(*) filter (where ${t.status} = 'delivered')::int`,
+      failed: sql<number>`count(*) filter (where ${t.status} in ('failed', 'undelivered'))::int`,
+      replies: sql<number>`(select count(*)::int from text_messages r where r.direction = 'inbound' and r.person_id in (select person_id from text_messages s where s.campaign_id = ${campaignId}) and r.created_at > (select min(created_at) from text_messages s where s.campaign_id = ${campaignId}))`,
+    })
+    .from(t)
+    .where(eq(t.campaignId, campaignId));
+  return row ?? { total: 0, delivered: 0, failed: 0, replies: 0 };
+}

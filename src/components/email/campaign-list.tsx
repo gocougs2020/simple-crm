@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { EllipsisHorizontalIcon, PlusIcon } from "@heroicons/react/20/solid";
-import { EnvelopeIcon } from "@heroicons/react/24/outline";
+import { ChatBubbleLeftRightIcon, EnvelopeIcon } from "@heroicons/react/24/outline";
 import { createCampaign, deleteCampaign, duplicateCampaign } from "@/actions/campaigns";
 import { useApp } from "@/components/app-context";
 import { PageHeader } from "@/components/shell/app-shell";
@@ -16,19 +16,19 @@ import { toast } from "@/components/ui/toast";
 import { formatDateTime } from "@/lib/format";
 import { EmailTabs } from "./email-tabs";
 
-export type CampaignRow = { id: string; name: string; subject: string; status: "draft" | "scheduled" | "sending" | "sent"; scheduledAt: Date | null; sentAt: Date | null; recipientCount: number; sendError: string | null; updatedAt: Date; deliveryRate: number | null; openRate: number | null };
+export type CampaignRow = { id: string; name: string; subject: string; channel: "email" | "text"; textBody: string; status: "draft" | "scheduled" | "sending" | "sent"; scheduledAt: Date | null; sentAt: Date | null; recipientCount: number; sendError: string | null; updatedAt: Date; deliveryRate: number | null; openRate: number | null };
 
 const tone = { draft: "neutral", scheduled: "info", sending: "warning", sent: "success" } as const;
 const label = { draft: "Draft", scheduled: "Scheduled", sending: "Sending", sent: "Sent" } as const;
 
 export function CampaignList({ rows }: { rows: CampaignRow[] }) {
   const router = useRouter();
-  const { workspace, services } = useApp();
+  const { workspace, services, comms } = useApp();
   const [pending, start] = useTransition();
   const tz = workspace.timezone;
-  const create = () =>
+  const create = (channel: "email" | "text" = "email") =>
     start(async () => {
-      const r = await createCampaign();
+      const r = await createCampaign(channel);
       if (!r.ok) return void toast.error(r.error);
       router.push(`/email/campaigns/${r.data.id}`);
     });
@@ -38,10 +38,29 @@ export function CampaignList({ rows }: { rows: CampaignRow[] }) {
         title="Email"
         sub={!services.email ? <p className="mt-0.5 text-[12px] text-muted">Email isn&apos;t connected yet, so sends print to the server log. Add RESEND_API_KEY to send for real.</p> : null}
       >
-        <Button variant="primary" onClick={create} loading={pending}>
-          <PlusIcon />
-          Campaign
-        </Button>
+        {comms.texting ? (
+          <Menu>
+            <MenuTrigger asChild>
+              <Button variant="primary" loading={pending}>
+                <PlusIcon />
+                Campaign
+              </Button>
+            </MenuTrigger>
+            <MenuContent className="w-48">
+              <MenuItem icon={<EnvelopeIcon />} onSelect={() => create("email")}>
+                Email campaign
+              </MenuItem>
+              <MenuItem icon={<ChatBubbleLeftRightIcon />} onSelect={() => create("text")}>
+                Text campaign
+              </MenuItem>
+            </MenuContent>
+          </Menu>
+        ) : (
+          <Button variant="primary" onClick={() => create()} loading={pending}>
+            <PlusIcon />
+            Campaign
+          </Button>
+        )}
       </PageHeader>
       <EmailTabs />
       <div className="mx-auto max-w-5xl px-4 py-5 lg:px-6">
@@ -50,8 +69,11 @@ export function CampaignList({ rows }: { rows: CampaignRow[] }) {
             {rows.map((c) => (
               <li key={c.id} className="flex items-center gap-3 px-4 py-3 hover:bg-sunken/50">
                 <Link href={`/email/campaigns/${c.id}`} className="min-w-0 flex-1">
-                  <p className="truncate text-[14px] font-medium text-primary">{c.name}</p>
-                  <p className="truncate text-[12.5px] text-muted">{c.subject || "No subject yet"}</p>
+                  <p className="flex items-center gap-1.5 truncate text-[14px] font-medium text-primary">
+                    {c.channel === "text" ? <ChatBubbleLeftRightIcon className="size-4 shrink-0 text-muted" aria-label="Text campaign" /> : <EnvelopeIcon className="size-4 shrink-0 text-muted" aria-label="Email campaign" />}
+                    <span className="truncate">{c.name}</span>
+                  </p>
+                  <p className="truncate text-[12.5px] text-muted">{c.channel === "text" ? c.textBody || "No message yet" : c.subject || "No subject yet"}</p>
                   {c.sendError ? <p className="mt-0.5 text-[12px] text-error">Didn&apos;t send: {c.sendError}</p> : null}
                   {c.deliveryRate !== null ? (
                     <p className="mt-0.5 text-[12px] text-secondary tabular-nums">
@@ -108,7 +130,7 @@ export function CampaignList({ rows }: { rows: CampaignRow[] }) {
             title="No campaigns yet"
             description="Send a branded email to a group of people: everyone tagged “newsletter”, say, or every past client open to coming back."
             action={
-              <Button variant="primary" onClick={create} loading={pending}>
+              <Button variant="primary" onClick={() => create()} loading={pending}>
                 Create your first campaign
               </Button>
             }

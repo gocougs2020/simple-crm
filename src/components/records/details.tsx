@@ -1,6 +1,8 @@
 "use client";
 
+import clsx from "clsx";
 import Link from "next/link";
+import { StarToggle } from "@/components/phone/contact-actions";
 import { useState } from "react";
 import { BriefcaseIcon, BuildingOffice2Icon, PlusIcon } from "@heroicons/react/20/solid";
 import { updateClient } from "@/actions/clients";
@@ -14,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox, Input, Select, Textarea } from "@/components/ui/field";
 import type { schema } from "@/db";
 import { churnReasons, clientHealthLabels, clientHealths, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
-import { formatDateOnly, formatPhoneInput, parseMoney, personName } from "@/lib/format";
+import { formatDateOnly, formatDay, formatPhoneInput, parseMoney, personName } from "@/lib/format";
 import { CustomFieldInput, formatCustomValue } from "./custom-field-input";
 import { InlineField, SideCard } from "./inline-field";
 import { OwnerSelect } from "./owner-select";
@@ -96,6 +98,7 @@ function CustomFieldRows({ entity, values, onSave }: { entity: EntityType; value
 // ─── Person ──────────────────────────────────────────────────────────────
 
 export function PersonDetails({ person, organization }: { person: Person; organization: Organization | null }) {
+  const { comms, workspace } = useApp();
   const save = (patch: Parameters<typeof updatePerson>[1]) => updatePerson(person.id, patch).then(ok);
   return (
     <SideCard title="Details">
@@ -177,6 +180,27 @@ export function PersonDetails({ person, organization }: { person: Person; organi
           onSave={(marketingOptIn) => save({ marketingOptIn })}
           readOnly={!!person.unsubscribedAt}
         />
+        {comms.phone ? (
+          <InlineField<boolean>
+            label="Marketing texts"
+            value={!!person.textConsentAt}
+            display={
+              person.textOptOutAt ? (
+                <span className="inline-flex flex-wrap items-center gap-1.5">
+                  <StatusBadge tone="neutral">Replied STOP</StatusBadge>
+                  <span className="text-[12px] text-muted">No texts until they reply START</span>
+                </span>
+              ) : person.textConsentAt ? (
+                `Agreed ${formatDay(person.textConsentAt, workspace.timezone)}`
+              ) : (
+                "Not agreed"
+              )
+            }
+            editor={({ value, commit }) => <Checkbox checked={value} onChange={(e) => commit(e.target.checked)} label="They agreed to get marketing texts" autoFocus />}
+            onSave={(textConsent) => save({ textConsent })}
+            readOnly={!!person.textOptOutAt}
+          />
+        ) : null}
         <CustomFieldRows entity="person" values={person.custom} onSave={(key, v) => save({ custom: { [key]: v } })} />
       </dl>
     </SideCard>
@@ -468,17 +492,21 @@ export function RelatedPeople({ people, organization }: { people: Person[]; orga
     >
       {people.length ? (
         <ul className="-mx-2">
-          {people.map((p) => (
-            <li key={p.id}>
-              <Link href={`/people/${p.id}`} className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-sunken">
-                <Avatar name={personName(p)} size="sm" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-medium text-primary">{personName(p)}</span>
-                  <span className="block truncate text-[11.5px] text-muted">{p.title ?? p.email ?? ""}</span>
-                </span>
-              </Link>
-            </li>
-          ))}
+          {/* Decision makers first: they're who the account is won or lost with. */}
+          {[...people]
+            .sort((a, b) => Number(b.decisionMaker) - Number(a.decisionMaker))
+            .map((p) => (
+              <li key={p.id} className="group flex items-center rounded-md hover:bg-sunken">
+                <Link href={`/people/${p.id}`} className="flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pl-2">
+                  <Avatar name={personName(p)} size="sm" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-medium text-primary">{personName(p)}</span>
+                    <span className="block truncate text-[11.5px] text-muted">{p.title ?? p.email ?? ""}</span>
+                  </span>
+                </Link>
+                <StarToggle personId={p.id} starred={p.decisionMaker} name={p.firstName} className={clsx("mr-1", !p.decisionMaker && "opacity-0 group-hover:opacity-100 focus-visible:opacity-100")} />
+              </li>
+            ))}
         </ul>
       ) : (
         <p className="py-1 text-[12.5px] text-muted">No people yet.</p>

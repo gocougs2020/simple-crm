@@ -125,7 +125,7 @@ export const MAX_EMAIL_ATTACHMENTS = 10;
  * Notifications). Each one is about the teammate's own work, so nobody is
  * notified about something they did themselves.
  */
-export const notificationKinds = ["task_assigned", "task_due", "task_digest", "meeting_soon", "record_assigned", "inbound_email"] as const;
+export const notificationKinds = ["task_assigned", "task_due", "task_digest", "meeting_soon", "record_assigned", "inbound_email", "inbound_text"] as const;
 export type NotificationKind = (typeof notificationKinds)[number];
 export const notificationLabels: Record<NotificationKind, { label: string; hint: string }> = {
   task_assigned: { label: "Tasks assigned to me", hint: "When a teammate (or their agent) gives you a task, call or meeting." },
@@ -134,6 +134,7 @@ export const notificationLabels: Record<NotificationKind, { label: string; hint:
   meeting_soon: { label: "Meetings", hint: "15 minutes before each of your meetings starts." },
   record_assigned: { label: "Records assigned to me", hint: "When a teammate makes you the owner of a client, person or organization." },
   inbound_email: { label: "Replies from my contacts", hint: "When email arrives in a connected inbox from a client, person or organization you own." },
+  inbound_text: { label: "Texts from my contacts", hint: "When someone you own texts one of the team's phone numbers, or texts a number you look after." },
 };
 
 /** Agenda emails a teammate can get (Settings → Notifications), sent in the morning in the workspace's time zone. */
@@ -142,4 +143,21 @@ export type EmailDigestKind = (typeof emailDigestKinds)[number];
 export const emailDigestLabels: Record<EmailDigestKind, { label: string; hint: string }> = {
   daily: { label: "Daily agenda, every weekday morning", hint: "Today's meetings, plus tasks due today and anything overdue. On Mondays the weekly agenda takes its place if it's on." },
   weekly: { label: "Weekly agenda, every Monday morning", hint: "This week's meetings, tasks due today or overdue, and tasks coming up later in the week." },
+};
+
+/** Campaigns go out as email (Resend) or as texts (Twilio). */
+export const campaignChannels = ["email", "text"] as const;
+export type CampaignChannel = (typeof campaignChannels)[number];
+
+/**
+ * What teammates see of someone's connected calendar in Calendar: nothing,
+ * when they're busy, or the events themselves. CRM meetings and planned calls
+ * are records, so everyone sees those either way.
+ */
+export const calendarSharings = ["none", "busy", "details"] as const;
+export type CalendarSharing = (typeof calendarSharings)[number];
+export const calendarSharingLabels: Record<CalendarSharing, { label: string; hint: string }> = {
+  none: { label: "Only me", hint: "Teammates see the CRM meetings and calls you have, not the rest of your calendar." },
+  busy: { label: "Free and busy", hint: "Teammates see when you're busy, without titles or details." },
+  details: { label: "Full details", hint: "Teammates see your events' titles, times and places." },
 };

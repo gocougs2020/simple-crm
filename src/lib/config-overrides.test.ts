@@ -11,10 +11,39 @@ const defaults: AppConfig = {
   email: { trackOpens: false, trackClicks: false },
   agent: { enabled: true, voice: true, dictation: true, summaries: true, name: "Assistant", chatModel: "a/chat", chatReasoning: "medium", summaryModel: "a/sum", summaryReasoning: "low", titleModel: "a/title", voiceModel: "a/voice", transcriptionModel: "a/stt", suggestions: ["One"], viewerSuggestions: ["Two"] },
   notifications: { morningHour: 7 },
+  records: { keyContactLabel: "Decision maker" },
+  microsoft: {
+    enabled: true,
+    syncEveryMinutes: 15,
+    firstSyncDays: 14,
+    syncSent: true,
+    screenMail: true,
+    screenModel: "a/screen",
+    screenInstructions: "Private things.",
+    withheldCategory: null,
+    calendarTypes: ["meeting"],
+    calendarDefaultMinutes: 30,
+    inviteContacts: false,
+  },
+  phone: { enabled: true, defaultCountryCode: "1", forwardCallerId: "caller", forwardTimeoutSeconds: 25, missedCallMessage: null, textCampaignsNeedConsent: true, textCampaignFooter: "Reply STOP to opt out." },
   pwa: { shortName: null, iconBackground: null, iconForeground: "#ffffff", backgroundColor: "#fafafa" },
 };
 
 describe("applyConfigOverrides", () => {
+  it("configures Microsoft 365 and the phone per deployment", () => {
+    const merged = applyConfigOverrides(defaults, {
+      json: JSON.stringify({ microsoft: { syncEveryMinutes: 30, withheldCategory: "Kept out", calendarTypes: ["meeting", "call"] }, phone: { forwardCallerId: "number", missedCallMessage: "Leave a message." }, records: { keyContactLabel: "Key contact" } }),
+    });
+    assert.equal(merged.microsoft.syncEveryMinutes, 30);
+    assert.equal(merged.microsoft.withheldCategory, "Kept out");
+    assert.deepEqual(merged.microsoft.calendarTypes, ["meeting", "call"]);
+    assert.equal(merged.phone.forwardCallerId, "number");
+    assert.equal(merged.phone.missedCallMessage, "Leave a message.");
+    assert.equal(merged.records.keyContactLabel, "Key contact");
+    assert.throws(() => applyConfigOverrides(defaults, { json: '{"phone":{"forwardCallerId":"cell"}}' }), /phone\.forwardCallerId: expected one of/);
+    assert.throws(() => applyConfigOverrides(defaults, { json: '{"microsoft":{"screenMail":"yes"}}' }), /microsoft\.screenMail: expected boolean/);
+  });
+
   it("returns the defaults untouched when nothing is set", () => {
     assert.equal(applyConfigOverrides(defaults, {}), defaults);
     assert.equal(applyConfigOverrides(defaults, { json: " ", name: "" }), defaults);

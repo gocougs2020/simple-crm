@@ -11,6 +11,7 @@ import { Timeline } from "@/components/activity/timeline";
 import { FilesCard } from "@/components/files/files-panel";
 import { OrganizationDetails, RelatedClients, RelatedPeople } from "@/components/records/details";
 import { RecordBody, RecordHeader } from "@/components/records/record-header";
+import { CallButton } from "@/components/phone/contact-actions";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { timeline } from "@/lib/crm/activities";
 import { clientsOfOrganization, getOrganization, peopleOf } from "@/lib/crm/records";
@@ -51,6 +52,7 @@ async function Organization({ params }: Pick<PageProps<"/organizations/[id]">, "
           </span>
         }
         sub={[org.industry, org.domain].filter(Boolean).join(" · ") || undefined}
+        actions={<CallButton target={{ name: org.name, phone: org.phone, organizationId: id }} />}
       />
       <RecordBody
         side={

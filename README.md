@@ -16,6 +16,9 @@ It's built to cover the 80% of CRM work a small team does every day, and to stay
 - **Next steps are never lost.** Prospects and current clients with nothing planned are flagged on the board, at the top of their page and on the home page; checking off their last task asks what's next.
 - **Board or table, per person.** Drag clients between stages (or onto Signed, Left or Won back); switch to a sortable table. Each teammate's choice is remembered.
 - **Email built in.** Add your domains and team inboxes (sales@, support@) in Settings, powered by Resend. Incoming mail lands in a shared inbox and on the timeline of the person, organization and client it's about; reply from the CRM. Send from any record through an inbox, with templates and merge fields. Campaigns go to filtered audiences (past clients open to coming back, say) with a live preview, test sends, scheduling and one-click unsubscribe. A brand kit (logo, color, address, signature) wraps every email.
+- **Your own Outlook, connected.** Each teammate can connect Microsoft 365: email from records goes out as them, mail with contacts lands on those contacts' records every 15 minutes (with private and confidential mail kept out by Outlook's labels and an AI screen, and marked in Outlook), CRM meetings go on their calendar, and a team Calendar shows everyone's week. See [docs/MICROSOFT.md](docs/MICROSOFT.md).
+- **Calls and texts.** Call from the browser through the team's Twilio numbers with notes as you talk, forward incoming calls to a cell phone (logged on the caller, with a task to write it up), text one to one, and send text campaigns to the same audiences as email. See [docs/PHONE.md](docs/PHONE.md).
+- **Decision makers.** Star the people at an organization who make the call; they sort first and can be an audience on their own.
 - **Import** people from CSV or Excel: match columns, merge by email, undo.
 - **Move from Pipedrive** with `pnpm import:pipedrive`: people, organizations, deals collapsed into one client per organization, products as services, notes, activities and email. See [docs/PIPEDRIVE-IMPORT.md](docs/PIPEDRIVE-IMPORT.md).
 - **Files** attach to a record or to a note, call or meeting, and each record's Files card gathers them all, along with attachments on its email. They live in a private store and only stream to signed-in teammates.
@@ -76,6 +79,8 @@ Unknown keys, wrong types, invalid JSON and unsafe CSS values fail the build wit
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the code is organized and why
 - [docs/API.md](docs/API.md): the REST API, API keys, roles and MCP
 - [docs/AGENT.md](docs/AGENT.md): the in-app assistant: tools, threads, voice, models and limits
+- [docs/MICROSOFT.md](docs/MICROSOFT.md): connecting Microsoft 365 mailboxes and calendars
+- [docs/PHONE.md](docs/PHONE.md): calling and texting through Twilio
 - [docs/SECURITY.md](docs/SECURITY.md): authentication, sessions, files, and what keeps a public repo safe to deploy
 - [docs/THEMING.md](docs/THEMING.md): changing the design
 - [docs/DEPLOYING.md](docs/DEPLOYING.md): production setup

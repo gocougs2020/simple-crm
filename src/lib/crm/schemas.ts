@@ -54,6 +54,8 @@ export const personInput = z.object({
   ownerId: optionalId.describe("The teammate who owns the relationship. Defaults to whoever creates it; null for none."),
   tags: tagList.optional().describe("Lowercase labels. Replaces the whole list."),
   marketingOptIn: z.boolean().optional().describe("Whether campaigns may go to them. One-off emails always send."),
+  decisionMaker: z.boolean().optional().describe("Star them at their organization as someone who makes or signs off on the decision."),
+  textConsent: z.boolean().optional().describe("Whether they agreed to receive marketing texts (text campaigns). Setting it records when; one-to-one texts don't need it."),
   custom: customValues.optional(),
 });
 

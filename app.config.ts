@@ -120,6 +120,70 @@ export type AppConfig = {
     /** The hour (0–23, workspace time zone) the morning push summary and agenda emails go out. */
     morningHour: number;
   };
+  records: {
+    /**
+     * What a starred person at an organization is called: the people who make
+     * or sign off on the decision. Shown on the star's tooltip, the person's
+     * page and the audience filter.
+     */
+    keyContactLabel: string;
+  };
+  microsoft: {
+    /**
+     * Connecting Microsoft 365 (Outlook, Exchange Online) mailboxes and
+     * calendars, per teammate. Also needs MICROSOFT_CLIENT_ID and
+     * MICROSOFT_CLIENT_SECRET (docs/MICROSOFT.md); without them it hides itself.
+     */
+    enabled: boolean;
+    /** How often mailboxes are synced: 15, 30 or 60 minutes. Less often means fewer database wake-ups. */
+    syncEveryMinutes: number;
+    /** How far back the first sync of a newly connected mailbox reads. */
+    firstSyncDays: number;
+    /** Also copy mail teammates send from Outlook itself (Sent Items) to the records it's addressed to. */
+    syncSent: boolean;
+    /**
+     * Screen each email with an AI model before it goes on a record, and keep
+     * private or confidential ones out. Needs AI_GATEWAY_API_KEY; without one,
+     * mail waits (nothing is imported unscreened) until it's set or this is off.
+     * Emails Outlook marks Private or Confidential are always kept out.
+     */
+    screenMail: boolean;
+    /** The screening model (AI Gateway id). Small and fast is enough. */
+    screenModel: string;
+    /** What counts as sensitive, in plain words. The model keeps anything matching this out of the CRM. */
+    screenInstructions: string;
+    /**
+     * Mark kept-out emails in Outlook with this category, so the teammate can
+     * see which ones didn't go into the CRM. `null` names it after the app
+     * ("Not in CRM"); an empty string turns marking off.
+     */
+    withheldCategory: string | null;
+    /** Copy planned activities of these types to the assignee's Outlook calendar. */
+    calendarTypes: readonly ("meeting" | "call")[];
+    /** How long a copied meeting is when no duration was given, in minutes. */
+    calendarDefaultMinutes: number;
+    /** Invite the person the meeting is with (Outlook emails them an invitation). Off: only the teammate's calendar changes. */
+    inviteContacts: boolean;
+  };
+  phone: {
+    /**
+     * Calling and texting through Twilio. Also needs TWILIO_ACCOUNT_SID and
+     * TWILIO_AUTH_TOKEN (docs/PHONE.md); without them it hides itself.
+     */
+    enabled: boolean;
+    /** Country calling code added to numbers typed without one ("1" for the US and Canada). */
+    defaultCountryCode: string;
+    /** Caller ID on a forwarded call: the caller's own number (so the cell phone shows who it is), or the team's number. */
+    forwardCallerId: "caller" | "number";
+    /** Seconds a forwarded call rings before it's treated as missed. */
+    forwardTimeoutSeconds: number;
+    /** Said to callers when the forwarded call isn't answered. `null` just hangs up. */
+    missedCallMessage: string | null;
+    /** Text campaigns only go to people marked as having agreed to marketing texts. Turning this off is your legal call. */
+    textCampaignsNeedConsent: boolean;
+    /** Added to the end of every campaign text. Carriers expect a way to opt out. */
+    textCampaignFooter: string;
+  };
   pwa: {
     /** Name under the icon on a phone's home screen (12 characters or fewer reads best). Defaults to `brand.name`. */
     shortName: string | null;
@@ -168,6 +232,32 @@ const defaults = {
   },
   notifications: {
     morningHour: 7,
+  },
+  records: {
+    keyContactLabel: "Decision maker",
+  },
+  microsoft: {
+    enabled: true,
+    syncEveryMinutes: 15,
+    firstSyncDays: 14,
+    syncSent: true,
+    screenMail: true,
+    screenModel: "anthropic/claude-haiku-5.5",
+    screenInstructions:
+      "Personal or private matters (health, family, finances, legal trouble), HR and employment matters (salaries, reviews, hiring or firing of our own staff), legal or contract disputes, anything marked confidential or privileged, passwords and security codes, and anything clearly not about the business relationship with this contact.",
+    withheldCategory: null,
+    calendarTypes: ["meeting"],
+    calendarDefaultMinutes: 30,
+    inviteContacts: false,
+  },
+  phone: {
+    enabled: true,
+    defaultCountryCode: "1",
+    forwardCallerId: "caller",
+    forwardTimeoutSeconds: 25,
+    missedCallMessage: null,
+    textCampaignsNeedConsent: true,
+    textCampaignFooter: "Reply STOP to opt out.",
   },
   pwa: {
     shortName: null,

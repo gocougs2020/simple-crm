@@ -1,5 +1,8 @@
 "use client";
 
+import { StarIcon } from "@heroicons/react/20/solid";
+import { appConfig } from "@/app.config";
+
 import Link from "next/link";
 import { useState } from "react";
 import { ArrowUpTrayIcon, PlusIcon } from "@heroicons/react/20/solid";
@@ -42,7 +45,10 @@ export function PeopleView({ rows, tags, filtered }: { rows: Row[]; tags: string
         <span className="flex items-center gap-2.5">
           <Avatar name={personName(r.person)} size="sm" />
           <span className="min-w-0">
-            <span className="block truncate font-medium text-primary">{personName(r.person)}</span>
+            <span className="flex items-center gap-1 truncate font-medium text-primary">
+              <span className="truncate">{personName(r.person)}</span>
+              {r.person.decisionMaker ? <StarIcon className="size-3.5 shrink-0 text-warning" aria-label={appConfig.records.keyContactLabel} /> : null}
+            </span>
             {r.person.title ? <span className="block truncate text-[12px] text-muted">{r.person.title}</span> : null}
           </span>
         </span>
