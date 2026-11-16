@@ -24,10 +24,12 @@ type Available = { number: string; locality: string | null; region: string | nul
  */
 export function PhoneSettings({
   configured,
+  auth,
   calling,
   numbers,
 }: {
   configured: boolean;
+  auth: { via: "api-key" | "auth-token" | null; webhooks: boolean };
   calling: { ready: boolean; fromEnv: boolean; origin: string | null; currentOrigin: string };
   numbers: NumberRow[];
 }) {
@@ -38,7 +40,7 @@ export function PhoneSettings({
   if (!configured) {
     return (
       <Section title="Phone numbers" description="Call from the browser, forward incoming calls to a cell phone, and text people from their records.">
-        <p className="p-5 text-[13.5px] text-muted">Calling and texting aren&apos;t set up on this deployment. Add TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN from your Twilio console, then redeploy (see docs/PHONE.md).</p>
+        <p className="p-5 text-[13.5px] text-muted">Calling and texting aren&apos;t set up on this deployment. Add TWILIO_ACCOUNT_SID and a Twilio API key (TWILIO_API_KEY_SID, TWILIO_API_KEY_SECRET), then redeploy (see docs/PHONE.md).</p>
       </Section>
     );
   }
@@ -46,6 +48,15 @@ export function PhoneSettings({
   const moved = calling.origin && calling.origin !== calling.currentOrigin;
   return (
     <>
+      {!auth.webhooks ? (
+        <p role="status" className="mb-6 rounded-xl border border-warning-border bg-warning-surface/50 px-4 py-3 text-[13px] text-warning">
+          Incoming calls and texts can&apos;t be verified, so they&apos;re refused. Set up a webhook signing key in Twilio and add its secret as TWILIO_WEBHOOK_SECRET, then redeploy (see docs/PHONE.md).
+        </p>
+      ) : auth.via === "auth-token" ? (
+        <p role="status" className="mb-6 rounded-xl border border-line bg-sunken px-4 py-3 text-[13px] text-secondary">
+          This deployment signs in to Twilio with the account&apos;s auth token. An API key is safer: it can be revoked on its own and can&apos;t manage the account (see docs/PHONE.md).
+        </p>
+      ) : null}
       <Section
         title="Browser calling"
         description="Calls from records go through the browser: the CRM makes a calling app and a key in your Twilio account and points them here."

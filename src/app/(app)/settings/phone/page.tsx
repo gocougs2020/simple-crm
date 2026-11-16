@@ -7,7 +7,7 @@ import { getDb, schema } from "@/db";
 import { requireAdminPage } from "@/lib/auth";
 import { siteOrigin } from "@/lib/origin";
 import { accessLists } from "@/lib/twilio/access";
-import { phoneConfigured } from "@/lib/twilio/config";
+import { phoneConfigured, twilioCredentials, webhooksVerifiable } from "@/lib/twilio/config";
 import { voiceCredentials } from "@/lib/twilio/setup";
 import { getWorkspace } from "@/lib/workspace";
 
@@ -30,6 +30,7 @@ async function Phone() {
   return (
     <PhoneSettings
       configured={configured}
+      auth={{ via: twilioCredentials()?.via ?? null, webhooks: webhooksVerifiable() }}
       calling={{ ready: !!voice, fromEnv: !!process.env.TWILIO_TWIML_APP_SID, origin: ws.phone.webhookOrigin ?? null, currentOrigin: origin }}
       numbers={rows.map((n) => ({ id: n.id, label: n.label, number: n.number, forwardTo: n.forwardTo, forwardUserId: n.forwardUserId, access: n.access, userIds: access.get(n.id) ?? [] }))}
     />

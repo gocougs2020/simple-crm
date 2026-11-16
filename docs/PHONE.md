@@ -12,22 +12,45 @@ Settings → **Phone numbers** (admins) is where numbers are bought by area code
 ## Set it up (an admin, once)
 
 1. For texting in the US, register for A2P 10DLC in the [Twilio console](https://console.twilio.com) (Messaging → Regulatory compliance) and create a **messaging service** for it; unregistered numbers are filtered by carriers. In the service's Integration settings, choose **Defer to sender's webhook**, so texts keep reaching the CRM.
-2. Set environment variables on the Vercel project (mark the auth token Sensitive), then redeploy:
+2. In the Twilio console, Settings → Account settings → **API keys & auth tokens** → Create API key, type **Standard**. Copy its SID (`SK…`) and secret; the secret is shown once. The CRM uses this key for every call to Twilio's API and to sign browser-call tokens, so the account's auth token isn't needed. (Twilio doesn't let Restricted keys sign call tokens, so it has to be Standard. A Standard key can't manage the account, its subaccounts or other keys, and can be revoked on its own.)
+3. Set environment variables on the Vercel project (mark the secrets Sensitive), then redeploy:
 
    | Variable | Value |
    | --- | --- |
    | `TWILIO_ACCOUNT_SID` | Account SID, `AC…` |
-   | `TWILIO_AUTH_TOKEN` | Auth token. Also verifies every webhook Twilio sends |
+   | `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET` | The Standard API key from step 2 |
+   | `TWILIO_WEBHOOK_SECRET` | The webhook signing key's secret (step 4). Verifies every webhook Twilio sends. While rotating, both secrets, comma-separated |
    | `TWILIO_MESSAGING_SERVICE_SID` | Optional (`MG…`). Numbers bought from Settings are added to this messaging service, so they text under your A2P 10DLC registration |
-   | `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_TWIML_APP_SID` | Optional. Settings creates these for you (below); set them only to use your own |
-   | `TOKEN_ENCRYPTION_KEY` | Optional. Encrypts the API key secret Settings stores. Defaults to a key derived from `AUTH_SECRET` |
+   | `TWILIO_TWIML_APP_SID` | Optional. Settings creates it for you (below); set it only to use your own |
+   | `TWILIO_AUTH_TOKEN` | Legacy, optional. Works instead of the API key, and verifies webhooks Twilio signs with the auth token, which is all of them until step 4 is done |
+   | `TOKEN_ENCRYPTION_KEY` | Optional. Encrypts the API key secret Settings stores on the legacy auth-token setup. Defaults to a key derived from `AUTH_SECRET` |
 
-3. In the CRM, Settings → Phone numbers:
-   - **Set up calling** creates a TwiML app (whose voice URL is this deployment) and an API key in the Twilio account, for browser calls. Texting works without it.
+4. Have Twilio sign the CRM's webhooks with a **signing key** instead of the auth token. Twilio's [webhook configuration API](https://www.twilio.com/docs/usage/webhooks/webhook-shared-keys) does this; run these with the API key from step 2 (`SK…:secret`), using the deployment's public URL:
+
+   ```bash
+   curl -X POST https://webhooks.twilio.com/v1/Webhooks/SharedKeys -u "$TWILIO_API_KEY_SID:$TWILIO_API_KEY_SECRET" -H 'Content-Type: application/json' -d '{"friendlyName": "CRM webhooks"}'
+   ```
+
+   Save the `secret` it returns (shown once) as `TWILIO_WEBHOOK_SECRET` and redeploy. Then make a setting that signs with it (use the `id` from above):
+
+   ```bash
+   curl -X POST https://webhooks.twilio.com/v1/Webhooks/Settings -u "$TWILIO_API_KEY_SID:$TWILIO_API_KEY_SECRET" -H 'Content-Type: application/json' -d '{"friendlyName": "CRM webhooks", "auth": {"source": "INLINE", "value": {"scheme": "NONE"}}, "signature": {"type": "SHARED_KEY", "sharedKeyId": "SHARED_KEY_ID", "algorithm": "HMAC_SHA256"}}'
+   ```
+
+   And a rule that applies it to the CRM's webhooks only (use the setting's `id`, and your domain):
+
+   ```bash
+   curl -X POST https://webhooks.twilio.com/v1/Webhooks/Rules -u "$TWILIO_API_KEY_SID:$TWILIO_API_KEY_SECRET" -H 'Content-Type: application/json' -d '{"matchType": "PREFIX_MATCH", "prefix": "https://crm.example.com/api/webhooks/twilio/", "settings": [{"settingId": "SETTING_ID", "percentage": 100}]}'
+   ```
+
+   It takes a minute or two to apply. Text one of the numbers to check: the text lands on the record. If it doesn't, the deployment's logs say why (`[twilio] webhook refused: …`); if they say the signature didn't match with `HMAC_SHA256`, make a second setting with `"algorithm": "HMAC_SHA1"` and point the rule at it. Until the rule applies, Twilio keeps signing with the auth token, so an existing deployment switching over keeps `TWILIO_AUTH_TOKEN` set until then, then removes it.
+
+5. In the CRM, Settings → Phone numbers:
+   - **Set up calling** creates a TwiML app (whose voice URL is this deployment) in the Twilio account, for browser calls, and signs call tokens with the API key. (On the legacy auth-token setup, it also creates an API key and stores it encrypted.) Texting works without it.
    - **Get a number**: type an area code, pick from the local numbers Twilio has that can do voice, SMS and MMS, name it, set the cell phone calls ring, who answers (they get the write-up tasks and texts from unknown numbers) and who can use it, then **Buy**. The number is bought in the Twilio account (a monthly charge), already pointed at the CRM, and added to the messaging service when one is set.
    - **Delete number** (in a number's Edit) releases it from the Twilio account for good: it stops working and stops being billed. Calls and texts it carried stay on the records.
    - After moving to a new domain, **Reconnect all** and **Repair** point everything at it again.
-4. Teammates with access see Call and Text on records right away. The browser asks for the microphone the first time.
+6. Teammates with access see Call and Text on records right away. The browser asks for the microphone the first time.
 
 ## Consent and opt-outs
 
@@ -52,7 +75,8 @@ In `app.config.ts`, overridable with `NEXT_PUBLIC_APP_CONFIG` (see [THEMING.md](
 
 ## How it works
 
-- **Webhooks** (`/api/webhooks/twilio/*`) check Twilio's signature (HMAC-SHA1 with the auth token over the URL and parameters) against the deployment's public URL and the URL the request arrived on; anything unsigned gets a 403. Each is idempotent on Twilio's id (`CallSid`, `MessageSid`), so Twilio's retries never log twice.
+- **Webhooks** (`/api/webhooks/twilio/*`) check Twilio's signature (an HMAC over the URL and parameters) against the deployment's public URL and the URL the request arrived on; anything unsigned gets a 403. A webhook Twilio signed with a signing key (it says so in `X-Twilio-Webhooks-Signature-Settings`, with the algorithm) is checked with `TWILIO_WEBHOOK_SECRET`; any other with `TWILIO_AUTH_TOKEN`. With neither set, every webhook is refused and Settings → Phone numbers says so.
+- **Credentials.** Every call to Twilio's API (`src/lib/twilio/client.ts`) authenticates with the API key, or the auth token when no key is set; Settings → Phone numbers notes when it's the auth token. Each is idempotent on Twilio's id (`CallSid`, `MessageSid`), so Twilio's retries never log twice.
 - **Browser calls** (`src/lib/twilio/voice.ts`): the page asks the server to prepare the call (checking access to the number and getting a one-hour token that can only place calls), the Voice SDK connects, and Twilio asks the voice webhook what to do. The webhook only dials a call that this teammate prepared in the last five minutes, from the number they chose, and logs the activity then. Dial and status callbacks fill in the outcome and length.
 - **Only the CRM's numbers.** Settings never lists the Twilio account's numbers; it searches Twilio's available numbers and buys one. Every action that changes or releases a number works only on numbers in the CRM's own table, which only purchases add to.
 - **Matching** compares the last 10 digits of a number, ignoring an extension (indexed), so "(303) 555-0123" on a record matches a call from +13035550123.

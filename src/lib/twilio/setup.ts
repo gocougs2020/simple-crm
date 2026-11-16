@@ -46,7 +46,9 @@ async function savePhoneSettings(patch: Partial<PhoneSettings>) {
 /**
  * Creates (or points at this deployment) what browser calls need: a TwiML app
  * whose voice URL is the CRM's webhook, and an API key to sign call tokens.
- * Safe to run again: it reuses what exists and only updates the URLs.
+ * The key is only created when the deployment has none (TWILIO_API_KEY_SID),
+ * which can only happen on the legacy auth-token setup: API keys can't make
+ * keys. Safe to run again: it reuses what exists and only updates the URLs.
  */
 export async function setUpCalling(origin: string) {
   const ws = await getWorkspace();

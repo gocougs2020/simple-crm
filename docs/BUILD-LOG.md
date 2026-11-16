@@ -2,6 +2,14 @@
 
 Decisions made while building this, newest at the top, so the history reads as documentation.
 
+## 2026-11-16 · Twilio API keys instead of the auth token
+
+**Goal.** Follow Twilio's advice: keep the account's auth token, which can do anything to the account, off the deployment.
+
+- **One Standard API key for everything.** Every REST call authenticates with `TWILIO_API_KEY_SID`/`SECRET` (the account SID stays in the URL), and the same key signs browser-call tokens. Restricted keys were considered, but Twilio doesn't let them sign access tokens, and a second, Standard key on the same server would cancel out what restricting the first one buys. A Standard key still can't touch the account, subaccounts or keys, and is revoked on its own.
+- **Webhooks signed with a signing key.** Twilio's webhook configuration API can sign webhooks with a SharedKey instead of the auth token. The CRM checks those with `TWILIO_WEBHOOK_SECRET` (several, comma-separated, for rotation), using the algorithm Twilio names in `X-Twilio-Webhooks-Signature-Settings`, and checks unmarked ones with the auth token if it's set. The rule is set up by hand (docs/PHONE.md): it's a one-time step, and doing it from Settings would mean polling Twilio's operations API from a request.
+- **The auth token keeps working.** Deployments that already use it carry on, and keep it until their signing-key rule is live; Settings says when the auth token is in use, and when nothing can verify webhooks.
+
 ## 2026-11-16 · Microsoft 365, calling and texting, decision makers, text campaigns
 
 **Goal.** Let each teammate work from their own Outlook and calendar inside the CRM, call and text from records, and reach the right people at an organization, the way Pipedrive's mail and calendar sync and its calling add-ons do, while staying configurable per deployment for an open-source project.
