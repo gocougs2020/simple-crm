@@ -63,7 +63,11 @@ export async function browserCallTwiml(origin: string, p: Record<string, string>
     .set({ callSid: p.CallSid, status: "ringing", updatedAt: new Date() })
     .where(and(eq(phoneCalls.id, callId), eq(phoneCalls.userId, userId), eq(phoneCalls.status, "initiated"), gt(phoneCalls.createdAt, new Date(Date.now() - PREPARED_MS))))
     .returning();
-  if (!call) return hangUp("This call expired. Try again from the CRM.");
+  if (!call) {
+    // Twilio asked again about a call already placed (a retried webhook): same answer, nothing logged twice.
+    const [placed] = p.CallSid ? await db.select().from(phoneCalls).where(and(eq(phoneCalls.id, callId), eq(phoneCalls.userId, userId), eq(phoneCalls.callSid, p.CallSid))) : [];
+    return placed ? dialTwiml(origin, placed) : hangUp("This call expired. Try again from the CRM.");
+  }
   const now = new Date();
   await db.insert(activities).values({
     type: "call",
@@ -77,6 +81,11 @@ export async function browserCallTwiml(origin: string, p: Record<string, string>
     clientId: call.clientId,
   });
   await touch(call, now);
+  return dialTwiml(origin, call);
+}
+
+/** Dials the person a browser call is for, from the chosen number. */
+function dialTwiml(origin: string, call: typeof phoneCalls.$inferSelect) {
   const q = `?call=${call.id}`;
   return twiml(
     el(
@@ -110,7 +119,15 @@ export async function inboundCallTwiml(origin: string, p: Record<string, string>
       .onConflictDoNothing()
       .returning();
     call = created ?? (await db.select().from(phoneCalls).where(eq(phoneCalls.callSid, p.CallSid)))[0];
-    if (created) await logInbound(created, number, links.personName ?? links.organizationName);
+    if (created) {
+      try {
+        await logInbound(created, number, links.personName ?? links.organizationName);
+      } catch (err) {
+        // Not logged: forget the call, so it isn't on record half-done (the caller hears an apology and can call again).
+        await db.delete(phoneCalls).where(eq(phoneCalls.id, created.id));
+        throw err;
+      }
+    }
   }
   if (!forwardTo) return twiml(...(missed ? [el("Say", undefined, missed)] : [el("Say", undefined, "Sorry, no one can take your call right now. Please try again later.")]), el("Hangup"));
   const q = `?call=${call.id}`;

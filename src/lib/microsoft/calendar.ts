@@ -100,7 +100,13 @@ export async function syncActivityEvent(activityId: string) {
     }
   }
   const created = await graph<{ id: string }>(target, "/me/events", { method: "POST", json: body });
-  await db.update(activities).set({ calendarEventId: created.id, calendarAccountId: target.id }).where(eq(activities.id, a.id));
+  // Two quick changes can both get here: only one event is kept, the other is removed from the calendar.
+  const [kept] = await db
+    .update(activities)
+    .set({ calendarEventId: created.id, calendarAccountId: target.id })
+    .where(and(eq(activities.id, a.id), a.calendarEventId ? eq(activities.calendarEventId, a.calendarEventId) : isNull(activities.calendarEventId)))
+    .returning({ id: activities.id });
+  if (!kept) await deleteEvent(target, created.id);
 }
 
 async function deleteEvent(account: ConnectedAccount, eventId: string) {

@@ -245,6 +245,8 @@ async function handleMessage(ctx: Ctx, m: GraphMessage, direction: "inbound" | "
   const row = await save(base, "imported", null, retry);
   if (!row) return;
   const body = text ? sanitizeHtml(textToHtml(text)) : null;
+  // Undone if the activity can't be saved, so the next sync tries the message again instead of skipping it.
+  const undo = (err: unknown) => db.delete(syncedEmails).where(eq(syncedEmails.id, row.id)).then(() => Promise.reject(err));
   await db.insert(activities).values({
     type: "email",
     direction,
@@ -256,7 +258,7 @@ async function handleMessage(ctx: Ctx, m: GraphMessage, direction: "inbound" | "
     assigneeId: direction === "outbound" ? account.userId : null,
     syncedEmailId: row.id,
     ...links,
-  });
+  }).catch(undo);
   await touch(links, sentAt);
   ctx.result.imported++;
 }

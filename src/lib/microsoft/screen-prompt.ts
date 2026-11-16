@@ -17,16 +17,23 @@ export function screenInstructions(sensitive: string, workspaceName: string) {
 
 const MAX_BODY = 6_000;
 
-/** The email as the model reads it: headers and the start of the text. */
-export function screenPrompt(m: { from: string; to: string[]; subject: string | null; text: string }) {
-  const body = m.text.replace(/\s+\n/g, "\n").trim();
+/**
+ * The email as the model reads it: headers and the start of the text, all
+ * inside a boundary made fresh for each email, so nothing in the email (a
+ * subject, or a body that writes its own closing tag) can step outside it and
+ * pose as instructions.
+ */
+export function screenPrompt(m: { from: string; to: string[]; subject: string | null; text: string }, boundary = `email-${crypto.randomUUID().slice(0, 8)}`) {
+  const clean = (s: string) => s.replaceAll(boundary, "");
+  const body = clean(m.text.replace(/\s+\n/g, "\n").trim());
   return [
-    `From: ${m.from}`,
-    `To: ${m.to.join(", ") || "(none)"}`,
-    `Subject: ${m.subject?.trim() || "(no subject)"}`,
+    `Everything between <${boundary}> and </${boundary}> is the email.`,
+    `<${boundary}>`,
+    `From: ${clean(m.from)}`,
+    `To: ${clean(m.to.join(", ")) || "(none)"}`,
+    `Subject: ${clean(m.subject?.trim() || "") || "(no subject)"}`,
     "",
-    "<email>",
     body.length > MAX_BODY ? `${body.slice(0, MAX_BODY)}\n[…the rest is cut off]` : body || "(empty)",
-    "</email>",
+    `</${boundary}>`,
   ].join("\n");
 }

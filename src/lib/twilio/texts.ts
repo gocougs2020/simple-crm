@@ -3,7 +3,7 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { TextStatus } from "@/db/schema";
 import { touch } from "@/lib/crm/events";
-import { linksForPhone, type Links } from "@/lib/crm/match";
+import { linksForPhone, phoneDigits, type Links } from "@/lib/crm/match";
 import { recordEvent } from "@/lib/crm/events";
 import { workspaceToday } from "@/lib/crm/inputs";
 import { zonedTime } from "@/lib/format";
@@ -94,7 +94,7 @@ async function optOut(phone: string, out: boolean) {
   const changed = await db
     .update(people)
     .set({ textOptOutAt: out ? new Date() : null })
-    .where(and(sql`right(regexp_replace(${people.phone}, '[^0-9]', '', 'g'), 10) = ${key}`, out ? isNull(people.textOptOutAt) : sql`${people.textOptOutAt} is not null`))
+    .where(and(sql`${phoneDigits(people.phone)} = ${key}`, out ? isNull(people.textOptOutAt) : sql`${people.textOptOutAt} is not null`))
     .returning({ id: people.id });
   for (const p of changed) await recordEvent({ entityType: "person", entityId: p.id, action: out ? "texts_opted_out" : "texts_opted_in", data: { phone: formatPhone(phone) }, userId: null });
 }
@@ -114,12 +114,24 @@ export async function receiveText(p: Record<string, string>) {
     .returning();
   // Twilio retried a webhook that already landed.
   if (!row) return;
+  try {
+    await logReceived(row, number, links, media.length);
+  } catch (err) {
+    // Without its timeline entry the text would be lost: forget it, so Twilio's retry (the route answers 500) does it all again.
+    await db.delete(textMessages).where(eq(textMessages.id, row.id));
+    throw err;
+  }
+}
+
+async function logReceived(row: typeof textMessages.$inferSelect, number: PhoneNumber, links: Awaited<ReturnType<typeof linksForPhone>>, mediaCount: number) {
+  const db = await getDb();
+  const body = row.body;
   const keyword = optKeyword(body);
   if (keyword) await optOut(row.from, keyword === "out");
 
   const now = new Date();
   const who = links.personName ?? links.organizationName ?? formatPhone(row.from);
-  const html = textToHtml(body || (media.length ? `(${media.length === 1 ? "a picture or file" : `${media.length} pictures or files`})` : "(empty)"));
+  const html = textToHtml(body || (mediaCount ? `(${mediaCount === 1 ? "a picture or file" : `${mediaCount} pictures or files`})` : "(empty)"));
   if (links.personId || links.organizationId) {
     await db.insert(activities).values({ type: "text", direction: "inbound", body: html, occurredAt: now, userId: null, textMessageId: row.id, personId: links.personId, organizationId: links.organizationId, clientId: links.clientId });
     await touch(links, now);

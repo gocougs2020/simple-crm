@@ -56,7 +56,14 @@ export async function linksForEmails(addresses: string[]): Promise<Links> {
   return { personId, organizationId, clientId: await clientFor(personId, organizationId) };
 }
 
-const digits = (col: typeof people.phone | typeof organizations.phone) => sql`right(regexp_replace(${col}, '[^0-9]', '', 'g'), 10)`;
+/**
+ * The last 10 digits of a stored phone, without an extension: the SQL twin of
+ * `matchKey` (src/lib/phone/numbers.ts). Keep it identical to the indexes in
+ * schema.ts so they're used.
+ */
+export const phoneDigits = (col: typeof people.phone | typeof organizations.phone) =>
+  sql`right(regexp_replace(regexp_replace(${col}, '\\s*(x|ext\\.?|extension|#)\\s*[0-9]+\\s*$', '', 'i'), '[^0-9]', '', 'g'), 10)`;
+const digits = phoneDigits;
 
 /**
  * A caller or texter: the person whose phone matches (the most recently

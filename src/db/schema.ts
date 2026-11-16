@@ -281,7 +281,7 @@ export const organizations = pgTable(
   (t) => [
     index("organizations_name_idx").on(t.name),
     index("organizations_owner_idx").on(t.ownerId),
-    index("organizations_phone_digits_idx").on(sql`right(regexp_replace(${t.phone}, '[^0-9]', '', 'g'), 10)`),
+    index("organizations_phone_digits_idx").on(sql`right(regexp_replace(regexp_replace(${t.phone}, '\\s*(x|ext\\.?|extension|#)\\s*[0-9]+\\s*$', '', 'i'), '[^0-9]', '', 'g'), 10)`),
   ],
 );
 
@@ -335,7 +335,7 @@ export const people = pgTable(
     index("people_email_idx").on(t.email),
     index("people_name_idx").on(t.firstName, t.lastName),
     // Calls and texts are matched on the last 10 digits, whatever way the number was typed (src/lib/phone/numbers.ts).
-    index("people_phone_digits_idx").on(sql`right(regexp_replace(${t.phone}, '[^0-9]', '', 'g'), 10)`),
+    index("people_phone_digits_idx").on(sql`right(regexp_replace(regexp_replace(${t.phone}, '\\s*(x|ext\\.?|extension|#)\\s*[0-9]+\\s*$', '', 'i'), '[^0-9]', '', 'g'), 10)`),
   ],
 );
 

@@ -24,7 +24,12 @@ async function Calendar({ searchParams }: Pick<PageProps<"/calendar">, "searchPa
   const app = await getAppData();
   const params = await searchParams;
   const tz = app.workspace.timezone;
-  const week = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).catch(dayKey(new Date(), tz)).parse(params.week);
+  const week = z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .refine((v) => !Number.isNaN(Date.parse(`${v}T12:00:00Z`)))
+    .catch(dayKey(new Date(), tz))
+    .parse(params.week);
   const monday = mondayOf(week);
   const active = new Set(app.team.filter((m) => m.active).map((m) => m.id));
   const asked = typeof params.people === "string" ? params.people.split(",") : (user.prefs.calendarPeople ?? [user.id]);

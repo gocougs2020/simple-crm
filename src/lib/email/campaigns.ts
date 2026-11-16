@@ -385,6 +385,12 @@ async function sendTextCampaign(c: typeof campaigns.$inferSelect, origin: string
   const [number] = c.phoneNumberId ? await db.select().from(schema.phoneNumbers).where(eq(schema.phoneNumbers.id, c.phoneNumberId)) : [];
   if (!number || number.archivedAt) throw new Error("Pick the number this campaign texts from.");
 
+  // A send cut off between saving a recipient and Twilio answering leaves them queued with no id. Whether Twilio got it
+  // is unknown, so it's marked failed rather than sent twice; the report shows it.
+  await db
+    .update(schema.textMessages)
+    .set({ status: "failed", error: "The send was interrupted before Twilio confirmed this text, so it wasn't sent again.", updatedAt: new Date() })
+    .where(and(eq(schema.textMessages.campaignId, c.id), eq(schema.textMessages.status, "queued"), isNull(schema.textMessages.messageSid)));
   const audience = await resolveAudience(await campaignAudience(c), undefined, "text");
   const done = new Set((await db.select({ id: schema.textMessages.personId }).from(schema.textMessages).where(eq(schema.textMessages.campaignId, c.id))).map((r) => r.id));
   const pending = audience.filter((p) => !done.has(p.id));

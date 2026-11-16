@@ -64,7 +64,8 @@ export async function saveTextCampaign(campaignId: string, input: z.input<typeof
     const [c] = await db.select({ status: campaigns.status, channel: campaigns.channel, phoneNumberId: campaigns.phoneNumberId }).from(campaigns).where(eq(campaigns.id, uuid.parse(campaignId)));
     if (!c || c.channel !== "text") throw new ActionError("This campaign was deleted.");
     if (c.status === "sent" || c.status === "sending") throw new ActionError("This campaign has already gone out and can't be changed.");
-    if (data.phoneNumberId && data.phoneNumberId !== c.phoneNumberId) await assertNumberAccess(user, data.phoneNumberId);
+    // Every save, not just a change of number: editing a campaign is choosing to text from its number.
+    if (data.phoneNumberId) await assertNumberAccess(user, data.phoneNumberId);
     let audience = data.audience;
     if (data.audienceId) {
       const [saved] = await db.select({ filters: schema.audiences.filters }).from(schema.audiences).where(eq(schema.audiences.id, data.audienceId));

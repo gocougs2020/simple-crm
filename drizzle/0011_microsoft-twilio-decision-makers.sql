@@ -150,6 +150,6 @@ ALTER TABLE "activities" ADD CONSTRAINT "activities_calendar_account_id_connecte
 ALTER TABLE "campaigns" ADD CONSTRAINT "campaigns_phone_number_id_phone_numbers_id_fk" FOREIGN KEY ("phone_number_id") REFERENCES "public"."phone_numbers"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "activities_call_idx" ON "activities" USING btree ("call_id");--> statement-breakpoint
 CREATE INDEX "activities_text_idx" ON "activities" USING btree ("text_message_id");--> statement-breakpoint
-CREATE INDEX "organizations_phone_digits_idx" ON "organizations" USING btree (right(regexp_replace("phone", '[^0-9]', '', 'g'), 10));--> statement-breakpoint
+CREATE INDEX "organizations_phone_digits_idx" ON "organizations" USING btree (right(regexp_replace(regexp_replace("phone", '\s*(x|ext\.?|extension|#)\s*[0-9]+\s*$', '', 'i'), '[^0-9]', '', 'g'), 10));--> statement-breakpoint
 CREATE INDEX "outbound_emails_message_idx" ON "outbound_emails" USING btree ("message_id");--> statement-breakpoint
-CREATE INDEX "people_phone_digits_idx" ON "people" USING btree (right(regexp_replace("phone", '[^0-9]', '', 'g'), 10));
+CREATE INDEX "people_phone_digits_idx" ON "people" USING btree (right(regexp_replace(regexp_replace("phone", '\s*(x|ext\.?|extension|#)\s*[0-9]+\s*$', '', 'i'), '[^0-9]', '', 'g'), 10));

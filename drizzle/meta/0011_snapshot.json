@@ -1,5 +1,5 @@
 {
-  "id": "d589ea0c-a956-40a5-9924-d2a0b1adb155",
+  "id": "fc0f1e63-a2ec-4dfa-b877-9df09a588e5e",
   "prevId": "ae8d4111-a0f1-4215-85b2-32cd2eb3986a",
   "version": "7",
   "dialect": "postgresql",
@@ -3500,7 +3500,7 @@
           "name": "organizations_phone_digits_idx",
           "columns": [
             {
-              "expression": "right(regexp_replace(\"phone\", '[^0-9]', '', 'g'), 10)",
+              "expression": "right(regexp_replace(regexp_replace(\"phone\", '\\s*(x|ext\\.?|extension|#)\\s*[0-9]+\\s*$', '', 'i'), '[^0-9]', '', 'g'), 10)",
               "asc": true,
               "isExpression": true,
               "nulls": "last"
@@ -4071,7 +4071,7 @@
           "name": "people_phone_digits_idx",
           "columns": [
             {
-              "expression": "right(regexp_replace(\"phone\", '[^0-9]', '', 'g'), 10)",
+              "expression": "right(regexp_replace(regexp_replace(\"phone\", '\\s*(x|ext\\.?|extension|#)\\s*[0-9]+\\s*$', '', 'i'), '[^0-9]', '', 'g'), 10)",
               "asc": true,
               "isExpression": true,
               "nulls": "last"
