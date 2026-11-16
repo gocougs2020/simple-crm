@@ -32,8 +32,8 @@ export async function calendarWeek(input: { monday: string; userIds: string[]; v
   const end = zonedTime(addDays(input.monday, 7), "00:00", input.timezone);
   const db = await getDb();
   const when = sql`coalesce(${activities.dueAt}, ${activities.occurredAt})`;
-  const rows = input.userIds.length
-    ? await db
+  const crmRows = input.userIds.length
+    ? db
         .select({
           a: activities,
           personName: sql<string | null>`case when ${people.id} is null then null else ${people.firstName} || coalesce(' ' || ${people.lastName}, '') end`,
@@ -54,7 +54,9 @@ export async function calendarWeek(input: { monday: string; userIds: string[]; v
           ),
         )
         .limit(500)
-    : [];
+    : Promise.resolve([]);
+  // Outlook is read at the same time as the CRM's own meetings.
+  const [rows, outlook] = await Promise.all([crmRows, outlookEvents(input.userIds, start, end, input.viewerId)]);
   const crm: CrmEvent[] = rows.map(({ a, personName, organizationName, clientName }) => ({
     id: a.id,
     userId: a.assigneeId,
@@ -67,7 +69,6 @@ export async function calendarWeek(input: { monday: string; userIds: string[]; v
     href: a.clientId ? `/clients/${a.clientId}` : a.personId ? `/people/${a.personId}` : a.organizationId ? `/organizations/${a.organizationId}` : null,
     who: clientName ?? personName ?? organizationName,
   }));
-  const outlook = await outlookEvents(input.userIds, start, end, input.viewerId);
   return { crm, outlook: await linkAttendees(outlook.events), errors: outlook.errors };
 }
 

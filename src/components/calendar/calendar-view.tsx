@@ -134,7 +134,7 @@ export function CalendarView({ monday, userIds, data }: { monday: string; userId
         {days.map((d) => {
           const list = items.filter((i) => dayOf(i) === d);
           return (
-            <section key={d} aria-label={fmt(d, true)} className={clsx("min-h-40 bg-canvas p-2", d === today && "bg-surface")}>
+            <section key={d} aria-label={fmt(d, true)} className={clsx("bg-canvas p-2 md:min-h-40", d === today && "bg-surface")}>
               <h2 className={clsx("mb-2 flex items-baseline gap-1.5 px-1 text-[12.5px] font-semibold", d === today ? "text-primary" : "text-secondary")}>
                 <span>{new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })}</span>
                 <span className={clsx("tabular-nums", d === today && "rounded-full bg-accent px-1.5 text-accent-foreground")}>{Number(d.slice(8))}</span>

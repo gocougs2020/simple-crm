@@ -72,7 +72,7 @@ function ActiveCall() {
   return (
     <section
       aria-label="Call"
-      className="fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] left-[max(1rem,env(safe-area-inset-left))] z-40 flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-3 rounded-xl border border-line bg-surface p-3.5 shadow-lg lg:left-[calc(232px+1rem)]"
+      className="fixed bottom-[calc(max(1.25rem,env(safe-area-inset-bottom))+4.25rem)] left-[max(1rem,env(safe-area-inset-left))] lg:bottom-[max(1.25rem,env(safe-area-inset-bottom))] z-40 flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-3 rounded-xl border border-line bg-surface p-3.5 shadow-lg lg:left-[calc(232px+1rem)]"
     >
       <header className="flex items-start gap-2">
         <span className={clsx("mt-1.5 size-2 shrink-0 rounded-full", live ? "bg-success" : ended ? "bg-line-strong" : "animate-pulse bg-warning")} aria-hidden />
