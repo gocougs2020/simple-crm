@@ -1,5 +1,5 @@
 {
-  "id": "fc0f1e63-a2ec-4dfa-b877-9df09a588e5e",
+  "id": "c027c3da-358c-42d9-9d9c-e73a5f63976b",
   "prevId": "ae8d4111-a0f1-4215-85b2-32cd2eb3986a",
   "version": "7",
   "dialect": "postgresql",
@@ -5153,12 +5153,11 @@
           "primaryKey": false,
           "notNull": false
         },
-        "attempts": {
-          "name": "attempts",
-          "type": "integer",
+        "screen_score": {
+          "name": "screen_score",
+          "type": "double precision",
           "primaryKey": false,
-          "notNull": true,
-          "default": 0
+          "notNull": false
         },
         "person_id": {
           "name": "person_id",

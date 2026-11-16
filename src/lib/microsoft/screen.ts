@@ -1,42 +1,33 @@
 import "server-only";
-import { generateText, Output } from "ai";
-import { z } from "zod";
 import { appConfig } from "@/app.config";
 import { aiGatewayAvailable } from "@/lib/agent/config";
 import { aiGateway } from "@/lib/agent/gateway";
-import { screenInstructions, screenPrompt } from "./screen-prompt";
+import { decideSensitive, type ScreenEmail, type ScreenResult } from "./screen-decide";
 
 /**
- * The AI screen for synced mail: a small model reads each email from a
- * contact before it's copied to their record and keeps out anything private
- * or confidential (`microsoft.screenInstructions` says what that means here).
+ * The mail screen: before an email from a contact is copied to their record,
+ * a decision model (TypeSafe's Jev by default, through AI Gateway) answers
+ * one yes/no question, "is this sensitive?", with a probability. At or above
+ * `microsoft.screenThreshold` the email stays out. Decision models don't
+ * write text, so each email costs a fraction of a cent and comes back fast.
+ *
+ * When the screen is off, not set up, or doesn't answer, the email goes in:
+ * Outlook's Private/Confidential labels are checked before this and always
+ * keep mail out.
  */
 
-const verdict = z.object({
-  sensitive: z.boolean(),
-  reason: z.string().max(200),
-});
-
-export type ScreenResult = { decision: "import" | "withhold"; reason: string } | { decision: "wait"; reason: string };
+export type { ScreenResult };
 
 export function screeningOn() {
   return appConfig.microsoft.screenMail;
 }
 
-export async function screenEmail(m: { from: string; to: string[]; subject: string | null; text: string }, workspaceName: string): Promise<ScreenResult> {
-  if (!screeningOn()) return { decision: "import", reason: "Screening is off" };
-  if (!aiGatewayAvailable()) return { decision: "wait", reason: "Waiting for the AI screen: AI_GATEWAY_API_KEY isn't set." };
-  try {
-    const { output } = await generateText({
-      model: aiGateway(appConfig.microsoft.screenModel),
-      output: Output.object({ schema: verdict }),
-      system: screenInstructions(appConfig.microsoft.screenInstructions, workspaceName),
-      prompt: screenPrompt(m),
-      maxOutputTokens: 400,
-    });
-    return output.sensitive ? { decision: "withhold", reason: output.reason.trim() || "Looked private" } : { decision: "import", reason: output.reason.trim() };
-  } catch (err) {
-    console.error("[microsoft] screen", err);
-    return { decision: "wait", reason: "The AI screen didn't answer. It's tried again on the next sync." };
-  }
+export async function screenEmail(m: ScreenEmail, workspaceName: string): Promise<ScreenResult> {
+  if (!screeningOn()) return { decision: "import", reason: "Not screened: screening is off", screened: false, score: null };
+  if (!aiGatewayAvailable()) return { decision: "import", reason: "Not screened: AI_GATEWAY_API_KEY isn't set", screened: false, score: null };
+  return decideSensitive(aiGateway.decisionModel(appConfig.microsoft.screenModel), m, {
+    sensitive: appConfig.microsoft.screenInstructions,
+    workspaceName,
+    threshold: appConfig.microsoft.screenThreshold,
+  });
 }

@@ -30,7 +30,7 @@ export async function GET(request: Request) {
   // Longest-waiting first, so a run that runs out of time doesn't starve the same mailboxes.
   const accounts = (await mailboxesToSync()).sort((a, b) => (a.lastSyncAt?.getTime() ?? 0) - (b.lastSyncAt?.getTime() ?? 0));
   const db = await getDb();
-  const results: { email: string; imported?: number; withheld?: number; pending?: number; error?: string }[] = [];
+  const results: { email: string; imported?: number; withheld?: number; error?: string }[] = [];
   for (const account of accounts) {
     if (Date.now() - started > BUDGET_MS) break;
     try {

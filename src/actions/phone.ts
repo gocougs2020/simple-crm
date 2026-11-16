@@ -15,7 +15,7 @@ import { toE164 } from "@/lib/phone/numbers";
 import { assertNumberAccess } from "@/lib/twilio/access";
 import { TwilioError } from "@/lib/twilio/client";
 import { phoneConfigured } from "@/lib/twilio/config";
-import { connectNumber, disconnectNumber, listAccountNumbers, setUpCalling, voiceToken } from "@/lib/twilio/setup";
+import { buyNumber, connectNumber, releaseNumber, searchAvailableNumbers, setUpCalling, voiceToken } from "@/lib/twilio/setup";
 import { logSentText, sendText } from "@/lib/twilio/texts";
 import { identityFor, prepareCall } from "@/lib/twilio/voice";
 
@@ -159,11 +159,24 @@ export async function setUpBrowserCalling(): Promise<Result> {
   });
 }
 
-/** The numbers in the Twilio account, to choose from when adding one. */
-export async function twilioAccountNumbers() {
-  await actionAdmin();
-  requirePhone();
-  return listAccountNumbers().catch(twilioError);
+/**
+ * Numbers for sale in an area code that can call, text and send pictures
+ * (voice, SMS, MMS). The Twilio account's other numbers are never listed here:
+ * the CRM only ever sees the numbers it bought.
+ */
+export async function searchPhoneNumbers(areaCode: string): Promise<Result<{ number: string; locality: string | null; region: string | null }[]>> {
+  return run(async () => {
+    await actionAdmin();
+    requirePhone();
+    const code = z
+      .string()
+      .trim()
+      .regex(/^\d{3}$/, "Enter a three-digit area code, like 303.")
+      .parse(areaCode);
+    const found = await searchAvailableNumbers(code, appConfig.phone.numberCountry).catch(twilioError);
+    if (!found.length) throw new ActionError(`Twilio has no numbers in ${code} that can call and text right now. Try a nearby area code.`);
+    return found;
+  });
 }
 
 const e164Field = z
@@ -187,22 +200,31 @@ const numberInput = z.object({
   userIds: z.array(uuid).max(500).optional(),
 });
 
-/** Starts using one of the account's numbers: points its calls and texts at the CRM. */
-export async function addPhoneNumber(input: { sid: string } & z.input<typeof numberInput>): Promise<Result<{ id: string }>> {
+/**
+ * Buys a number (from searchPhoneNumbers) in the Twilio account, points its
+ * calls and texts at the CRM, and starts using it. Twilio bills it monthly.
+ */
+export async function buyPhoneNumber(input: { phoneNumber: string } & z.input<typeof numberInput>): Promise<Result<{ id: string; warning: string | null }>> {
   return run(async () => {
     await actionAdmin();
     requirePhone();
-    const { sid } = z.object({ sid: z.string().regex(/^PN[0-9a-f]{32}$/i, "Pick a number from the list.") }).parse(input);
+    const { phoneNumber } = z.object({ phoneNumber: z.string().regex(/^\+[1-9]\d{7,14}$/, "Pick a number from the search.") }).parse(input);
     const data = numberInput.parse(input);
-    const account = (await listAccountNumbers().catch(twilioError)).find((n) => n.sid === sid);
-    if (!account) throw new ActionError("That number isn't in the Twilio account anymore.");
-    await connectNumber(sid, await siteOrigin()).catch(twilioError);
+    const bought = await buyNumber(phoneNumber, data.label, await siteOrigin()).catch(twilioError);
     const db = await getDb();
-    const values = { twilioSid: sid, number: account.number, label: data.label, forwardTo: data.forwardTo, forwardUserId: data.forwardUserId ?? null, access: data.access, archivedAt: null, updatedAt: new Date() };
-    const [row] = await db.insert(schema.phoneNumbers).values(values).onConflictDoUpdate({ target: schema.phoneNumbers.twilioSid, set: values }).returning({ id: schema.phoneNumbers.id });
+    const values = { twilioSid: bought.sid, number: bought.number, label: data.label, forwardTo: data.forwardTo, forwardUserId: data.forwardUserId ?? null, access: data.access, archivedAt: null, updatedAt: new Date() };
+    let row: { id: string };
+    try {
+      // A number released earlier and bought back takes over its old row, keeping its history.
+      [row] = await db.insert(schema.phoneNumbers).values(values).onConflictDoUpdate({ target: schema.phoneNumbers.number, set: values }).returning({ id: schema.phoneNumbers.id });
+    } catch (err) {
+      // Not saved here means never listed here (the account's numbers aren't shown): release it rather than pay for a number nobody can see.
+      await releaseNumber(bought.sid).catch((e) => console.error("[twilio] release after failed save", e));
+      throw err;
+    }
     await setAccess(row.id, data.access === "selected" ? (data.userIds ?? []) : []);
     refresh();
-    return row;
+    return { id: row.id, warning: bought.warning };
   });
 }
 
@@ -228,18 +250,22 @@ async function setAccess(phoneNumberId: string, userIds: string[]) {
   if (userIds.length) await db.insert(schema.phoneNumberUsers).values([...new Set(userIds)].map((userId) => ({ phoneNumberId, userId }))).onConflictDoNothing();
 }
 
-/** Stops using a number here. Its calls and texts stay on the records; Twilio stops sending new ones to the CRM. */
-export async function removePhoneNumber(id: string): Promise<Result> {
+/**
+ * Deletes a number: releases it from the Twilio account (it stops working and
+ * stops being billed), and takes it off the list. Calls and texts it carried
+ * stay on the records. Admins only.
+ */
+export async function deletePhoneNumber(id: string): Promise<Result> {
   return run(async () => {
     await actionAdmin();
+    requirePhone();
     const db = await getDb();
-    const [row] = await db
-      .update(schema.phoneNumbers)
-      .set({ archivedAt: new Date(), updatedAt: new Date() })
-      .where(eq(schema.phoneNumbers.id, uuid.parse(id)))
-      .returning();
-    if (!row) return;
-    if (phoneConfigured()) await disconnectNumber(row.twilioSid).catch(twilioError);
+    const [row] = await db.select().from(schema.phoneNumbers).where(eq(schema.phoneNumbers.id, uuid.parse(id)));
+    if (!row || row.archivedAt) return;
+    // Only ever a number the CRM bought (it's in this table), never another of the account's.
+    await releaseNumber(row.twilioSid).catch(twilioError);
+    await db.update(schema.phoneNumbers).set({ archivedAt: new Date(), updatedAt: new Date() }).where(eq(schema.phoneNumbers.id, row.id));
+    await db.delete(schema.phoneNumberUsers).where(eq(schema.phoneNumberUsers.phoneNumberId, row.id));
     refresh();
   });
 }

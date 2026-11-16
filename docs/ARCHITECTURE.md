@@ -54,7 +54,7 @@ app.config.ts        product defaults (name, theme, layout), overridable per dep
 | `inbox_threads`, `inbox_messages` | A mirror of the workspace's Resend inboxes, linked to people, organizations and clients |
 | `people_imports` | What each spreadsheet import created and changed, so it can be undone |
 | `external_ids` | Which record here came from which record in Pipedrive, so the [Pipedrive import](PIPEDRIVE-IMPORT.md) can run again without duplicating and be removed cleanly |
-| `connected_accounts`, `synced_emails` | Each teammate's connected Microsoft 365 mailbox and calendar (tokens encrypted), and every message the mailbox sync looked at: copied, kept out (and why) or waiting for the AI screen. See [MICROSOFT.md](MICROSOFT.md) |
+| `connected_accounts`, `synced_emails` | Each teammate's connected Microsoft 365 mailbox and calendar (tokens encrypted), and every message the mailbox sync looked at: copied or kept out, why, and the screen's probability. See [MICROSOFT.md](MICROSOFT.md) |
 | `phone_numbers`, `phone_number_users`, `phone_calls`, `text_messages` | The Twilio numbers the team uses and who may use each, and every call and text through them. Each call and text is also an activity on the record it matched. See [PHONE.md](PHONE.md) |
 
 Choices worth knowing:
@@ -109,7 +109,7 @@ Choices worth knowing:
 
 ## Microsoft 365
 
-Each teammate connects their own mailbox and calendar (Settings → Email and calendar, OAuth with PKCE, tokens encrypted with `src/lib/crypto.ts`). Email from records can go out through it (Graph, saved in their Sent Items); a quarter-hour cron copies mail with people and organizations in the CRM onto their timelines, after Outlook's sensitivity label and an AI screen keep private mail out (marked with a category in Outlook); planned meetings assigned to them are kept in step on their calendar; and Calendar shows teammates' Outlook events live, as much as each shares. See [MICROSOFT.md](MICROSOFT.md).
+Each teammate connects their own mailbox and calendar (Settings → Email and calendar, OAuth with PKCE, tokens encrypted with `src/lib/crypto.ts`). Email from records can go out through it (Graph, saved in their Sent Items); a quarter-hour cron copies mail with people and organizations in the CRM onto their timelines, after Outlook's sensitivity label and a decision model (Jev, a yes/no probability) keep private mail out (marked with a category in Outlook); planned meetings assigned to them are kept in step on their calendar; and Calendar shows teammates' Outlook events live, as much as each shares. See [MICROSOFT.md](MICROSOFT.md).
 
 ## Calling and texting
 

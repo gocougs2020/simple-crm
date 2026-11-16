@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { PlusIcon } from "@heroicons/react/20/solid";
-import { addPhoneNumber, reconnectPhoneNumbers, removePhoneNumber, setUpBrowserCalling, twilioAccountNumbers, updatePhoneNumber } from "@/actions/phone";
+import { buyPhoneNumber, deletePhoneNumber, reconnectPhoneNumbers, searchPhoneNumbers, setUpBrowserCalling, updatePhoneNumber } from "@/actions/phone";
 import { useApp } from "@/components/app-context";
 import { OwnerSelect } from "@/components/records/owner-select";
 import { StatusBadge } from "@/components/ui/badge";
@@ -14,11 +14,13 @@ import { formatPhone } from "@/lib/phone/numbers";
 import { Section } from "./nav";
 
 type NumberRow = { id: string; label: string; number: string; forwardTo: string | null; forwardUserId: string | null; access: "everyone" | "selected"; userIds: string[] };
-type AccountNumber = Awaited<ReturnType<typeof twilioAccountNumbers>>[number];
+type Available = { number: string; locality: string | null; region: string | null };
 
 /**
- * Settings → Phone numbers (admins): which Twilio numbers the team calls and
- * texts from, who may use each, and where incoming calls ring.
+ * Settings → Phone numbers (admins): the numbers the team calls and texts
+ * from. Numbers are bought here by area code, so only the CRM's own numbers
+ * are ever listed, never the rest of the Twilio account. Each has who may use
+ * it and where incoming calls ring; deleting one releases it from Twilio.
  */
 export function PhoneSettings({
   configured,
@@ -78,7 +80,7 @@ export function PhoneSettings({
 
       <Section
         title="Numbers"
-        description="Each number's incoming calls ring a cell phone, and are logged on whoever called with a task to write them up. Texts to it land on the sender's record."
+        description="Numbers bought here for the CRM. Each one's incoming calls ring a cell phone and are logged on whoever called, with a task to write them up. Texts to it land on the sender's record."
         action={
           <div className="flex gap-2">
             {numbers.length ? (
@@ -99,7 +101,7 @@ export function PhoneSettings({
             ) : null}
             <Button size="sm" variant="primary" onClick={() => setEditing("new")}>
               <PlusIcon />
-              Number
+              Get a number
             </Button>
           </div>
         }
@@ -127,7 +129,7 @@ export function PhoneSettings({
             })}
           </ul>
         ) : (
-          <p className="p-5 text-[13.5px] text-muted">No numbers yet. Add one from your Twilio account.</p>
+          <p className="p-5 text-[13.5px] text-muted">No numbers yet. Get one by area code; it can call, text and send pictures.</p>
         )}
       </Section>
       {editing ? <NumberDialog row={editing === "new" ? null : editing} onClose={() => setEditing(null)} /> : null}
@@ -137,109 +139,132 @@ export function PhoneSettings({
 
 function NumberDialog({ row, onClose }: { row: NumberRow | null; onClose: () => void }) {
   const { team } = useApp();
-  const [available, setAvailable] = useState<AccountNumber[] | null>(null);
-  const [sid, setSid] = useState("");
+  const [areaCode, setAreaCode] = useState("");
+  const [available, setAvailable] = useState<Available[] | null>(null);
+  const [picked, setPicked] = useState("");
   const [label, setLabel] = useState(row?.label ?? "");
   const [forwardTo, setForwardTo] = useState(row?.forwardTo ?? "");
   const [forwardUserId, setForwardUserId] = useState<string | null>(row?.forwardUserId ?? null);
   const [access, setAccess] = useState<"everyone" | "selected">(row?.access ?? "everyone");
   const [userIds, setUserIds] = useState<string[]>(row?.userIds ?? []);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [pending, start] = useTransition();
-  const [loading, startLoading] = useTransition();
+  const [searching, startSearch] = useTransition();
 
-  useEffect(() => {
-    if (row) return;
-    let live = true;
-    startLoading(async () => {
-      try {
-        const list = await twilioAccountNumbers();
-        if (!live) return;
-        setAvailable(list);
-        if (list[0]) setSid(list[0].sid);
-      } catch {
-        if (!live) return;
-        setAvailable([]);
-        toast.error("Couldn't load the numbers from Twilio. Check the account credentials.");
+  const search = () =>
+    startSearch(async () => {
+      const r = await searchPhoneNumbers(areaCode);
+      if (!r.ok) {
+        setAvailable(null);
+        return void toast.error(r.error);
       }
+      setAvailable(r.data);
+      setPicked(r.data[0]?.number ?? "");
     });
-    return () => {
-      live = false;
-    };
-  }, [row]);
 
   const save = () =>
     start(async () => {
       const input = { label, forwardTo: forwardTo || null, forwardUserId, access, userIds };
-      const r = row ? await updatePhoneNumber(row.id, input) : await addPhoneNumber({ sid, ...input });
-      if (!r.ok) return void toast.error(r.error);
-      toast.success(row ? "Number saved" : "Number added. Its calls and texts now come to the CRM.");
+      if (row) {
+        const r = await updatePhoneNumber(row.id, input);
+        if (!r.ok) return void toast.error(r.error);
+        toast.success("Number saved");
+      } else {
+        const r = await buyPhoneNumber({ phoneNumber: picked, ...input });
+        if (!r.ok) return void toast.error(r.error);
+        if (r.data.warning) toast.error(r.data.warning);
+        else toast.success(`${formatPhone(picked)} is yours. Its calls and texts now come to the CRM.`);
+      }
       onClose();
     });
+
+  if (row && confirmDelete) {
+    return (
+      <Dialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        title={`Delete ${row.label}?`}
+        description={`${formatPhone(row.number)} is released from your Twilio account for good: it stops taking calls and texts and stops being billed, and someone else may get it later. This can't be undone.`}
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
+              Keep it
+            </Button>
+            <Button
+              variant="destructive"
+              loading={pending}
+              onClick={() =>
+                start(async () => {
+                  const r = await deletePhoneNumber(row.id);
+                  if (!r.ok) return void toast.error(r.error);
+                  toast.success(`${row.label} deleted and released from Twilio`);
+                  onClose();
+                })
+              }
+            >
+              Delete number
+            </Button>
+          </>
+        }
+      >
+        <p className="text-[13.5px] text-secondary">Calls and texts it already carried stay on the records.</p>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
-      title={row ? `Edit ${row.label}` : "Add a number"}
-      description={row ? formatPhone(row.number) : "Pick a number from your Twilio account. Adding it points its calls and texts at the CRM."}
+      title={row ? `Edit ${row.label}` : "Get a number"}
+      description={row ? formatPhone(row.number) : "Search an area code for a local number that can call, text and send pictures. Buying it adds a monthly charge to your Twilio account."}
       footer={
         <>
           {row ? (
-            <Button
-              variant="ghost"
-              className="mr-auto text-error"
-              loading={pending}
-              onClick={() => {
-                if (!confirm(`Stop using ${row.label} here? Its calls and texts stay on the records; Twilio stops sending new ones to the CRM.`)) return;
-                start(async () => {
-                  const r = await removePhoneNumber(row.id);
-                  if (!r.ok) return void toast.error(r.error);
-                  toast.success("Number removed");
-                  onClose();
-                });
-              }}
-            >
-              Remove
+            <Button variant="ghost" className="mr-auto text-error" onClick={() => setConfirmDelete(true)}>
+              Delete number
             </Button>
           ) : null}
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" loading={pending} disabled={!label.trim() || (!row && !sid)} onClick={save}>
-            {row ? "Save" : "Add number"}
+          <Button variant="primary" loading={pending} disabled={!label.trim() || (!row && !picked)} onClick={save}>
+            {row ? "Save" : picked ? `Buy ${formatPhone(picked)}` : "Buy number"}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-4">
         {!row ? (
-          <Field label="Number">
-            {(p) =>
-              loading || available === null ? (
-                <p className="text-[13px] text-muted">Loading numbers from Twilio…</p>
-              ) : available.length ? (
-                <Select
-                  {...p}
-                  value={sid}
-                  onChange={(e) => {
-                    setSid(e.target.value);
-                    const n = available.find((a) => a.sid === e.target.value);
-                    if (n && !label) setLabel(n.friendlyName === n.number ? "" : n.friendlyName);
-                  }}
-                >
-                  {available.map((n) => (
-                    <option key={n.sid} value={n.sid}>
-                      {formatPhone(n.number)}
-                      {n.friendlyName !== n.number ? ` · ${n.friendlyName}` : ""}
-                      {!n.sms ? " (no texting)" : !n.voice ? " (no calls)" : ""}
-                    </option>
-                  ))}
-                </Select>
-              ) : (
-                <p className="text-[13px] text-muted">There are no numbers in the Twilio account. Buy one in the Twilio console, then come back.</p>
-              )
-            }
-          </Field>
+          <div className="flex flex-col gap-2">
+            <form
+              className="flex items-end gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                search();
+              }}
+            >
+              <Field label="Area code">
+                {(p) => <Input {...p} value={areaCode} onChange={(e) => setAreaCode(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" placeholder="303" className="w-28" autoFocus />}
+              </Field>
+              <Button type="submit" variant="outline" loading={searching} disabled={areaCode.length !== 3}>
+                Search
+              </Button>
+            </form>
+            {available?.length ? (
+              <fieldset className="flex flex-col gap-1">
+                <legend className="mb-1 text-[12px] font-medium text-secondary">Pick a number</legend>
+                {available.map((n) => (
+                  <label key={n.number} className="flex cursor-pointer items-center gap-2.5 rounded-md border border-line px-3 py-2 text-[13.5px] has-[:checked]:border-accent has-[:checked]:bg-accent-soft">
+                    <input type="radio" name="number" value={n.number} checked={picked === n.number} onChange={() => setPicked(n.number)} className="accent-[var(--accent)]" />
+                    <span className="font-medium text-primary tabular-nums">{formatPhone(n.number)}</span>
+                    <span className="text-muted">{[n.locality, n.region].filter(Boolean).join(", ")}</span>
+                  </label>
+                ))}
+              </fieldset>
+            ) : null}
+          </div>
         ) : null}
         <Field label="Name" hint="What teammates see when picking a number to call or text from.">
           {(p) => <Input {...p} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Main line" />}

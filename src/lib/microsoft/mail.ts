@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
 import { touch } from "@/lib/crm/events";
@@ -97,15 +97,13 @@ type GraphMessage = {
 const SELECT = "id,internetMessageId,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,sentDateTime,body,sensitivity,categories,isDraft";
 /** Plain-text bodies read better on a timeline than sanitized Outlook HTML, and are what the screen reads. */
 const TEXT_BODY = { headers: { Prefer: 'outlook.body-content-type="text"' } };
-/** Pending messages are retried this many times before they're kept out for good. */
-const MAX_ATTEMPTS = 6;
 /** Overlap between syncs, so mail that arrives while one runs is never skipped. */
 const OVERLAP_MS = 10 * 60_000;
 
 type Folder = "inbox" | "sent";
 const folderPath: Record<Folder, string> = { inbox: "inbox", sent: "sentitems" };
 
-export type MailboxSyncResult = { imported: number; withheld: number; pending: number };
+export type MailboxSyncResult = { imported: number; withheld: number };
 
 /**
  * Brings a mailbox's mail with contacts into the CRM: new messages in Inbox
@@ -116,7 +114,7 @@ export type MailboxSyncResult = { imported: number; withheld: number; pending: n
  */
 export async function syncMailbox(account: ConnectedAccount): Promise<MailboxSyncResult> {
   const db = await getDb();
-  const result: MailboxSyncResult = { imported: 0, withheld: 0, pending: 0 };
+  const result: MailboxSyncResult = { imported: 0, withheld: 0 };
   const team = new Set((await db.select({ email: schema.users.email }).from(schema.users)).map((u) => u.email.toLowerCase()));
   team.add(account.email.toLowerCase());
   const workspaceName = (await getWorkspace()).name;
@@ -139,25 +137,6 @@ export async function syncMailbox(account: ConnectedAccount): Promise<MailboxSyn
     }
   }
 
-  // Messages left waiting for the screen: fetched again by id and retried.
-  const waiting = await db
-    .select()
-    .from(syncedEmails)
-    .where(and(eq(syncedEmails.accountId, account.id), eq(syncedEmails.status, "pending"), lt(syncedEmails.attempts, MAX_ATTEMPTS)))
-    .limit(25);
-  for (const w of waiting) {
-    const m = await graph<GraphMessage>(account, `/me/messages/${w.externalId}?$select=${SELECT}`, TEXT_BODY).catch((err) => {
-      if (err instanceof GraphError && err.status === 404) return null;
-      throw err;
-    });
-    if (!m) {
-      // Deleted in Outlook before it could be screened: nothing left to import.
-      await db.update(syncedEmails).set({ status: "withheld", reason: "Deleted before it was screened" }).where(eq(syncedEmails.id, w.id));
-      continue;
-    }
-    await handleMessage(ctx, m, w.direction, w);
-  }
-
   await db
     .update(schema.connectedAccounts)
     .set({ mailCursor: cursor, lastSyncAt: new Date(), lastError: null, updatedAt: new Date() })
@@ -167,7 +146,7 @@ export async function syncMailbox(account: ConnectedAccount): Promise<MailboxSyn
 
 type Ctx = { account: ConnectedAccount; team: Set<string>; workspaceName: string; result: MailboxSyncResult };
 
-async function handleMessage(ctx: Ctx, m: GraphMessage, direction: "inbound" | "outbound", retry?: typeof syncedEmails.$inferSelect) {
+async function handleMessage(ctx: Ctx, m: GraphMessage, direction: "inbound" | "outbound") {
   const db = await getDb();
   const { account } = ctx;
   const from = graphAddress(m.from);
@@ -176,13 +155,11 @@ async function handleMessage(ctx: Ctx, m: GraphMessage, direction: "inbound" | "
   const others = (direction === "inbound" ? [from.address] : to.map((a) => a.address)).filter((a) => a && !ctx.team.has(a));
   if (!others.length) return;
 
-  if (!retry) {
-    const [seen] = await db
-      .select({ id: syncedEmails.id })
-      .from(syncedEmails)
-      .where(and(eq(syncedEmails.accountId, account.id), eq(syncedEmails.externalId, m.id)));
-    if (seen) return;
-  }
+  const [seen] = await db
+    .select({ id: syncedEmails.id })
+    .from(syncedEmails)
+    .where(and(eq(syncedEmails.accountId, account.id), eq(syncedEmails.externalId, m.id)));
+  if (seen) return;
   const links = await linksForEmails([...new Set(others)]);
   if (!links.personId && !links.organizationId) return;
 
@@ -211,38 +188,28 @@ async function handleMessage(ctx: Ctx, m: GraphMessage, direction: "inbound" | "
           .where(and(eq(syncedEmails.internetMessageId, m.internetMessageId), eq(syncedEmails.status, "imported")))
           .limit(1);
     if (ours || theirs) {
-      await save(base, "imported", ours ? "Sent from the CRM" : "Already on the record from a teammate's mailbox", retry);
+      await save(base, "imported", ours ? "Sent from the CRM" : "Already on the record from a teammate's mailbox");
       return;
     }
   }
 
   // Outlook's own sensitivity label is the sender's word for it: always kept out, no AI needed.
   if (m.sensitivity && m.sensitivity !== "normal") {
-    if (await save(base, "withheld", `Marked ${m.sensitivity} in Outlook`, retry)) await markWithheld(account, m);
+    if (await save(base, "withheld", `Marked ${m.sensitivity} in Outlook`)) await markWithheld(account, m);
     ctx.result.withheld++;
     return;
   }
 
   const text = stripQuoted(m.body?.contentType === "text" ? m.body.content : (m.body?.content ?? "").replace(/<[^>]+>/g, " "));
+  // The screen answers with how likely the email is to be sensitive. When it can't answer, mail goes in: Outlook's own label above already kept out what the sender marked private.
   const verdict = await screenEmail({ from: from.display, to: to.map((a) => a.display), subject: m.subject ?? null, text }, ctx.workspaceName);
-  if (verdict.decision === "wait") {
-    const attempts = (retry?.attempts ?? 0) + 1;
-    if (attempts >= MAX_ATTEMPTS) {
-      if (await save(base, "withheld", "Couldn't be screened, so it was kept out", retry, attempts)) await markWithheld(account, m);
-      ctx.result.withheld++;
-    } else {
-      await save(base, "pending", verdict.reason, retry, attempts);
-      ctx.result.pending++;
-    }
-    return;
-  }
   if (verdict.decision === "withhold") {
-    if (await save(base, "withheld", verdict.reason, retry)) await markWithheld(account, m);
+    if (await save(base, "withheld", verdict.reason, verdict.score)) await markWithheld(account, m);
     ctx.result.withheld++;
     return;
   }
 
-  const row = await save(base, "imported", null, retry);
+  const row = await save(base, "imported", verdict.screened ? null : verdict.reason, verdict.score);
   if (!row) return;
   const body = text ? sanitizeHtml(textToHtml(text)) : null;
   // Undone if the activity can't be saved, so the next sync tries the message again instead of skipping it.
@@ -263,30 +230,12 @@ async function handleMessage(ctx: Ctx, m: GraphMessage, direction: "inbound" | "
   ctx.result.imported++;
 }
 
-/**
- * Records what happened to a message. New ones are inserted once (a
- * concurrent sync that loses the race gets null and stops); a retried pending
- * one is moved on only if it's still pending.
- */
-async function save(
-  base: Omit<typeof syncedEmails.$inferInsert, "status" | "reason"> & Links,
-  status: "imported" | "withheld" | "pending",
-  reason: string | null,
-  retry?: typeof syncedEmails.$inferSelect,
-  attempts?: number,
-) {
+/** Records what happened to a message, once: a concurrent sync that loses the race gets null and stops. */
+async function save(base: Omit<typeof syncedEmails.$inferInsert, "status" | "reason"> & Links, status: "imported" | "withheld", reason: string | null, screenScore?: number | null) {
   const db = await getDb();
-  if (retry) {
-    const [row] = await db
-      .update(syncedEmails)
-      .set({ status, reason, attempts: attempts ?? retry.attempts, personId: base.personId, organizationId: base.organizationId, clientId: base.clientId })
-      .where(and(eq(syncedEmails.id, retry.id), eq(syncedEmails.status, "pending")))
-      .returning({ id: syncedEmails.id });
-    return row ?? null;
-  }
   const [row] = await db
     .insert(syncedEmails)
-    .values({ ...base, status, reason, attempts: attempts ?? 0 })
+    .values({ ...base, status, reason, screenScore: screenScore ?? null })
     .onConflictDoNothing({ target: [syncedEmails.accountId, syncedEmails.externalId] })
     .returning({ id: syncedEmails.id });
   return row ?? null;
@@ -322,11 +271,11 @@ export async function mailboxStats(accountId: string) {
     .select({
       imported: sql<number>`count(*) filter (where ${syncedEmails.status} = 'imported')::int`,
       withheld: sql<number>`count(*) filter (where ${syncedEmails.status} = 'withheld')::int`,
-      pending: sql<number>`count(*) filter (where ${syncedEmails.status} = 'pending')::int`,
+      unscreened: sql<number>`count(*) filter (where ${syncedEmails.status} = 'imported' and ${syncedEmails.reason} like 'Not screened%')::int`,
     })
     .from(syncedEmails)
     .where(and(eq(syncedEmails.accountId, accountId), sql`${syncedEmails.createdAt} > now() - interval '30 days'`));
-  return row ?? { imported: 0, withheld: 0, pending: 0 };
+  return row ?? { imported: 0, withheld: 0, unscreened: 0 };
 }
 
 /** Removes the synced copies of a mailbox's mail from timelines, when a teammate disconnects and asks for it. */

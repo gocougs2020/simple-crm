@@ -1015,11 +1015,10 @@ export const connectedAccounts = pgTable(
 );
 
 /**
- * Every message the mailbox sync looked at, so it never imports one twice.
+ * Every message the mailbox sync looked at, so it never copies one twice.
  * `imported` ones became an email activity. `withheld` ones looked private or
- * confidential (Outlook's sensitivity, or the AI screen): nothing of their
- * content is kept, only that they were skipped and why. `pending` ones wait
- * for the screen to be available and are retried.
+ * confidential (Outlook's sensitivity label, or the decision model's screen):
+ * nothing of their content is kept, only that they were skipped and why.
  */
 export const syncedEmails = pgTable(
   "synced_emails",
@@ -1036,10 +1035,11 @@ export const syncedEmails = pgTable(
     from: text("from"),
     to: jsonb("to").$type<string[]>().notNull().default([]),
     sentAt: timestamp("sent_at", { withTimezone: true }).notNull(),
-    status: text("status").$type<"imported" | "withheld" | "pending">().notNull(),
-    /** Why it was withheld or is pending, in words. */
+    status: text("status").$type<"imported" | "withheld">().notNull(),
+    /** Why it was kept out, or that it went in unscreened, in words. */
     reason: text("reason"),
-    attempts: integer("attempts").notNull().default(0),
+    /** The screen's probability that it's sensitive (0–1), for tuning `microsoft.screenThreshold`. Null when it wasn't screened. */
+    screenScore: doublePrecision("screen_score"),
     personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
     organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "set null" }),
     clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),

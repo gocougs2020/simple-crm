@@ -51,7 +51,7 @@ export async function updateMicrosoftAccount(input: z.input<typeof settingsInput
 }
 
 /** Runs the mailbox sync for the signed-in teammate right away. */
-export async function syncMyMailbox(): Promise<Result<{ imported: number; withheld: number; pending: number }>> {
+export async function syncMyMailbox(): Promise<Result<{ imported: number; withheld: number }>> {
   return run(async () => {
     const user = await actionUser();
     const account = await accountOf(user.id);

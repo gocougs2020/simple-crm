@@ -5,7 +5,7 @@ import { getDb, schema } from "@/db";
 import type { PhoneSettings } from "@/db/schema";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { getWorkspace } from "@/lib/workspace";
-import { twilio, TwilioError } from "./client";
+import { twilio, twilioMessaging, TwilioError } from "./client";
 import { twilioCredentials, WEBHOOKS } from "./config";
 
 /**
@@ -98,22 +98,56 @@ export async function voiceToken(identity: string) {
   return { token, expiresAt: new Date((now + TOKEN_SECONDS) * 1000).toISOString() };
 }
 
-export type AccountNumber = { sid: string; number: string; friendlyName: string; voice: boolean; sms: boolean; voiceUrl: string | null; smsUrl: string | null };
+export type AvailableNumber = { number: string; locality: string | null; region: string | null };
 
-/** The numbers in the Twilio account, for picking which ones the CRM uses. */
-export async function listAccountNumbers(): Promise<AccountNumber[]> {
-  const out: AccountNumber[] = [];
-  let page: { incoming_phone_numbers: Record<string, unknown>[]; next_page_uri: string | null } = await twilio("GET", "/IncomingPhoneNumbers", { PageSize: 100 });
-  for (let i = 0; i < 5; i++) {
-    for (const n of page.incoming_phone_numbers) {
-      const caps = (n.capabilities ?? {}) as { voice?: boolean; sms?: boolean };
-      out.push({ sid: String(n.sid), number: String(n.phone_number), friendlyName: String(n.friendly_name ?? n.phone_number), voice: !!caps.voice, sms: !!caps.sms, voiceUrl: (n.voice_url as string) || null, smsUrl: (n.sms_url as string) || null });
+/**
+ * Numbers Twilio has for sale in an area code that can do everything the CRM
+ * needs: voice, SMS and MMS. Only searches; nothing is bought.
+ */
+export async function searchAvailableNumbers(areaCode: string, country: string): Promise<AvailableNumber[]> {
+  const res = await twilio<{ available_phone_numbers: { phone_number: string; locality?: string | null; region?: string | null }[] }>(
+    "GET",
+    `/AvailablePhoneNumbers/${encodeURIComponent(country)}/Local`,
+    { AreaCode: areaCode, VoiceEnabled: true, SmsEnabled: true, MmsEnabled: true, PageSize: 10 },
+  );
+  return (res.available_phone_numbers ?? []).map((n) => ({ number: n.phone_number, locality: n.locality || null, region: n.region || null }));
+}
+
+/**
+ * Buys a number in the Twilio account, already pointed at the CRM, and adds
+ * it to TWILIO_MESSAGING_SERVICE_SID when set (for A2P 10DLC texting in the US).
+ * Twilio bills the account monthly for it from now on.
+ */
+export async function buyNumber(phoneNumber: string, label: string, origin: string) {
+  const bought = await twilio<{ sid: string; phone_number: string }>("POST", "/IncomingPhoneNumbers", {
+    PhoneNumber: phoneNumber,
+    FriendlyName: label.slice(0, 64),
+    VoiceUrl: `${origin}${WEBHOOKS.voice}`,
+    VoiceMethod: "POST",
+    StatusCallback: `${origin}${WEBHOOKS.voiceStatus}`,
+    StatusCallbackMethod: "POST",
+    SmsUrl: `${origin}${WEBHOOKS.sms}`,
+    SmsMethod: "POST",
+  });
+  const service = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
+  if (service) {
+    try {
+      await twilioMessaging("POST", `/Services/${encodeURIComponent(service)}/PhoneNumbers`, { PhoneNumberSid: bought.sid });
+    } catch (err) {
+      // The number is bought either way; say what's missing rather than lose track of it.
+      console.error("[twilio] messaging service", err);
+      return { sid: bought.sid, number: bought.phone_number, warning: "The number was bought, but Twilio didn't add it to the messaging service. Add it there in the Twilio console so texts can be delivered." };
     }
-    if (!page.next_page_uri) break;
-    const next = new URL(`https://api.twilio.com${page.next_page_uri}`);
-    page = await twilio("GET", "/IncomingPhoneNumbers", Object.fromEntries(next.searchParams));
   }
-  return out;
+  return { sid: bought.sid, number: bought.phone_number, warning: null };
+}
+
+/** Releases a number from the Twilio account for good: it stops working and stops being billed. Someone else may buy it later. */
+export async function releaseNumber(sid: string) {
+  await twilio("DELETE", `/IncomingPhoneNumbers/${encodeURIComponent(sid)}`).catch((err) => {
+    // Already gone from the account: nothing left to release.
+    if (!(err instanceof TwilioError && err.status === 404)) throw err;
+  });
 }
 
 /** Points a number's calls and texts at the CRM. */
@@ -125,12 +159,5 @@ export async function connectNumber(sid: string, origin: string) {
     StatusCallbackMethod: "POST",
     SmsUrl: `${origin}${WEBHOOKS.sms}`,
     SmsMethod: "POST",
-  });
-}
-
-/** Stops sending a number's calls and texts to the CRM (when it's removed here). */
-export async function disconnectNumber(sid: string) {
-  await twilio("POST", `/IncomingPhoneNumbers/${sid}`, { VoiceUrl: "", SmsUrl: "", StatusCallback: "" }).catch((err) => {
-    if (!(err instanceof TwilioError && err.status === 404)) throw err;
   });
 }

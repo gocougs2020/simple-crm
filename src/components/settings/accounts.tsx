@@ -38,7 +38,7 @@ export function AccountSettings({
 }: {
   configured: boolean;
   account: Account | null;
-  stats: { imported: number; withheld: number; pending: number } | null;
+  stats: { imported: number; withheld: number; unscreened: number } | null;
   sync: { everyMinutes: number; screening: boolean; screenReady: boolean; category: string | null };
   notice: { connected: string | null; error: string | null };
 }) {
@@ -116,14 +116,14 @@ export function AccountSettings({
                   Emails marked Private or Confidential in Outlook are never copied.
                   {sync.screening
                     ? sync.screenReady
-                      ? " Each other email is also read by an AI screen first, and anything that looks personal or confidential stays out."
-                      : " The AI screen isn't set up yet (it needs an AI Gateway key), so mail waits until it is."
+                      ? " Every other email is checked first by an AI screen, and anything that looks personal or confidential stays out. If the screen can't answer, the email goes in."
+                      : " The AI screen isn't set up on this deployment (it needs an AI Gateway key), so other mail goes in unscreened."
                     : ""}
                   {sync.category ? ` Kept-out emails get the “${sync.category}” category in Outlook, so you can see which ones.` : ""} If something private slips through, delete it from the timeline.
                 </p>
                 {stats ? (
                   <p className="mt-2 text-[12.5px] text-secondary tabular-nums">
-                    Last 30 days: {stats.imported} copied · {stats.withheld} kept out{stats.pending ? ` · ${stats.pending} waiting` : ""}
+                    Last 30 days: {stats.imported} copied · {stats.withheld} kept out{stats.unscreened ? ` · ${stats.unscreened} copied without screening` : ""}
                   </p>
                 ) : null}
                 <Button

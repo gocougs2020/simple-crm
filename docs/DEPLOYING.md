@@ -25,7 +25,7 @@ Import the repository in Vercel. `vercel.json` sets the build command (`pnpm db:
 | `VAPID_SUBJECT` | Optional. A `mailto:` or `https:` contact for push services, e.g. `mailto:it@acme.com`. Defaults to `NEXT_PUBLIC_SITE_URL` |
 | `AI_GATEWAY_API_KEY` | Required for the AI features (assistant, voice, dictation, summaries), on Vercel too. Create it in the Vercel dashboard → AI Gateway → API keys and set a budget on it: that budget caps what the CRM spends on AI. Without it the AI features are hidden. See [AGENT.md](AGENT.md) |
 | `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_TENANT_ID` | Optional. Lets teammates connect their Microsoft 365 mailbox and calendar. See [MICROSOFT.md](MICROSOFT.md) |
-| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Optional. Calling from the browser, forwarding incoming calls, and texting. See [PHONE.md](PHONE.md) |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_MESSAGING_SERVICE_SID` | Optional. Calling from the browser, forwarding incoming calls, and texting; numbers are bought in Settings → Phone numbers. See [PHONE.md](PHONE.md) |
 | `TOKEN_ENCRYPTION_KEY` | Optional. Encrypts stored Microsoft tokens and the Twilio API key secret. Defaults to a key derived from `AUTH_SECRET`; changing either means teammates reconnect Microsoft |
 | `NEXT_PUBLIC_APP_NAME` | Optional. Product name in the browser tab, e.g. `Acme CRM`. Default `CRM` |
 | `NEXT_PUBLIC_BRAND_COLOR` | Optional. Brand color for buttons and selected states, e.g. `#2f629f` |
@@ -57,7 +57,7 @@ Open the deployment. The first visit goes to **Set up your CRM**: the person who
 ## Optional
 
 - **Microsoft 365** (each teammate's own Outlook and calendar): register the app in Entra ID and set the `MICROSOFT_*` variables, then teammates connect in Settings → Email and calendar. See [MICROSOFT.md](MICROSOFT.md).
-- **Calling and texting:** set the `TWILIO_*` variables, then Settings → Phone numbers → Set up calling and add numbers. See [PHONE.md](PHONE.md).
+- **Calling and texting:** set the `TWILIO_*` variables, then Settings → Phone numbers → Set up calling, and Get a number by area code. See [PHONE.md](PHONE.md).
 - **The AI features** (assistant, voice, dictation, summaries) need `AI_GATEWAY_API_KEY`; they never fall back to the deployment's OIDC token, so the key's budget is the ceiling on AI spend. Each can be turned off with `agent.*` in `NEXT_PUBLIC_APP_CONFIG` (see [AGENT.md](AGENT.md#configure-your-deployment)).
 - **On phones:** open the CRM in Safari (iPhone, iPad) and tap Share → Add to Home Screen, or in Chrome (Android) tap Install app. Then Settings → Notifications → Turn on notifications on that device. iPhones and iPads only allow notifications for the installed app. The same page turns on the daily and weekly agenda emails, which need Resend (`RESEND_API_KEY`, `RESEND_FROM`).
 - **Custom domain:** add it in Vercel, then update `NEXT_PUBLIC_SITE_URL`.

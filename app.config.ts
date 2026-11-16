@@ -142,16 +142,22 @@ export type AppConfig = {
     /** Also copy mail teammates send from Outlook itself (Sent Items) to the records it's addressed to. */
     syncSent: boolean;
     /**
-     * Screen each email with an AI model before it goes on a record, and keep
-     * private or confidential ones out. Needs AI_GATEWAY_API_KEY; without one,
-     * mail waits (nothing is imported unscreened) until it's set or this is off.
-     * Emails Outlook marks Private or Confidential are always kept out.
+     * Screen each email with a decision model before it goes on a record, and
+     * keep sensitive ones out. Needs AI_GATEWAY_API_KEY; when the screen isn't
+     * available, mail goes in unscreened. Emails Outlook marks Private or
+     * Confidential are always kept out, screen or not.
      */
     screenMail: boolean;
-    /** The screening model (AI Gateway id). Small and fast is enough. */
+    /**
+     * The screening model: an AI Gateway decision model (type "evaluation"),
+     * which answers with a probability instead of writing text, so it's fast
+     * and costs a fraction of a cent per email.
+     */
     screenModel: string;
-    /** What counts as sensitive, in plain words. The model keeps anything matching this out of the CRM. */
+    /** What counts as sensitive, in plain words. */
     screenInstructions: string;
+    /** Keep an email out when the model is at least this sure (0–1) it's sensitive. Lower keeps more out. */
+    screenThreshold: number;
     /**
      * Mark kept-out emails in Outlook with this category, so the teammate can
      * see which ones didn't go into the CRM. `null` names it after the app
@@ -173,6 +179,8 @@ export type AppConfig = {
     enabled: boolean;
     /** Country calling code added to numbers typed without one ("1" for the US and Canada). */
     defaultCountryCode: string;
+    /** Where new numbers are bought (Settings → Phone numbers), as a two-letter country code. Area codes work in "US" and "CA". */
+    numberCountry: string;
     /** Caller ID on a forwarded call: the caller's own number (so the cell phone shows who it is), or the team's number. */
     forwardCallerId: "caller" | "number";
     /** Seconds a forwarded call rings before it's treated as missed. */
@@ -242,9 +250,10 @@ const defaults = {
     firstSyncDays: 14,
     syncSent: true,
     screenMail: true,
-    screenModel: "anthropic/claude-haiku-5.5",
+    screenModel: "typesafe-ai/jev",
     screenInstructions:
       "Personal or private matters (health, family, finances, legal trouble), HR and employment matters (salaries, reviews, hiring or firing of our own staff), legal or contract disputes, anything marked confidential or privileged, passwords and security codes, and anything clearly not about the business relationship with this contact.",
+    screenThreshold: 0.5,
     withheldCategory: null,
     calendarTypes: ["meeting"],
     calendarDefaultMinutes: 30,
@@ -253,6 +262,7 @@ const defaults = {
   phone: {
     enabled: true,
     defaultCountryCode: "1",
+    numberCountry: "US",
     forwardCallerId: "caller",
     forwardTimeoutSeconds: 25,
     missedCallMessage: null,

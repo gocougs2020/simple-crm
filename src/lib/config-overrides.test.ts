@@ -20,21 +20,23 @@ const defaults: AppConfig = {
     screenMail: true,
     screenModel: "a/screen",
     screenInstructions: "Private things.",
+    screenThreshold: 0.5,
     withheldCategory: null,
     calendarTypes: ["meeting"],
     calendarDefaultMinutes: 30,
     inviteContacts: false,
   },
-  phone: { enabled: true, defaultCountryCode: "1", forwardCallerId: "caller", forwardTimeoutSeconds: 25, missedCallMessage: null, textCampaignsNeedConsent: true, textCampaignFooter: "Reply STOP to opt out." },
+  phone: { enabled: true, defaultCountryCode: "1", numberCountry: "US", forwardCallerId: "caller", forwardTimeoutSeconds: 25, missedCallMessage: null, textCampaignsNeedConsent: true, textCampaignFooter: "Reply STOP to opt out." },
   pwa: { shortName: null, iconBackground: null, iconForeground: "#ffffff", backgroundColor: "#fafafa" },
 };
 
 describe("applyConfigOverrides", () => {
   it("configures Microsoft 365 and the phone per deployment", () => {
     const merged = applyConfigOverrides(defaults, {
-      json: JSON.stringify({ microsoft: { syncEveryMinutes: 30, withheldCategory: "Kept out", calendarTypes: ["meeting", "call"] }, phone: { forwardCallerId: "number", missedCallMessage: "Leave a message." }, records: { keyContactLabel: "Key contact" } }),
+      json: JSON.stringify({ microsoft: { syncEveryMinutes: 30, screenThreshold: 0.7, withheldCategory: "Kept out", calendarTypes: ["meeting", "call"] }, phone: { forwardCallerId: "number", missedCallMessage: "Leave a message." }, records: { keyContactLabel: "Key contact" } }),
     });
     assert.equal(merged.microsoft.syncEveryMinutes, 30);
+    assert.equal(merged.microsoft.screenThreshold, 0.7);
     assert.equal(merged.microsoft.withheldCategory, "Kept out");
     assert.deepEqual(merged.microsoft.calendarTypes, ["meeting", "call"]);
     assert.equal(merged.phone.forwardCallerId, "number");

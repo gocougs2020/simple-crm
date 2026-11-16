@@ -52,7 +52,7 @@ The code is public; the data and secrets never are. This page is how that holds.
 
 - Each teammate connects only their own account (delegated permissions), through the authorization code flow with PKCE. The state and verifier are in an encrypted, HttpOnly, 10-minute cookie scoped to the callback path and bound to the teammate who started, so a callback can't be replayed or completed in someone else's session.
 - Access and refresh tokens are encrypted at rest with AES-256-GCM (`src/lib/crypto.ts`, keyed from `TOKEN_ENCRYPTION_KEY` or `AUTH_SECRET`), never sent to the browser, and only sent to `graph.microsoft.com` (the Graph helper refuses any other host, including in paging links). Disconnecting deletes them at once.
-- Mail marked Private, Personal or Confidential in Outlook is never copied, and every other email is screened before it's stored; when the screen can't answer, mail waits or stays out rather than going in. Nothing of a kept-out email's content is stored. Copied mail is plain text, sanitized like notes. The screen's prompt treats the email as content, never as instructions.
+- Mail marked Private, Personal or Confidential in Outlook is never copied, whatever else happens. Every other email is screened by a decision model before it's stored; if the screen can't answer, the email goes in (a deliberate choice: the Outlook label is the guarantee, the screen a second net). Nothing of a kept-out email's content is stored. Copied mail is plain text, sanitized like notes. The email reaches the model as structured fields (state), separate from the question, so its text can't rewrite what's being asked.
 - What teammates see of each other's calendars is each owner's choice (nothing, free/busy, details); events marked Private always show as busy.
 
 ## Phone (Twilio)
@@ -60,6 +60,7 @@ The code is public; the data and secrets never are. This page is how that holds.
 - Every Twilio webhook verifies `X-Twilio-Signature` (HMAC-SHA1 with the auth token, compared in constant time) and is refused without it. Each is idempotent on Twilio's id.
 - Browser call tokens are signed per teammate for an hour, can only place calls (never receive), and only through the CRM's TwiML app. The voice webhook only dials a call that teammate prepared in the last five minutes, after the server checked their access to the number and their role, so a token can't be used to dial arbitrary numbers from arbitrary lines.
 - Access to each number is checked on the server for every call, text and campaign. Viewers can't call or text.
+- The CRM never lists or touches the Twilio account's other numbers: admins buy numbers by area code, and editing, reconnecting and deleting (releasing) only ever act on numbers in the CRM's own table. Buying and deleting are admin-only.
 - TwiML is built with every value escaped, so a caller's number or a typed message can't change what Twilio does. The Twilio API key secret Settings creates is stored encrypted.
 - STOP replies opt people out immediately, and text campaigns need recorded consent by default.
 
