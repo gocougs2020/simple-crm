@@ -31,6 +31,7 @@ Conversations are saved per teammate in `agent_threads` (messages as the AI SDK'
 
 - **Voice chat** is speech to speech with `spacexai/grok-voice-3.0` through AI Gateway's realtime API (`experimental_useRealtime`). The browser gets a short-lived token from `/api/agent/voice/session`, along with the tools this teammate may use, and talks to AI Gateway directly. Tool calls come back to `/api/agent/voice/tool` and run on the server as the teammate. A call ends after 5 minutes, or after 30 seconds of quiet once the assistant has spoken.
 - **Dictation**, the microphone in the composer, records a clip and transcribes it with `spacexai/grok-stt` (`/api/agent/transcribe`). The text lands in the composer to edit before sending.
+- **The same microphone is in the CRM's text boxes**: notes, call summaries, emails (logged or sent), texts, meeting agendas and notes, and task details, in the composer and when editing on a timeline (`RichText`'s `dictation` prop). Click it and it turns into a stop button with a waveform and "Listening…"; stop, and "Transcribing…" shows until the text goes in at the cursor, or at the end if nobody has put the cursor in the text. Recording and upload logic is shared (`src/components/dictation/use-dictation.ts`). It hides itself on deployments without AI Gateway access.
 
 The browser asks for microphone access the first time. The site's `Permissions-Policy` allows the microphone for this origin only, and the CSP allows the AI Gateway realtime socket (`wss://ai-gateway.vercel.sh`).
 

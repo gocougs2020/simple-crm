@@ -148,7 +148,8 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
         body: body || null,
         ...links,
         ...(type === "call" || type === "email" || type === "text" ? { direction } : {}),
-        ...(type === "call" || type === "meeting" ? { outcome: planned ? null : outcome, durationMinutes: duration ? Number(duration) : null } : {}),
+        ...(type === "call" ? { outcome: planned ? null : outcome } : {}),
+        ...(type === "meeting" ? { outcome: planned ? null : outcome, durationMinutes: duration ? Number(duration) : null } : {}),
         ...(planned ? { dueAt: at.toISOString(), dueHasTime: !!time, assigneeId, done: false } : { occurredAt: at.toISOString(), done: true }),
       };
       const r = await logActivity(input);
@@ -200,7 +201,7 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
             </label>
             <Input id={`${type}-time`} type="time" value={time} onChange={(e) => setTime(e.target.value)} className="h-8 w-[7.5rem] text-[13px]" step={900} />
           </div>
-          {type === "call" || type === "meeting" ? (
+          {type === "meeting" ? (
             <Input
               type="number"
               min={0}
@@ -226,6 +227,7 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
         onChange={setBody}
         onSubmit={submit}
         minHeight={isTask ? 44 : 72}
+        dictation
         actions={
           <Button size="sm" variant="ghost" className="h-7" onClick={() => picker.current?.click()}>
             <PaperClipIcon />

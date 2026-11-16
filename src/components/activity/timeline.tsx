@@ -596,7 +596,7 @@ function EditActivity({ row, onClose }: { row: ActivityRow; onClose: () => void 
             {open ? <Field label="Assigned to">{(p) => <OwnerSelect id={p.id} value={assigneeId} onChange={setAssigneeId} allowNone={false} />}</Field> : null}
           </div>
         ) : null}
-        <RichText value={body} onChange={setBody} onSubmit={save} minHeight={120} autoFocus={a.type === "note"} />
+        <RichText value={body} onChange={setBody} onSubmit={save} minHeight={120} autoFocus={a.type === "note"} dictation />
       </div>
     </Dialog>
   );
