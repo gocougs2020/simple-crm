@@ -4,6 +4,7 @@ import clsx from "clsx";
 import { useEffect, useState } from "react";
 import { SparklesIcon } from "@heroicons/react/24/outline";
 import { recordSummary } from "@/actions/agent";
+import { appConfig } from "@/app.config";
 import { useApp } from "@/components/app-context";
 import { Spinner } from "@/components/ui/button";
 import { formatAgo } from "@/lib/format";
@@ -20,7 +21,7 @@ export function RecordSummary({ entity, id, summary: initialSummary, summaryAt: 
   const [summary, setSummary] = useState(initialSummary);
   const [at, setAt] = useState(initialAt ? new Date(initialAt).toISOString() : null);
   // Known on the server too, so the loading state is there from the first paint instead of popping in.
-  const needsWriting = services.agent && !(initialSummary && isFresh(initialAt));
+  const needsWriting = services.ai.summaries && !(initialSummary && isFresh(initialAt));
   const [working, setWorking] = useState(needsWriting);
   const [failed, setFailed] = useState("");
   const [open, setOpen] = useState(false);
@@ -42,7 +43,9 @@ export function RecordSummary({ entity, id, summary: initialSummary, summaryAt: 
     };
   }, [entity, id, needsWriting]);
 
-  if (!summary && !working && (!services.agent || !failed)) return null;
+  // Summaries switched off on this deployment: nothing shows, not even an old one.
+  if (!appConfig.agent.summaries) return null;
+  if (!summary && !working && (!services.ai.summaries || !failed)) return null;
 
   return (
     <section aria-label="AI summary" className={clsx("relative rounded-xl border border-line bg-surface px-4 pt-3", working ? "pb-7" : "pb-3.5")}>

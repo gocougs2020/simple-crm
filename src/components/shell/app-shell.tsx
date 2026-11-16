@@ -178,7 +178,7 @@ export function AppShell({ due, unread = 0, children }: { due: { overdue: number
       <CommandPalette />
       <CreateDialogs />
       <NextStepDialog />
-      <AgentLauncher configured={services.agent} />
+      <AgentLauncher configured={services.ai.chat} />
     </div>
   );
 }

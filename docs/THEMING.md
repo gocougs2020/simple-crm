@@ -35,7 +35,8 @@ What [`app.config.ts`](../app.config.ts) controls:
 | `layout.defaultClientsView` | `"board"` | How Clients opens for a teammate who hasn't chosen board or table yet (`"board"` or `"table"`). Each person's own choice still wins |
 | `email.trackOpens` | `false` | Record and show when people open emails (timeline, campaign report, campaign list). Off by default: tracking pixels can hurt deliverability and opens are approximate. Also turn on open tracking for the sending domain in Resend, then reconnect the webhook in Settings → Email domains |
 | `email.trackClicks` | `false` | Record and show link clicks. Same trade-off: Resend rewrites links through its tracking domain. Also turn on click tracking in Resend, then reconnect the webhook |
-| `agent.enabled` | `true` | The assistant's button in the bottom right corner. See [AGENT.md](AGENT.md) |
+| `agent.enabled` | `true` | The assistant's button in the bottom right corner. See [AGENT.md](AGENT.md#configure-your-deployment) |
+| `agent.voice`, `agent.dictation`, `agent.summaries` | `true` | Voice chat, the dictation microphones and record summaries, each on or off. Off hides it and its route refuses it |
 | `agent.name` | `"Assistant"` | The assistant's name in its panel, its replies and history |
 | `agent.chatModel`, `agent.titleModel`, `agent.voiceModel`, `agent.transcriptionModel` | GPT-6.1 Sol, Claude Haiku 5.5, Grok Voice 3.0, Grok STT | AI Gateway model ids (`creator/model`) for chat, thread titles, voice chat and dictation |
 | `agent.chatReasoning` | `"medium"` | Reasoning effort for chat: `"provider-default"`, `"none"`, `"minimal"`, `"low"`, `"medium"` or `"high"` |

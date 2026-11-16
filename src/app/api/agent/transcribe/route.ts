@@ -1,7 +1,7 @@
 import { experimental_transcribe as transcribe, gateway } from "ai";
 import { appConfig } from "@/app.config";
 import { agentError, agentRequest } from "@/lib/agent/http";
-import { agentConfigured } from "@/lib/agent/config";
+import { aiFeatures, aiOffMessage } from "@/lib/agent/config";
 
 export const maxDuration = 60;
 
@@ -12,7 +12,7 @@ const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
 export async function POST(request: Request) {
   const gate = await agentRequest(request);
   if (!gate.ok) return gate.response;
-  if (!agentConfigured()) return agentError(503, "Voice input isn't set up on this deployment yet. An admin can add AI Gateway access (see docs/AGENT.md).");
+  if (!aiFeatures().dictation) return agentError(503, aiOffMessage("dictation"));
   if (Number(request.headers.get("content-length") || 0) > MAX_AUDIO_BYTES + 64_000) return agentError(413, "That recording is too long. Try a shorter one.");
 
   let file: File | null = null;

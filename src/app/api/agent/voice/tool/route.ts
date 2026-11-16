@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { assistantActor } from "@/lib/agent/actor";
+import { aiFeatures, aiOffMessage } from "@/lib/agent/config";
 import { agentError, agentRequest, readJson } from "@/lib/agent/http";
 import { runTool } from "@/lib/agent/tools";
 import { siteOrigin } from "@/lib/origin";
@@ -13,6 +14,7 @@ const body = z.object({ toolName: z.string().min(1).max(64), input: z.record(z.s
  * voice: they need a button press in text chat.
  */
 export async function POST(request: Request) {
+  if (!aiFeatures().voice) return agentError(503, aiOffMessage("voice"));
   const gate = await agentRequest(request);
   if (!gate.ok) return gate.response;
   let input: z.infer<typeof body>;

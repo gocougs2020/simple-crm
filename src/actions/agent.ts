@@ -8,7 +8,7 @@ import { cleanTranscript } from "@/lib/agent/messages";
 import { agentInstructions } from "@/lib/agent/prompt";
 import { deleteThread, ensureThread, getThread, listThreads, renameThread, saveMessages } from "@/lib/agent/threads";
 import { ActionError, actionCan, actionUser } from "@/lib/auth";
-import { agentConfigured } from "@/lib/agent/config";
+import { aiFeatures, aiOffMessage } from "@/lib/agent/config";
 import { ensureSummary, type Summary } from "@/lib/agent/summary";
 import { rateLimit } from "@/lib/rate-limit";
 import { can } from "@/lib/crm/actor";
@@ -59,6 +59,7 @@ export async function deleteAgentThread(id: string): Promise<Result> {
 export async function prepareVoiceChat(page?: string): Promise<Result<{ instructions: string }>> {
   return run(async () => {
     const user = await actionUser();
+    if (!aiFeatures().voice) throw new ActionError(aiOffMessage("voice"));
     const [actor, ws] = await Promise.all([assistantActor(user), getWorkspace()]);
     const instructions = agentInstructions({
       user,
@@ -107,7 +108,7 @@ export async function recordSummary(entity: string, id: string): Promise<Result<
     const user = await actionCan("records:read");
     const which = z.enum(["client", "person", "organization"]).parse(entity);
     const recordId = z.uuid("That record doesn't exist.").parse(id);
-    if (!agentConfigured()) throw new ActionError("Summaries need AI Gateway access on this deployment.");
+    if (!aiFeatures().summaries) throw new ActionError(aiOffMessage("summaries"));
     if ((await rateLimit("summary", user.id, { limit: 120, windowMs: 3600_000 })).limited) throw new ActionError("That's a lot of summaries this hour. Try again later.");
     try {
       return await ensureSummary(which, recordId);

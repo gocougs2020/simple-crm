@@ -1,11 +1,9 @@
 import type { Experimental_RealtimeSessionConfig } from "ai";
 
 /**
- * Voice chat helpers for the browser, ported from the HiringCenter assistant
- * (hiringcenterpro-api src/lib/assistant-voice.ts) so the two behave alike:
- * the same 5-minute cap, the same 30-second silence timeout, and the same
- * audio-context workarounds for Safari and Chrome autoplay rules. Pure where
- * possible (tested).
+ * Voice chat helpers for the browser: the 5-minute cap, the 30-second
+ * silence timeout, and the audio-context workarounds for Safari and Chrome
+ * autoplay rules. Pure where possible (tested).
  */
 
 const SAMPLE_RATE = 24_000;

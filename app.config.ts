@@ -84,8 +84,19 @@ export type AppConfig = {
     trackClicks: boolean;
   };
   agent: {
-    /** Show the assistant button in the bottom right corner. It also needs AI Gateway access (docs/AGENT.md). */
+    /**
+     * The AI features, each switched on or off per deployment. All of them
+     * also need AI Gateway access (docs/AGENT.md); without it they hide
+     * themselves. Turning one off also refuses it on the server.
+     */
+    /** The assistant: its button in the bottom right corner and the chat panel. */
     enabled: boolean;
+    /** Live voice chat in the assistant panel (speech to speech). */
+    voice: boolean;
+    /** Microphones that dictate into the assistant's composer and the CRM's text boxes. */
+    dictation: boolean;
+    /** The AI summary at the top of client, person and organization pages. */
+    summaries: boolean;
     /** What the assistant is called in its panel and its own replies. */
     name: string;
     /** AI Gateway model ids (creator/model). Change them to try another model; nothing else needs to change. */
@@ -141,6 +152,9 @@ const defaults = {
   },
   agent: {
     enabled: true,
+    voice: true,
+    dictation: true,
+    summaries: true,
     name: "Assistant",
     chatModel: "openai/gpt-6.1-sol",
     chatReasoning: "medium",

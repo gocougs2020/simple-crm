@@ -46,16 +46,34 @@ Client, person and organization pages open with a short AI snapshot above the "N
 
 ## Setup
 
-The assistant uses [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) for every model.
+The assistant, voice, dictation and summaries use [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) for every model, so any model the gateway offers works, from any provider, with one credential.
 
 - **On Vercel:** nothing to configure. Deployments authenticate to AI Gateway with their OIDC token. Usage is billed to the Vercel team; set a budget in the dashboard (AI Gateway → Settings).
 - **Locally, or outside Vercel:** create a key in the Vercel dashboard (AI Gateway → API keys) and set `AI_GATEWAY_API_KEY`. Without one, the panel opens with a note that it isn't set up.
 
-Models are settings in `app.config.ts` (or `NEXT_PUBLIC_APP_CONFIG`), so trying another one is a config change:
+### Configure your deployment
+
+Everything about the AI features is a setting, so a fork or a self-hosted copy changes environment variables, never code. Two kinds:
+
+- **Secrets** stay in server-only environment variables: `AI_GATEWAY_API_KEY` (only outside Vercel), plus the existing `RESEND_API_KEY`, `VAPID_PRIVATE_KEY`, `CRON_SECRET` and `STRIPE_SECRET_KEY`.
+- **Choices** (which features are on, which models, the assistant's name and suggestions) are `agent.*` in `app.config.ts`. A deployment overrides any of them with `NEXT_PUBLIC_APP_CONFIG`, without touching the file. They're public (compiled into the page, since voice chat picks its model in the browser) and need a redeploy to change.
+
+For example, a deployment that keeps chat and dictation, turns voice chat off and summarizes with a cheaper model:
+
+```bash
+# .env.local, or the Vercel project's environment variables
+AI_GATEWAY_API_KEY=            # leave unset on Vercel
+NEXT_PUBLIC_APP_CONFIG='{"agent":{"name":"Ada","voice":false,"summaryModel":"anthropic/claude-haiku-5.5","summaryReasoning":"none"}}'
+```
+
+Unknown keys, wrong types and reasoning levels that don't exist fail the build with a list of what to fix. A feature that's off is hidden in the interface and refused by its route, and the site's `Permissions-Policy` and CSP only allow the microphone and the AI Gateway socket when voice chat or dictation is on.
 
 | Key | Default | Used for |
 | --- | --- | --- |
-| `agent.enabled` | `true` | Shows the button. `false` hides it everywhere |
+| `agent.enabled` | `true` | The assistant: its button and chat panel. `false` hides it everywhere (voice chat goes with it) |
+| `agent.voice` | `true` | Voice chat in the assistant panel |
+| `agent.dictation` | `true` | The microphones in the assistant's composer and the CRM's text boxes |
+| `agent.summaries` | `true` | The AI summary on client, person and organization pages. `false` also hides summaries already written |
 | `agent.name` | `"Assistant"` | Its name in the panel, in its replies and in history |
 | `agent.chatModel` | `"openai/gpt-6.1-sol"` | Text chat and tool use |
 | `agent.chatReasoning` | `"medium"` | How much the chat model reasons before answering: `"provider-default"`, `"none"`, `"minimal"`, `"low"`, `"medium"` or `"high"`. Higher is slower and costs more. Its reasoning isn't shown or saved |
@@ -97,4 +115,4 @@ src/actions/agent.ts    list, load, rename, delete threads; feedback; voice setu
 src/components/agent/   the button, panel, messages, dictation and voice components
 ```
 
-The panel follows the HiringCenter assistant's layout and behavior (threads menu, suggestions, dictation, voice stage, copy, feedback and edit), styled with this app's theme tokens. It loads the first time someone opens it, so pages don't carry its code. Every `/api/agent` route checks the session cookie and refuses requests from other sites' pages.
+The panel (threads menu, suggestions, dictation, voice stage, copy, feedback and edit) is styled with this app's theme tokens. It loads the first time someone opens it, so pages don't carry its code. Every `/api/agent` route checks the session cookie and refuses requests from other sites' pages.

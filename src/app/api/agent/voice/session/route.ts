@@ -2,7 +2,7 @@ import { experimental_getRealtimeToolDefinitions as realtimeTools, gateway } fro
 import { appConfig } from "@/app.config";
 import { assistantActor } from "@/lib/agent/actor";
 import { agentError, agentRequest } from "@/lib/agent/http";
-import { agentConfigured } from "@/lib/agent/config";
+import { aiFeatures, aiOffMessage } from "@/lib/agent/config";
 import { agentTools } from "@/lib/agent/tools";
 import { siteOrigin } from "@/lib/origin";
 
@@ -18,7 +18,7 @@ const TOKEN_SECONDS = 6 * 60;
 export async function POST(request: Request) {
   const gate = await agentRequest(request, { cost: 5 });
   if (!gate.ok) return gate.response;
-  if (!agentConfigured()) return agentError(503, "Voice chat isn't set up on this deployment yet. An admin can add AI Gateway access (see docs/AGENT.md).");
+  if (!aiFeatures().voice) return agentError(503, aiOffMessage("voice"));
   try {
     const actor = await assistantActor(gate.user);
     const [token, tools] = await Promise.all([

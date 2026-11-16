@@ -11,13 +11,13 @@ import { useDictation } from "./use-dictation";
  * A microphone for a text box's toolbar. Click to record (it turns into a
  * stop button, with a live waveform and "Listening…"), click stop to
  * transcribe ("Transcribing…"), and the text goes to `onText`. Uses the
- * speech-to-text model through AI Gateway, so it hides itself when the
- * deployment has no AI Gateway access.
+ * speech-to-text model through AI Gateway, so it hides itself when dictation
+ * is off on the deployment (`agent.dictation`) or there's no AI Gateway access.
  */
 export function Dictation({ onText, disabled }: { onText: (text: string) => void; disabled?: boolean }) {
   const { services } = useApp();
   const { phase, level, start, stop } = useDictation({ onText, onError: (m) => toast.error(m) });
-  if (!services.agent) return null;
+  if (!services.ai.dictation) return null;
 
   if (phase === "transcribing")
     return (

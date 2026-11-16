@@ -7,7 +7,7 @@ import { assistantActor } from "@/lib/agent/actor";
 import { agentError, agentRequest, readJson } from "@/lib/agent/http";
 import { mergeIncoming } from "@/lib/agent/messages";
 import { agentInstructions } from "@/lib/agent/prompt";
-import { agentConfigured } from "@/lib/agent/config";
+import { aiFeatures, aiOffMessage } from "@/lib/agent/config";
 import { autoTitle, ensureThread, saveMessages } from "@/lib/agent/threads";
 import { agentTools, needsConfirmation } from "@/lib/agent/tools";
 import { can } from "@/lib/crm/actor";
@@ -31,7 +31,7 @@ const body = z.object({
 export async function POST(request: Request) {
   const gate = await agentRequest(request);
   if (!gate.ok) return gate.response;
-  if (!agentConfigured()) return agentError(503, "The assistant isn't set up on this deployment yet. An admin can add AI Gateway access (see docs/AGENT.md).");
+  if (!aiFeatures().chat) return agentError(503, aiOffMessage("chat"));
 
   let input: z.infer<typeof body>;
   try {

@@ -91,11 +91,11 @@ function rememberThread(id: string) {
  * a phone). It answers with the teammate's own access: it reads and changes
  * records through the same operations as the API and MCP, as them. Threads
  * are saved per teammate; voice chat talks to a speech-to-speech model.
- * Layout and behavior follow the HiringCenter assistant.
+ * Each AI feature (voice, dictation) shows only where the deployment turned it on.
  */
 export function AgentPanel({ configured }: { configured: boolean }) {
   const { open, prompt, seq } = useAssistantState();
-  const { canEdit, viewer } = useApp();
+  const { canEdit, viewer, services } = useApp();
   const pathname = usePathname();
   const name = appConfig.agent.name;
 
@@ -228,7 +228,7 @@ export function AgentPanel({ configured }: { configured: boolean }) {
   };
 
   async function startVoice() {
-    if (voiceConfig || voiceStarting || !configured) return;
+    if (voiceConfig || voiceStarting || !services.ai.voice) return;
     voiceClosed.current = false;
     // Before any await: browsers only allow audio that a click started.
     primeAudio();
@@ -501,13 +501,17 @@ export function AgentPanel({ configured }: { configured: boolean }) {
                         </button>
                       ))}
                     </div>
-                    {voiceError ? <p className="max-w-64 text-[12px] text-error">{voiceError}</p> : null}
-                    {voiceNotice ? <p className="max-w-64 text-[12px] text-muted">{voiceNotice}</p> : null}
-                    <button type="button" onClick={() => void startVoice()} disabled={voiceStarting} className="mt-1 inline-flex h-10 items-center gap-2 rounded-full border border-line-strong bg-surface px-5 text-[13.5px] font-medium text-primary hover:bg-sunken disabled:opacity-50">
-                      <SpeakerWaveIcon className="size-4" aria-hidden />
-                      Start voice chat
-                    </button>
-                    <p className="max-w-64 text-[12px] text-muted">Talk it through out loud. {name} can look things up and make changes while you talk.</p>
+                    {services.ai.voice ? (
+                      <>
+                        {voiceError ? <p className="max-w-64 text-[12px] text-error">{voiceError}</p> : null}
+                        {voiceNotice ? <p className="max-w-64 text-[12px] text-muted">{voiceNotice}</p> : null}
+                        <button type="button" onClick={() => void startVoice()} disabled={voiceStarting} className="mt-1 inline-flex h-10 items-center gap-2 rounded-full border border-line-strong bg-surface px-5 text-[13.5px] font-medium text-primary hover:bg-sunken disabled:opacity-50">
+                          <SpeakerWaveIcon className="size-4" aria-hidden />
+                          Start voice chat
+                        </button>
+                        <p className="max-w-64 text-[12px] text-muted">Talk it through out loud. {name} can look things up and make changes while you talk.</p>
+                      </>
+                    ) : null}
                   </>
                 )}
               </div>
@@ -621,6 +625,7 @@ export function AgentPanel({ configured }: { configured: boolean }) {
                 maxLength={8000}
                 className="min-h-10 min-w-0 flex-1 resize-none border-0 bg-transparent px-1.5 py-2.5 text-[14px] leading-5 text-primary outline-none placeholder:text-faint focus-visible:outline-none disabled:opacity-60"
               />
+              {services.ai.dictation ? (
               <DictationButton
                 active={open}
                 disabled={busy || !configured}
@@ -632,6 +637,7 @@ export function AgentPanel({ configured }: { configured: boolean }) {
                 onStateChange={setDictation}
                 onError={setDictationError}
               />
+              ) : null}
             </div>
             {busy ? (
               <button type="button" onClick={() => void stop()} className="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-primary hover:bg-sunken" aria-label="Stop">
