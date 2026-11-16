@@ -74,6 +74,12 @@ src/app/oauth/authorize/  the consent page (src/actions/oauth.ts decides)
 
 Setup for Claude Code, Cursor, VS Code and Claude Desktop is on `/developers#mcp`, and in the dialog shown when a key is created.
 
+## Knowledge source
+
+A deployment can connect a read-only JSON API about its own organization (usually its website's content) with `KNOWLEDGE_API_URL`. `GET /knowledge?path=…` then reads one path under it, and MCP gets a `get_knowledge` tool. Without one, the endpoint answers 404 `not_configured` and the tool isn't listed. See [KNOWLEDGE.md](KNOWLEDGE.md).
+
+Operations can carry a `feature` (`src/lib/api/spec.ts`): they're documented everywhere but only offered as MCP and assistant tools where that feature is set up (`enabledFeatures` in `src/lib/api/features.ts`).
+
 ## How it's built
 
 ```
@@ -83,6 +89,7 @@ src/lib/api/
   queries.ts      paged, filtered reads shaped as the API's models
   models.ts       response shapes, for the docs and OpenAPI
   execute.ts      permission check + validation + handler, shared by REST and MCP
+  features.ts     optional features this deployment has set up (the knowledge source)
   http.ts         the REST request cycle: route, authenticate, rate-limit, run, answer
   router.ts       path matching (pure)
   auth.ts         API key → actor

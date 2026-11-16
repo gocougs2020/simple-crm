@@ -25,7 +25,8 @@ src/
   lib/               server logic: auth, permissions, email (and the inbox sync), Stripe,
                      files, formatting, queries (lib/crm), record changes (lib/crm/service),
                      the REST API (lib/api), MCP (lib/mcp), the assistant (lib/agent), push (lib/push),
-                     Microsoft 365 (lib/microsoft), Twilio (lib/twilio) and phone-number rules (lib/phone)
+                     Microsoft 365 (lib/microsoft), Twilio (lib/twilio), phone-number rules (lib/phone)
+                     and the optional knowledge source (lib/knowledge)
   styles/theme.css   every color the app uses
 public/sw.js         the service worker: shows push notifications, opens the page they point to
 drizzle/             SQL migrations generated from schema.ts
@@ -146,6 +147,10 @@ Record pages open with an AI summary of the record, shared by the team and rewri
 ## Background jobs
 
 Vercel Cron, all on the same quarter-hour blocks so the database can scale to zero between them (Neon suspends after a few idle minutes): the campaign cron (email and text campaigns), the inbox sync, the Microsoft 365 mailbox sync (which skips the blocks that don't fit `microsoft.syncEveryMinutes`) and the notifications cron (meeting and task pushes, morning summaries and agenda emails) run at :00, :15, :30 and :45, and the delivery check runs at :00. Nothing runs more often than every 15 minutes, and nothing in the browser polls. Scheduled campaigns are rounded up to the next quarter hour, so they go out exactly when the cron runs. Work someone starts by hand ("Send now", "Sync now") runs right away.
+
+## Knowledge source
+
+- `src/lib/knowledge/` reads one deployment-configured JSON API about the organization (usually its website's content) with `KNOWLEDGE_API_URL` / `KNOWLEDGE_API_KEY`, for the REST API, MCP and the assistant (`get_knowledge`). Read-only, confined to the base URL, no redirects, 10 seconds and 2 MB at most. See [KNOWLEDGE.md](KNOWLEDGE.md).
 
 ## Stripe
 

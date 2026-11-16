@@ -506,6 +506,30 @@ export const operations = {
     list: true,
     tool: "list_custom_fields",
   }),
+
+  // ─── Knowledge ─────────────────────────────────────────────────────────
+  getKnowledge: op({
+    method: "GET",
+    path: "/knowledge",
+    tag: "Knowledge",
+    summary: "Read the knowledge source",
+    description:
+      "Reads one path of the knowledge source this deployment connects (usually its own website's content API: services, team, articles, resources), with the deployment's key, and returns what it answered. Read-only, and limited to the source's base URL. 404 with code not_configured when none is connected (docs/KNOWLEDGE.md).",
+    permission: "records:read",
+    query: z.object({
+      path: z
+        .string()
+        .trim()
+        .max(2000)
+        .optional()
+        .describe('A path under the source, with its query string: "/" (often a list of what it offers), "/posts?q=onboarding&limit=5". Defaults to "/". In a URL, encode it (? as %3F, & as %26).'),
+    }),
+    response: "Knowledge",
+    tool: "get_knowledge",
+    toolDescription:
+      'Look things up in the organization\'s own knowledge source (its website\'s content: services, team, approach, articles, resources, company facts). Pass path: a path under the source with any query string. Ask for "/" first if you don\'t know its paths. Read-only.',
+    feature: "knowledge",
+  }),
 } satisfies Record<string, Operation>;
 
 export type Operations = typeof operations;
@@ -523,4 +547,5 @@ export const tags = [
   { name: "Notes", description: "Notes on a record, or on their own." },
   { name: "Activities", description: "Everything logged or planned: notes, calls, emails, texts, meetings and tasks, in one list." },
   { name: "Workspace", description: "Pipelines, services, the team and custom fields: what ids in other requests refer to." },
+  { name: "Knowledge", description: "The organization's own published material (its website's pages, articles and resources), from the knowledge source a deployment connects. Optional." },
 ] as const;

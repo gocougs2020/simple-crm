@@ -6,6 +6,7 @@ import { run, type Result } from "@/lib/action";
 import { assistantActor } from "@/lib/agent/actor";
 import { cleanTranscript } from "@/lib/agent/messages";
 import { agentInstructions } from "@/lib/agent/prompt";
+import { featureInstructions } from "@/lib/api/features";
 import { deleteThread, ensureThread, getThread, listThreads, renameThread, saveMessages } from "@/lib/agent/threads";
 import { ActionError, actionCan, actionUser } from "@/lib/auth";
 import { aiFeatures, aiOffMessage } from "@/lib/agent/config";
@@ -68,6 +69,7 @@ export async function prepareVoiceChat(page?: string): Promise<Result<{ instruct
       now: new Date(),
       page: z.string().max(300).optional().parse(page),
       voice: true,
+      knowledge: featureInstructions(),
     });
     return { instructions };
   });

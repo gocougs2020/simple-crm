@@ -24,7 +24,7 @@ It's built to cover the 80% of CRM work a small team does every day, and to stay
 - **Files** attach to a record or to a note, call or meeting, and each record's Files card gathers them all, along with attachments on its email. They live in a private store and only stream to signed-in teammates.
 - **Team** is invite-only with email-and-password sign-in, roles (owner, admin, member, viewer) and deactivation that keeps history intact.
 - **API and MCP.** A REST API for integrations, secured with API keys, and an MCP server so each teammate can connect their own AI agent with their own role's access. Docs for every endpoint are served at `/developers`. See [docs/API.md](docs/API.md).
-- **An assistant in every page.** Ask about clients and tasks, or have it log calls, add tasks and update records, by typing, dictating or talking it through in a live voice chat. It acts as you, with your role, so there's no key to set up; conversations are saved per teammate. See [docs/AGENT.md](docs/AGENT.md).
+- **An assistant in every page.** Ask about clients and tasks, or have it log calls, add tasks and update records, by typing, dictating or talking it through in a live voice chat. It acts as you, with your role, so there's no key to set up; conversations are saved per teammate. Connect your website's content API and it answers questions about your own services, team and articles too. See [docs/AGENT.md](docs/AGENT.md).
 - **On your phone, and in your inbox.** Install the CRM to your home screen and get push notifications for tasks assigned to you, tasks coming due, a morning summary of today's tasks, meetings 15 minutes before they start, records you now own and replies from your contacts, chosen per device. A daily or weekly agenda email lists your meetings and what's due or overdue.
 
 ## Run it locally
@@ -43,6 +43,7 @@ Open http://localhost:3200 and create the owner account. With no environment var
 | Stripe | The billing card explains how to connect |
 | Files | Saved to `.data/uploads/` |
 | Push notifications | VAPID keys are made once and kept in `.data/vapid.json` |
+| Knowledge source (your website's content, for the assistant and agents) | Off until `KNOWLEDGE_API_URL` is set; see [docs/KNOWLEDGE.md](docs/KNOWLEDGE.md) |
 | AI features (assistant, voice, dictation, summaries) | Need `AI_GATEWAY_API_KEY` (Vercel dashboard → AI Gateway → API keys), locally and when deployed. Without it they hide themselves. Each can be turned off per deployment; see [docs/AGENT.md](docs/AGENT.md#configure-your-deployment) |
 
 Settings → Workspace has **Add sample data** (local development only) to fill an empty workspace with realistic records.
@@ -81,6 +82,7 @@ Unknown keys, wrong types, invalid JSON and unsafe CSS values fail the build wit
 - [docs/AGENT.md](docs/AGENT.md): the in-app assistant: tools, threads, voice, models and limits
 - [docs/MICROSOFT.md](docs/MICROSOFT.md): connecting Microsoft 365 mailboxes and calendars
 - [docs/PHONE.md](docs/PHONE.md): calling and texting through Twilio
+- [docs/KNOWLEDGE.md](docs/KNOWLEDGE.md): connecting your website's content API so the assistant and agents can answer questions about your organization
 - [docs/SECURITY.md](docs/SECURITY.md): authentication, sessions, files, and what keeps a public repo safe to deploy
 - [docs/THEMING.md](docs/THEMING.md): changing the design
 - [docs/DEPLOYING.md](docs/DEPLOYING.md): production setup

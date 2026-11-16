@@ -8,6 +8,7 @@ import { aiGateway } from "@/lib/agent/gateway";
 import { agentError, agentRequest, readJson } from "@/lib/agent/http";
 import { mergeIncoming } from "@/lib/agent/messages";
 import { agentInstructions } from "@/lib/agent/prompt";
+import { featureInstructions } from "@/lib/api/features";
 import { aiFeatures, aiOffMessage } from "@/lib/agent/config";
 import { autoTitle, ensureThread, saveMessages } from "@/lib/agent/threads";
 import { agentTools, needsConfirmation } from "@/lib/agent/tools";
@@ -69,6 +70,7 @@ export async function POST(request: Request) {
       workspace: { name: workspace.name, timezone: workspace.timezone, currency: workspace.currency },
       now: new Date(),
       page: input.page,
+      knowledge: featureInstructions(),
     }),
     messages: await convertToModelMessages(messages, { tools, ignoreIncompleteToolCalls: true }),
     tools,

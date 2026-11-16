@@ -27,13 +27,14 @@ Import the repository in Vercel. `vercel.json` sets the build command (`pnpm db:
 | `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_TENANT_ID` | Optional. Lets teammates connect their Microsoft 365 mailbox and calendar. See [MICROSOFT.md](MICROSOFT.md) |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_MESSAGING_SERVICE_SID` | Optional. Calling from the browser, forwarding incoming calls, and texting; numbers are bought in Settings → Phone numbers. See [PHONE.md](PHONE.md) |
 | `TOKEN_ENCRYPTION_KEY` | Optional. Encrypts stored Microsoft tokens and the Twilio API key secret. Defaults to a key derived from `AUTH_SECRET`; changing either means teammates reconnect Microsoft |
+| `KNOWLEDGE_API_URL`, `KNOWLEDGE_API_KEY` | Optional. A read-only JSON API about your organization (usually your website's content), which the assistant and MCP agents can look things up in. Add `KNOWLEDGE_NAME` and `KNOWLEDGE_DESCRIPTION` to tell agents what it covers. See [KNOWLEDGE.md](KNOWLEDGE.md) |
 | `NEXT_PUBLIC_APP_NAME` | Optional. Product name in the browser tab, e.g. `Acme CRM`. Default `CRM` |
 | `NEXT_PUBLIC_BRAND_COLOR` | Optional. Brand color for buttons and selected states, e.g. `#2f629f` |
 | `NEXT_PUBLIC_APP_CONFIG` | Optional. JSON overrides for anything in `app.config.ts`. See [THEMING.md](THEMING.md) |
 
 The three `NEXT_PUBLIC_*` values are compiled into the page, so they need a redeploy to change and must never hold secrets.
 
-Mark `AUTH_SECRET`, `RESEND_API_KEY`, `CRON_SECRET`, `STRIPE_SECRET_KEY`, `RESEND_WEBHOOK_SECRET`, `VAPID_PRIVATE_KEY`, `AI_GATEWAY_API_KEY`, `MICROSOFT_CLIENT_SECRET`, `TWILIO_AUTH_TOKEN` and `TOKEN_ENCRYPTION_KEY` as **Sensitive**. The Resend key needs full access, so the CRM can manage domains, inboxes and webhooks. Preview deployments should use their own Neon branch (Neon's Vercel integration can create one per preview) so previews never touch production data.
+Mark `AUTH_SECRET`, `RESEND_API_KEY`, `CRON_SECRET`, `STRIPE_SECRET_KEY`, `RESEND_WEBHOOK_SECRET`, `VAPID_PRIVATE_KEY`, `AI_GATEWAY_API_KEY`, `MICROSOFT_CLIENT_SECRET`, `TWILIO_AUTH_TOKEN`, `TOKEN_ENCRYPTION_KEY` and `KNOWLEDGE_API_KEY` as **Sensitive**. The Resend key needs full access, so the CRM can manage domains, inboxes and webhooks. Preview deployments should use their own Neon branch (Neon's Vercel integration can create one per preview) so previews never touch production data.
 
 ## 4. Set up email domains and inboxes
 

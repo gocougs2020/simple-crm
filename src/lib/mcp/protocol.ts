@@ -1,6 +1,6 @@
 import { jsonSchema } from "@/lib/api/openapi";
 import { operationList, type OperationId } from "@/lib/api/operations";
-import type { Operation } from "@/lib/api/spec";
+import type { Operation, OptionalFeature } from "@/lib/api/spec";
 import type { Permission } from "@/lib/permissions";
 
 /**
@@ -81,9 +81,12 @@ export function toolFor(op: ToolOp): Tool {
   };
 }
 
+/** Whether a tool is offered on this deployment: optional features (a knowledge source) only where they're set up. */
+export const offered = (op: Pick<Operation, "feature">, features: readonly OptionalFeature[]) => !op.feature || features.includes(op.feature);
+
 /** The tools a caller with these permissions may see: a read-only teammate's agent only gets read tools. */
-export function toolsFor(allowed: (p: Permission) => boolean) {
-  return toolOperations.filter((o) => allowed(o.permission)).map(toolFor);
+export function toolsFor(allowed: (p: Permission) => boolean, features: readonly OptionalFeature[] = []) {
+  return toolOperations.filter((o) => allowed(o.permission) && offered(o, features)).map(toolFor);
 }
 
 // ─── JSON-RPC ────────────────────────────────────────────────────────────
