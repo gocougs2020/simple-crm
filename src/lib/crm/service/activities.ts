@@ -168,7 +168,21 @@ export async function setPinned(a: Actor, activityId: string, pinned: boolean) {
   if (!rows.length) throw new NotFoundError("This activity was deleted.");
 }
 
-/** Deletes an activity. `type`, when given, refuses anything else (DELETE /notes/{id} can't delete a call). */
+/** Messages: what was said, as opposed to notes and tasks the team wrote for itself. Their history entry never repeats the subject. */
+const messageTypes: ActivityType[] = ["email", "text", "call"];
+
+/**
+ * Deletes anything on a timeline: a note, task, meeting, call, text or email,
+ * including ones sent or received through the CRM (a sensitive email that got
+ * through, say). It disappears from every record for everyone. Admins can
+ * delete anything; everyone else only what they sent or logged themselves,
+ * plus mail copied from their own connected mailbox. `type`, when given,
+ * refuses anything else (DELETE /notes/{id} can't delete a call).
+ *
+ * What's behind it stays, emptied where it held content, so a later sync or
+ * webhook never puts it back: synced mail is marked kept out, inbox mail is
+ * hidden from its conversation, a text's words are cleared.
+ */
 export async function deleteActivity(a: Actor, activityId: string, type?: ActivityType) {
   assertCan(a, "records:write");
   const db = await getDb();
@@ -177,7 +191,7 @@ export async function deleteActivity(a: Actor, activityId: string, type?: Activi
     if (type) throw new NotFoundError(`There's no ${type} with that id.`);
     return;
   }
-  // Mail copied from a teammate's mailbox is theirs to take back off the record (say, a private email the screen let through).
+  const me = actorUserId(a);
   const mailboxOwner = row.syncedEmailId
     ? (
         await db
@@ -187,12 +201,24 @@ export async function deleteActivity(a: Actor, activityId: string, type?: Activi
           .where(eq(schema.syncedEmails.id, row.syncedEmailId))
       )[0]?.userId
     : null;
-  if (row.userId !== actorUserId(a) && mailboxOwner !== actorUserId(a) && !can(a, "activities:moderate")) throw new ForbiddenError("Only the person who logged this, or an admin, can delete it.");
-  if (row.emailId || row.inboxThreadId) throw new ActionError("Emails sent or received through the CRM stay on the record.");
-  if (row.callId || row.textMessageId) throw new ActionError("Calls and texts made through the CRM stay on the record. Edit the notes instead.");
-  if (row.syncedEmailId) await db.update(schema.syncedEmails).set({ status: "withheld", reason: "Taken off the record" }).where(eq(schema.syncedEmails.id, row.syncedEmailId));
+  const own = !!me && (row.userId === me || mailboxOwner === me);
+  if (!own && !can(a, "activities:moderate")) throw new ForbiddenError("You can delete what you sent or logged yourself. Ask an admin to delete this.");
+
+  // Tombstones first: once the activity is gone, its links to them are cleared.
+  if (row.inboxThreadId) await db.update(schema.inboxMessages).set({ hiddenAt: new Date() }).where(eq(schema.inboxMessages.activityId, row.id));
   await db.delete(activities).where(eq(activities.id, row.id));
+  if (row.syncedEmailId) await db.update(schema.syncedEmails).set({ status: "withheld", reason: "Deleted from the record" }).where(eq(schema.syncedEmails.id, row.syncedEmailId));
+  if (row.textMessageId) await db.update(schema.textMessages).set({ body: "", media: [], updatedAt: new Date() }).where(eq(schema.textMessages.id, row.textMessageId));
   calendarRemoved(row);
+
   const entity = row.clientId ? ("client" as const) : row.personId ? ("person" as const) : row.organizationId ? ("organization" as const) : null;
-  if (entity) await recordEvent({ entityType: entity, entityId: (row.clientId ?? row.personId ?? row.organizationId)!, action: "activity_deleted", data: { type: row.type, subject: row.subject }, ...stamp(a) });
+  if (entity)
+    await recordEvent({
+      entityType: entity,
+      entityId: (row.clientId ?? row.personId ?? row.organizationId)!,
+      action: "activity_deleted",
+      // A deleted email or text may have been deleted for what it said: the history only says one was removed.
+      data: { type: row.type, ...(messageTypes.includes(row.type) ? {} : { subject: row.subject }) },
+      ...stamp(a),
+    });
 }

@@ -69,6 +69,7 @@ Choices worth knowing:
 - **Board order uses fractional ranks** (`src/lib/rank.ts`): moving a card writes only that card.
 - **Custom field keys never change.** Renaming a field keeps its data; archiving hides it without deleting values.
 - **History is written by the server**, next to each change, in the same action. Nothing in the UI can forge it.
+- **Anything on a timeline can be deleted**, for everyone: notes, tasks, meetings, and calls, texts and emails sent or received through the CRM (a sensitive email that got through, say). Admins can delete anything; everyone else what they sent or logged themselves, plus mail copied from their own mailbox (`deleteActivity` in `src/lib/crm/service/activities.ts`). What was behind it stays as a tombstone, emptied of content, so a later sync or webhook never brings it back; the history says something was deleted, without an email's or text's subject.
 
 ## Requests
 

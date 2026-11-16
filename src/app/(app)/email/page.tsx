@@ -103,7 +103,7 @@ async function Inbox({ searchParams }: Pick<PageProps<"/email">, "searchParams">
         .select({ id: m.id, direction: m.direction, from: m.from, to: m.to, cc: m.cc, subject: m.subject, html: m.html, sentAt: m.sentAt, attachments: m.attachments, userId: schema.activities.userId })
         .from(m)
         .leftJoin(schema.activities, eq(schema.activities.id, m.activityId))
-        .where(eq(m.threadId, row.thread.id))
+        .where(and(eq(m.threadId, row.thread.id), isNull(m.hiddenAt)))
         .orderBy(asc(m.sentAt));
       open = {
         id: row.thread.id,

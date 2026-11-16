@@ -115,10 +115,13 @@ export type MailboxSyncResult = { imported: number; withheld: number };
 export async function syncMailbox(account: ConnectedAccount): Promise<MailboxSyncResult> {
   const db = await getDb();
   const result: MailboxSyncResult = { imported: 0, withheld: 0 };
-  const team = new Set((await db.select({ email: schema.users.email }).from(schema.users)).map((u) => u.email.toLowerCase()));
+  const users = await db.select({ email: schema.users.email, name: schema.users.name }).from(schema.users);
+  const team = new Set(users.map((u) => u.email.toLowerCase()));
   team.add(account.email.toLowerCase());
+  // For the screen: who's on our side, so mail between teammates (one of them also in the CRM as a person) is recognized.
+  const ourTeam = [...new Set([...users.map((u) => `${u.name} <${u.email.toLowerCase()}>`), account.email.toLowerCase()])];
   const workspaceName = (await getWorkspace()).name;
-  const ctx = { account, team, workspaceName, result };
+  const ctx = { account, team, ourTeam, workspaceName, result };
 
   const folders: Folder[] = appConfig.microsoft.syncSent ? ["inbox", "sent"] : ["inbox"];
   const cursor = { ...account.mailCursor };
@@ -144,7 +147,7 @@ export async function syncMailbox(account: ConnectedAccount): Promise<MailboxSyn
   return result;
 }
 
-type Ctx = { account: ConnectedAccount; team: Set<string>; workspaceName: string; result: MailboxSyncResult };
+type Ctx = { account: ConnectedAccount; team: Set<string>; ourTeam: string[]; workspaceName: string; result: MailboxSyncResult };
 
 async function handleMessage(ctx: Ctx, m: GraphMessage, direction: "inbound" | "outbound") {
   const db = await getDb();
@@ -202,7 +205,7 @@ async function handleMessage(ctx: Ctx, m: GraphMessage, direction: "inbound" | "
 
   const text = stripQuoted(m.body?.contentType === "text" ? m.body.content : (m.body?.content ?? "").replace(/<[^>]+>/g, " "));
   // The screen answers with how likely the email is to be sensitive. When it can't answer, mail goes in: Outlook's own label above already kept out what the sender marked private.
-  const verdict = await screenEmail({ from: from.display, to: to.map((a) => a.display), subject: m.subject ?? null, text }, ctx.workspaceName);
+  const verdict = await screenEmail({ from: from.display, to: to.map((a) => a.display), subject: m.subject ?? null, text, ourTeam: ctx.ourTeam }, ctx.workspaceName);
   if (verdict.decision === "withhold") {
     if (await save(base, "withheld", verdict.reason, verdict.score)) await markWithheld(account, m);
     ctx.result.withheld++;

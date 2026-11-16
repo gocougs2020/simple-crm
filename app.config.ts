@@ -252,8 +252,8 @@ const defaults = {
     screenMail: true,
     screenModel: "typesafe-ai/jev",
     screenInstructions:
-      "Personal or private matters (health, family, finances, legal trouble), HR and employment matters (salaries, reviews, hiring or firing of our own staff), legal or contract disputes, anything marked confidential or privileged, passwords and security codes, and anything clearly not about the business relationship with this contact.",
-    screenThreshold: 0.5,
+      "Anything not about recruiting, broadly speaking. Above all: compensation, pay, salary, bonuses, commissions, benefits or other money matters about a person; and conversations between members of our own team (listed in ourTeam), even when a teammate also happens to be in the CRM as a person. Also personal matters (health, family), HR issues, legal disputes, and passwords or security codes.",
+    screenThreshold: 0.6,
     withheldCategory: null,
     calendarTypes: ["meeting"],
     calendarDefaultMinutes: 30,

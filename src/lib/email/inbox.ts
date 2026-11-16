@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, gte, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { GetInboxThreadEmailResponseSuccess, Resend } from "resend";
 import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
@@ -148,7 +148,18 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
   messages.sort((a, b) => a.received_at.localeCompare(b.received_at));
 
   const participants = [...new Set(messages.flatMap((m) => [m.from, ...m.to, ...m.cc].map(address)).filter((a) => a && !ours.has(a)))];
-  const last = messages.at(-1);
+  // Messages someone deleted from the records stay out of the snippet too.
+  const hidden = new Set(
+    messages.length
+      ? (
+          await db
+            .select({ id: inboxMessages.resendEmailId })
+            .from(inboxMessages)
+            .where(and(inArray(inboxMessages.resendEmailId, messages.map((m) => m.id)), isNotNull(inboxMessages.hiddenAt)))
+        ).map((r) => r.id)
+      : [],
+  );
+  const last = messages.filter((m) => !hidden.has(m.id)).at(-1);
   const [existing] = await db.select().from(inboxThreads).where(eq(inboxThreads.resendThreadId, resendThreadId));
   const links = existing?.linkedByHand ? { personId: existing.personId, organizationId: existing.organizationId, clientId: existing.clientId } : await findLinks(participants);
   const values = {
@@ -161,7 +172,8 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
     folder: summary.folder,
     read: summary.read,
     messageCount: messages.length,
-    lastMessageAt: last ? new Date(last.received_at) : null,
+    // From every message, deleted or not, so the next sync can tell nothing's new.
+    lastMessageAt: messages.length ? new Date(messages.at(-1)!.received_at) : null,
     ...links,
     updatedAt: new Date(),
   };
@@ -169,15 +181,15 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
     ? await db.update(inboxThreads).set(values).where(eq(inboxThreads.id, existing.id)).returning()
     : await db.insert(inboxThreads).values(values).onConflictDoUpdate({ target: inboxThreads.resendThreadId, set: values }).returning();
 
-  // Messages already finished (stored and logged on the timeline). One stored without an activity was left
-  // half-done by a sync that died midway; it's picked up again below.
+  // Messages already finished (stored and logged on the timeline, or deleted from it). One stored without an
+  // activity was left half-done by a sync that died midway; it's picked up again below.
   const done = new Set(
     messages.length
       ? (
           await db
             .select({ id: inboxMessages.resendEmailId })
             .from(inboxMessages)
-            .where(and(inArray(inboxMessages.resendEmailId, messages.map((m) => m.id)), isNotNull(inboxMessages.activityId)))
+            .where(and(inArray(inboxMessages.resendEmailId, messages.map((m) => m.id)), or(isNotNull(inboxMessages.activityId), isNotNull(inboxMessages.hiddenAt))))
         ).map((r) => r.id)
       : [],
   );
@@ -208,14 +220,19 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
       // Sent from a record in the CRM: that send already logged an activity.
       const recipients = [...m.to, ...m.cc].map(address);
       const [sent] = await db
-        .select({ activityId: activities.id })
+        .select({ activityId: activities.id, outboundId: outboundEmails.id })
         .from(outboundEmails)
-        .innerJoin(activities, eq(activities.emailId, outboundEmails.id))
+        .leftJoin(activities, eq(activities.emailId, outboundEmails.id))
         .where(
           sql`${outboundEmails.resendId} = ${m.id} or (${outboundEmails.resendId} is null and ${outboundEmails.campaignId} is null and lower(${outboundEmails.to}) in (${sql.join(recipients.length ? recipients.map((r) => sql`${r}`) : [sql`''`], sql`, `)}) and ${outboundEmails.subject} = ${m.subject ?? ""} and ${outboundEmails.createdAt} >= ${new Date(sentAt.getTime() - 15 * 60_000)})`,
         )
         .limit(1);
-      if (sent) activityId = sent.activityId;
+      if (sent?.activityId) activityId = sent.activityId;
+      else if (sent) {
+        // Sent from a record, then deleted from it: it stays deleted.
+        await db.update(inboxMessages).set({ hiddenAt: new Date() }).where(and(eq(inboxMessages.resendEmailId, m.id), isNull(inboxMessages.activityId)));
+        continue;
+      }
     }
     if (!activityId) {
       const [a] = await db

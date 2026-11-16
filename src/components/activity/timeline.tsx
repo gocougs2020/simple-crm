@@ -539,10 +539,9 @@ function CollapsibleBody({ html }: { html: string }) {
 function ItemMenu({ row, onEdit }: { row: ActivityRow; onEdit: () => void }) {
   const { viewer, isAdmin } = useApp();
   const a = row.activity;
-  // Calls and texts through the team's numbers stay on the record; their notes can still be edited. Mail from someone's mailbox is theirs to take off.
-  const viaCrm = !!(a.emailId || a.inboxThreadId || a.callId || a.textMessageId);
   const canEdit = a.userId === viewer.id || isAdmin || a.type === "task" || !a.completedAt || (!!a.callId && (a.assigneeId === viewer.id || !a.userId));
-  const canDelete = (a.userId === viewer.id || isAdmin || (!!a.syncedEmailId && row.synced?.mailboxUserId === viewer.id)) && !viaCrm;
+  // Admins can delete anything; everyone else what they sent or logged, and mail copied from their own mailbox. The server checks the same.
+  const canDelete = a.userId === viewer.id || isAdmin || (!!a.syncedEmailId && row.synced?.mailboxUserId === viewer.id);
   return (
     <Menu>
       <MenuTrigger asChild>
@@ -573,7 +572,8 @@ function ItemMenu({ row, onEdit }: { row: ActivityRow; onEdit: () => void }) {
               destructive
               icon={<TrashIcon />}
               onSelect={async () => {
-                if (!confirm(`Delete this ${activityLabels[a.type].toLowerCase()}? This can't be undone.`)) return;
+                const what = activityLabels[a.type].toLowerCase();
+                if (!confirm(`Delete this ${what}? It's removed from every record, for everyone, and can't be undone.`)) return;
                 const r = await deleteActivity(a.id);
                 if (!r.ok) toast.error(r.error);
                 else toast.success(`${activityLabels[a.type]} deleted`);

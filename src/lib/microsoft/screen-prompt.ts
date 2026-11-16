@@ -8,14 +8,19 @@
 
 const MAX_BODY = 6_000;
 
-/** The email as the decision model's state: headers and the start of the new text. */
-export function screenState(m: { from: string; to: string[]; subject: string | null; text: string }) {
+/**
+ * The email as the decision model's state: headers, the start of the new
+ * text, and who's on our own team (names and addresses), so the model can
+ * tell a conversation between teammates from one with a client.
+ */
+export function screenState(m: { from: string; to: string[]; subject: string | null; text: string }, ourTeam: string[] = []) {
   const body = m.text.replace(/\s+\n/g, "\n").trim();
   return {
     from: m.from,
     to: m.to,
     subject: m.subject?.trim() || null,
     body: body.length > MAX_BODY ? `${body.slice(0, MAX_BODY)}\n[…the rest is cut off]` : body,
+    ourTeam: ourTeam.slice(0, 200),
   };
 }
 
@@ -26,7 +31,7 @@ export function screenQuestion(sensitive: string, workspaceName: string) {
     instructions: `This email is about to be copied onto a contact's record in ${workspaceName}'s CRM, where everyone on the team can read it. Should it stay out of the CRM because it's sensitive?`,
     criteria: {
       true: `Sensitive: ${sensitive.trim()}`,
-      false: "Ordinary business correspondence with a client, prospect or partner: scheduling, introductions, proposals, pricing and quotes, contracts being negotiated, questions, updates and follow-ups.",
+      false: "Ordinary business correspondence with a client, candidate, prospect or partner about the work: scheduling, introductions, roles and candidates, proposals, our fees and quotes, contracts being negotiated, questions, updates and follow-ups.",
     },
   };
 }

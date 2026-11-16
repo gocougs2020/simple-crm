@@ -16,14 +16,14 @@ export type ScreenResult = {
   score: number | null;
 };
 
-export type ScreenEmail = { from: string; to: string[]; subject: string | null; text: string };
+export type ScreenEmail = { from: string; to: string[]; subject: string | null; text: string; ourTeam?: string[] };
 
 /** Asks the model. Anything that goes wrong lets the email in, unscreened: Outlook's own Private/Confidential labels are checked before this. */
 export async function decideSensitive(model: Experimental_DecisionModel, m: ScreenEmail, opts: { sensitive: string; workspaceName: string; threshold: number; timeoutMs?: number }): Promise<ScreenResult> {
   try {
     const { answers } = await experimental_decide({
       model,
-      state: screenState(m),
+      state: screenState(m, m.ourTeam),
       questions: { sensitive: screenQuestion(opts.sensitive, opts.workspaceName) },
       maxRetries: 1,
       abortSignal: AbortSignal.timeout(opts.timeoutMs ?? 15_000),

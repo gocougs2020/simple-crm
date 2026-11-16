@@ -37,7 +37,8 @@ describe("mail screen", () => {
   });
 
   it("passes the email as separate fields, with a bounded body", () => {
-    const state = screenState({ from: "Jo <jo@acme.com>", to: ["sam@us.com"], subject: "  ", text: "x".repeat(10_000) });
+    const state = screenState({ from: "Jo <jo@acme.com>", to: ["sam@us.com"], subject: "  ", text: "x".repeat(10_000) }, ["Sam Owner <sam@us.com>"]);
+    assert.deepEqual(state.ourTeam, ["Sam Owner <sam@us.com>"]);
     assert.equal(state.from, "Jo <jo@acme.com>");
     assert.deepEqual(state.to, ["sam@us.com"]);
     assert.equal(state.subject, null);
@@ -55,7 +56,7 @@ describe("mail screen", () => {
 
 describe("screening with a decision model", () => {
   const email = { from: "Jo <jo@acme.com>", to: ["sam@us.com"], subject: "Q3 pricing", text: "Can you send the updated quote?" };
-  const opts = { sensitive: "Health matters.", workspaceName: "Acme", threshold: 0.5, timeoutMs: 2_000 };
+  const opts = { sensitive: "Health matters.", workspaceName: "Acme", threshold: 0.6, timeoutMs: 2_000 };
   const model = (probability: number | Error, seen: unknown[] = []) =>
     new MockDecisionModel({
       provider: "typesafe-ai",
@@ -70,16 +71,20 @@ describe("screening with a decision model", () => {
 
   it("asks one boolean question about the email's fields", async () => {
     const seen: unknown[] = [];
-    await decideSensitive(model(0.1, seen), email, opts);
+    await decideSensitive(model(0.1, seen), { ...email, ourTeam: ["Sam Owner <sam@us.com>"] }, opts);
     const call = JSON.stringify(seen[0]);
     assert.match(call, /"type":"boolean"/);
     assert.match(call, /Sensitive: Health matters\./);
     assert.match(call, /Can you send the updated quote\?/);
+    assert.match(call, /"ourTeam":\["Sam Owner <sam@us.com>"\]/);
   });
 
   it("keeps sensitive mail out and lets the rest in, with the score", async () => {
     assert.deepEqual(await decideSensitive(model(0.82), email, opts), { decision: "withhold", reason: "Looked sensitive (82% likely)", screened: true, score: 0.82 });
     assert.deepEqual(await decideSensitive(model(0.07), email, opts), { decision: "import", reason: "Screened (7% likely sensitive)", screened: true, score: 0.07 });
+    // At 0.6, a 55% "maybe" goes in and 60% stays out.
+    assert.equal((await decideSensitive(model(0.55), email, opts)).decision, "import");
+    assert.equal((await decideSensitive(model(0.6), email, opts)).decision, "withhold");
   });
 
   it("lets mail in unscreened when the model fails", async () => {

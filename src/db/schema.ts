@@ -854,6 +854,8 @@ export const inboxMessages = pgTable(
     attachments: jsonb("attachments").$type<{ id: string; filename: string | null; size: number | null }[]>().notNull().default([]),
     sentAt: timestamp("sent_at", { withTimezone: true }).notNull(),
     activityId: uuid("activity_id").references(() => activities.id, { onDelete: "set null" }),
+    /** Deleted from the records: hidden from the conversation too, and never put back on a timeline by a later sync. */
+    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("inbox_messages_resend_idx").on(t.resendEmailId), index("inbox_messages_thread_idx").on(t.threadId, t.sentAt)],

@@ -20,7 +20,7 @@ const defaults: AppConfig = {
     screenMail: true,
     screenModel: "a/screen",
     screenInstructions: "Private things.",
-    screenThreshold: 0.5,
+    screenThreshold: 0.6,
     withheldCategory: null,
     calendarTypes: ["meeting"],
     calendarDefaultMinutes: 30,
