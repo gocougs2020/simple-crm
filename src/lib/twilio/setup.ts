@@ -21,9 +21,11 @@ export async function voiceCredentials(): Promise<VoiceCredentials | null> {
   const envSecret = process.env.TWILIO_API_KEY_SECRET?.trim();
   const envApp = process.env.TWILIO_TWIML_APP_SID?.trim();
   const stored = (await getWorkspace()).phone;
-  const apiKeySid = envSid || stored.apiKeySid;
-  let apiKeySecret = envSecret;
-  if (!apiKeySecret && stored.apiKeySecret) {
+  // A key's SID and secret go together: the environment's pair, else the stored pair, never one of each.
+  const fromEnv = !!(envSid && envSecret);
+  const apiKeySid = fromEnv ? envSid : stored.apiKeySid;
+  let apiKeySecret = fromEnv ? envSecret : undefined;
+  if (!fromEnv && stored.apiKeySecret) {
     try {
       apiKeySecret = decryptSecret(stored.apiKeySecret);
     } catch {
@@ -46,7 +48,9 @@ async function savePhoneSettings(patch: Partial<PhoneSettings>) {
 /**
  * Creates (or points at this deployment) what browser calls need: a TwiML app
  * whose voice URL is the CRM's webhook, and an API key to sign call tokens.
- * Safe to run again: it reuses what exists and only updates the URLs.
+ * The key is only created when the deployment has none (TWILIO_API_KEY_SID),
+ * which can only happen on the legacy auth-token setup: API keys can't make
+ * keys. Safe to run again: it reuses what exists and only updates the URLs.
  */
 export async function setUpCalling(origin: string) {
   const ws = await getWorkspace();

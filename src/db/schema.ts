@@ -220,10 +220,12 @@ export const workspace = pgTable("workspace", {
 });
 
 /**
- * Twilio pieces Settings → Phone numbers creates for browser calling: an API
- * key (its secret encrypted, src/lib/crypto.ts) and a TwiML app that tells
- * Twilio where to ask what a browser call should do. TWILIO_API_KEY_SID,
- * TWILIO_API_KEY_SECRET and TWILIO_TWIML_APP_SID, when set, take precedence.
+ * Twilio pieces Settings → Phone numbers creates for browser calling: a TwiML
+ * app that tells Twilio where to ask what a browser call should do, and, only
+ * when the deployment has no API key of its own (the legacy auth-token
+ * setup), an API key to sign call tokens (its secret encrypted,
+ * src/lib/crypto.ts). TWILIO_API_KEY_SID, TWILIO_API_KEY_SECRET and
+ * TWILIO_TWIML_APP_SID, when set, take precedence.
  */
 export type PhoneSettings = {
   apiKeySid?: string;

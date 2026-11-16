@@ -58,11 +58,12 @@ The code is public; the data and secrets never are. This page is how that holds.
 
 ## Phone (Twilio)
 
-- Every Twilio webhook verifies `X-Twilio-Signature` (HMAC-SHA1 with the auth token, compared in constant time) and is refused without it. Each is idempotent on Twilio's id.
+- The CRM calls Twilio with a Standard API key, not the account's auth token: the key can be revoked on its own and can't manage the account, subaccounts or keys. The auth token still works, for older deployments, and Settings notes when it's in use.
+- Every Twilio webhook verifies `X-Twilio-Signature` (an HMAC compared in constant time) and is refused without it: with the webhook signing key's secret (`TWILIO_WEBHOOK_SECRET`) when Twilio signed with that key, else with the auth token. With neither set, all webhooks are refused. Each is idempotent on Twilio's id.
 - Browser call tokens are signed per teammate for an hour, can only place calls (never receive), and only through the CRM's TwiML app. The voice webhook only dials a call that teammate prepared in the last five minutes, after the server checked their access to the number and their role, so a token can't be used to dial arbitrary numbers from arbitrary lines.
 - Access to each number is checked on the server for every call, text and campaign. Viewers can't call or text.
 - The CRM never lists or touches the Twilio account's other numbers: admins buy numbers by area code, and editing, reconnecting and deleting (releasing) only ever act on numbers in the CRM's own table. Buying and deleting are admin-only.
-- TwiML is built with every value escaped, so a caller's number or a typed message can't change what Twilio does. The Twilio API key secret Settings creates is stored encrypted.
+- TwiML is built with every value escaped, so a caller's number or a typed message can't change what Twilio does. The Twilio API key secret Settings creates (legacy auth-token setup only) is stored encrypted.
 - STOP replies opt people out immediately, and text campaigns need recorded consent by default.
 
 ## Knowledge source

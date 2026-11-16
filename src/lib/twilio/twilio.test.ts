@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { twilioSignature, validTwilioSignature } from "./signature";
+import { signingKeyAlgorithm, twilioSignature, validTwilioSignature } from "./signature";
 import { el, twiml } from "./twiml";
 
 describe("Twilio webhook signatures", () => {
@@ -22,6 +22,23 @@ describe("Twilio webhook signatures", () => {
     assert.equal(validTwilioSignature("12345", null, [url], params), false);
     assert.equal(validTwilioSignature("wrong", sig, [url], params), false);
     assert.equal(validTwilioSignature("12345", sig, [url], { ...params, To: "+15555555555" }), false);
+  });
+
+  it("checks signing-key webhooks with any of the secrets (rotation) and the algorithm Twilio names", () => {
+    const sig = twilioSignature("new-secret", url, params, "sha256");
+    assert.equal(validTwilioSignature(["old-secret", "new-secret"], sig, [url], params, "sha256"), true);
+    assert.equal(validTwilioSignature(["old-secret"], sig, [url], params, "sha256"), false);
+    // A SHA-256 signature isn't accepted as SHA-1, or the other way round.
+    assert.equal(validTwilioSignature(["new-secret"], sig, [url], params, "sha1"), false);
+    assert.equal(validTwilioSignature([], sig, [url], params, "sha256"), false);
+  });
+
+  it("reads the signing key's algorithm from Twilio's header", () => {
+    assert.equal(signingKeyAlgorithm(null), null);
+    assert.equal(signingKeyAlgorithm("key=webhooks_sharedkey_01j9,algorithm=HMAC_SHA256"), "sha256");
+    assert.equal(signingKeyAlgorithm("key=webhooks_sharedkey_01j9, algorithm=hmac_sha1"), "sha1");
+    assert.equal(signingKeyAlgorithm("key=webhooks_sharedkey_01j9,algorithm=MD5"), "unknown");
+    assert.equal(signingKeyAlgorithm("key=webhooks_sharedkey_01j9"), "unknown");
   });
 });
 
