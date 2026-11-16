@@ -60,12 +60,19 @@ export function useCall() {
 
 const busy = () => state.phase === "connecting" || state.phase === "ringing" || state.phase === "live";
 
+/** Bumped by every new call and every hang-up, so a call still being set up knows it was cancelled. */
+let attempt = 0;
+
 /** Places a call from the browser. Asks for the microphone the first time. */
 export async function placeCall(req: CallRequest) {
   if (busy()) return { ok: false as const, error: "You're already on a call. Hang up first." };
   const href = req.clientId ? `/clients/${req.clientId}` : req.personId ? `/people/${req.personId}` : req.organizationId ? `/organizations/${req.organizationId}` : null;
+  const mine = ++attempt;
+  const cancelled = () => mine !== attempt;
   set({ ...idle, phase: "connecting", name: req.name, to: req.to ?? "", href });
   const r = await startCall({ phoneNumberId: req.phoneNumberId, to: req.to, personId: req.personId, organizationId: req.organizationId, clientId: req.clientId });
+  // Hung up while the server was preparing it: never dial.
+  if (cancelled()) return { ok: false as const, error: "The call was cancelled." };
   if (!r.ok) {
     set({ phase: "ended", error: r.error, endedAt: Date.now() });
     return r;
@@ -80,7 +87,14 @@ export async function placeCall(req: CallRequest) {
         if (fresh.ok) device?.updateToken(fresh.data.token);
       });
     } else device.updateToken(r.data.token);
-    call = await device.connect({ params: { callId: r.data.callId } });
+    if (cancelled()) return { ok: false as const, error: "The call was cancelled." };
+    const placed = await device.connect({ params: { callId: r.data.callId } });
+    // Hung up while the browser was connecting: drop the call that just started.
+    if (cancelled()) {
+      placed.disconnect();
+      return { ok: false as const, error: "The call was cancelled." };
+    }
+    call = placed;
     call.on("ringing", () => set({ phase: "ringing" }));
     call.on("accept", () => set({ phase: "live", answeredAt: Date.now() }));
     call.on("mute", (muted: boolean) => set({ muted }));
@@ -95,6 +109,7 @@ export async function placeCall(req: CallRequest) {
     return { ok: true as const };
   } catch (err) {
     call = null;
+    if (cancelled()) return { ok: false as const, error: "The call was cancelled." };
     const message = err instanceof Error && /permission|notallowed/i.test(err.message) ? "The browser couldn't use your microphone. Allow it in the address bar and try again." : "The call couldn't start. Check your connection and try again.";
     set({ phase: "ended", error: message, endedAt: Date.now() });
     return { ok: false as const, error: message };
@@ -103,7 +118,11 @@ export async function placeCall(req: CallRequest) {
 
 export function hangUp() {
   if (call) call.disconnect();
-  else if (busy()) set({ phase: "ended", endedAt: Date.now() });
+  else if (busy()) {
+    // Still being set up: cancel it, so it never dials.
+    attempt++;
+    set({ phase: "ended", endedAt: Date.now() });
+  }
 }
 
 export function toggleMute() {

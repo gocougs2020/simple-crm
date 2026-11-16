@@ -116,10 +116,12 @@ export async function syncMailbox(account: ConnectedAccount): Promise<MailboxSyn
   const db = await getDb();
   const result: MailboxSyncResult = { imported: 0, withheld: 0 };
   const users = await db.select({ email: schema.users.email, name: schema.users.name }).from(schema.users);
-  const team = new Set(users.map((u) => u.email.toLowerCase()));
+  // Every teammate's sign-in address and every connected mailbox's address: someone's Outlook address can differ from the email they sign in with.
+  const mailboxes = await db.select({ email: schema.connectedAccounts.email }).from(schema.connectedAccounts);
+  const team = new Set([...users.map((u) => u.email.toLowerCase()), ...mailboxes.map((m) => m.email.toLowerCase())]);
   team.add(account.email.toLowerCase());
   // For the screen: who's on our side, so mail between teammates (one of them also in the CRM as a person) is recognized.
-  const ourTeam = [...new Set([...users.map((u) => `${u.name} <${u.email.toLowerCase()}>`), account.email.toLowerCase()])];
+  const ourTeam = [...new Set([...users.map((u) => `${u.name} <${u.email.toLowerCase()}>`), ...mailboxes.map((m) => m.email.toLowerCase()), account.email.toLowerCase()])];
   const workspaceName = (await getWorkspace()).name;
   const ctx = { account, team, ourTeam, workspaceName, result };
 
@@ -192,6 +194,17 @@ async function handleMessage(ctx: Ctx, m: GraphMessage, direction: "inbound" | "
           .limit(1);
     if (ours || theirs) {
       await save(base, "imported", ours ? "Sent from the CRM" : "Already on the record from a teammate's mailbox");
+      return;
+    }
+    // A teammate's copy of the same message was kept out, or deleted from the records: this copy stays out too.
+    const [keptOut] = await db
+      .select({ reason: syncedEmails.reason })
+      .from(syncedEmails)
+      .where(and(eq(syncedEmails.internetMessageId, m.internetMessageId), eq(syncedEmails.status, "withheld")))
+      .limit(1);
+    if (keptOut) {
+      if (await save(base, "withheld", `Kept out on a teammate's copy: ${keptOut.reason ?? "withheld"}`.slice(0, 300))) await markWithheld(account, m);
+      ctx.result.withheld++;
       return;
     }
   }

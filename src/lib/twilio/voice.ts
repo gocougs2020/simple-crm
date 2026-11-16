@@ -129,7 +129,11 @@ export async function inboundCallTwiml(origin: string, p: Record<string, string>
       }
     }
   }
-  if (!forwardTo) return twiml(...(missed ? [el("Say", undefined, missed)] : [el("Say", undefined, "Sorry, no one can take your call right now. Please try again later.")]), el("Hangup"));
+  if (!forwardTo) {
+    // Nobody to ring, so no Dial report will come: the call ends here, missed.
+    await updateCall(call.id, "no-answer", null);
+    return twiml(...(missed ? [el("Say", undefined, missed)] : [el("Say", undefined, "Sorry, no one can take your call right now. Please try again later.")]), el("Hangup"));
+  }
   const q = `?call=${call.id}`;
   return twiml(
     el(
