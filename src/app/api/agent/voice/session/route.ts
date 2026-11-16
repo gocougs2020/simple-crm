@@ -1,4 +1,5 @@
-import { experimental_getRealtimeToolDefinitions as realtimeTools, gateway } from "ai";
+import { experimental_getRealtimeToolDefinitions as realtimeTools } from "ai";
+import { aiGateway } from "@/lib/agent/gateway";
 import { appConfig } from "@/app.config";
 import { assistantActor } from "@/lib/agent/actor";
 import { agentError, agentRequest } from "@/lib/agent/http";
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
   try {
     const actor = await assistantActor(gate.user);
     const [token, tools] = await Promise.all([
-      gateway.experimental_realtime.getToken({ model: appConfig.agent.voiceModel, expiresAfterSeconds: TOKEN_SECONDS }),
+      aiGateway.experimental_realtime.getToken({ model: appConfig.agent.voiceModel, expiresAfterSeconds: TOKEN_SECONDS }),
       realtimeTools({ tools: agentTools(actor, { origin: await siteOrigin() }, { voice: true }) }),
     ]);
     return Response.json({ ...token, tools }, { headers: { "Cache-Control": "no-store" } });

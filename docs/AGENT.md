@@ -48,21 +48,21 @@ Client, person and organization pages open with a short AI snapshot above the "N
 
 The assistant, voice, dictation and summaries use [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) for every model, so any model the gateway offers works, from any provider, with one credential.
 
-- **On Vercel:** nothing to configure. Deployments authenticate to AI Gateway with their OIDC token. Usage is billed to the Vercel team; set a budget in the dashboard (AI Gateway → Settings).
-- **Locally, or outside Vercel:** create a key in the Vercel dashboard (AI Gateway → API keys) and set `AI_GATEWAY_API_KEY`. Without one, the panel opens with a note that it isn't set up.
+- **Everywhere, Vercel included:** create a key in the Vercel dashboard (AI Gateway → API keys) and set it as `AI_GATEWAY_API_KEY`. Every AI feature runs on that key (`src/lib/agent/gateway.ts`), so its budget and spend limit cap what the CRM can spend. Give each deployment its own key (production, previews, local) to see and cap each one separately.
+- **The deployment's OIDC token isn't used.** The AI SDK's default gateway falls back to it when no key is set; this app doesn't, so a deployment without a key never bills the Vercel team. Without a key the AI features hide themselves: no assistant button, no dictation microphones, no summaries.
 
 ### Configure your deployment
 
 Everything about the AI features is a setting, so a fork or a self-hosted copy changes environment variables, never code. Two kinds:
 
-- **Secrets** stay in server-only environment variables: `AI_GATEWAY_API_KEY` (only outside Vercel), plus the existing `RESEND_API_KEY`, `VAPID_PRIVATE_KEY`, `CRON_SECRET` and `STRIPE_SECRET_KEY`.
+- **Secrets** stay in server-only environment variables: `AI_GATEWAY_API_KEY` (required for any AI feature), plus the existing `RESEND_API_KEY`, `VAPID_PRIVATE_KEY`, `CRON_SECRET` and `STRIPE_SECRET_KEY`.
 - **Choices** (which features are on, which models, the assistant's name and suggestions) are `agent.*` in `app.config.ts`. A deployment overrides any of them with `NEXT_PUBLIC_APP_CONFIG`, without touching the file. They're public (compiled into the page, since voice chat picks its model in the browser) and need a redeploy to change.
 
 For example, a deployment that keeps chat and dictation, turns voice chat off and summarizes with a cheaper model:
 
 ```bash
 # .env.local, or the Vercel project's environment variables
-AI_GATEWAY_API_KEY=            # leave unset on Vercel
+AI_GATEWAY_API_KEY=vck_…       # required; its budget caps AI spend
 NEXT_PUBLIC_APP_CONFIG='{"agent":{"name":"Ada","voice":false,"summaryModel":"anthropic/claude-haiku-5.5","summaryReasoning":"none"}}'
 ```
 

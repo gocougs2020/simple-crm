@@ -9,6 +9,7 @@ import { formatMoney, personName } from "@/lib/format";
 import { htmlToText } from "@/lib/safe-html";
 import { billingFor, stripeConfigured } from "@/lib/stripe";
 import { getWorkspace } from "@/lib/workspace";
+import { aiGateway } from "./gateway";
 import { activityLine, cleanSummary, isFresh, SUMMARY_LOCK_MS, summaryInstructions, type SummaryEntity } from "./summary-prompt";
 
 /**
@@ -84,7 +85,7 @@ async function writeSummary(entity: SummaryEntity, id: string) {
   const today = new Intl.DateTimeFormat("en-US", { timeZone: ws.timezone, weekday: "long", year: "numeric", month: "long", day: "numeric" }).format(new Date());
   const record = await recordContext(entity, id);
   const { text } = await generateText({
-    model: appConfig.agent.summaryModel,
+    model: aiGateway(appConfig.agent.summaryModel),
     reasoning: appConfig.agent.summaryReasoning,
     system: summaryInstructions(entity, today),
     prompt: record,

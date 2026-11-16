@@ -2,15 +2,16 @@ import "server-only";
 import { appConfig } from "@/app.config";
 
 /**
- * Whether this deployment can reach AI Gateway: an API key
- * (`AI_GATEWAY_API_KEY`, for local development or hosting outside Vercel), or
- * the OIDC token Vercel gives every deployment.
+ * Whether this deployment has an AI Gateway API key (`AI_GATEWAY_API_KEY`).
+ * Every AI feature runs on that key, on Vercel too: usage is attributed to
+ * the key, so its budget and spend limits in the Vercel dashboard apply.
+ * The deployment's own OIDC token is deliberately not used (src/lib/agent/gateway.ts).
  */
-export const aiGatewayAvailable = () => !!(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN || process.env.VERCEL);
+export const aiGatewayAvailable = () => !!process.env.AI_GATEWAY_API_KEY?.trim();
 
 /**
  * Which AI features run on this deployment: switched on in app.config.ts
- * (`agent.*`, or `NEXT_PUBLIC_APP_CONFIG`) and able to reach AI Gateway.
+ * (`agent.*`, or `NEXT_PUBLIC_APP_CONFIG`) and with an AI Gateway key.
  * The interface hides what's off, and every route refuses it.
  */
 export function aiFeatures() {
@@ -26,5 +27,5 @@ export function aiOffMessage(feature: keyof AiFeatures) {
   const name = { chat: "The assistant", voice: "Voice chat", dictation: "Dictation", summaries: "Summaries" }[feature];
   return aiGatewayAvailable()
     ? `${name} is turned off on this deployment (agent settings in app.config.ts or NEXT_PUBLIC_APP_CONFIG).`
-    : `${name} isn't set up on this deployment yet. An admin can add AI Gateway access (see docs/AGENT.md).`;
+    : `${name} isn't set up on this deployment yet. An admin can add an AI Gateway API key (AI_GATEWAY_API_KEY; see docs/AGENT.md).`;
 }

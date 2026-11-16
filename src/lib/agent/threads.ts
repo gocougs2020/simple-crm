@@ -5,6 +5,7 @@ import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
 import type { AgentMessage } from "@/db/schema";
 import { NotFoundError } from "@/lib/errors";
+import { aiGateway } from "./gateway";
 import { cleanTitle, DEFAULT_TITLE, fallbackTitle, messageText, trimForStorage } from "./messages";
 
 const t = schema.agentThreads;
@@ -90,7 +91,7 @@ export async function autoTitle(userId: string, threadId: string, messages: Agen
   if (!userTexts.length || userTexts.length > 3) return;
   try {
     const { text } = await generateText({
-      model: appConfig.agent.titleModel,
+      model: aiGateway(appConfig.agent.titleModel),
       system: TITLE_INSTRUCTIONS,
       prompt: ["Messages, oldest first:", ...userTexts.map((x, i) => `${i + 1}. ${x}`)].join("\n"),
       maxOutputTokens: 200,
