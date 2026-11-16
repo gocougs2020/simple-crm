@@ -37,7 +37,8 @@ What [`app.config.ts`](../app.config.ts) controls:
 | `email.trackClicks` | `false` | Record and show link clicks. Same trade-off: Resend rewrites links through its tracking domain. Also turn on click tracking in Resend, then reconnect the webhook |
 | `agent.enabled` | `true` | The assistant's button in the bottom right corner. See [AGENT.md](AGENT.md) |
 | `agent.name` | `"Assistant"` | The assistant's name in its panel, its replies and history |
-| `agent.chatModel`, `agent.titleModel`, `agent.voiceModel`, `agent.transcriptionModel` | Claude Sonnet 5.5, Claude Haiku 5.5, Grok Voice 3.0, Grok STT | AI Gateway model ids (`creator/model`) for chat, thread titles, voice chat and dictation |
+| `agent.chatModel`, `agent.titleModel`, `agent.voiceModel`, `agent.transcriptionModel` | GPT-6.1 Sol, Claude Haiku 5.5, Grok Voice 3.0, Grok STT | AI Gateway model ids (`creator/model`) for chat, thread titles, voice chat and dictation |
+| `agent.chatReasoning` | `"medium"` | Reasoning effort for chat: `"provider-default"`, `"none"`, `"minimal"`, `"low"`, `"medium"` or `"high"` |
 | `agent.suggestions`, `agent.viewerSuggestions` | 4 prompts each | Suggested actions on a new chat, for teammates who can edit and for viewers. A prompt ending in `…` fills the composer instead of sending |
 | `pwa.shortName` | `null` | Name under the icon on a phone's home screen. Defaults to `brand.name`; keep it to about 12 characters |
 | `pwa.iconBackground` | `null` | The app icon's color. Defaults to `theme.brandColor`, then the default accent |

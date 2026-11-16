@@ -32,6 +32,7 @@ const OPEN_MAPS = new Set(["theme.tokens"]);
 /** Settings limited to a fixed list of values. */
 const ENUMS: Readonly<Record<string, readonly string[]>> = {
   "layout.defaultClientsView": ["board", "table"],
+  "agent.chatReasoning": ["provider-default", "none", "minimal", "low", "medium", "high"],
 };
 
 /** Paths that hold CSS colors and are written into a <style> tag. */

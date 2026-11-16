@@ -9,7 +9,7 @@ const defaults: AppConfig = {
   theme: { brandColor: null, brandForeground: "#ffffff", tokens: {}, browserColor: "#fafafa" },
   layout: { defaultClientsView: "board" },
   email: { trackOpens: false, trackClicks: false },
-  agent: { enabled: true, name: "Assistant", chatModel: "a/chat", titleModel: "a/title", voiceModel: "a/voice", transcriptionModel: "a/stt", suggestions: ["One"], viewerSuggestions: ["Two"] },
+  agent: { enabled: true, name: "Assistant", chatModel: "a/chat", chatReasoning: "medium", titleModel: "a/title", voiceModel: "a/voice", transcriptionModel: "a/stt", suggestions: ["One"], viewerSuggestions: ["Two"] },
   pwa: { shortName: null, iconBackground: null, iconForeground: "#ffffff", backgroundColor: "#fafafa" },
 };
 
@@ -58,6 +58,8 @@ describe("applyConfigOverrides", () => {
     assert.equal(merged.pwa.shortName, "Acme");
     assert.throws(() => applyConfigOverrides(defaults, { json: '{"pwa":{"iconBackground":"red;}"}}' }), /pwa\.iconBackground/);
     assert.throws(() => applyConfigOverrides(defaults, { json: '{"agent":{"enabled":"yes"}}' }), /agent\.enabled: expected boolean/);
+    assert.equal(applyConfigOverrides(defaults, { json: '{"agent":{"chatReasoning":"high"}}' }).agent.chatReasoning, "high");
+    assert.throws(() => applyConfigOverrides(defaults, { json: '{"agent":{"chatReasoning":"extreme"}}' }), /agent\.chatReasoning: expected one of/);
   });
 
   it("refuses invalid JSON and CSS that could escape the style tag", () => {

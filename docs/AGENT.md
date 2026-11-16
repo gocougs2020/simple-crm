@@ -47,7 +47,8 @@ Models are settings in `app.config.ts` (or `NEXT_PUBLIC_APP_CONFIG`), so trying 
 | --- | --- | --- |
 | `agent.enabled` | `true` | Shows the button. `false` hides it everywhere |
 | `agent.name` | `"Assistant"` | Its name in the panel, in its replies and in history |
-| `agent.chatModel` | `"anthropic/claude-sonnet-5.5"` | Text chat and tool use |
+| `agent.chatModel` | `"openai/gpt-6.1-sol"` | Text chat and tool use |
+| `agent.chatReasoning` | `"medium"` | How much the chat model reasons before answering: `"provider-default"`, `"none"`, `"minimal"`, `"low"`, `"medium"` or `"high"`. Higher is slower and costs more. Its reasoning isn't shown or saved |
 | `agent.titleModel` | `"anthropic/claude-haiku-5.5"` | Naming threads |
 | `agent.voiceModel` | `"spacexai/grok-voice-3.0"` | Voice chat (a realtime model with tool use) |
 | `agent.transcriptionModel` | `"spacexai/grok-stt"` | Dictation |
@@ -57,7 +58,7 @@ Models are settings in `app.config.ts` (or `NEXT_PUBLIC_APP_CONFIG`), so trying 
 ## Limits
 
 - 40 requests a minute and 2,000 a day per teammate across chat, dictation and voice tools (`src/lib/agent/http.ts`, counted in Postgres). A voice session counts as 5.
-- 12 tool steps per answer, 4,000 output tokens.
+- 12 tool steps per answer, 16,000 output tokens (reasoning included).
 - A tool result over 40,000 characters is trimmed to fewer list items, and the assistant is told to narrow its request.
 - One typed message is at most 8,000 characters; a dictation clip at most 4 MB.
 

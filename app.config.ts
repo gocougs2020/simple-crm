@@ -90,6 +90,8 @@ export type AppConfig = {
     name: string;
     /** AI Gateway model ids (creator/model). Change them to try another model; nothing else needs to change. */
     chatModel: string;
+    /** How hard the chat model thinks before answering. More is slower and costs more; "provider-default" leaves it to the model. */
+    chatReasoning: "provider-default" | "none" | "minimal" | "low" | "medium" | "high";
     /** Names threads from their first messages. Small and fast is enough. */
     titleModel: string;
     /** Speech-to-speech for voice chat (a realtime model with tool use). */
@@ -133,7 +135,8 @@ const defaults = {
   agent: {
     enabled: true,
     name: "Assistant",
-    chatModel: "anthropic/claude-sonnet-5.5",
+    chatModel: "openai/gpt-6.1-sol",
+    chatReasoning: "medium",
     titleModel: "anthropic/claude-haiku-5.5",
     voiceModel: "spacexai/grok-voice-3.0",
     transcriptionModel: "spacexai/grok-stt",

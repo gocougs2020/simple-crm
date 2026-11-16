@@ -61,6 +61,7 @@ export async function POST(request: Request) {
 
   const result = streamText({
     model: appConfig.agent.chatModel,
+    reasoning: appConfig.agent.chatReasoning,
     system: agentInstructions({
       user,
       canWrite: can(actor, "records:write"),
@@ -73,7 +74,8 @@ export async function POST(request: Request) {
     // Archive and delete wait for the teammate's button press.
     toolApproval: ({ toolCall }) => (needsConfirmation(toolCall.toolName) ? { type: "user-approval", reason: "This archives or deletes something." } : undefined),
     stopWhen: isStepCount(12),
-    maxOutputTokens: 4_000,
+    // Reasoning tokens count toward this, so it leaves room for thinking as well as the answer.
+    maxOutputTokens: 16_000,
     onError: ({ error }) => console.error("[agent] chat", error),
   });
 
@@ -89,6 +91,8 @@ export async function POST(request: Request) {
 
   return result.toUIMessageStreamResponse({
     originalMessages: messages,
+    // The model's reasoning stays on the server: it isn't shown, and threads don't store it.
+    sendReasoning: false,
     headers: { "Cache-Control": "no-store" },
     onEnd: async ({ messages: final }) => {
       try {
