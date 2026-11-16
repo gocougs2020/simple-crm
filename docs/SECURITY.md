@@ -50,7 +50,7 @@ The code is public; the data and secrets never are. This page is how that holds.
 
 ## Knowledge source
 
-- Optional and read-only: `GET` only, to paths under `KNOWLEDGE_API_URL` (https). Paths that could climb out of the base (`..`, encoded slashes or dots, backslashes, another host) are refused before anything is fetched, and redirects aren't followed, so the key is never sent anywhere else. It's never returned in a result or an error. Use a read-only key, and a base that excludes anything holding personal data. See [KNOWLEDGE.md](KNOWLEDGE.md).
+- Optional and read-only: `GET` only, to paths under `KNOWLEDGE_API_URL` (https). Paths that could climb out of the base (`..`, `;`, encoded slashes, dots or semicolons, backslashes, another host) are refused before anything is fetched, and redirects aren't followed, so the key is never sent anywhere else. It's never returned in a result or an error. Use a read-only key, and a base that excludes anything holding personal data. See [KNOWLEDGE.md](KNOWLEDGE.md).
 
 ## Stripe
 

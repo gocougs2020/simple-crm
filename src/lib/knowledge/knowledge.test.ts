@@ -80,6 +80,11 @@ describe("knowledge paths", () => {
       "https://example.com/api/crm/contacts",
       "http://example.com/api/content/posts",
       "/posts/.",
+      "/..;/crm/contacts",
+      "/posts/..;x/..;/crm",
+      "/..%3b/crm",
+      "/posts;jsessionid=1",
+      "/...",
       "/a b",
       "x".repeat(2001),
     ]) {

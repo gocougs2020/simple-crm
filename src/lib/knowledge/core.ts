@@ -99,8 +99,9 @@ export function knowledgeUrl(base: URL, input: string): URL | null {
 
   if (!path.startsWith("/")) path = `/${path}`;
   if (basePath && (path === basePath || path.startsWith(`${basePath}/`))) path = path.slice(basePath.length) || "/";
-  if (!/^[A-Za-z0-9\-._~/%:@!$&'()*+,;=]*$/.test(path)) return null;
-  if (/\/\.\.?(\/|$)|\/\/|%2f|%5c|%2e|%00/i.test(path)) return null;
+  // No ";" (some servers read "/..;/" as "/../") and no segment starting with "..".
+  if (!/^[A-Za-z0-9\-._~/%:@!$&'()*+,=]*$/.test(path)) return null;
+  if (/\/\.(\/|$)|\/\.\.|\/\/|%2f|%5c|%2e|%3b|%00/i.test(path)) return null;
   // APIs often redirect a trailing slash away; ask for the canonical path.
   path = path.replace(/\/+$/, "");
 

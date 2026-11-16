@@ -61,7 +61,7 @@ The description is how an agent decides when to call the tool and which path to 
 
 ## Security
 
-- The key is sent only to `KNOWLEDGE_API_URL`'s origin, for paths under its base. Paths with `..`, encoded slashes or dots, backslashes or a different host are refused before anything is fetched.
+- The key is sent only to `KNOWLEDGE_API_URL`'s origin, for paths under its base. Paths with `..`, `;`, encoded slashes, dots or semicolons, backslashes or a different host are refused before anything is fetched.
 - Content from the source is published material, but it's still text an agent reads: the assistant's and MCP's instructions say it's data, not instructions.
 - Every call counts against the caller's usual limits (300 a minute per API key; the assistant's own limits).
 
