@@ -72,7 +72,7 @@ CREATE TABLE "synced_emails" (
 	"sent_at" timestamp with time zone NOT NULL,
 	"status" text NOT NULL,
 	"reason" text,
-	"screen_score" double precision,
+	"attempts" integer DEFAULT 0 NOT NULL,
 	"person_id" uuid,
 	"organization_id" uuid,
 	"client_id" uuid,
