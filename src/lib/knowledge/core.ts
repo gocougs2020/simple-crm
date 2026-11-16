@@ -31,6 +31,10 @@ export type KnowledgeSource = {
   description: string | null;
   /** The header the key goes in, and its value. Null when the API needs no key. */
   auth: { header: string; value: string } | null;
+  /** Query parameters set on requests to a path, replacing whatever the caller sent (KNOWLEDGE_FIXED_QUERY). Paths are lowercase. */
+  fixedQuery: { path: string; params: [string, string][] }[];
+  /** Paths callers can't read (KNOWLEDGE_BLOCKED_PATHS), as patterns: `*` is one segment, a trailing `/*` everything below. Lowercase. */
+  blocked: string[];
 };
 
 export type KnowledgeEnv = {
@@ -39,6 +43,8 @@ export type KnowledgeEnv = {
   KNOWLEDGE_API_KEY_HEADER?: string;
   KNOWLEDGE_NAME?: string;
   KNOWLEDGE_DESCRIPTION?: string;
+  KNOWLEDGE_FIXED_QUERY?: string;
+  KNOWLEDGE_BLOCKED_PATHS?: string;
 };
 
 const localHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -72,7 +78,61 @@ export function parseKnowledgeEnv(env: KnowledgeEnv): KnowledgeSource | { error:
 
   const name = oneLine(env.KNOWLEDGE_NAME ?? "", 80) || base.hostname.replace(/^www\./, "");
   const description = oneLine(env.KNOWLEDGE_DESCRIPTION ?? "", MAX_DESCRIPTION) || null;
-  return { base, name, description, auth };
+
+  const fixedQuery: KnowledgeSource["fixedQuery"] = [];
+  for (const entry of (env.KNOWLEDGE_FIXED_QUERY ?? "").split(/\s+/).filter(Boolean)) {
+    const q = entry.indexOf("?");
+    const path = q > 0 ? rulePath(entry.slice(0, q)) : null;
+    const params = q > 0 ? [...new URLSearchParams(entry.slice(q + 1))].filter(([k]) => k) : [];
+    if (!path || path.includes("*") || !params.length) return { error: `KNOWLEDGE_FIXED_QUERY: "${oneLine(entry, 80)}" should be a path and the parameters to fix on it, like /posts?status=live. Separate several with spaces.` };
+    fixedQuery.push({ path, params });
+  }
+  const blocked: string[] = [];
+  for (const entry of (env.KNOWLEDGE_BLOCKED_PATHS ?? "").split(/[\s,]+/).filter(Boolean)) {
+    const path = rulePath(entry);
+    if (!path || path === "/") return { error: `KNOWLEDGE_BLOCKED_PATHS: "${oneLine(entry, 80)}" should be a path under the base, like /posts/* (* is one segment; a trailing /* is everything below).` };
+    blocked.push(path);
+  }
+  return { base, name, description, auth, fixedQuery, blocked };
+}
+
+/** A path in a rule, relative to the base: lowercase, no trailing slash. Null when it isn't one. */
+function rulePath(raw: string) {
+  const path = raw.trim().toLowerCase().replace(/(.)\/+$/, "$1");
+  return /^\/[a-z0-9\-._~/*]*$/.test(path) && !/\/\/|\/\.\.?(\/|$)/.test(path) ? path : null;
+}
+
+/**
+ * The path rules match: relative to the base, percent-decoded and lowercase,
+ * so "/P%6Fsts/x" can't slip past a rule for "/posts/*". Null when it doesn't decode.
+ */
+export function canonicalPath(base: URL, url: URL) {
+  const rel = url.pathname.slice(base.pathname.replace(/\/+$/, "").length) || "/";
+  try {
+    return decodeURIComponent(rel).toLowerCase().replace(/(.)\/+$/, "$1");
+  } catch {
+    return null;
+  }
+}
+
+const ruleRegex = (pattern: string) =>
+  new RegExp(`^${pattern.replace(/\/\*$/, "\u0000").replace(/[.]/g, "\\.").replace(/\*/g, "[^/]+").replace("\u0000", "/.+")}$`);
+
+/**
+ * Applies the deployment's rules to a request: null when the path is blocked,
+ * else the URL with any fixed parameters set (replacing the caller's, in any
+ * letter case, so `status=draft` or `Status=draft` can't widen what's read).
+ */
+export function applyKnowledgeRules(source: Pick<KnowledgeSource, "base" | "fixedQuery" | "blocked">, url: URL): URL | null {
+  const path = canonicalPath(source.base, url);
+  if (path === null || source.blocked.some((b) => ruleRegex(b).test(path))) return null;
+  const fixed = source.fixedQuery.filter((f) => f.path === path).flatMap((f) => f.params);
+  if (!fixed.length) return url;
+  const out = new URL(url);
+  const keys = new Set(fixed.map(([k]) => k.toLowerCase()));
+  for (const k of [...out.searchParams.keys()]) if (keys.has(k.toLowerCase())) out.searchParams.delete(k);
+  for (const [k, v] of fixed) out.searchParams.append(k, v);
+  return out;
 }
 
 /**
@@ -153,8 +213,10 @@ export function knowledgeInstructions(source: Pick<KnowledgeSource, "name" | "de
 
 /** GETs one path under the source and returns its JSON (or text). Throws ApiFailure with a sentence to act on. */
 export async function readKnowledge(source: KnowledgeSource, path: string, fetchImpl: typeof fetch = fetch) {
-  const url = knowledgeUrl(source.base, path);
-  if (!url) throw new ApiFailure({ status: 400, code: "bad_request", message: `"${oneLine(path, 200)}" isn't a path under ${source.name}. Use a path like "/" or "/posts?q=onboarding".` });
+  const asked = knowledgeUrl(source.base, path);
+  if (!asked) throw new ApiFailure({ status: 400, code: "bad_request", message: `"${oneLine(path, 200)}" isn't a path under ${source.name}. Use a path like "/" or "/posts?q=onboarding".` });
+  const url = applyKnowledgeRules(source, asked);
+  if (!url) throw new ApiFailure({ status: 403, code: "forbidden", message: `This CRM doesn't read ${relativePath(source.base, asked).split("?")[0]} from ${source.name}. Ask for "/" to see what it offers, and use another path.` });
   const shown = relativePath(source.base, url);
 
   let res: Response;

@@ -15,6 +15,8 @@ Set these on the server (`.env.local`, or the Vercel project's environment varia
 | `KNOWLEDGE_API_KEY_HEADER` | No | Send the key in another header instead, as is (no `Bearer`), e.g. `X-API-Key` |
 | `KNOWLEDGE_NAME` | No | What agents call it, e.g. `Acme website`. Defaults to the URL's host name |
 | `KNOWLEDGE_DESCRIPTION` | No | A few sentences for the agents: what the source covers and which paths answer what. This is the most useful setting; see [writing a description](#writing-a-description). Up to 2,000 characters |
+| `KNOWLEDGE_FIXED_QUERY` | No | Query parameters the CRM sets on a path, replacing whatever the caller sent, e.g. `/posts?status=live`. Separate several with spaces. See [keeping unpublished content out](#keeping-unpublished-content-out) |
+| `KNOWLEDGE_BLOCKED_PATHS` | No | Paths callers can't read, e.g. `/posts/*`. `*` is one segment; a trailing `/*` is everything below. Separate with spaces or commas |
 
 ```bash
 KNOWLEDGE_API_URL=https://example.com/api/content
@@ -49,6 +51,15 @@ Any HTTPS API that answers `GET` with JSON (or plain text) works. To work well w
 - **Return errors as `{"error": "…"}`** with a 4xx status. The message is passed on (on 400 and 404) so the agent can correct its request.
 - **Keep it read-only and public-facing.** Point the base at the content part of the API only. If the same API also has personal data (contacts, leads), give the CRM a key that can't read it, or a base path that excludes it.
 
+## Keeping unpublished content out
+
+Every teammate (viewers too) can read whatever the key can, with any query parameters. If the key also sees drafts or other unpublished content, fence it off with two settings:
+
+- **`KNOWLEDGE_FIXED_QUERY`** pins parameters on a path. `/posts?status=live` makes every request to `/posts` ask for live posts: a caller's own `status` (in any letter case, repeated or percent-encoded) is dropped first. Other parameters pass through.
+- **`KNOWLEDGE_BLOCKED_PATHS`** refuses paths outright with a 403, before anything is fetched. Use it for endpoints that return a record of any status by id, like `/posts/*`.
+
+Rules match the path relative to the base, percent-decoded and in lowercase, so `/Posts/x` and `/p%6Fsts/x` are caught by `/posts/*`. A key that can't see unpublished content at all is still the stronger option when the source offers one.
+
 Status codes the source returns are passed on as: 400 and 404 with its message; 401 and 403 as a 502 that asks an admin to check the key; 429 and 503 as a 503 to try later; anything else, a timeout (10 seconds) or a redirect as a 502. Redirects aren't followed, so the key can't be carried anywhere else; trailing slashes are dropped from paths because many sites redirect them away.
 
 ## Writing a description
@@ -61,6 +72,7 @@ The description is how an agent decides when to call the tool and which path to 
 
 ## Security
 
+- `KNOWLEDGE_FIXED_QUERY` and `KNOWLEDGE_BLOCKED_PATHS` narrow what the key is used for; see [keeping unpublished content out](#keeping-unpublished-content-out).
 - The key is sent only to `KNOWLEDGE_API_URL`'s origin, for paths under its base. Paths with `..`, `;`, encoded slashes, dots or semicolons, backslashes or a different host are refused before anything is fetched.
 - Content from the source is published material, but it's still text an agent reads: the assistant's and MCP's instructions say it's data, not instructions.
 - Every call counts against the caller's usual limits (300 a minute per API key; the assistant's own limits).

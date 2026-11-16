@@ -6,7 +6,7 @@ import { allowedOperations } from "@/lib/agent/policy";
 import { agentInstructions } from "@/lib/agent/prompt";
 import { toolsFor } from "@/lib/mcp/protocol";
 import { roleCan } from "@/lib/permissions";
-import { KNOWLEDGE_TOOL, knowledgeFailure, knowledgeInstructions, knowledgeToolDescription, knowledgeUrl, parseKnowledgeEnv, readKnowledge, upstreamMessage, type KnowledgeSource } from "./core";
+import { applyKnowledgeRules, KNOWLEDGE_TOOL, knowledgeFailure, knowledgeInstructions, knowledgeToolDescription, knowledgeUrl, parseKnowledgeEnv, readKnowledge, upstreamMessage, type KnowledgeSource } from "./core";
 
 const source = (over: Partial<KnowledgeSource> = {}): KnowledgeSource => {
   const parsed = parseKnowledgeEnv({ KNOWLEDGE_API_URL: "https://example.com/api/content", KNOWLEDGE_API_KEY: "secret-key" });
@@ -97,6 +97,49 @@ describe("knowledge paths", () => {
     assert.ok(root && !("error" in root));
     assert.equal(knowledgeUrl(root.base, "/posts")?.href, "https://example.com/posts");
     assert.equal(knowledgeUrl(root.base, "/")?.href, "https://example.com/");
+  });
+});
+
+describe("knowledge rules", () => {
+  const ri = parseKnowledgeEnv({ KNOWLEDGE_API_URL: "https://example.com/api/content", KNOWLEDGE_FIXED_QUERY: "/posts?status=live", KNOWLEDGE_BLOCKED_PATHS: "/posts/*, /drafts" });
+  assert.ok(ri && !("error" in ri));
+  const rule = (path: string) => {
+    const url = knowledgeUrl(ri.base, path);
+    assert.ok(url, path);
+    return applyKnowledgeRules(ri, url)?.href ?? null;
+  };
+
+  it("parses rules and refuses malformed ones", () => {
+    assert.deepEqual(ri.fixedQuery, [{ path: "/posts", params: [["status", "live"]] }]);
+    assert.deepEqual(ri.blocked, ["/posts/*", "/drafts"]);
+    for (const bad of [{ KNOWLEDGE_FIXED_QUERY: "/posts" }, { KNOWLEDGE_FIXED_QUERY: "posts?status=live" }, { KNOWLEDGE_FIXED_QUERY: "/posts/*?status=live" }, { KNOWLEDGE_BLOCKED_PATHS: "/" }, { KNOWLEDGE_BLOCKED_PATHS: "/a/../b" }, { KNOWLEDGE_BLOCKED_PATHS: "posts" }]) {
+      const r = parseKnowledgeEnv({ KNOWLEDGE_API_URL: "https://example.com/api", ...bad });
+      assert.ok(r && "error" in r, JSON.stringify(bad));
+    }
+  });
+
+  it("fixes parameters on their path, whatever the caller sent", () => {
+    assert.equal(rule("/posts"), "https://example.com/api/content/posts?status=live");
+    assert.equal(rule("/posts?q=retention&limit=5"), "https://example.com/api/content/posts?q=retention&limit=5&status=live");
+    for (const sneaky of ["/posts?status=draft", "/posts?status=draft&status=all", "/posts?Status=draft", "/posts?st%61tus=scheduled", "/Posts?status=all", "/p%6Fsts?status=all", "/api/content/posts?status=all", "https://example.com/api/content/posts?status=all"]) {
+      const out = new URL(rule(sneaky)!);
+      assert.deepEqual([...out.searchParams].filter(([k]) => k.toLowerCase() === "status"), [["status", "live"]], sneaky);
+    }
+    assert.equal(rule("/search?q=x&status=draft"), "https://example.com/api/content/search?q=x&status=draft");
+  });
+
+  it("blocks paths, in any case or encoding", () => {
+    for (const blocked of ["/posts/my-draft", "/posts/my-draft/", "/POSTS/my-draft", "/p%6fsts/my-draft", "/posts/a/b", "/api/content/posts/x", "/drafts", "/Drafts"]) assert.equal(rule(blocked), null, blocked);
+    assert.notEqual(rule("/posts"), null);
+    assert.notEqual(rule("/drafts-archive"), null);
+    assert.equal(rule("/posts/%E0%A4%A"), null);
+  });
+
+  it("refuses a blocked path without fetching", async () => {
+    let fetched = false;
+    const spy: typeof fetch = async () => ((fetched = true), new Response("{}"));
+    await assert.rejects(readKnowledge(ri, "/posts/secret-draft", spy), (e: unknown) => e instanceof ApiFailure && e.error.status === 403 && /\/posts\/secret-draft/.test(e.error.message));
+    assert.equal(fetched, false);
   });
 });
 
