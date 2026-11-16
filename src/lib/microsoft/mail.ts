@@ -294,9 +294,17 @@ export async function mailboxStats(accountId: string) {
   return row ?? { imported: 0, withheld: 0, unscreened: 0 };
 }
 
-/** Removes the synced copies of a mailbox's mail from timelines, when a teammate disconnects and asks for it. */
+/**
+ * Removes the synced copies of a mailbox's mail from timelines, when a
+ * teammate disconnects and asks for it. The rows become kept-out tombstones,
+ * like a deletion, so a teammate's copy of the same message isn't copied back.
+ */
 export async function removeSyncedMail(accountId: string) {
   const db = await getDb();
   const ids = db.select({ id: syncedEmails.id }).from(syncedEmails).where(eq(syncedEmails.accountId, accountId));
   await db.delete(activities).where(and(isNotNull(activities.syncedEmailId), inArray(activities.syncedEmailId, ids)));
+  await db
+    .update(syncedEmails)
+    .set({ status: "withheld", reason: "Removed when the mailbox was disconnected" })
+    .where(and(eq(syncedEmails.accountId, accountId), eq(syncedEmails.status, "imported")));
 }

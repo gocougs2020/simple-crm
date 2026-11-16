@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Tag } from "@/components/ui/badge";
 import { Tooltip } from "@/components/ui/menu";
 import type { CalendarWeek } from "@/lib/calendar";
-import { addDays, weekDays } from "@/lib/calendar-week";
+import { addDays, daysCovered, weekDays } from "@/lib/calendar-week";
 import { dayKey, formatTime } from "@/lib/format";
 
 type Item = {
@@ -93,7 +93,8 @@ export function CalendarView({ monday, userIds, data }: { monday: string; userId
   ].sort((a, b) => Number(b.allDay) - Number(a.allDay) || a.start.localeCompare(b.start));
 
   // All-day Outlook events are dates, not instants: they belong to the day they start in UTC.
-  const dayOf = (i: Item) => (i.allDay ? i.start.slice(0, 10) : dayKey(i.start, tz));
+  // Each event on every day of the week it covers: a three-day offsite is busy all three days.
+  const covered = new Map(items.map((i) => [i.key, new Set(daysCovered(i, days, (iso) => dayKey(iso, tz)))]));
   const range = `${fmt(days[0])} – ${fmt(days[6], true)}`;
 
   return (
@@ -132,7 +133,7 @@ export function CalendarView({ monday, userIds, data }: { monday: string; userId
       ) : null}
       <div className={clsx("grid gap-px bg-line md:grid-cols-7", pending && "opacity-60")}>
         {days.map((d) => {
-          const list = items.filter((i) => dayOf(i) === d);
+          const list = items.filter((i) => covered.get(i.key)?.has(d));
           return (
             <section key={d} aria-label={fmt(d, true)} className={clsx("bg-canvas p-2 md:min-h-40", d === today && "bg-surface")}>
               <h2 className={clsx("mb-2 flex items-baseline gap-1.5 px-1 text-[12.5px] font-semibold", d === today ? "text-primary" : "text-secondary")}>

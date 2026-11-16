@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { addDays, mondayOf, weekDays } from "../calendar-week";
+import { addDays, daysCovered, mondayOf, weekDays } from "../calendar-week";
 import { digitsOf, formatPhone, matchKey, smsSegments, toE164 } from "./numbers";
 import { callOutcome, formatCallDuration, laterTextStatus, optKeyword } from "./rules";
 
@@ -80,5 +80,18 @@ describe("calendar weeks", () => {
     assert.equal(mondayOf("2026-11-23"), "2026-11-23");
     assert.deepEqual(weekDays("2026-12-28").slice(-2), ["2027-01-02", "2027-01-03"]);
     assert.equal(addDays("2026-03-01", -1), "2026-02-28");
+  });
+
+  it("shows a multi-day event on every day it covers, including ones that began before the week", () => {
+    const week = weekDays("2026-11-16");
+    const utc = (iso: string) => iso.slice(0, 10);
+    // All-day, Wed to Fri (end date is exclusive).
+    assert.deepEqual(daysCovered({ start: "2026-11-18T00:00:00Z", end: "2026-11-21T00:00:00Z", allDay: true }, week, utc), ["2026-11-18", "2026-11-19", "2026-11-20"]);
+    // Began the week before, ends Tuesday.
+    assert.deepEqual(daysCovered({ start: "2026-11-13T09:00:00Z", end: "2026-11-17T17:00:00Z", allDay: false }, week, utc), ["2026-11-16", "2026-11-17"]);
+    // Ending at midnight doesn't spill into the next day.
+    assert.deepEqual(daysCovered({ start: "2026-11-16T22:00:00Z", end: "2026-11-17T00:00:00Z", allDay: false }, week, utc), ["2026-11-16"]);
+    // No end: just its start day.
+    assert.deepEqual(daysCovered({ start: "2026-11-19T15:00:00Z", end: null, allDay: false }, week, utc), ["2026-11-19"]);
   });
 });
