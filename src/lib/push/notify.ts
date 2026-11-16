@@ -1,6 +1,6 @@
 import "server-only";
 import { after } from "next/server";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { NotificationKind } from "@/lib/constants";
 import { isPushEndpoint } from "./device";
@@ -49,10 +49,14 @@ export async function deliver(userId: string, notice: Notice): Promise<number> {
   const vapid = await getVapid();
   if (!vapid) return 0;
   const db = await getDb();
-  const devices = await db
-    .select()
-    .from(subs)
-    .where(and(eq(subs.userId, userId), notice.kind === "test" ? undefined : sql`${subs.alerts} @> ${JSON.stringify([notice.kind])}::jsonb`));
+  // Only active teammates: a deactivated one's devices get nothing, though they're kept in case they come back.
+  const devices = (
+    await db
+      .select({ device: subs })
+      .from(subs)
+      .innerJoin(schema.users, eq(schema.users.id, subs.userId))
+      .where(and(eq(subs.userId, userId), isNull(schema.users.deactivatedAt), notice.kind === "test" ? undefined : sql`${subs.alerts} @> ${JSON.stringify([notice.kind])}::jsonb`))
+  ).map((r) => r.device);
   // Stored before the push-host check existed, or edited by hand: never sent to.
   const valid = devices.filter((d) => isPushEndpoint(d.endpoint));
   if (!valid.length) return 0;

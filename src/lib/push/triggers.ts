@@ -24,7 +24,9 @@ export function taskAssigned(a: Actor, task: { id: string; subject: string | nul
       title: `${actorName(a)} gave you a ${task.type === "task" ? "task" : task.type}`,
       body: task.subject || "Open it to see the details.",
       url: recordUrl(task),
-      dedupeKey: `task_assigned:${task.id}:${task.assigneeId}`,
+      // Per assignment, not per task and person: handing a task back to someone who had it before tells them again.
+      // The minute stops a double-submitted form from notifying twice.
+      dedupeKey: `task_assigned:${task.id}:${task.assigneeId}:${Math.floor(Date.now() / 60_000)}`,
     },
     { except: actorUserId(a) },
   );

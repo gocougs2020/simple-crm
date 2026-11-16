@@ -23,7 +23,13 @@ const recordUrl = (a: { clientId: string | null; personId: string | null; organi
 
 async function usersWanting(kind: NotificationKind) {
   const db = await getDb();
-  return (await db.selectDistinct({ userId: subs.userId }).from(subs).where(sql`${subs.alerts} @> ${JSON.stringify([kind])}::jsonb`)).map((r) => r.userId);
+  return (
+    await db
+      .selectDistinct({ userId: subs.userId })
+      .from(subs)
+      .innerJoin(schema.users, eq(schema.users.id, subs.userId))
+      .where(and(isNull(schema.users.deactivatedAt), sql`${subs.alerts} @> ${JSON.stringify([kind])}::jsonb`))
+  ).map((r) => r.userId);
 }
 
 export async function sendDueNotifications(now = new Date()) {
