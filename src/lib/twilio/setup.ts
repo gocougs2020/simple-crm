@@ -21,9 +21,11 @@ export async function voiceCredentials(): Promise<VoiceCredentials | null> {
   const envSecret = process.env.TWILIO_API_KEY_SECRET?.trim();
   const envApp = process.env.TWILIO_TWIML_APP_SID?.trim();
   const stored = (await getWorkspace()).phone;
-  const apiKeySid = envSid || stored.apiKeySid;
-  let apiKeySecret = envSecret;
-  if (!apiKeySecret && stored.apiKeySecret) {
+  // A key's SID and secret go together: the environment's pair, else the stored pair, never one of each.
+  const fromEnv = !!(envSid && envSecret);
+  const apiKeySid = fromEnv ? envSid : stored.apiKeySid;
+  let apiKeySecret = fromEnv ? envSecret : undefined;
+  if (!fromEnv && stored.apiKeySecret) {
     try {
       apiKeySecret = decryptSecret(stored.apiKeySecret);
     } catch {
