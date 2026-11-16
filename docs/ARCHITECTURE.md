@@ -1,6 +1,6 @@
 # Architecture
 
-One Next.js app. Server components read the database directly; server actions change it through a shared service layer; a handful of route handlers cover files, cron and unsubscribe. The REST API (`/api/v1`) and the MCP server (`/api/mcp`) go through the same service layer, so the browser, integrations and agents follow the same rules and write the same history (see [API.md](API.md)).
+One Next.js app. Server components read the database directly; server actions change it through a shared service layer; a handful of route handlers cover files, cron and unsubscribe. The REST API (`/api/v1`), the MCP server (`/api/mcp`) and the in-app assistant (`/api/agent`) go through the same service layer, so the browser, integrations and agents follow the same rules and write the same history (see [API.md](API.md) and [AGENT.md](AGENT.md)).
 
 ## Layout
 
@@ -11,17 +11,20 @@ src/
     (app)/           everything behind the login: home, clients, people, organizations,
                      activities, files, email (inbox, campaigns, audiences, templates), settings
     api/             files (upload token, local upload, download), brand logo, cron
-                     (campaigns, inbox, email-status), the Resend webhook, the REST API (v1/[...path]) and MCP (mcp)
+                     (campaigns, inbox, email-status, notifications), the Resend webhook, the REST API
+                     (v1/[...path]), MCP (mcp) and the assistant (agent: chat, transcribe, voice)
+    manifest.ts, icon.tsx, apple-icon.tsx   the installable app: manifest and generated icons
     developers/      the public API and MCP docs, generated from the operation list
     unsubscribe/     the campaign unsubscribe page and RFC 8058 one-click endpoint
   actions/           server actions, one file per area ("use server")
-  components/        UI, grouped by feature; ui/ holds the primitives
+  components/        UI, grouped by feature; ui/ holds the primitives; agent/ is the assistant panel
   db/                schema.ts (every table) and the connection
   emails/            React Email templates (layout, invite, reset, direct, campaign)
   lib/               server logic: auth, permissions, email (and the inbox sync), Stripe,
                      files, formatting, queries (lib/crm), record changes (lib/crm/service),
-                     the REST API (lib/api) and MCP (lib/mcp)
+                     the REST API (lib/api), MCP (lib/mcp), the assistant (lib/agent) and push (lib/push)
   styles/theme.css   every color the app uses
+public/sw.js         the service worker: shows push notifications, opens the page they point to
 drizzle/             SQL migrations generated from schema.ts
 app.config.ts        product defaults (name, theme, layout), overridable per deployment
                      with NEXT_PUBLIC_APP_CONFIG (src/lib/config-overrides.ts)
@@ -32,9 +35,11 @@ app.config.ts        product defaults (name, theme, layout), overridable per dep
 | Table | Holds |
 | --- | --- |
 | `users`, `sessions`, `auth_tokens`, `rate_limits` | Team, signed-in browsers, invite/reset links, sign-in and API throttling |
-| `api_keys` | Workspace keys (full access, REST only) and personal keys (act as one teammate; REST and MCP). Only a hash is stored |
+| `api_keys` | Workspace keys (full access, REST only), personal keys and connected apps (act as one teammate; REST and MCP). Only a hash is stored. Each teammate's assistant has an `assistant` row too, with no usable token, so history can say "via Assistant" |
+| `agent_threads` | A teammate's conversations with the assistant: title and messages (AI SDK UI messages, as JSON). Private to them |
+| `push_subscriptions`, `notifications` | Devices that get push notifications (one per browser or installed app, each with its own alert types), and every notification sent, deduplicated by key |
 | `workspace` | One row: name, currency, time zone, email brand kit |
-| `organizations`, `people`, `clients` | The records. Each has an owner, `custom` JSON for custom fields, `last_activity_at`, and `archived_at` (soft delete) |
+| `organizations`, `people`, `clients` | The records. Each has an owner, `custom` JSON for custom fields, `last_activity_at`, `archived_at` (soft delete), and an AI summary (`summary`, `summary_at`, `summary_started_at`) refreshed daily ([AGENT.md](AGENT.md#record-summaries)) |
 | `pipelines`, `stages` | Each pipeline belongs to a client category. Stages carry a win probability (prospects) and a "needs attention" threshold in days |
 | `services`, `client_services` | What the workspace sells (Settings → Services), and which ones each client uses or used, at what price, from when to when |
 | `client_metrics` | Performance numbers logged over time per client ("Leads", "Days to fill") |
@@ -95,9 +100,36 @@ Choices worth knowing:
 - Freshness: the Resend webhook (`/api/webhooks/resend`, signature-verified) syncs a thread as soon as mail arrives; a cron every 15 minutes and the "Sync now" button catch anything missed. Syncing is idempotent.
 - Received HTML goes through the same allow-list sanitizer as notes. The plain-text part is preferred when present, because sanitized marketing HTML reads poorly.
 
+## The assistant
+
+Record pages open with an AI summary of the record, shared by the team and rewritten once a day. A chat panel in the bottom right corner that reads and changes records as the signed-in teammate, with their role, through the same operations as MCP. Threads are saved per teammate; it can talk (speech to speech) and take dictation. Everything runs through Vercel AI Gateway. See [AGENT.md](AGENT.md).
+
+## Phone app and notifications
+
+- **Installable.** `src/app/manifest.ts` and the generated icons (`icon.tsx`, `apple-icon.tsx`, from `app.config.ts`'s `pwa` settings and brand color) make the CRM installable from the browser: Add to Home Screen on iPhone and iPad, Install app on Android and desktop. It opens full screen and respects the notch (`viewport-fit=cover`, safe-area padding in the shell and the assistant). The proxy lets the manifest, icons and service worker through without a session, since phones fetch them before anyone signs in.
+- **The service worker** (`public/sw.js`, always served fresh) shows notifications and, when one is tapped, focuses an open CRM window and navigates it, or opens one. It doesn't cache pages: everything is behind a login and changes constantly.
+- **Push** is Web Push with VAPID keys (`src/lib/push/vapid.ts`; locally a pair is made in `.data/vapid.json`, deployed it needs `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`). Settings → Notifications turns it on per device and picks that device's alerts. iPhones and iPads need the app installed to the Home Screen first; the page says so.
+- **What notifies** (`src/lib/push/triggers.ts`, called from the service layer, so the browser, API, MCP and the assistant all notify the same way, and nobody hears about their own change). Each device picks its own:
+
+  | Push alert | When |
+  | --- | --- |
+  | Tasks assigned to me | Someone else creates or reassigns a task, or a planned call or meeting, to you |
+  | Tasks with a time | On the day, 15 minutes before a task or planned call with a time is due |
+  | Today's tasks, in the morning | One summary of today's tasks with no time, from `notifications.morningHour` (7 AM) workspace time |
+  | Meetings | 15 minutes before each of your meetings |
+  | Records assigned to me | Someone else makes you the owner of a client, person or organization |
+  | Replies from my contacts | Mail arrives in a connected inbox from a record you own (received in the last day, so a first sync doesn't flood you) |
+
+  The scheduled ones run on the quarter-hour notifications cron (`src/lib/push/due.ts`, rules in `src/lib/notifications/schedule.ts`), so a reminder lands 0–15 minutes before its time: exactly 15 for meetings on the quarter hour.
+- **Agenda emails** (`src/lib/notifications/agenda.ts`, template `src/emails/agenda.tsx`), chosen per teammate (`users.prefs.emailDigests`), off until turned on:
+  - **Daily**, every weekday morning: today's meetings, tasks due today and anything overdue.
+  - **Weekly**, every Monday morning: this week's meetings, tasks due today or overdue, and tasks coming up later in the week. On a Monday with both on, only the weekly one goes out.
+  - Sent from `notifications.morningHour` in the workspace's time zone by the same cron, once per teammate per day (claimed in `notifications` before sending, released if the send fails), and skipped when there's nothing on the agenda. Settings → Notifications can send a preview.
+- **Sending** happens after the response (`after()`), so a slow push service never slows the change. Each notification is a row in `notifications` with a dedupe key, so a retried webhook or overlapping crons send it once. A device the push service reports gone (404/410) is deleted; one that fails 5 times in a row is dropped.
+
 ## Background jobs
 
-Vercel Cron, all on the same quarter-hour blocks so the database can scale to zero between them (Neon suspends after a few idle minutes): the campaign cron and the inbox sync run at :00, :15, :30 and :45, and the delivery check runs at :00. Nothing runs more often than every 15 minutes, and nothing in the browser polls. Scheduled campaigns are rounded up to the next quarter hour, so they go out exactly when the cron runs. Work someone starts by hand ("Send now", "Sync now") runs right away.
+Vercel Cron, all on the same quarter-hour blocks so the database can scale to zero between them (Neon suspends after a few idle minutes): the campaign cron, the inbox sync and the notifications cron (meeting and task pushes, morning summaries and agenda emails) run at :00, :15, :30 and :45, and the delivery check runs at :00. Nothing runs more often than every 15 minutes, and nothing in the browser polls. Scheduled campaigns are rounded up to the next quarter hour, so they go out exactly when the cron runs. Work someone starts by hand ("Send now", "Sync now") runs right away.
 
 ## Stripe
 

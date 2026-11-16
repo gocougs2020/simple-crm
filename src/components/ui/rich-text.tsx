@@ -4,8 +4,10 @@ import clsx from "clsx";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
-import { useEffect, useImperativeHandle, type ReactNode, type Ref } from "react";
+import { Selection } from "@tiptap/pm/state";
+import { useEffect, useImperativeHandle, useRef, type ReactNode, type Ref } from "react";
 import { BoldIcon, ItalicIcon, LinkIcon, ListBulletIcon, NumberedListIcon } from "@heroicons/react/20/solid";
+import { Dictation } from "@/components/dictation/dictation";
 
 export type RichTextHandle = { clear: () => void; focus: () => void; insert: (html: string) => void; setContent: (html: string) => void; isEmpty: () => boolean };
 
@@ -14,7 +16,9 @@ export type RichTextHandle = { clear: () => void; focus: () => void; insert: (ht
  * purpose: bold, italic, lists and links. ⌘/Ctrl+Enter submits.
  *
  * The toolbar sits above the text; `actions` (like "Insert field") sit at
- * its right end.
+ * its right end. `dictation` adds a microphone there: what's said is
+ * transcribed and goes in at the cursor, or at the end if nobody has placed
+ * one in the text yet.
  */
 export function RichText({
   value,
@@ -27,6 +31,7 @@ export function RichText({
   className,
   toolbar = true,
   actions,
+  dictation,
 }: {
   value?: string;
   onChange?: (html: string) => void;
@@ -38,7 +43,10 @@ export function RichText({
   className?: string;
   toolbar?: boolean;
   actions?: ReactNode;
+  dictation?: boolean;
 }) {
+  /** Whether the teammate has put the cursor somewhere in the text (clicked, tabbed in, or typed). */
+  const placed = useRef(false);
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -62,12 +70,32 @@ export function RichText({
       },
     },
     onUpdate: ({ editor }) => onChange?.(editor.isEmpty ? "" : editor.getHTML()),
+    onFocus: () => {
+      placed.current = true;
+    },
   });
+
+  /** Puts dictated text at the cursor (replacing a selection), or at the end, with spaces so it never runs into the words around it. */
+  const insertSpoken = (text: string) => {
+    if (!editor) return;
+    const { doc, selection } = editor.state;
+    const end = Selection.atEnd(doc).from;
+    const from = placed.current ? selection.from : end;
+    const to = placed.current ? selection.to : end;
+    const before = doc.textBetween(Math.max(0, from - 1), from, "\n", "\n");
+    const after = doc.textBetween(to, Math.min(doc.content.size, to + 1), "\n", "\n");
+    const spaced = `${before && !/\s$/.test(before) ? " " : ""}${text}${after && !/^[\s.,;:!?)]/.test(after) ? " " : ""}`;
+    editor.chain().focus().insertContentAt({ from, to }, { type: "text", text: spaced }).run();
+    placed.current = true;
+  };
 
   useImperativeHandle(
     handle,
     () => ({
-      clear: () => editor?.commands.clearContent(true),
+      clear: () => {
+        editor?.commands.clearContent(true);
+        placed.current = false;
+      },
       focus: () => editor?.commands.focus("end"),
       insert: (html: string) => editor?.chain().focus().insertContent(html).run(),
       setContent: (html: string) => editor?.commands.setContent(html, { emitUpdate: true }),
@@ -84,10 +112,15 @@ export function RichText({
 
   return (
     <div className={clsx("rounded-md border border-line bg-surface shadow-sm transition-colors focus-within:border-ring focus-within:ring-1 focus-within:ring-ring", className)}>
-      {toolbar || actions ? (
+      {toolbar || actions || dictation ? (
         <div className="flex min-h-[33px] flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-1.5 py-1">
           {toolbar ? editor ? <Toolbar editor={editor} /> : <div className="h-6" /> : null}
-          {actions ? <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div> : null}
+          {actions || dictation ? (
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              {actions}
+              {dictation ? <Dictation onText={insertSpoken} disabled={!editor} /> : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
       {editor ? (

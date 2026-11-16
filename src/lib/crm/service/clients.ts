@@ -1,4 +1,5 @@
 import "server-only";
+import { recordAssigned } from "@/lib/push/triggers";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
@@ -112,6 +113,7 @@ export async function createClient(a: Actor, input: z.input<typeof clientCreateI
     })
     .returning({ id: clients.id });
   await recordEvent({ entityType: "client", entityId: row.id, action: "created", data: { stage: stage.name, category }, ...stamp(a) });
+  recordAssigned(a, { entity: "client", id: row.id, name: data.name, ownerId: data.ownerId === undefined ? actorUserId(a) : data.ownerId });
 
   const serviceIds = data.serviceIds ?? [];
   if (serviceIds.length && category !== "prospective") {
@@ -137,6 +139,7 @@ export async function updateClient(a: Actor, clientId: string, patch: Partial<z.
     .where(eq(clients.id, before.id));
   const changes = [...(await labelRelations(diff(before, { ...data, custom: undefined }, clientLabels))), ...(await withCustomChanges("client", before.custom, custom))];
   if (changes.length) await recordEvent({ entityType: "client", entityId: before.id, action: "updated", data: { changes }, ...stamp(a) });
+  if (data.ownerId !== undefined) recordAssigned(a, { entity: "client", id: before.id, name: data.name ?? before.name, ownerId: data.ownerId, previousOwnerId: before.ownerId });
   return { id: before.id };
 }
 

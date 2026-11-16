@@ -165,6 +165,7 @@ export function EmailComposer({ links, recipient }: { links: Links; recipient: E
           minHeight={120}
           placeholder={`Hi {{first_name}},`}
           actions={<MergeTagMenu onInsert={insertTag} className="h-7" />}
+          dictation
         />
       </div>
       <AttachmentPicker value={attachments} onChange={setAttachments} links={{ personId: recipient.personId, clientId: links.clientId ?? null }} onUploadingChange={setUploading} />

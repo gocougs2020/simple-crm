@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { asc, isNull } from "drizzle-orm";
 import { getDb, schema } from "@/db";
+import { aiFeatures } from "@/lib/agent/config";
 import { emailConfigured } from "@/lib/email";
 import { blobConfigured } from "@/lib/files";
 import { stripeConfigured } from "@/lib/stripe";
@@ -39,7 +40,7 @@ export const getAppData = cache(async () => {
     /** Everything the workspace sells, archived ones included so existing subscriptions still show their name. */
     catalog: services,
     apiKeys: keys,
-    services: { blob: blobConfigured(), email: emailConfigured(), emailFrom: process.env.RESEND_FROM ?? null, stripe: stripeConfigured() },
+    services: { blob: blobConfigured(), email: emailConfigured(), emailFrom: process.env.RESEND_FROM ?? null, stripe: stripeConfigured(), ai: aiFeatures() },
   };
 });
 

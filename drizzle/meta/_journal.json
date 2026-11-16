@@ -64,6 +64,20 @@
       "when": 1794714566891,
       "tag": "0008_engagement-tracking-and-last-campaign",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794717649691,
+      "tag": "0009_assistant-and-push",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794805450652,
+      "tag": "0010_record-summaries",
+      "breakpoints": true
     }
   ]
 }

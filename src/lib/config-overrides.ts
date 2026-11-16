@@ -32,6 +32,8 @@ const OPEN_MAPS = new Set(["theme.tokens"]);
 /** Settings limited to a fixed list of values. */
 const ENUMS: Readonly<Record<string, readonly string[]>> = {
   "layout.defaultClientsView": ["board", "table"],
+  "agent.chatReasoning": ["provider-default", "none", "minimal", "low", "medium", "high"],
+  "agent.summaryReasoning": ["provider-default", "none", "minimal", "low", "medium", "high"],
 };
 
 /** Paths that hold CSS colors and are written into a <style> tag. */
@@ -40,7 +42,10 @@ function isCssPath(path: string): boolean {
     path.startsWith("theme.tokens.") ||
     path === "theme.brandColor" ||
     path === "theme.brandForeground" ||
-    path === "theme.browserColor"
+    path === "theme.browserColor" ||
+    path === "pwa.iconBackground" ||
+    path === "pwa.iconForeground" ||
+    path === "pwa.backgroundColor"
   );
 }
 

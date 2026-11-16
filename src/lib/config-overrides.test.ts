@@ -9,6 +9,9 @@ const defaults: AppConfig = {
   theme: { brandColor: null, brandForeground: "#ffffff", tokens: {}, browserColor: "#fafafa" },
   layout: { defaultClientsView: "board" },
   email: { trackOpens: false, trackClicks: false },
+  agent: { enabled: true, voice: true, dictation: true, summaries: true, name: "Assistant", chatModel: "a/chat", chatReasoning: "medium", summaryModel: "a/sum", summaryReasoning: "low", titleModel: "a/title", voiceModel: "a/voice", transcriptionModel: "a/stt", suggestions: ["One"], viewerSuggestions: ["Two"] },
+  notifications: { morningHour: 7 },
+  pwa: { shortName: null, iconBackground: null, iconForeground: "#ffffff", backgroundColor: "#fafafa" },
 };
 
 describe("applyConfigOverrides", () => {
@@ -47,6 +50,19 @@ describe("applyConfigOverrides", () => {
       (error: Error) =>
         /brand\.name: expected string/.test(error.message) && /defaultClientsView: expected one of "board", "table"/.test(error.message),
     );
+  });
+
+  it("checks the assistant and installed-app settings", () => {
+    const merged = applyConfigOverrides(defaults, { json: '{"agent":{"name":"Ada","suggestions":["Hi"]},"pwa":{"shortName":"Acme","iconBackground":"#2f629f"}}' });
+    assert.equal(merged.agent.name, "Ada");
+    assert.deepEqual(merged.agent.suggestions, ["Hi"]);
+    assert.equal(merged.pwa.shortName, "Acme");
+    assert.throws(() => applyConfigOverrides(defaults, { json: '{"pwa":{"iconBackground":"red;}"}}' }), /pwa\.iconBackground/);
+    assert.throws(() => applyConfigOverrides(defaults, { json: '{"agent":{"enabled":"yes"}}' }), /agent\.enabled: expected boolean/);
+    assert.equal(applyConfigOverrides(defaults, { json: '{"agent":{"chatReasoning":"high"}}' }).agent.chatReasoning, "high");
+    const off = applyConfigOverrides(defaults, { json: '{"agent":{"voice":false,"summaries":false}}' }).agent;
+    assert.deepEqual([off.enabled, off.voice, off.dictation, off.summaries], [true, false, true, false]);
+    assert.throws(() => applyConfigOverrides(defaults, { json: '{"agent":{"chatReasoning":"extreme"}}' }), /agent\.chatReasoning: expected one of/);
   });
 
   it("refuses invalid JSON and CSS that could escape the style tag", () => {

@@ -17,8 +17,11 @@ export const roleHints: Record<UserRole, string> = {
  * connected app (Claude, ChatGPT…) a teammate approved through OAuth: it also
  * acts as them, and its access tokens come and go while the grant stays.
  * Personal keys and connected apps work with MCP; workspace keys don't.
+ * An "assistant" row stands for a teammate's in-app assistant: it holds no
+ * usable token (the assistant runs on their signed-in session) and exists so
+ * history can say "Sam via Assistant".
  */
-export const apiKeyKinds = ["workspace", "personal", "oauth"] as const;
+export const apiKeyKinds = ["workspace", "personal", "oauth", "assistant"] as const;
 export type ApiKeyKind = (typeof apiKeyKinds)[number];
 /** The kinds people create by hand in Settings. */
 export const manualKeyKinds = ["workspace", "personal"] as const;
@@ -116,3 +119,27 @@ export const MAX_FILE_BYTES = 25 * 1024 * 1024;
  */
 export const MAX_EMAIL_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 export const MAX_EMAIL_ATTACHMENTS = 10;
+
+/**
+ * Push notifications a teammate can turn on per device (Settings →
+ * Notifications). Each one is about the teammate's own work, so nobody is
+ * notified about something they did themselves.
+ */
+export const notificationKinds = ["task_assigned", "task_due", "task_digest", "meeting_soon", "record_assigned", "inbound_email"] as const;
+export type NotificationKind = (typeof notificationKinds)[number];
+export const notificationLabels: Record<NotificationKind, { label: string; hint: string }> = {
+  task_assigned: { label: "Tasks assigned to me", hint: "When a teammate (or their agent) gives you a task, call or meeting." },
+  task_due: { label: "Tasks with a time", hint: "On the day, 15 minutes before a task or planned call with a time is due." },
+  task_digest: { label: "Today's tasks, in the morning", hint: "One notification each morning for your tasks due today that have no time." },
+  meeting_soon: { label: "Meetings", hint: "15 minutes before each of your meetings starts." },
+  record_assigned: { label: "Records assigned to me", hint: "When a teammate makes you the owner of a client, person or organization." },
+  inbound_email: { label: "Replies from my contacts", hint: "When email arrives in a connected inbox from a client, person or organization you own." },
+};
+
+/** Agenda emails a teammate can get (Settings → Notifications), sent in the morning in the workspace's time zone. */
+export const emailDigestKinds = ["daily", "weekly"] as const;
+export type EmailDigestKind = (typeof emailDigestKinds)[number];
+export const emailDigestLabels: Record<EmailDigestKind, { label: string; hint: string }> = {
+  daily: { label: "Daily agenda, every weekday morning", hint: "Today's meetings, plus tasks due today and anything overdue. On Mondays the weekly agenda takes its place if it's on." },
+  weekly: { label: "Weekly agenda, every Monday morning", hint: "This week's meetings, tasks due today or overdue, and tasks coming up later in the week." },
+};

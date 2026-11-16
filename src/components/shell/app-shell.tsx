@@ -24,6 +24,7 @@ import { useApp } from "@/components/app-context";
 import { Avatar } from "@/components/ui/avatar";
 import { Kbd } from "@/components/ui/field";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
+import { AgentLauncher } from "@/components/agent/agent-launcher";
 import { NextStepDialog } from "@/components/activity/next-step-dialog";
 import { CommandPalette, openPalette } from "./command-palette";
 import { CreateDialogs } from "./create-dialogs";
@@ -32,7 +33,7 @@ import { openCreate } from "./create-store";
 type NavItem = { href: string; label: string; icon: ComponentType<{ className?: string }>; badge?: number; badgeLabel?: string; tone?: "error" };
 
 export function AppShell({ due, unread = 0, children }: { due: { overdue: number; today: number }; unread?: number; children: ReactNode }) {
-  const { viewer, workspace, canEdit } = useApp();
+  const { viewer, workspace, canEdit, services } = useApp();
   const pathname = usePathname();
   const [drawer, setDrawer] = useState(false);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- close the mobile drawer after navigating
@@ -151,7 +152,7 @@ export function AppShell({ due, unread = 0, children }: { due: { overdue: number
         Skip to content
       </a>
       <aside className="sticky top-0 hidden h-dvh border-r border-line bg-canvas lg:block">{sidebar}</aside>
-      <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-line bg-canvas/95 px-3 backdrop-blur lg:hidden">
+      <header className="sticky top-0 z-30 flex h-[calc(3rem+env(safe-area-inset-top))] items-center pt-[env(safe-area-inset-top)] gap-2 border-b border-line bg-canvas/95 px-3 backdrop-blur lg:hidden">
         <button type="button" onClick={() => setDrawer(true)} className="rounded-md p-1.5 text-secondary hover:bg-sunken" aria-label="Open menu">
           <Bars3Icon className="size-5" />
         </button>
@@ -177,6 +178,7 @@ export function AppShell({ due, unread = 0, children }: { due: { overdue: number
       <CommandPalette />
       <CreateDialogs />
       <NextStepDialog />
+      <AgentLauncher configured={services.ai.chat} />
     </div>
   );
 }

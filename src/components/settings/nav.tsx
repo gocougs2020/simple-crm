@@ -8,6 +8,7 @@ import { useApp } from "@/components/app-context";
 
 const items = [
   { href: "/settings/profile", label: "Profile", admin: false },
+  { href: "/settings/notifications", label: "Notifications", admin: false },
   { href: "/settings/team", label: "Team", admin: false },
   { href: "/settings/api", label: "API and MCP", admin: false },
   { href: "/settings/pipelines", label: "Pipelines", admin: true },

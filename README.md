@@ -10,9 +10,9 @@ It's built to cover the 80% of CRM work a small team does every day, and to stay
 
 - **Clients in three buckets.** Prospective, current and past, each with its own pipelines and stages, and a record page that fits: potential value for prospects; health, services, monthly revenue, Stripe billing, performance numbers and how long since anyone talked to them for current clients; what they had, why they left and whether they'd come back for past clients. Signing, leaving and winning back are one step each.
 - **Services** you sell are set up once in Settings and picked per client, with their own price and dates.
-- **People, organizations, clients.** Every record has a details panel you edit in place, custom fields, related records and files, and one timeline.
+- **People, organizations, clients.** Every record has a details panel you edit in place, custom fields, related records and files, and one timeline, topped by a two-line AI summary of who they are, what happened lately and what needs attention, refreshed daily.
 - **One timeline per record.** Notes, calls, emails, texts, meetings and tasks, plus every change (stage moves, owner changes, field edits) and every file, each attributed to the teammate who did it. Logged on a client, an activity also shows on the client's contact and organization, and received email lands there by itself.
-- **A composer that's fast to use.** Pick a tab, write a sentence, ⌘↵. Calls take a direction and an outcome; anything that happened can schedule a follow-up in the same step.
+- **A composer that's fast to use.** Pick a tab, write a sentence (or dictate it with the microphone), ⌘↵. Calls take a direction and an outcome; anything that happened can schedule a follow-up in the same step.
 - **Next steps are never lost.** Prospects and current clients with nothing planned are flagged on the board, at the top of their page and on the home page; checking off their last task asks what's next.
 - **Board or table, per person.** Drag clients between stages (or onto Signed, Left or Won back); switch to a sortable table. Each teammate's choice is remembered.
 - **Email built in.** Add your domains and team inboxes (sales@, support@) in Settings, powered by Resend. Incoming mail lands in a shared inbox and on the timeline of the person, organization and client it's about; reply from the CRM. Send from any record through an inbox, with templates and merge fields. Campaigns go to filtered audiences (past clients open to coming back, say) with a live preview, test sends, scheduling and one-click unsubscribe. A brand kit (logo, color, address, signature) wraps every email.
@@ -21,6 +21,8 @@ It's built to cover the 80% of CRM work a small team does every day, and to stay
 - **Files** attach to a record or to a note, call or meeting, and each record's Files card gathers them all, along with attachments on its email. They live in a private store and only stream to signed-in teammates.
 - **Team** is invite-only with email-and-password sign-in, roles (owner, admin, member, viewer) and deactivation that keeps history intact.
 - **API and MCP.** A REST API for integrations, secured with API keys, and an MCP server so each teammate can connect their own AI agent with their own role's access. Docs for every endpoint are served at `/developers`. See [docs/API.md](docs/API.md).
+- **An assistant in every page.** Ask about clients and tasks, or have it log calls, add tasks and update records, by typing, dictating or talking it through in a live voice chat. It acts as you, with your role, so there's no key to set up; conversations are saved per teammate. See [docs/AGENT.md](docs/AGENT.md).
+- **On your phone, and in your inbox.** Install the CRM to your home screen and get push notifications for tasks assigned to you, tasks coming due, a morning summary of today's tasks, meetings 15 minutes before they start, records you now own and replies from your contacts, chosen per device. A daily or weekly agenda email lists your meetings and what's due or overdue.
 
 ## Run it locally
 
@@ -37,6 +39,8 @@ Open http://localhost:3200 and create the owner account. With no environment var
 | Email | Printed to the terminal (invite and reset links included). The inbox needs Resend |
 | Stripe | The billing card explains how to connect |
 | Files | Saved to `.data/uploads/` |
+| Push notifications | VAPID keys are made once and kept in `.data/vapid.json` |
+| AI features (assistant, voice, dictation, summaries) | Need `AI_GATEWAY_API_KEY` (Vercel dashboard → AI Gateway → API keys). Without it they hide themselves or say they aren't set up. Each can be turned off per deployment; see [docs/AGENT.md](docs/AGENT.md#configure-your-deployment) |
 
 Settings → Workspace has **Add sample data** (local development only) to fill an empty workspace with realistic records.
 
@@ -71,6 +75,7 @@ Unknown keys, wrong types, invalid JSON and unsafe CSS values fail the build wit
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the code is organized and why
 - [docs/API.md](docs/API.md): the REST API, API keys, roles and MCP
+- [docs/AGENT.md](docs/AGENT.md): the in-app assistant: tools, threads, voice, models and limits
 - [docs/SECURITY.md](docs/SECURITY.md): authentication, sessions, files, and what keeps a public repo safe to deploy
 - [docs/THEMING.md](docs/THEMING.md): changing the design
 - [docs/DEPLOYING.md](docs/DEPLOYING.md): production setup

@@ -43,6 +43,6 @@ async function Keys() {
   const mine = rows.filter((r) => r.key.kind === "personal" && r.key.userId === user.id).map(toRow);
   const workspace = rows.filter((r) => r.key.kind === "workspace").map(toRow);
   const apps = rows.filter((r) => r.key.kind === "oauth" && r.key.userId === user.id).map(toRow);
-  const teammates = rows.filter((r) => r.key.kind !== "workspace" && r.key.userId !== user.id).map(toRow);
+  const teammates = rows.filter((r) => r.key.kind !== "workspace" && r.key.kind !== "assistant" && r.key.userId !== user.id).map(toRow);
   return <ApiSettings origin={await siteOrigin()} mine={mine} apps={apps} workspace={admin ? workspace : null} teammates={admin ? teammates : null} />;
 }

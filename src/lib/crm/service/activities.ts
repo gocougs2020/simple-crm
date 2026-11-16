@@ -9,6 +9,7 @@ import { recordEvent, touch } from "@/lib/crm/events";
 import { activityInput, type ActivityInput } from "@/lib/crm/schemas";
 import { assertOrganization, assertPerson, assertUser } from "@/lib/crm/service/records";
 import { ActionError, ForbiddenError, NotFoundError } from "@/lib/errors";
+import { taskAssigned } from "@/lib/push/triggers";
 import { sanitizeHtml, textToHtml } from "@/lib/safe-html";
 
 /**
@@ -56,6 +57,7 @@ export async function logActivity(a: Actor, input: ActivityInput, opts: { requir
   const done = data.done ?? (data.type !== "task" && !data.dueAt);
   const occurredAt = done ? (data.occurredAt ? new Date(data.occurredAt) : now) : null;
   const db = await getDb();
+  const assigneeId = data.assigneeId === undefined ? actorUserId(a) : data.assigneeId;
   const [row] = await db
     .insert(activities)
     .values({
@@ -69,12 +71,13 @@ export async function logActivity(a: Actor, input: ActivityInput, opts: { requir
       dueAt: data.dueAt ? new Date(data.dueAt) : null,
       dueHasTime: data.dueHasTime ?? false,
       completedAt: done && data.dueAt ? now : null,
-      assigneeId: data.assigneeId === undefined ? actorUserId(a) : data.assigneeId,
+      assigneeId,
       ...stamp(a),
       ...links,
     })
     .returning({ id: activities.id });
   if (done) await touch(links, occurredAt ?? now);
+  else taskAssigned(a, { id: row.id, subject: data.subject ?? null, type: data.type, assigneeId, ...links });
   return row;
 }
 
@@ -109,6 +112,9 @@ export async function updateActivity(a: Actor, activityId: string, patch: Partia
       updatedAt: new Date(),
     })
     .where(eq(activities.id, before.id));
+  if (data.assigneeId && data.assigneeId !== before.assigneeId && (before.dueAt || before.type === "task")) {
+    taskAssigned(a, { ...before, ...links, subject: data.subject !== undefined ? data.subject : before.subject, assigneeId: data.assigneeId });
+  }
   return { id: before.id };
 }
 
