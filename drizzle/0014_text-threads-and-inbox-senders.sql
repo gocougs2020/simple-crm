@@ -1,3 +1,9 @@
+CREATE TABLE "inbox_sends" (
+	"resend_email_id" text PRIMARY KEY NOT NULL,
+	"user_id" uuid,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "text_threads" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"phone_number_id" uuid,
@@ -13,6 +19,7 @@ CREATE TABLE "text_threads" (
 );
 --> statement-breakpoint
 ALTER TABLE "text_messages" ADD COLUMN "thread_id" uuid;--> statement-breakpoint
+ALTER TABLE "inbox_sends" ADD CONSTRAINT "inbox_sends_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "text_threads" ADD CONSTRAINT "text_threads_phone_number_id_phone_numbers_id_fk" FOREIGN KEY ("phone_number_id") REFERENCES "public"."phone_numbers"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "text_threads" ADD CONSTRAINT "text_threads_person_id_people_id_fk" FOREIGN KEY ("person_id") REFERENCES "public"."people"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "text_threads" ADD CONSTRAINT "text_threads_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
@@ -22,7 +29,8 @@ CREATE INDEX "text_threads_last_idx" ON "text_threads" USING btree ("last_messag
 CREATE INDEX "text_threads_person_idx" ON "text_threads" USING btree ("person_id");--> statement-breakpoint
 CREATE INDEX "text_threads_org_idx" ON "text_threads" USING btree ("organization_id");--> statement-breakpoint
 ALTER TABLE "text_messages" ADD CONSTRAINT "text_messages_thread_id_text_threads_id_fk" FOREIGN KEY ("thread_id") REFERENCES "public"."text_threads"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "text_messages_thread_idx" ON "text_messages" USING btree ("thread_id","created_at");--> statement-breakpoint
+CREATE INDEX "text_messages_thread_idx" ON "text_messages" USING btree ("thread_id","created_at");
+--> statement-breakpoint
 -- Existing texts become conversations: one per (our number, their number). Links come from the latest text linked to a
 -- person (else the latest text); one whose latest one-to-one text is an unanswered reply from the last week starts unread.
 WITH m AS (

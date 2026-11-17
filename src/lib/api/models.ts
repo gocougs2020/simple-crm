@@ -21,6 +21,8 @@ export const Person = z.object({
   name: z.string().describe("First and last name together."),
   email: z.string().nullable(),
   phone: z.string().nullable(),
+  otherEmails: z.array(z.string()).describe("More addresses for the same person. Mail from any of them lands on this person; campaigns and the composer use email."),
+  otherPhones: z.array(z.string()).describe("More numbers for the same person. Calls and texts from any of them land on this person."),
   title: z.string().nullable(),
   organizationId: uuid.nullable(),
   organization: ref.nullable(),

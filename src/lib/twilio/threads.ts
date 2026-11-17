@@ -91,18 +91,21 @@ export async function adoptThread(threadId: string, links: Links) {
 }
 
 /**
- * After a person is added with a phone number (or their number changes):
- * conversations with that number nobody in the CRM had move onto them.
+ * After a person is added with phone numbers, or gets new ones (their main
+ * number or other numbers): conversations with those numbers that nobody in
+ * the CRM had move onto them.
  */
-export async function adoptThreadsForPhone(phone: string | null | undefined) {
-  const key = matchKey(phone);
-  if (key.length < 7) return;
+export async function adoptThreadsForPhones(phones: (string | null | undefined)[]) {
   const db = await getDb();
-  const orphans = await db
-    .select({ id: textThreads.id })
-    .from(textThreads)
-    .where(and(eq(textThreads.remoteKey, key), isNull(textThreads.personId), isNull(textThreads.organizationId)));
-  if (!orphans.length) return;
-  const links = await linksForPhone(phone!);
-  for (const t of orphans) await adoptThread(t.id, { personId: links.personId, organizationId: links.organizationId, clientId: links.clientId });
+  for (const phone of new Set(phones.filter((p): p is string => !!p))) {
+    const key = matchKey(phone);
+    if (key.length < 7) continue;
+    const orphans = await db
+      .select({ id: textThreads.id })
+      .from(textThreads)
+      .where(and(eq(textThreads.remoteKey, key), isNull(textThreads.personId), isNull(textThreads.organizationId)));
+    if (!orphans.length) continue;
+    const links = await linksForPhone(phone);
+    for (const t of orphans) await adoptThread(t.id, { personId: links.personId, organizationId: links.organizationId, clientId: links.clientId });
+  }
 }

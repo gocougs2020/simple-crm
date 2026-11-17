@@ -1,6 +1,6 @@
 {
-  "id": "d3ab1f42-6a78-434d-afe0-d319fdaa41c6",
-  "prevId": "de6f6cad-0f15-4dc0-85ca-8e5096a594a2",
+  "id": "7f3152af-83b0-4466-9369-495675360139",
+  "prevId": "85ca259d-84db-4c2f-a3ce-5c2363dcc959",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3925,6 +3925,20 @@
           "primaryKey": false,
           "notNull": false
         },
+        "other_emails": {
+          "name": "other_emails",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "other_phones": {
+          "name": "other_phones",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
         "title": {
           "name": "title",
           "type": "text",
@@ -4292,6 +4306,89 @@
         }
       },
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.person_organizations": {
+      "name": "person_organizations",
+      "schema": "",
+      "columns": {
+        "person_id": {
+          "name": "person_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "person_organizations_org_idx": {
+          "name": "person_organizations_org_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "person_organizations_person_id_people_id_fk": {
+          "name": "person_organizations_person_id_people_id_fk",
+          "tableFrom": "person_organizations",
+          "tableTo": "people",
+          "columnsFrom": [
+            "person_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "person_organizations_organization_id_organizations_id_fk": {
+          "name": "person_organizations_organization_id_organizations_id_fk",
+          "tableFrom": "person_organizations",
+          "tableTo": "organizations",
+          "columnsFrom": [
+            "organization_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "person_organizations_person_id_organization_id_pk": {
+          "name": "person_organizations_person_id_organization_id_pk",
+          "columns": [
+            "person_id",
+            "organization_id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},

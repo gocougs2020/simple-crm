@@ -49,6 +49,19 @@ export const personInput = z.object({
   lastName: optionalText(80),
   email: optionalEmail.describe("Unique among people who aren't archived."),
   phone: optionalText(40),
+  otherEmails: z
+    .array(
+      z
+        .string()
+        .trim()
+        .toLowerCase()
+        .max(200)
+        .refine((v) => z.email().safeParse(v).success, "Enter valid email addresses, separated by commas."),
+    )
+    .max(20)
+    .optional()
+    .describe("More addresses for the same person, besides email. Replaces the whole list."),
+  otherPhones: z.array(z.string().trim().min(1).max(40)).max(20).optional().describe("More numbers for the same person, besides phone. Replaces the whole list."),
   title: optionalText(120).describe("Job title."),
   organizationId: optionalId.describe("The organization they work at."),
   ownerId: optionalId.describe("The teammate who owns the relationship. Defaults to whoever creates it; null for none."),

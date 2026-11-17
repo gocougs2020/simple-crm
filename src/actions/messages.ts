@@ -7,7 +7,7 @@ import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
 import { ActionError, actionEditor, actionUser } from "@/lib/auth";
 import { assertCanChangeRead } from "@/lib/conversations/read-state";
-import { linksForPhone, phoneDigits } from "@/lib/crm/match";
+import { hasPhone, linksForPhone } from "@/lib/crm/match";
 import { siteOrigin } from "@/lib/origin";
 import { assertNumberAccess } from "@/lib/twilio/access";
 import { phoneConfigured } from "@/lib/twilio/config";
@@ -93,14 +93,14 @@ export async function replyToTextThread(threadId: string, input: z.input<typeof 
     if (!t.phoneNumberId) throw new ActionError("The number this conversation was on was deleted. Text them from their record with another number.");
     const number = await assertNumberAccess(user, t.phoneNumberId);
     const db = await getDb();
-    // STOP marks everyone with the number, so any of them having opted out means this number did; so does the linked person having opted out.
+    // STOP marks everyone with the number (main or other), so any of them having opted out means this number did; so does the linked person having opted out.
     const [stopped] = await db
       .select({ firstName: people.firstName })
       .from(people)
       .where(
         and(
           sql`${people.textOptOutAt} is not null`,
-          or(and(sql`${phoneDigits(people.phone)} = ${t.remoteKey}`, isNull(people.archivedAt)), t.personId ? eq(people.id, t.personId) : undefined),
+          or(and(hasPhone(t.remoteKey), isNull(people.archivedAt)), t.personId ? eq(people.id, t.personId) : undefined),
         ),
       )
       .limit(1);

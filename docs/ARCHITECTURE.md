@@ -56,6 +56,7 @@ app.config.ts        product defaults (name, theme, layout), overridable per dep
 | `inbox_threads`, `inbox_messages` | A mirror of the workspace's Resend inboxes, linked to people, organizations and clients |
 | `inbox_sends` | Who sent each email from the inbox page, by Resend's id, so the sync credits them however the send and the webhook race |
 | `people_imports` | What each spreadsheet import created and changed, so it can be undone |
+| `person_organizations` | Organizations a person is also at, besides their main one. Merging duplicates ([DEDUPE.md](DEDUPE.md)) keeps every organization they were at here. People also have `other_emails` and `other_phones`, which mail, call and text matching use |
 | `external_ids` | Which record here came from which record in Pipedrive, so the [Pipedrive import](PIPEDRIVE-IMPORT.md) can run again without duplicating and be removed cleanly |
 | `connected_accounts`, `synced_emails` | Each teammate's connected Microsoft 365 mailbox and calendar (tokens encrypted), and every message the mailbox sync looked at: copied or kept out, why, and the screen's probability. See [MICROSOFT.md](MICROSOFT.md) |
 | `phone_numbers`, `phone_number_users`, `phone_calls`, `text_messages` | The Twilio numbers the team uses and who may use each, and every call and text through them. Each call and text is also an activity on the record it matched. See [PHONE.md](PHONE.md) |

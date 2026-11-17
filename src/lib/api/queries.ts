@@ -95,6 +95,8 @@ function toPerson(ctx: Ctx, r: PersonRow) {
     name: fullName(p.firstName, p.lastName),
     email: p.email,
     phone: p.phone,
+    otherEmails: p.otherEmails,
+    otherPhones: p.otherPhones,
     title: p.title,
     organizationId: p.organizationId,
     organization: p.organizationId && r.organizationName ? { id: p.organizationId, name: r.organizationName } : null,
@@ -122,10 +124,10 @@ export async function listPeople(a: Actor, ctx: Ctx, f: RecordFilter & { organiz
   const where = common(a, people, f);
   if (f.q) {
     const t = likeTerm(f.q);
-    where.push(or(ilike(sql`${people.firstName} || ' ' || coalesce(${people.lastName}, '')`, t), ilike(people.email, t), ilike(people.phone, t), ilike(organizations.name, t)));
+    where.push(or(ilike(sql`${people.firstName} || ' ' || coalesce(${people.lastName}, '')`, t), ilike(people.email, t), ilike(people.phone, t), ilike(sql`${people.otherEmails}::text`, t), ilike(sql`${people.otherPhones}::text`, t), ilike(organizations.name, t)));
   }
   if (f.organizationId) where.push(eq(people.organizationId, f.organizationId));
-  if (f.email) where.push(eq(people.email, f.email));
+  if (f.email) where.push(or(eq(people.email, f.email), sql`${people.otherEmails} ? ${f.email.toLowerCase()}`)!);
   if (f.tag) where.push(sql`${people.tags} ? ${f.tag}`);
   const rows = await db
     .select(personSelect)

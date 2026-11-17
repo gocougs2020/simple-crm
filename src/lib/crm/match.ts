@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { matchKey } from "@/lib/phone/numbers";
 
@@ -35,10 +35,22 @@ export async function linksForEmails(addresses: string[]): Promise<Links> {
   let organizationId: string | null = null;
   if (addresses.length) {
     const found = await db
-      .select({ id: people.id, email: people.email, organizationId: people.organizationId })
+      .select({ id: people.id, email: people.email, otherEmails: people.otherEmails, organizationId: people.organizationId })
       .from(people)
-      .where(and(isNull(people.archivedAt), inArray(sql`lower(${people.email})`, addresses)));
-    const first = addresses.map((p) => found.find((f) => f.email?.toLowerCase() === p)).find(Boolean);
+      .where(
+        and(
+          isNull(people.archivedAt),
+          or(
+            inArray(sql`lower(${people.email})`, addresses),
+            sql`exists (select 1 from jsonb_array_elements_text(${people.otherEmails}) o(email) where lower(o.email) in (${sql.join(
+              addresses.map((a) => sql`${a}`),
+              sql`, `,
+            )}))`,
+          ),
+        ),
+      );
+    // A main address wins over someone else's other address.
+    const first = addresses.map((p) => found.find((f) => f.email?.toLowerCase() === p) ?? found.find((f) => f.otherEmails.some((e) => e.toLowerCase() === p))).find(Boolean);
     personId = first?.id ?? null;
     organizationId = first?.organizationId ?? null;
     if (!organizationId) {
@@ -65,6 +77,10 @@ export const phoneDigits = (col: typeof people.phone | typeof organizations.phon
   sql`right(regexp_replace(regexp_replace(${col}, '\\s*(x|ext\\.?|extension|#)\\s*[0-9]+\\s*$', '', 'i'), '[^0-9]', '', 'g'), 10)`;
 const digits = phoneDigits;
 
+/** A person whose phone, or one of their other phones, has these last 10 digits (`matchKey`). */
+export const hasPhone = (key: string) =>
+  sql`(${digits(people.phone)} = ${key} or exists (select 1 from jsonb_array_elements_text(${people.otherPhones}) o(phone) where right(regexp_replace(regexp_replace(o.phone, '\\s*(x|ext\\.?|extension|#)\\s*[0-9]+\\s*$', '', 'i'), '[^0-9]', '', 'g'), 10) = ${key}))`;
+
 /**
  * A caller or texter: the person whose phone matches (the most recently
  * active, if several share it), else an organization's main line. Compared on
@@ -77,7 +93,12 @@ export async function linksForPhone(raw: string): Promise<Links & { personName: 
   const [p] = await db
     .select({ id: people.id, organizationId: people.organizationId, firstName: people.firstName, lastName: people.lastName })
     .from(people)
-    .where(and(isNull(people.archivedAt), sql`${digits(people.phone)} = ${key}`))
+    .where(
+      and(
+        isNull(people.archivedAt),
+        hasPhone(key),
+      ),
+    )
     .orderBy(sql`${people.lastActivityAt} desc nulls last`)
     .limit(1);
   let organizationId = p?.organizationId ?? null;
