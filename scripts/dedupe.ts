@@ -5,6 +5,7 @@
  *   pnpm dedupe --yes                    merge and delete
  *   pnpm dedupe --only=organizations     just organizations (or --only=people)
  *   pnpm dedupe --as=you@company.com     record the merges as this teammate instead of the owner
+ *   pnpm dedupe --max-group=25           merge groups of people up to this size (10 by default; bigger ones are listed and skipped)
  *
  * Organizations: same name, character for character. People: a shared email
  * address or phone number. In each group the oldest record with anything on it
@@ -206,6 +207,8 @@ async function dedupeOrganizations(db: Database, apply: boolean, actorId: string
         where po.organization_id = any(${uuids(ids)}) and p.organization_id is distinct from ${keep} group by po.person_id
         on conflict do nothing`);
       await t.delete(schema.personOrganizations).where(inArray(schema.personOrganizations.organizationId, ids));
+      // Someone whose main organization just became the kept one isn't "also at" it too.
+      await t.execute(sql`delete from person_organizations po using people p where po.person_id = p.id and po.organization_id = ${keep} and p.organization_id = ${keep}`);
       for (const table of [schema.clients, schema.activities, schema.files, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textMessages]) {
         await t.update(table).set({ organizationId: keep }).where(inArray(table.organizationId, ids));
       }
@@ -245,8 +248,21 @@ async function dedupePeople(db: Database, apply: boolean, actorId: string) {
   for (const r of await db.select().from(schema.personOrganizations)) alsoAt.set(r.personId, [...(alsoAt.get(r.personId) ?? []), r.organizationId]);
   let merged = 0;
   let deleted = 0;
+  let skipped = 0;
+  // A big group usually means a shared line or inbox (a switchboard, info@), not one person: list it and leave it unless asked.
+  const maxGroup = Number(option("max-group") ?? 10);
+  if (!Number.isInteger(maxGroup) || maxGroup < 2) throw new Error("--max-group takes a whole number of 2 or more.");
   log(`\nPeople: ${groups.length} groups sharing an email or phone`);
   for (const [i, group] of groups.entries()) {
+    if (group.length > maxGroup) {
+      skipped++;
+      const seen = new Map<string, number>();
+      for (const p of group) for (const k of new Set(contactKeys(p))) seen.set(k, (seen.get(k) ?? 0) + 1);
+      const shared = [...seen].filter(([, count]) => count > 1).sort((a, b) => b[1] - a[1]);
+      log(`  Skipped: ${group.length} people share ${shared.slice(0, 3).map(([k]) => k.slice(2)).join(", ")}. Check them in the CSV; --max-group=${group.length} merges them.`);
+      for (const p of group) addToReport("person", i + 1, "skipped (large group)", { ...p, name: fullName(p) }, counts.get(p.id));
+      continue;
+    }
     const plan = pickSurvivor(group, hasData);
     merged += plan.merged.length;
     deleted += plan.empty.length;
@@ -298,7 +314,7 @@ async function dedupePeople(db: Database, apply: boolean, actorId: string) {
       });
     });
   }
-  log(`  ${merged} to merge, ${deleted} empty to delete${apply ? ": done" : ""}`);
+  log(`  ${merged} to merge, ${deleted} empty to delete${skipped ? `, ${skipped} large groups skipped` : ""}${apply ? ": done" : ""}`);
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────

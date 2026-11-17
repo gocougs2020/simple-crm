@@ -20,6 +20,7 @@ pnpm dedupe --yes
 | --- | --- |
 | `--yes` | Merge and delete. Without it, nothing is written |
 | `--only=organizations` | Only organizations (`--only=people` for only people) |
+| `--max-group=25` | Merge groups of people up to this size. Bigger groups are listed and skipped (10 by default): they usually mean a shared line or inbox, like a switchboard or info@, rather than one person |
 | `--verbose` | List every group on screen, not just the first 25 |
 | `--as=you@company.com` | Record the merges as this teammate instead of the owner |
 
@@ -37,7 +38,7 @@ Take a backup first (in Neon, create a branch), since merges can't be undone fro
 1. **The record kept** is the oldest one that has anything on it. A record with nothing on it, meaning no people (for organizations), no organization (for people), no notes, tasks, meetings, calls, emails or texts, no clients and no files, is simply deleted. When nobody in the group has anything, the oldest is kept.
 2. **Its details stay**, and any blank ones are filled from the others, oldest first: website, phone, address, industry, owner and custom fields for organizations; last name, job title, owner and custom fields for people. Tags are combined.
 3. **Everything moves to it**: people, clients, notes, tasks, meetings, calls, emails, texts, inbox conversations, synced mail, files and history. Clients keep their organization and contact, now the kept one. Saved audiences and campaign filters that named a duplicate name the kept record instead.
-4. **People keep every email and phone.** The kept record's email and phone stay the main ones (campaigns, texts and the composer use those); every other address and number goes into **Other emails** and **Other phones**, shown and editable on the person's page. Mail, calls and texts from any of them land on the person, and a STOP from any of their numbers opts them out.
+4. **People keep every email and phone.** The kept record's email and phone stay the main ones (campaigns, texts and the composer use those); every other address and number goes into **Other emails** and **Other phones**, shown and editable on the person's page. Mail, calls and texts from any of them land on the person, and a STOP from any of their numbers opts them out (only a START from the main number opts them back in, since texts go there).
 5. **People keep every organization.** The kept record's organization stays their main one; the others the duplicates were at are listed under **Also at** on the person's page, and the person shows on each of those organizations' pages.
 6. **Opt-outs win.** If any duplicate unsubscribed from campaigns, opted out or replied STOP, the merged person has too.
 7. **The duplicates are deleted**, and the kept record's history says what was merged into it.

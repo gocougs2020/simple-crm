@@ -3,7 +3,7 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { TextStatus } from "@/db/schema";
 import { touch } from "@/lib/crm/events";
-import { hasPhone, linksForPhone, type Links } from "@/lib/crm/match";
+import { hasPhone, linksForPhone, phoneDigits, type Links } from "@/lib/crm/match";
 import { recordEvent } from "@/lib/crm/events";
 import { workspaceToday } from "@/lib/crm/inputs";
 import { zonedTime } from "@/lib/format";
@@ -94,7 +94,8 @@ async function optOut(phone: string, out: boolean) {
   const changed = await db
     .update(people)
     .set({ textOptOutAt: out ? new Date() : null })
-    .where(and(hasPhone(key), out ? isNull(people.textOptOutAt) : sql`${people.textOptOutAt} is not null`))
+    // STOP from any of a person's numbers opts them out; only START from their main number (the one texts go to) opts them back in.
+    .where(and(out ? hasPhone(key) : sql`${phoneDigits(people.phone)} = ${key}`, out ? isNull(people.textOptOutAt) : sql`${people.textOptOutAt} is not null`))
     .returning({ id: people.id });
   for (const p of changed) await recordEvent({ entityType: "person", entityId: p.id, action: out ? "texts_opted_out" : "texts_opted_in", data: { phone: formatPhone(phone) }, userId: null });
 }
