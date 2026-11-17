@@ -7,8 +7,13 @@ import { aiFeatures, aiOffMessage } from "@/lib/agent/config";
 import { agentTools } from "@/lib/agent/tools";
 import { siteOrigin } from "@/lib/origin";
 
-/** One voice chat is capped at 5 minutes in the browser; the token outlives it a little. */
-const TOKEN_SECONDS = 6 * 60;
+/**
+ * How long the client secret can be used to open the voice socket. The AI
+ * Gateway accepts at most 300 seconds (a longer value is refused with a 400),
+ * and the browser connects right after fetching it, so 5 minutes is plenty.
+ * The call itself is capped at 5 minutes separately (VOICE_MAX_SESSION_MS).
+ */
+const TOKEN_SECONDS = 5 * 60;
 
 /**
  * Starts a voice chat (experimental_useRealtime's `api.token`): a short-lived

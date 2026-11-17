@@ -43,9 +43,9 @@ export function AppShell({ due, unread = 0, unreadTexts = 0, children }: { due: 
 
   const nav: NavItem[] = [
     { href: "/", label: "Home", icon: HomeIcon },
+    { href: "/clients", label: "Clients", icon: BriefcaseIcon },
     ...(comms.phone ? [{ href: "/messages", label: "Messages", icon: ChatBubbleLeftRightIcon, badge: unreadTexts || undefined, badgeLabel: "unread" }] : []),
     { href: "/email", label: "Email", icon: EnvelopeIcon, badge: unread || undefined, badgeLabel: "unread" },
-    { href: "/clients", label: "Clients", icon: BriefcaseIcon },
     { href: "/activities", label: "Activities", icon: CheckCircleIcon, badge: due.overdue + due.today || undefined, badgeLabel: "due", tone: due.overdue ? "error" : undefined },
     { href: "/people", label: "People", icon: UserIcon },
     { href: "/organizations", label: "Organizations", icon: BuildingOffice2Icon },
