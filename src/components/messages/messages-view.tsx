@@ -196,6 +196,8 @@ function ThreadItem({ thread: t, active, showNumber }: { thread: TextThreadRow; 
       const r = await markTextThreadRead(t.id, read);
       if (!r.ok) return void toast.error(r.error);
       toast.success(read ? "Marked read" : "Marked unread");
+      // Left open, the conversation would read itself again: close it, as its header's Mark unread does.
+      if (!read && active) set({ t: null });
     });
   return (
     <li className="group relative">
@@ -272,10 +274,16 @@ function Conversation({ thread }: { thread: Open }) {
 
   // Opening it: read now if it's this teammate's to read, and a number since added to the CRM moves onto its record.
   const unlinked = !thread.personId && !thread.organizationId;
-  const shouldOpen = (!thread.read && thread.readState.canChange) || unlinked;
+  // Unread for this teammate to read. A reply arriving while it's open turns this back on, so the effect runs again.
+  const needsRead = !thread.read && thread.readState.canChange;
+  // A number nobody had is checked against the CRM once per opening, not on every refresh.
+  const checkedLinks = useRef(false);
   useEffect(() => {
-    if (shouldOpen) void openTextThread(thread.id);
-  }, [thread.id, shouldOpen]);
+    const checkLinks = unlinked && !checkedLinks.current;
+    if (!needsRead && !checkLinks) return;
+    if (checkLinks) checkedLinks.current = true;
+    void openTextThread(thread.id);
+  }, [thread.id, needsRead, unlinked]);
 
   const count = thread.messages.length;
   useEffect(() => {
