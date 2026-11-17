@@ -72,15 +72,18 @@ export const textStatusLabels: Record<TextStatus, string> = {
 };
 
 /**
- * Who looks after a number's calls and texts: the teammate whose cell phone it
- * forwards to (they're the one who picked up), else the teammate picked on the
- * number in Settings. Deactivated teammates don't count.
+ * Who looks after a number's calls and texts: the teammate an admin picked on
+ * the number ("Who answers"), else the one teammate whose cell phone (from
+ * their profile) the number forwards to. A cell phone is typed in by its owner
+ * and never verified, so it never overrides the admin's pick, and a number two
+ * teammates both claim matches nobody. Deactivated teammates don't count.
  */
 export function numberTeammateId(number: { forwardTo: string | null; forwardUserId: string | null }, team: { id: string; phone: string | null; active: boolean }[]): string | null {
+  if (number.forwardUserId) return team.some((u) => u.id === number.forwardUserId && u.active) ? number.forwardUserId : null;
   const key = matchKey(number.forwardTo);
-  const cell = key.length >= 7 ? team.find((u) => u.active && matchKey(u.phone) === key) : undefined;
-  if (cell) return cell.id;
-  return number.forwardUserId && team.some((u) => u.id === number.forwardUserId && u.active) ? number.forwardUserId : null;
+  if (key.length < 7) return null;
+  const cells = team.filter((u) => u.active && matchKey(u.phone) === key);
+  return cells.length === 1 ? cells[0].id : null;
 }
 
 /** Where an incoming call went, for its timeline entry and write-up task. "Sam's cell" only when the number is the cell in Sam's profile. */

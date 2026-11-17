@@ -104,14 +104,19 @@ describe("who looks after a number", () => {
     { id: "old", phone: "+13035550199", active: false },
   ];
 
-  it("gives calls to the teammate whose cell the number forwards to, however it was typed", () => {
-    assert.equal(numberTeammateId({ forwardTo: "+13035550123", forwardUserId: "ana" }, team), "sam");
-    assert.equal(numberTeammateId({ forwardTo: "(303) 555-0123", forwardUserId: null }, team), "sam");
+  it("gives calls to the teammate an admin picked on the number, whatever cell phones say", () => {
+    assert.equal(numberTeammateId({ forwardTo: "+13035550123", forwardUserId: "ana" }, team), "ana");
+    assert.equal(numberTeammateId({ forwardTo: null, forwardUserId: "ana" }, team), "ana");
   });
 
-  it("falls back to the teammate picked on the number", () => {
-    assert.equal(numberTeammateId({ forwardTo: "+13035550111", forwardUserId: "ana" }, team), "ana");
-    assert.equal(numberTeammateId({ forwardTo: null, forwardUserId: "ana" }, team), "ana");
+  it("with nobody picked, gives them to the teammate whose cell the number forwards to, however it was typed", () => {
+    assert.equal(numberTeammateId({ forwardTo: "(303) 555-0123", forwardUserId: null }, team), "sam");
+    assert.equal(numberTeammateId({ forwardTo: "+13035550111", forwardUserId: null }, team), null);
+  });
+
+  it("matches nobody when two teammates claim the same cell", () => {
+    const twice = [...team, { id: "copy", phone: "303-555-0123", active: true }];
+    assert.equal(numberTeammateId({ forwardTo: "+13035550123", forwardUserId: null }, twice), null);
   });
 
   it("skips deactivated teammates", () => {

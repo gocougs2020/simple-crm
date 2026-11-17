@@ -123,7 +123,7 @@ export function PhoneSettings({
         {numbers.length ? (
           <ul className="divide-y divide-line">
             {numbers.map((n) => {
-              const forwardUser = member((n.forwardTo ? cellOwner(cells, n.forwardTo) : null) ?? n.forwardUserId);
+              const forwardUser = member(n.forwardUserId ?? (n.forwardTo ? cellOwner(cells, n.forwardTo) : null));
               return (
                 <li key={n.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
                   <div className="min-w-0 flex-1">
@@ -156,7 +156,8 @@ type Cell = { userId: string; phone: string };
 /** The teammate whose cell phone this is, matched the same way calls are (last 10 digits). */
 function cellOwner(cells: Cell[], raw: string) {
   const key = matchKey(raw);
-  return key.length >= 7 ? (cells.find((c) => matchKey(c.phone) === key)?.userId ?? null) : null;
+  const owners = key.length >= 7 ? cells.filter((c) => matchKey(c.phone) === key) : [];
+  return owners.length === 1 ? owners[0].userId : null;
 }
 
 function NumberDialog({ row, cells, onClose }: { row: NumberRow | null; cells: Cell[]; onClose: () => void }) {
@@ -314,7 +315,7 @@ function NumberDialog({ row, cells, onClose }: { row: NumberRow | null; cells: C
             hint={
               forwardCell && member(forwardCell)
                 ? `It's ${member(forwardCell)!.name}'s cell, so they get the task to write up each call, and texts from unknown numbers.`
-                : "Gets the task to write up each call, and texts from unknown numbers. A teammate whose cell phone (in their profile) is the forwarding number gets them instead."
+                : "Gets the task to write up each call, and texts from unknown numbers. Left as nobody, they go to the teammate whose cell phone (in their profile) is the forwarding number."
             }
           >
             {(p) => <OwnerSelect id={p.id} value={forwardUserId} onChange={setForwardUserId} noneLabel="Nobody" />}

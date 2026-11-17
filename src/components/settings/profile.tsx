@@ -37,7 +37,7 @@ export function ProfileSettings() {
           <Field label="Job title" optional>
             {(p) => <Input {...p} value={title} onChange={(e) => setTitle(e.target.value)} />}
           </Field>
-          <Field label="Cell phone" optional hint="Calls to a team number that ring this phone leave their write-up task with you.">
+          <Field label="Cell phone" optional hint="Calls to a team number that ring this phone leave their write-up task with you, unless an admin picked someone else for that number.">
             {(p) => <Input {...p} type="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />}
           </Field>
           <Field label="Email" hint="Ask an admin to change your sign-in email.">
