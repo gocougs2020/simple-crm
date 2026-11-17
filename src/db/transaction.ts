@@ -18,11 +18,33 @@ export async function withTransaction<T>(fn: (t: Database) => Promise<T>): Promi
   const { Pool } = await import("@neondatabase/serverless");
   const { drizzle } = await import("drizzle-orm/neon-serverless");
   const pool = new Pool({ connectionString: url, max: 1 });
-  // A connection that drops is reported as an "error" event; with a listener the query rejects instead of crashing the process.
+  // A dropped WebSocket is reported as an "error" event: on the pool while a connection sits idle,
+  // on the connection itself while it's checked out. With listeners on both the query rejects
+  // instead of crashing the process.
   pool.on("error", () => {});
+  pool.on("connect", (client: { on: (event: "error", listener: () => void) => unknown }) => client.on("error", () => {}));
   try {
-    const db = drizzle({ client: pool, schema });
-    return await db.transaction((tx) => fn(tx as unknown as Database));
+    // Not drizzle's db.transaction: it sends BEGIN outside its try, so a BEGIN that fails would
+    // never give the connection back and pool.end() would wait for it. This always releases it,
+    // and discards it on any failure rather than reuse it (the same as scripts/dedupe.ts).
+    const client = await pool.connect();
+    let failure: Error | undefined;
+    try {
+      await client.query("begin");
+      try {
+        const result = await fn(drizzle({ client, schema }) as unknown as Database);
+        await client.query("commit");
+        return result;
+      } catch (err) {
+        await client.query("rollback").catch(() => {});
+        throw err;
+      }
+    } catch (err) {
+      failure = err instanceof Error ? err : new Error("The database connection closed.");
+      throw err;
+    } finally {
+      client.release(failure);
+    }
   } finally {
     await pool.end().catch(() => {});
   }

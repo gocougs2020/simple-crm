@@ -55,10 +55,13 @@ export function usePagedRows<T>({ first, total, filterKey, rowId, pageSize, fetc
       return;
     }
     // Same view, scrolled further: show the new first page now and refresh the rest behind it.
+    // Loading more waits until it's back (`loading`), so a page fetched meanwhile can't be overwritten.
     setRows((prev) => unique([...first, ...prev.slice(first.length)]));
+    setLoading(true);
     // Up to 2,000 rows in one request (the most a refresh asks for); anything further loads again on scroll.
     void fetchRef.current(first.length, Math.min(loaded - first.length, 2000)).then((r) => {
       if (request !== state.current.request) return;
+      setLoading(false);
       if (!r.ok) return;
       state.current.loaded = first.length + r.data.length;
       setRows(unique([...first, ...r.data]));
