@@ -4,7 +4,6 @@ import { getDb, schema } from "@/db";
 import type { User } from "@/lib/auth";
 import { ForbiddenError, NotFoundError } from "@/lib/errors";
 import { roleCan } from "@/lib/permissions";
-import { numberTeammateId } from "@/lib/phone/rules";
 
 /**
  * Who may call and text from which number. A number is open to everyone who
@@ -67,28 +66,4 @@ export async function numberByE164(e164: string) {
   const db = await getDb();
   const [n] = await db.select().from(phoneNumbers).where(eq(phoneNumbers.number, e164));
   return n ?? null;
-}
-
-/**
- * The teammate who looks after a number's calls and texts: the one picked in
- * Settings, else whose cell it forwards to (numberTeammateId). A cell phone is
- * self-declared, so it only counts for a teammate who may use the number
- * (edit access, and an admin or on its list when it's limited).
- */
-export async function numberTeammate(number: Pick<PhoneNumber, "id" | "forwardTo" | "forwardUserId" | "access">): Promise<{ id: string; name: string; phone: string | null } | null> {
-  if (!number.forwardTo && !number.forwardUserId) return null;
-  const db = await getDb();
-  const u = schema.users;
-  const team = await db
-    .select({ id: u.id, name: u.name, phone: u.phone, role: u.role })
-    .from(u)
-    .where(and(isNull(u.deactivatedAt), number.forwardUserId ? eq(u.id, number.forwardUserId) : sql`${u.phone} is not null`));
-  const allowed = new Set(
-    number.access === "everyone" ? [] : (await db.select({ userId: phoneNumberUsers.userId }).from(phoneNumberUsers).where(eq(phoneNumberUsers.phoneNumberId, number.id))).map((r) => r.userId),
-  );
-  const mayUse = (t: (typeof team)[number]) => roleCan(t.role, "records:write") && (number.access === "everyone" || isAdmin(t) || allowed.has(t.id));
-  // The admin's pick stands as it is; only cell phones are held to the number's access.
-  const candidates = team.map((t) => ({ ...t, active: t.id === number.forwardUserId || mayUse(t) }));
-  const id = numberTeammateId(number, candidates);
-  return team.find((t) => t.id === id) ?? null;
 }

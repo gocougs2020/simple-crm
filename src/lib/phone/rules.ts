@@ -1,5 +1,4 @@
 import type { CallStatus, TextStatus } from "@/db/schema";
-import { formatPhone, matchKey } from "./numbers";
 
 /**
  * Small rules for calls and texts, pure so they're tested on their own and
@@ -70,26 +69,3 @@ export const textStatusLabels: Record<TextStatus, string> = {
   failed: "Failed",
   received: "Received",
 };
-
-/**
- * Who looks after a number's calls and texts: the teammate an admin picked on
- * the number ("Who answers"), else the one teammate whose cell phone (from
- * their profile) the number forwards to. A cell phone is typed in by its owner
- * and never verified, so it never overrides the admin's pick, and a number two
- * teammates both claim matches nobody. Deactivated teammates don't count.
- */
-export function numberTeammateId(number: { forwardTo: string | null; forwardUserId: string | null }, team: { id: string; phone: string | null; active: boolean }[]): string | null {
-  if (number.forwardUserId) return team.some((u) => u.id === number.forwardUserId && u.active) ? number.forwardUserId : null;
-  const key = matchKey(number.forwardTo);
-  if (key.length < 7) return null;
-  const cells = team.filter((u) => u.active && matchKey(u.phone) === key);
-  return cells.length === 1 ? cells[0].id : null;
-}
-
-/** Where an incoming call went, for its timeline entry and write-up task. "Sam's cell" only when the number is the cell in Sam's profile. */
-export function forwardedLine(forwardedTo: string | null, forwardUser: { name: string; phone?: string | null } | null, number: { label: string }) {
-  if (!forwardedTo) return `${number.label} has no forwarding number, so no one picked up.`;
-  const to = formatPhone(forwardedTo);
-  if (forwardUser?.phone && matchKey(forwardUser.phone) === matchKey(forwardedTo)) return `Forwarded to ${forwardUser.name}'s cell, ${to}.`;
-  return forwardUser ? `Forwarded to ${to}, for ${forwardUser.name}.` : `Forwarded to ${to}.`;
-}

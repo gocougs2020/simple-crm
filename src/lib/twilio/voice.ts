@@ -8,12 +8,12 @@ import { touch } from "@/lib/crm/events";
 import { linksForPhone } from "@/lib/crm/match";
 import { workspaceToday } from "@/lib/crm/inputs";
 import { formatPhone } from "@/lib/phone/numbers";
-import { callOutcome, finalCallStatuses, forwardedLine } from "@/lib/phone/rules";
+import { callOutcome, finalCallStatuses } from "@/lib/phone/rules";
 import { notify } from "@/lib/push/notify";
 import { textToHtml } from "@/lib/safe-html";
 import { getWorkspace } from "@/lib/workspace";
 import { zonedTime } from "@/lib/format";
-import { numberByE164, numberTeammate, type PhoneNumber } from "./access";
+import { numberByE164, type PhoneNumber } from "./access";
 import { WEBHOOKS } from "./config";
 import { el, twiml } from "./twiml";
 
@@ -112,16 +112,16 @@ export async function inboundCallTwiml(origin: string, p: Record<string, string>
   // Twilio retries a webhook that timed out; the second ask gets the same answer without logging it again.
   let call = existing;
   if (!call) {
-    const [links, teammate] = await Promise.all([linksForPhone(caller), numberTeammate(number)]);
+    const links = await linksForPhone(caller);
     const [created] = await db
       .insert(phoneCalls)
-      .values({ callSid: p.CallSid, direction: "inbound", from: caller, to: number.number, phoneNumberId: number.id, userId: teammate?.id ?? null, status: "ringing", forwardedTo: forwardTo, personId: links.personId, organizationId: links.organizationId, clientId: links.clientId })
+      .values({ callSid: p.CallSid, direction: "inbound", from: caller, to: number.number, phoneNumberId: number.id, userId: number.forwardUserId, status: "ringing", forwardedTo: forwardTo, personId: links.personId, organizationId: links.organizationId, clientId: links.clientId })
       .onConflictDoNothing()
       .returning();
     call = created ?? (await db.select().from(phoneCalls).where(eq(phoneCalls.callSid, p.CallSid)))[0];
     if (created) {
       try {
-        await logInbound(created, number, teammate, links.personName ?? links.organizationName);
+        await logInbound(created, number, links.personName ?? links.organizationName);
       } catch (err) {
         // Not logged: forget the call, so it isn't on record half-done (the caller hears an apology and can call again).
         await db.delete(phoneCalls).where(eq(phoneCalls.id, created.id));
@@ -149,16 +149,14 @@ export async function inboundCallTwiml(origin: string, p: Record<string, string>
   );
 }
 
-/**
- * `forwardUser`: who looks after the number (numberTeammate), whose cell it rang if theirs.
- * `callerName`: the person (or organization line) the number matched, if any.
- */
-async function logInbound(call: typeof phoneCalls.$inferSelect, number: PhoneNumber, forwardUser: { id: string; name: string; phone: string | null } | null, callerName: string | null) {
+/** `callerName`: the person (or organization line) the number matched, if any. */
+async function logInbound(call: typeof phoneCalls.$inferSelect, number: PhoneNumber, callerName: string | null) {
   const db = await getDb();
   const ws = await getWorkspace();
+  const [forwardUser] = number.forwardUserId ? await db.select({ id: schema.users.id, name: schema.users.name }).from(schema.users).where(eq(schema.users.id, number.forwardUserId)) : [];
   const links = { personId: call.personId, organizationId: call.organizationId, clientId: call.clientId };
   const who = callerName ?? formatPhone(call.from);
-  const forwarded = forwardedLine(call.forwardedTo, forwardUser, number);
+  const forwarded = call.forwardedTo ? `Forwarded to ${forwardUser?.name ?? "a cell phone"} at ${formatPhone(call.forwardedTo)}.` : `${number.label} has no forwarding number, so no one picked up.`;
   const now = new Date();
   await db.insert(activities).values({
     type: "call",
@@ -167,7 +165,7 @@ async function logInbound(call: typeof phoneCalls.$inferSelect, number: PhoneNum
     body: textToHtml(`${forwarded} Came in on ${number.label}, ${formatPhone(number.number)}.`),
     occurredAt: now,
     userId: null,
-    assigneeId: forwardUser?.id ?? null,
+    assigneeId: number.forwardUserId,
     callId: call.id,
     ...links,
   });

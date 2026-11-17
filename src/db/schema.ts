@@ -63,8 +63,6 @@ export const users = pgTable(
     passwordHash: text("password_hash"),
     role: text("role").$type<UserRole>().notNull().default("member"),
     title: text("title"),
-    /** Their cell phone, E.164. An incoming call forwarded to it leaves its write-up task with them. */
-    phone: text("phone"),
     prefs: jsonb("prefs").$type<UserPrefs>().notNull().default({}),
     /** Deactivated teammates can't sign in, but everything they did stays attributed to them. */
     deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),

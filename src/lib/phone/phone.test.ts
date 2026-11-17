@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { addDays, daysCovered, mondayOf, weekDays } from "../calendar-week";
 import { digitsOf, formatPhone, matchKey, smsSegments, toE164 } from "./numbers";
-import { callOutcome, formatCallDuration, forwardedLine, laterTextStatus, numberTeammateId, optKeyword } from "./rules";
+import { callOutcome, formatCallDuration, laterTextStatus, optKeyword } from "./rules";
 import { liveCheckDue } from "../live-rules";
 
 describe("phone numbers", () => {
@@ -94,42 +94,6 @@ describe("calendar weeks", () => {
     assert.deepEqual(daysCovered({ start: "2026-11-16T22:00:00Z", end: "2026-11-17T00:00:00Z", allDay: false }, week, utc), ["2026-11-16"]);
     // No end: just its start day.
     assert.deepEqual(daysCovered({ start: "2026-11-19T15:00:00Z", end: null, allDay: false }, week, utc), ["2026-11-19"]);
-  });
-});
-
-describe("who looks after a number", () => {
-  const team = [
-    { id: "sam", phone: "+13035550123", active: true },
-    { id: "ana", phone: null, active: true },
-    { id: "old", phone: "+13035550199", active: false },
-  ];
-
-  it("gives calls to the teammate an admin picked on the number, whatever cell phones say", () => {
-    assert.equal(numberTeammateId({ forwardTo: "+13035550123", forwardUserId: "ana" }, team), "ana");
-    assert.equal(numberTeammateId({ forwardTo: null, forwardUserId: "ana" }, team), "ana");
-  });
-
-  it("with nobody picked, gives them to the teammate whose cell the number forwards to, however it was typed", () => {
-    assert.equal(numberTeammateId({ forwardTo: "(303) 555-0123", forwardUserId: null }, team), "sam");
-    assert.equal(numberTeammateId({ forwardTo: "+13035550111", forwardUserId: null }, team), null);
-  });
-
-  it("matches nobody when two teammates claim the same cell", () => {
-    const twice = [...team, { id: "copy", phone: "303-555-0123", active: true }];
-    assert.equal(numberTeammateId({ forwardTo: "+13035550123", forwardUserId: null }, twice), null);
-  });
-
-  it("skips deactivated teammates", () => {
-    assert.equal(numberTeammateId({ forwardTo: "+13035550199", forwardUserId: null }, team), null);
-    assert.equal(numberTeammateId({ forwardTo: null, forwardUserId: "old" }, team), null);
-  });
-
-  it("says where a call was forwarded", () => {
-    const number = { label: "Main line" };
-    assert.equal(forwardedLine("+13035550123", { name: "Sam", phone: "+13035550123" }, number), "Forwarded to Sam's cell, (303) 555-0123.");
-    assert.equal(forwardedLine("+13035550123", { name: "Ana", phone: null }, number), "Forwarded to (303) 555-0123, for Ana.");
-    assert.equal(forwardedLine("+13035550123", null, number), "Forwarded to (303) 555-0123.");
-    assert.equal(forwardedLine(null, null, number), "Main line has no forwarding number, so no one picked up.");
   });
 });
 

@@ -23,7 +23,7 @@ function secret() {
 
 export type User = typeof schema.users.$inferSelect;
 /** What the browser may know about the signed-in teammate. */
-export type Viewer = Pick<User, "id" | "name" | "email" | "role" | "title" | "phone" | "prefs">;
+export type Viewer = Pick<User, "id" | "name" | "email" | "role" | "title" | "prefs">;
 
 export async function createSession(userId: string) {
   const db = await getDb();
@@ -141,7 +141,7 @@ export async function actionCan(permission: Permission) {
 export const actionEditor = () => actionCan("records:write");
 
 export function toViewer(u: User): Viewer {
-  return { id: u.id, name: u.name, email: u.email, role: u.role, title: u.title, phone: u.phone, prefs: u.prefs };
+  return { id: u.id, name: u.name, email: u.email, role: u.role, title: u.title, prefs: u.prefs };
 }
 
 export async function hashToken(token: string) {

@@ -8,14 +8,12 @@ import { PasswordInput } from "@/components/auth/password-input";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
-import { formatPhone } from "@/lib/phone/numbers";
 import { Section } from "./nav";
 
 export function ProfileSettings() {
   const { viewer } = useApp();
   const [name, setName] = useState(viewer.name);
   const [title, setTitle] = useState(viewer.title ?? "");
-  const [phone, setPhone] = useState(viewer.phone ? formatPhone(viewer.phone) : "");
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [pending, start] = useTransition();
@@ -27,7 +25,7 @@ export function ProfileSettings() {
           onSubmit={(e) => {
             e.preventDefault();
             start(async () => {
-              const r = await updateProfile({ name, title: title || null, phone: phone || null });
+              const r = await updateProfile({ name, title: title || null });
               if (r.ok) toast.success("Profile saved");
               else toast.error(r.error);
             });
@@ -36,9 +34,6 @@ export function ProfileSettings() {
           <Field label="Name">{(p) => <Input {...p} value={name} onChange={(e) => setName(e.target.value)} required />}</Field>
           <Field label="Job title" optional>
             {(p) => <Input {...p} value={title} onChange={(e) => setTitle(e.target.value)} />}
-          </Field>
-          <Field label="Cell phone" optional hint="Calls to a team number that ring this phone leave their write-up task with you, unless an admin picked someone else for that number.">
-            {(p) => <Input {...p} type="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />}
           </Field>
           <Field label="Email" hint="Ask an admin to change your sign-in email.">
             {(p) => <Input {...p} value={viewer.email} disabled />}
