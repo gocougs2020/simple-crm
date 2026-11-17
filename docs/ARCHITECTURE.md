@@ -54,6 +54,7 @@ app.config.ts        product defaults (name, theme, layout), overridable per dep
 | `custom_fields` | Field definitions per record type. Values live on the record, keyed by a stable `key` |
 | `email_templates`, `campaigns`, `audiences`, `outbound_emails` | Email. `audiences` are saved campaign filters. `outbound_emails` records every message sent, with its reply-to, attachments and Resend delivery status |
 | `inbox_threads`, `inbox_messages` | A mirror of the workspace's Resend inboxes, linked to people, organizations and clients |
+| `inbox_sends` | Who sent each email from the inbox page, by Resend's id, so the sync credits them however the send and the webhook race |
 | `people_imports` | What each spreadsheet import created and changed, so it can be undone |
 | `external_ids` | Which record here came from which record in Pipedrive, so the [Pipedrive import](PIPEDRIVE-IMPORT.md) can run again without duplicating and be removed cleanly |
 | `connected_accounts`, `synced_emails` | Each teammate's connected Microsoft 365 mailbox and calendar (tokens encrypted), and every message the mailbox sync looked at: copied or kept out, why, and the screen's probability. See [MICROSOFT.md](MICROSOFT.md) |
@@ -108,6 +109,7 @@ Choices worth knowing:
 - Domains and inboxes are managed through the Resend API from Settings → Email domains (admins). Resend stays the source of truth; nothing about a domain is stored here. `RESEND_DOMAINS` (optional) limits the CRM to some of the account's domains: `inEmailScope` in `src/lib/email.ts` filters `listInboxes`, the settings list and `syncThread` (so webhook events for other inboxes are ignored), and `assertDomainInScope` / `assertInboxInScope` guard every action that changes or sends from one.
 - `src/lib/email/inbox.ts` mirrors threads into `inbox_threads` / `inbox_messages`. Each message becomes an `email` activity, so it shows on the timelines of the thread's person, organization and client. An email sent from a record (which already logged an activity) is matched by its Resend id and reused, so nothing shows twice.
 - Links come from addresses: the first participant who is a person in the CRM, else an organization whose website matches the domain; the client is the one tied to that person or organization (current first). Linking a thread by hand sets `linked_by_hand`, and later syncs keep it.
+- Every email sent is credited to a teammate (the activity's `user_id`), shown as their initials in the conversation: one-off emails and inbox replies to whoever sent them, campaign emails to whoever created the campaign, labeled as a campaign and styled apart. Inbox replies and new emails record the sender in `inbox_sends` the moment Resend accepts them, and the sync credits the email from there whichever syncs it first: the send or Resend's webhook.
 - Unread follows the record's owner, the same as text conversations (see [Unread](#unread-email-and-texts)). The thread's `read` flag is Resend's, kept in step both ways.
 
 ## Unread (email and texts)

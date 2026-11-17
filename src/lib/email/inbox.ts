@@ -11,7 +11,7 @@ import { sanitizeHtml } from "@/lib/safe-html";
 import { deliveryEvents } from "./delivery-status";
 import { inboundEmail } from "@/lib/push/triggers";
 
-const { inboxThreads, inboxMessages, activities, outboundEmails } = schema;
+const { inboxThreads, inboxMessages, inboxSends, activities, outboundEmails } = schema;
 
 /**
  * Resend inboxes, mirrored into the CRM. Resend receives and stores the mail;
@@ -255,11 +255,32 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
       continue;
     }
     if (!created) await db.update(activities).set({ inboxThreadId: thread.id, ...links }).where(eq(activities.id, activityId));
+    // Sent from the inbox page: credit whoever sent it. Read after the activity exists, so a send recorded at any moment is caught here or by `creditSender`.
+    if (created && m.direction === "outbound") await creditActivity(activityId, m.id);
     if (m.direction === "inbound") await inboundEmail({ id: m.id, from: m.from, subject: m.subject, sentAt, threadId: thread.id, ...links });
   }
   if (existing && !existing.linkedByHand && (existing.personId !== links.personId || existing.organizationId !== links.organizationId || existing.clientId !== links.clientId)) await applyThreadLinks(thread.id);
   else if (thread.lastMessageAt) await touch(links, thread.lastMessageAt);
   return thread;
+}
+
+/** Credits an email's activity to the teammate who sent it from the inbox page, if one did and nobody is credited yet. */
+async function creditActivity(activityId: string, resendEmailId: string) {
+  const db = await getDb();
+  const [s] = await db.select({ userId: inboxSends.userId }).from(inboxSends).where(eq(inboxSends.resendEmailId, resendEmailId));
+  if (s?.userId) await db.update(activities).set({ userId: s.userId, assigneeId: s.userId }).where(and(eq(activities.id, activityId), isNull(activities.userId)));
+}
+
+/**
+ * Records who sent an email from the inbox page, the moment Resend accepts
+ * it. Whichever syncs the message first (this send or Resend's webhook), the
+ * email ends up credited to them.
+ */
+export async function creditSender(resendEmailId: string, userId: string) {
+  const db = await getDb();
+  await db.insert(inboxSends).values({ resendEmailId, userId }).onConflictDoNothing();
+  const [msg] = await db.select({ activityId: inboxMessages.activityId }).from(inboxMessages).where(eq(inboxMessages.resendEmailId, resendEmailId));
+  if (msg?.activityId) await creditActivity(msg.activityId, resendEmailId);
 }
 
 /**

@@ -863,6 +863,18 @@ export const inboxMessages = pgTable(
   (t) => [uniqueIndex("inbox_messages_resend_idx").on(t.resendEmailId), index("inbox_messages_thread_idx").on(t.threadId, t.sentAt)],
 );
 
+/**
+ * Who sent each email from the inbox page (a reply or a new email), by
+ * Resend's id. The send and Resend's webhook race to sync the message; the
+ * sync credits the sender from here whichever wins, so every email the team
+ * sends says who sent it.
+ */
+export const inboxSends = pgTable("inbox_sends", {
+  resendEmailId: text("resend_email_id").primaryKey(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+});
+
 // ─── Imports from other CRMs ─────────────────────────────────────────────
 
 /**

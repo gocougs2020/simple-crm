@@ -12,6 +12,7 @@ import {
   EnvelopeIcon as EnvelopeSolid,
   ExclamationTriangleIcon,
   InboxIcon,
+  MegaphoneIcon,
   PaperClipIcon,
   PencilSquareIcon,
   TrashIcon,
@@ -23,6 +24,7 @@ import { RecordPicker } from "@/components/records/record-picker";
 import { PageHeader } from "@/components/shell/app-shell";
 import { SearchBox } from "@/components/table/toolbar";
 import { useListParams } from "@/components/table/use-params";
+import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -75,7 +77,10 @@ export type OpenThread = {
     html: string | null;
     sentAt: string;
     attachments: { id: string; filename: string | null; size: number | null }[];
+    /** The teammate who sent it (a campaign's creator for campaign email); null for mail that came in. */
     userId: string | null;
+    campaignId: string | null;
+    campaignName: string | null;
   }[];
 };
 
@@ -406,28 +411,40 @@ function ThreadPane({ thread }: { thread: OpenThread }) {
 
       <ol className="flex flex-col gap-3 px-4 py-4 lg:px-6">
         {thread.messages.map((m) => {
-          const author = m.direction === "outbound" ? member(m.userId) : undefined;
+          const out = m.direction === "outbound";
+          const campaign = out && !!m.campaignId;
+          const author = out ? member(m.userId) : undefined;
           return (
-            <li key={m.id} className={clsx("rounded-xl border px-4 py-3", m.direction === "outbound" ? "border-line bg-sunken/40" : "border-line bg-surface")}>
-              <div className="flex flex-wrap items-baseline gap-x-2 text-[13px]">
-                <span className="font-medium text-primary">{author ? `${author.name} (${nameOf(m.from)})` : nameOf(m.from)}</span>
-                <span className="min-w-0 truncate text-muted">
-                  to {m.to.map(nameOf).join(", ")}
-                  {m.cc.length ? ` · cc ${m.cc.map(nameOf).join(", ")}` : ""}
-                </span>
-                <Tooltip content={formatFull(m.sentAt, tz)}>
-                  <time className="ml-auto text-[12px] text-faint" dateTime={m.sentAt} suppressHydrationWarning>
-                    {formatDateTime(m.sentAt, tz)}
-                  </time>
-                </Tooltip>
+            <li key={m.id} className={clsx("flex gap-3 rounded-xl border px-4 py-3", campaign ? "border-dashed border-line-strong bg-accent-soft/50" : out ? "border-line bg-sunken/40" : "border-line bg-surface")}>
+              {/* Whose it is at a glance: the teammate who sent it (or created the campaign), else the sender. */}
+              <Avatar name={author?.name ?? nameOf(m.from)} size="md" className="mt-0.5" />
+              <div className="min-w-0 flex-1">
+                {campaign ? (
+                  <p className="mb-1 flex items-center gap-1 text-[11.5px] font-medium text-secondary">
+                    <MegaphoneIcon className="size-3.5 text-faint" aria-hidden />
+                    Campaign{m.campaignName ? `: ${m.campaignName}` : ""}
+                  </p>
+                ) : null}
+                <div className="flex flex-wrap items-baseline gap-x-2 text-[13px]">
+                  <span className="font-medium text-primary">{author ? `${campaign ? "Campaign by " : ""}${author.name} (${nameOf(m.from)})` : nameOf(m.from)}</span>
+                  <span className="min-w-0 truncate text-muted">
+                    to {m.to.map(nameOf).join(", ")}
+                    {m.cc.length ? ` · cc ${m.cc.map(nameOf).join(", ")}` : ""}
+                  </span>
+                  <Tooltip content={formatFull(m.sentAt, tz)}>
+                    <time className="ml-auto text-[12px] text-faint" dateTime={m.sentAt} suppressHydrationWarning>
+                      {formatDateTime(m.sentAt, tz)}
+                    </time>
+                  </Tooltip>
+                </div>
+                {m.html ? <div className="prose-crm mt-2 text-[13.5px] break-words" dangerouslySetInnerHTML={{ __html: m.html }} /> : <p className="mt-2 text-[13px] text-muted">No text in this email.</p>}
+                {m.attachments.length ? (
+                  <p className="mt-2 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
+                    <PaperClipIcon className="size-3.5" aria-hidden />
+                    {m.attachments.map((a) => a.filename ?? "Attachment").join(", ")}
+                  </p>
+                ) : null}
               </div>
-              {m.html ? <div className="prose-crm mt-2 text-[13.5px] break-words" dangerouslySetInnerHTML={{ __html: m.html }} /> : <p className="mt-2 text-[13px] text-muted">No text in this email.</p>}
-              {m.attachments.length ? (
-                <p className="mt-2 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
-                  <PaperClipIcon className="size-3.5" aria-hidden />
-                  {m.attachments.map((a) => a.filename ?? "Attachment").join(", ")}
-                </p>
-              ) : null}
             </li>
           );
         })}

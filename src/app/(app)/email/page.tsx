@@ -122,9 +122,25 @@ async function Inbox({ searchParams }: Pick<PageProps<"/email">, "searchParams">
       openOrg = row.thread.organizationId;
       const m = schema.inboxMessages;
       const messages = await db
-        .select({ id: m.id, direction: m.direction, from: m.from, to: m.to, cc: m.cc, subject: m.subject, html: m.html, sentAt: m.sentAt, attachments: m.attachments, userId: schema.activities.userId })
+        .select({
+          id: m.id,
+          direction: m.direction,
+          from: m.from,
+          to: m.to,
+          cc: m.cc,
+          subject: m.subject,
+          html: m.html,
+          sentAt: m.sentAt,
+          attachments: m.attachments,
+          userId: schema.activities.userId,
+          campaignId: schema.outboundEmails.campaignId,
+          campaignName: schema.campaigns.name,
+        })
         .from(m)
         .leftJoin(schema.activities, eq(schema.activities.id, m.activityId))
+        // Campaign emails are matched to the send that logged them, which says which campaign it was.
+        .leftJoin(schema.outboundEmails, eq(schema.outboundEmails.id, schema.activities.emailId))
+        .leftJoin(schema.campaigns, eq(schema.campaigns.id, schema.outboundEmails.campaignId))
         .where(and(eq(m.threadId, row.thread.id), isNull(m.hiddenAt)))
         .orderBy(asc(m.sentAt));
       open = {

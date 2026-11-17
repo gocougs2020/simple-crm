@@ -15,8 +15,8 @@ export type TextFilter = "all" | "unread" | "mine" | "unknown";
 const personName = sql<string | null>`case when ${people.id} is null then null else ${people.firstName} || coalesce(' ' || ${people.lastName}, '') end`;
 
 /** The latest text that wasn't deleted from a record (emptied), for the list's preview. */
-const latest = sql<{ body: string; direction: "inbound" | "outbound"; media: number; status: TextStatus } | null>`(
-  select json_build_object('body', m.body, 'direction', m.direction, 'media', jsonb_array_length(m.media), 'status', m.status)
+const latest = sql<{ body: string; direction: "inbound" | "outbound"; media: number; status: TextStatus; userId: string | null } | null>`(
+  select json_build_object('body', m.body, 'direction', m.direction, 'media', jsonb_array_length(m.media), 'status', m.status, 'userId', m.user_id)
   from text_messages m
   where m.thread_id = "text_threads"."id" and m.campaign_id is null and (m.body <> '' or jsonb_array_length(m.media) > 0)
   order by m.created_at desc limit 1)`;

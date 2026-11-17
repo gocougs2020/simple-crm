@@ -99,6 +99,13 @@
       "when": 1794888927767,
       "tag": "0013_text-threads",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794890670888,
+      "tag": "0014_inbox-senders",
+      "breakpoints": true
     }
   ]
 }

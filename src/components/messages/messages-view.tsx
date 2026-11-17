@@ -4,7 +4,7 @@ import clsx from "clsx";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { ArrowUpIcon, ChatBubbleLeftEllipsisIcon, ChevronLeftIcon, EllipsisHorizontalIcon, EnvelopeIcon, EnvelopeOpenIcon, ExclamationCircleIcon, PaperClipIcon, PencilSquareIcon } from "@heroicons/react/20/solid";
+import { ArrowUpIcon, ChatBubbleLeftEllipsisIcon, ChevronLeftIcon, EllipsisHorizontalIcon, EnvelopeIcon, EnvelopeOpenIcon, ExclamationCircleIcon, MegaphoneIcon, PaperClipIcon, PencilSquareIcon } from "@heroicons/react/20/solid";
 import { ChatBubbleLeftRightIcon } from "@heroicons/react/24/outline";
 import { markTextThreadRead, openTextThread, replyToTextThread } from "@/actions/messages";
 import { sendTextMessage } from "@/actions/phone";
@@ -183,14 +183,13 @@ function ThreadList({ threads, filters, unread, openId, hidden }: { threads: Tex
 }
 
 function ThreadItem({ thread: t, active, showNumber }: { thread: TextThreadRow; active: boolean; showNumber: boolean }) {
-  const { workspace, viewer } = useApp();
+  const { workspace, viewer, member } = useApp();
   const { set } = useListParams();
   const [, start] = useTransition();
   const name = nameOf(t);
   const state = readStateFor({ read: t.read, ownerId: t.ownerId }, viewer.id);
-  const preview = t.latest
-    ? `${t.latest.direction === "outbound" ? "You: " : ""}${t.latest.body || (t.latest.media ? "Sent a picture or file" : "")}`
-    : "Deleted from the record";
+  const sentBy = t.latest?.direction === "outbound" ? (t.latest.userId === viewer.id ? "You" : (member(t.latest.userId)?.name.split(" ")[0] ?? "Team")) : null;
+  const preview = t.latest ? `${sentBy ? `${sentBy}: ` : ""}${t.latest.body || (t.latest.media ? "Sent a picture or file" : "")}` : "Deleted from the record";
   const failed = t.latest?.direction === "outbound" && (t.latest.status === "failed" || t.latest.status === "undelivered");
   const mark = (read: boolean) =>
     start(async () => {
@@ -356,9 +355,15 @@ function Conversation({ thread }: { thread: Open }) {
           {thread.messages.map((m, i) => {
             // A day divider before the first text of each day.
             const prev = thread.messages[i - 1];
+            const next = thread.messages[i + 1];
             const divider = !prev || dayKey(prev.createdAt, tz) !== dayKey(m.createdAt, tz);
             const out = m.direction === "outbound";
+            const campaign = !!m.campaignId;
+            // Teammates are credited on every text they sent; campaign texts go to whoever created the campaign.
             const author = out ? member(m.userId) : undefined;
+            const sender = out ? (author?.name ?? "A teammate") : (thread.personName ?? thread.organizationName ?? formatPhone(thread.remote));
+            // Initials once per run of texts from the same sender, like a chat app.
+            const sameAsNext = !!next && next.direction === m.direction && next.userId === m.userId && !!next.campaignId === campaign && dayKey(next.createdAt, tz) === dayKey(m.createdAt, tz);
             const failed = m.status === "failed" || m.status === "undelivered";
             return (
               <li key={m.id} className="flex flex-col">
@@ -367,31 +372,47 @@ function Conversation({ thread }: { thread: Open }) {
                     {formatDay(m.createdAt, tz)}
                   </p>
                 ) : null}
-                <div className={clsx("flex max-w-[80%] flex-col", out ? "items-end self-end" : "items-start self-start")}>
-                  {m.campaignId ? <span className="mb-0.5 text-[11px] text-faint">Campaign{m.campaignName ? `: ${m.campaignName}` : ""}</span> : null}
-                  <div
-                    className={clsx(
-                      "rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed break-words whitespace-pre-wrap",
-                      m.deleted ? "border border-dashed border-line bg-transparent text-muted italic" : out ? (failed ? "border border-error-border bg-error-surface text-primary" : "bg-accent text-accent-foreground") : "border border-line bg-surface text-primary",
-                      out ? "rounded-br-md" : "rounded-bl-md",
-                    )}
-                  >
-                    {m.deleted ? "Deleted from the record" : m.body}
-                    {m.media.length ? (
-                      <span className={clsx("flex items-center gap-1 text-[12px]", m.body ? "mt-1" : "", out ? "opacity-80" : "text-muted")}>
-                        <PaperClipIcon className="size-3.5" aria-hidden />
-                        {m.media.length === 1 ? "A picture or file" : `${m.media.length} pictures or files`} (open them in Twilio)
+                <div className={clsx("flex max-w-[85%] items-end gap-2", out ? "flex-row-reverse self-end" : "self-start")}>
+                  <span className="mb-5 flex w-6 shrink-0 justify-center">{sameAsNext ? null : <Avatar name={out ? sender : (thread.personName ?? thread.organizationName ?? "#")} size="sm" />}</span>
+                  <div className={clsx("flex min-w-0 flex-col", out ? "items-end" : "items-start")}>
+                    {campaign ? (
+                      <span className="mb-0.5 flex items-center gap-1 text-[11px] font-medium text-secondary">
+                        <MegaphoneIcon className="size-3.5 text-faint" aria-hidden />
+                        Campaign{m.campaignName ? `: ${m.campaignName}` : ""}
                       </span>
                     ) : null}
+                    <div
+                      className={clsx(
+                        "rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed break-words whitespace-pre-wrap",
+                        m.deleted
+                          ? "border border-dashed border-line bg-transparent text-muted italic"
+                          : out
+                            ? failed
+                              ? "border border-error-border bg-error-surface text-primary"
+                              : campaign
+                                ? "border border-dashed border-line-strong bg-accent-soft text-accent-soft-foreground"
+                                : "bg-accent text-accent-foreground"
+                            : "border border-line bg-surface text-primary",
+                        out ? "rounded-br-md" : "rounded-bl-md",
+                      )}
+                    >
+                      {m.deleted ? "Deleted from the record" : m.body}
+                      {m.media.length ? (
+                        <span className={clsx("flex items-center gap-1 text-[12px]", m.body ? "mt-1" : "", out ? "opacity-80" : "text-muted")}>
+                          <PaperClipIcon className="size-3.5" aria-hidden />
+                          {m.media.length === 1 ? "A picture or file" : `${m.media.length} pictures or files`} (open them in Twilio)
+                        </span>
+                      ) : null}
+                    </div>
+                    <Tooltip content={formatFull(m.createdAt, tz)}>
+                      <span className="mt-0.5 flex items-center gap-1 text-[11px] text-faint" suppressHydrationWarning>
+                        {out ? `${campaign ? `Campaign by ${sender}` : sender} · ` : ""}
+                        {formatTime(m.createdAt, tz)}
+                        {out && statusLabel[m.status] ? <span className={failed ? "text-error" : undefined}>· {statusLabel[m.status]}</span> : null}
+                      </span>
+                    </Tooltip>
+                    {out && failed && m.error ? <p className="mt-0.5 max-w-full text-right text-[11.5px] text-error">{m.error}</p> : null}
                   </div>
-                  <Tooltip content={formatFull(m.createdAt, tz)}>
-                    <span className="mt-0.5 flex items-center gap-1 text-[11px] text-faint" suppressHydrationWarning>
-                      {out && author ? `${author.name} · ` : ""}
-                      {formatTime(m.createdAt, tz)}
-                      {out && statusLabel[m.status] ? <span className={failed ? "text-error" : undefined}>· {statusLabel[m.status]}</span> : null}
-                    </span>
-                  </Tooltip>
-                  {out && failed && m.error ? <p className="mt-0.5 max-w-full text-right text-[11.5px] text-error">{m.error}</p> : null}
                 </div>
               </li>
             );
