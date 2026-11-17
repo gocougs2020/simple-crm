@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { contactKeys, distinct, emailKey, fillGaps, groupByName, groupByShared, keepContactsOnImport, mergeCustom, phoneKey, pickSurvivor, planOrganizationMerge, planPersonMerge, type OrgFields, type PersonFields } from "./merge";
+import { contactKeys, distinct, emailKey, fillGaps, groupByName, groupClients, pickClientSurvivor, planClientMerge, type ClientFields, groupByShared, keepContactsOnImport, mergeCustom, phoneKey, pickSurvivor, planOrganizationMerge, planPersonMerge, type OrgFields, type PersonFields } from "./merge";
 
 const day = (n: number) => new Date(Date.UTC(2024, 0, n));
 
@@ -40,6 +40,28 @@ const person = (id: string, n: number, extra: Partial<PersonFields> = {}): Perso
   decisionMaker: false,
   textConsentAt: null,
   textOptOutAt: null,
+  lastActivityAt: null,
+  archivedAt: null,
+  ...extra,
+});
+
+const client = (id: string, n: number, extra: Partial<ClientFields> = {}): ClientFields => ({
+  id,
+  createdAt: day(n),
+  name: "Acme",
+  category: "prospective",
+  value: 0,
+  expectedCloseDate: null,
+  startedOn: null,
+  endedOn: null,
+  churnReason: null,
+  health: null,
+  stripeCustomerId: null,
+  tags: [],
+  personId: null,
+  organizationId: "org1",
+  ownerId: null,
+  custom: {},
   lastActivityAt: null,
   archivedAt: null,
   ...extra,
@@ -165,5 +187,39 @@ describe("combining duplicates", () => {
       otherPhones: [],
     });
     assert.deepEqual(distinct(["12", " 12 ", "(303) 555-0123", "3035550123"], phoneKey), ["12", "(303) 555-0123"]);
+  });
+});
+
+describe("merging clients", () => {
+  it("groups one organization's clients, using where merged organizations and people will point", () => {
+    const rows = [client("a", 1), client("b", 2, { organizationId: "org1-dup" }), client("c", 3, { organizationId: "org2" }), client("d", 4, { organizationId: null, personId: "p1" }), client("e", 5, { organizationId: null, personId: "p1-dup" }), client("f", 6, { organizationId: null })];
+    const merged = { "org1-dup": "org1", "p1-dup": "p1" } as Record<string, string>;
+    const groups = groupClients(
+      rows,
+      (id) => merged[id] ?? id,
+      (id) => merged[id] ?? id,
+    );
+    assert.deepEqual(
+      groups.map((g) => g.map((r) => r.id)),
+      [
+        ["a", "b"],
+        ["d", "e"],
+      ],
+    );
+  });
+
+  it("keeps the client that's furthest along, and fills its blanks from the same category", () => {
+    const { survivor, donors } = pickClientSurvivor([
+      client("old-prospect", 1, { value: 500_00, expectedCloseDate: "2024-06-01", tags: ["referral"] }),
+      client("current", 2, { category: "current", startedOn: "2023-05-01" }),
+      client("past", 3, { category: "past", startedOn: "2021-01-01", churnReason: "Price", health: "at_risk" as ClientFields["health"] }),
+      client("archived-current", 0, { category: "current", archivedAt: day(9), stripeCustomerId: "cus_1" }),
+    ]);
+    assert.equal(survivor.id, "current");
+    assert.deepEqual(
+      donors.map((d) => d.id),
+      ["past", "old-prospect", "archived-current"],
+    );
+    assert.deepEqual(planClientMerge(survivor, donors), { stripeCustomerId: "cus_1", startedOn: "2021-01-01", tags: ["referral"] });
   });
 });

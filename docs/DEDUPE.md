@@ -1,6 +1,6 @@
 # Merging duplicates
 
-`pnpm dedupe` finds duplicate organizations and people and merges each group into one record. Run it whenever duplicates may have come in: after the Pipedrive import, and again after the final one. A second run only touches new duplicates; when there are none it changes nothing.
+`pnpm dedupe` finds duplicate organizations and people and merges each group into one record, then makes sure each organization has one client. Run it whenever duplicates may have come in: after the Pipedrive import, and again after the final one. A second run only touches new duplicates; when there are none it changes nothing.
 
 ## Run it
 
@@ -19,12 +19,12 @@ pnpm dedupe --yes
 | Option | What it does |
 | --- | --- |
 | `--yes` | Merge and delete. Without it, nothing is written |
-| `--only=organizations` | Only organizations (`--only=people` for only people) |
+| `--only=organizations` | Only organizations (`--only=people`, `--only=clients` for only those) |
 | `--max-group=25` | Merge groups of people up to this size. Bigger groups are listed and skipped (10 by default): they usually mean a shared line or inbox, like a switchboard or info@, rather than one person |
 | `--verbose` | List every group on screen, not just the first 25 |
 | `--as=you@company.com` | Record the merges as this teammate instead of the owner |
 
-Organizations go first, so the people merged next already point at the organizations that were kept. Each group merges in one transaction: if something fails, that group is left as it was and running again picks it up.
+Organizations go first, then people, then clients, so each step finds the records the one before kept (the preview groups clients as they'll be once organizations and people are merged). Each group merges in one transaction: if something fails, that group is left as it was and running again picks it up.
 
 Take a backup first (in Neon, create a branch), since merges can't be undone from the app.
 
@@ -43,9 +43,17 @@ Take a backup first (in Neon, create a branch), since merges can't be undone fro
 6. **Opt-outs win.** If any duplicate unsubscribed from campaigns, opted out or replied STOP, the merged person has too.
 7. **The duplicates are deleted**, and the kept record's history says what was merged into it.
 
+## Clients
+
+Once duplicate organizations are merged, their clients belong to the same organization. Each organization ends up with **one client**, as the Pipedrive import builds them; for clients with no organization, each person does. This applies to any organization with more than one client, not only merged ones.
+
+- **The client kept** is one that isn't archived, then the one furthest along (current, then past, then prospective, the same ranking the import uses for deals), then the oldest. Its category, pipeline, stage and name stay.
+- **Its blanks are filled** from the others, newest first: Stripe customer, contact, owner and custom fields from any of them; value, expected close, health, end date and churn reason only from clients in the same category, since a prospect's expected value means nothing on a current client. "Client since" becomes the earliest start date of any of them, and tags are combined.
+- **Everything moves to it**: services (current and ended), performance metrics, notes, tasks, meetings, emails, calls, texts, files and history.
+
 ## With the Pipedrive import
 
-Each duplicate's link to its Pipedrive record moves to the kept record, so running `pnpm import:pipedrive` again updates the kept record instead of bringing the duplicates back. For a merged record, Pipedrive only fills its blanks (several Pipedrive records now stand for it, and they would otherwise overwrite each other); new emails, phones and organizations from Pipedrive are added to its lists. Notes, activities and email that are new in Pipedrive land on the kept record.
+Each duplicate's link to its Pipedrive record moves to the kept record, so running `pnpm import:pipedrive` again updates the kept record instead of bringing the duplicates back. For a merged record, Pipedrive only fills its blanks (several Pipedrive records now stand for it, and they would otherwise overwrite each other); new emails, phones and organizations from Pipedrive are added to its lists. Notes, activities and email that are new in Pipedrive land on the kept record. A merged client's Pipedrive deals are planned together, as one client, so its category and stage come from the furthest of all of them.
 
 So the order for the final move is:
 

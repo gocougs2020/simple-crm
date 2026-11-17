@@ -1,16 +1,17 @@
 /**
- * Finds duplicate organizations and people and merges them. See docs/DEDUPE.md.
+ * Finds duplicate organizations, people and clients and merges them. See docs/DEDUPE.md.
  *
  *   pnpm dedupe                          show what would be merged and deleted, write nothing
  *   pnpm dedupe --yes                    merge and delete
- *   pnpm dedupe --only=organizations     just organizations (or --only=people)
+ *   pnpm dedupe --only=organizations     just organizations (or --only=people, --only=clients)
  *   pnpm dedupe --as=you@company.com     record the merges as this teammate instead of the owner
  *   pnpm dedupe --max-group=25           merge groups of people up to this size (10 by default; bigger ones are listed and skipped)
  *
  * Organizations: the same whole name, ignoring capitals. People: a shared email
  * address or phone number. In each group the oldest record with anything on it
  * is kept, its blanks are filled from the others, everything linked to the
- * others moves to it, and the others are deleted. Safe to run again: a second
+ * others moves to it, and the others are deleted. Then each organization's
+ * clients (or, without one, each person's) become one client. Safe to run again: a second
  * run finds nothing to do until new duplicates arrive (after another
  * Pipedrive import, say).
  *
@@ -23,7 +24,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import * as schema from "@/db/schema";
 import type { CampaignAudience } from "@/db/schema";
-import { contactKeys, groupByName, groupByShared, pickSurvivor, planOrganizationMerge, planPersonMerge } from "@/lib/crm/merge";
+import { contactKeys, groupByName, groupByShared, groupClients, pickClientSurvivor, pickSurvivor, planClientMerge, planOrganizationMerge, planPersonMerge } from "@/lib/crm/merge";
 
 type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
 
@@ -116,10 +117,10 @@ async function personCounts(db: Database, ids: string[]) {
 
 // ─── Report ──────────────────────────────────────────────────────────────
 
-const report: string[][] = [["record", "group", "action", "id", "name", "email", "phone", "created", "people_or_orgs", "clients", "activities", "other_links"]];
+const report: string[][] = [["record", "group", "action", "id", "name", "email", "phone", "category", "created", "people_or_orgs", "clients", "activities", "other_links"]];
 const csv = (cells: string[]) => cells.map((c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(",");
-function addToReport(record: string, group: number, action: string, r: { id: string; createdAt: Date; name: string; email?: string | null; phone?: string | null }, c: Counts | undefined) {
-  report.push([record, String(group), action, r.id, r.name, r.email ?? "", r.phone ?? "", r.createdAt.toISOString().slice(0, 10), String(c?.people ?? 0), String(c?.clients ?? 0), String(c?.activities ?? 0), String(c?.other ?? 0)]);
+function addToReport(record: string, group: number, action: string, r: { id: string; createdAt: Date; name: string; email?: string | null; phone?: string | null; category?: string }, c: Counts | undefined) {
+  report.push([record, String(group), action, r.id, r.name, r.email ?? "", r.phone ?? "", r.category ?? "", r.createdAt.toISOString().slice(0, 10), String(c?.people ?? 0), String(c?.clients ?? 0), String(c?.activities ?? 0), String(c?.other ?? 0)]);
 }
 
 // ─── Shared steps ────────────────────────────────────────────────────────
@@ -158,7 +159,7 @@ async function forgetInImports(db: Database, field: "createdIds" | "createdOrgId
 }
 
 /** History of the merged records moves to the one that's kept (all but their "created" entries); external ids follow so the Pipedrive import updates the kept record instead of bringing the others back. */
-async function moveHistory(db: Database, entity: "organization" | "person", from: string[], to: string) {
+async function moveHistory(db: Database, entity: "organization" | "person" | "client", from: string[], to: string) {
   await db.delete(schema.events).where(and(eq(schema.events.entityType, entity), inArray(schema.events.entityId, from), eq(schema.events.action, "created")));
   await db
     .update(schema.events)
@@ -172,7 +173,9 @@ const briefly = (r: { id: string; name: string; createdAt: Date }) => ({ id: r.i
 
 // ─── Organizations ───────────────────────────────────────────────────────
 
+/** Returns where each merged or deleted organization went, so clients can be grouped the same way in a preview. */
 async function dedupeOrganizations(db: Database, apply: boolean, actorId: string) {
+  const movedTo = new Map<string, string>();
   const all = await db.select().from(schema.organizations);
   const groups = groupByName(all);
   const counts = await organizationCounts(
@@ -190,6 +193,7 @@ async function dedupeOrganizations(db: Database, apply: boolean, actorId: string
     addToReport("organization", i + 1, "keep", plan.survivor, counts.get(plan.survivor.id));
     for (const o of plan.merged) addToReport("organization", i + 1, "merge", o, counts.get(o.id));
     for (const o of plan.empty) addToReport("organization", i + 1, "delete (empty)", o, counts.get(o.id));
+    for (const o of [...plan.merged, ...plan.empty]) movedTo.set(o.id, plan.survivor.id);
     if (i < 25 || flag("verbose")) log(`  “${plan.survivor.name}”: keep the one from ${plan.survivor.createdAt.toISOString().slice(0, 10)}${plan.merged.length ? `, merge ${plan.merged.length}` : ""}${plan.empty.length ? `, delete ${plan.empty.length} empty` : ""}`);
     else if (i === 25) log(`  …and ${groups.length - 25} more (--verbose lists them all; the CSV has every one)`);
     if (!apply) continue;
@@ -230,6 +234,7 @@ async function dedupeOrganizations(db: Database, apply: boolean, actorId: string
     });
   }
   log(`  ${merged} to merge, ${deleted} empty to delete${apply ? ": done" : ""}`);
+  return movedTo;
 }
 
 // ─── People ──────────────────────────────────────────────────────────────
@@ -237,6 +242,7 @@ async function dedupeOrganizations(db: Database, apply: boolean, actorId: string
 const fullName = (p: { firstName: string; lastName: string | null }) => [p.firstName, p.lastName].filter(Boolean).join(" ");
 
 async function dedupePeople(db: Database, apply: boolean, actorId: string) {
+  const movedTo = new Map<string, string>();
   const all = await db.select().from(schema.people);
   const groups = groupByShared(all, contactKeys);
   const counts = await personCounts(
@@ -267,6 +273,7 @@ async function dedupePeople(db: Database, apply: boolean, actorId: string) {
     merged += plan.merged.length;
     deleted += plan.empty.length;
     const row = (p: (typeof group)[number]) => ({ ...p, name: fullName(p) });
+    for (const p of [...plan.merged, ...plan.empty]) movedTo.set(p.id, plan.survivor.id);
     addToReport("person", i + 1, "keep", row(plan.survivor), counts.get(plan.survivor.id));
     for (const p of plan.merged) addToReport("person", i + 1, "merge", row(p), counts.get(p.id));
     for (const p of plan.empty) addToReport("person", i + 1, "delete (empty)", row(p), counts.get(p.id));
@@ -315,13 +322,90 @@ async function dedupePeople(db: Database, apply: boolean, actorId: string) {
     });
   }
   log(`  ${merged} to merge, ${deleted} empty to delete${skipped ? `, ${skipped} large groups skipped` : ""}${apply ? ": done" : ""}`);
+  return movedTo;
+}
+
+// ─── Clients ─────────────────────────────────────────────────────────────
+
+async function clientCounts(db: Database, ids: string[]) {
+  const out = new Map<string, Counts>();
+  for (const batch of chunks(ids, 500)) {
+    const rows = rowsOf<Record<string, unknown>>(
+      await db.execute(sql`
+        select c.id,
+          (select count(*) from activities a where a.client_id = c.id) as activities,
+          (select count(*) from client_services cs where cs.client_id = c.id)
+            + (select count(*) from client_metrics cm where cm.client_id = c.id)
+            + (select count(*) from files f where f.client_id = c.id and f.deleted_at is null)
+            + (select count(*) from outbound_emails e where e.client_id = c.id)
+            + (select count(*) from inbox_threads t where t.client_id = c.id) as other
+        from clients c where c.id = any(${uuids(batch)})`),
+    );
+    for (const r of rows) out.set(String(r.id), { people: 0, clients: 0, activities: n(r.activities), other: n(r.other) });
+  }
+  return out;
+}
+
+/**
+ * One client per organization (or, for clients with no organization, per
+ * person), the way the Pipedrive import builds them. Runs after organizations
+ * and people, so duplicates' clients already share the kept organization;
+ * in a preview, `orgMoves` and `personMoves` say where they will.
+ */
+async function dedupeClients(db: Database, apply: boolean, actorId: string, orgMoves: Map<string, string>, personMoves: Map<string, string>) {
+  const all = await db.select().from(schema.clients);
+  const groups = groupClients(
+    all,
+    (id) => orgMoves.get(id) ?? id,
+    (id) => personMoves.get(id) ?? id,
+  );
+  const counts = await clientCounts(
+    db,
+    groups.flat().map((c) => c.id),
+  );
+  let merged = 0;
+  log(`\nClients: ${groups.length} organizations (or people) with more than one client`);
+  for (const [i, group] of groups.entries()) {
+    const { survivor, donors } = pickClientSurvivor(group);
+    merged += donors.length;
+    addToReport("client", i + 1, "keep", survivor, counts.get(survivor.id));
+    for (const c of donors) addToReport("client", i + 1, "merge", c, counts.get(c.id));
+    if (i < 25 || flag("verbose")) log(`  “${survivor.name}”: keep the ${survivor.archivedAt ? "archived " : ""}${survivor.category} client from ${survivor.createdAt.toISOString().slice(0, 10)}, merge ${donors.map((d) => `${d.category}${d.archivedAt ? " (archived)" : ""}`).join(", ")}`);
+    else if (i === 25) log(`  …and ${groups.length - 25} more (--verbose lists them all; the CSV has every one)`);
+    if (!apply) continue;
+
+    const ids = donors.map((c) => c.id);
+    const keep = survivor.id;
+    const patch = planClientMerge(survivor, donors);
+    await db.transaction(async (tx) => {
+      const t = tx as unknown as Database;
+      // Services (what they use or used) and metrics come along with everything on the timeline.
+      for (const table of [schema.clientServices, schema.clientMetrics, schema.activities, schema.files, schema.outboundEmails, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textMessages]) {
+        await t.update(table).set({ clientId: keep }).where(inArray(table.clientId, ids));
+      }
+      await moveHistory(t, "client", ids, keep);
+      await t
+        .update(schema.clients)
+        .set({ ...patch, ...summaryReset, updatedAt: new Date() })
+        .where(eq(schema.clients.id, keep));
+      await t.delete(schema.clients).where(inArray(schema.clients.id, ids));
+      await t.insert(schema.events).values({
+        entityType: "client",
+        entityId: keep,
+        action: "merged",
+        data: { merged: donors.map((c) => ({ ...briefly(c), category: c.category })), deleted: [], filled: Object.keys(patch) },
+        userId: actorId,
+      });
+    });
+  }
+  log(`  ${merged} to merge${apply ? ": done" : ""}`);
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────
 
 async function main() {
   const only = option("only");
-  if (only && only !== "organizations" && only !== "people") throw new Error("--only takes organizations or people.");
+  if (only && only !== "organizations" && only !== "people" && only !== "clients") throw new Error("--only takes organizations, people or clients.");
   const apply = flag("yes");
   const { db, close } = await connect();
   try {
@@ -330,9 +414,10 @@ async function main() {
     const actor = asEmail ? team.find((u) => u.email.toLowerCase() === asEmail) : team.find((u) => u.role === "owner" && !u.deactivatedAt);
     if (!actor) throw new Error(asEmail ? `No teammate with the email ${asEmail}.` : "Create the owner account first (open the app and sign up), then run this again.");
 
-    // Organizations first, so people merged next already point at the organizations that are kept.
-    if (only !== "people") await dedupeOrganizations(db, apply, actor.id);
-    if (only !== "organizations") await dedupePeople(db, apply, actor.id);
+    // Organizations, then people, then clients: each step finds the records the one before kept.
+    const orgMoves = !only || only === "organizations" ? await dedupeOrganizations(db, apply, actor.id) : new Map<string, string>();
+    const personMoves = !only || only === "people" ? await dedupePeople(db, apply, actor.id) : new Map<string, string>();
+    if (!only || only === "clients") await dedupeClients(db, apply, actor.id, orgMoves, personMoves);
 
     mkdirSync(".data", { recursive: true });
     const file = `.data/dedupe-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}${apply ? "" : "-preview"}.csv`;

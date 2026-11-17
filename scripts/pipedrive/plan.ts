@@ -75,12 +75,16 @@ export type ClientPlan = {
   archivedAt: Date | null;
 };
 
-/** One client per organization (or per person, for deals with no organization). */
-export function planClients(deals: PdDeal[], lk: Lookup): ClientPlan[] {
+/**
+ * One client per organization (or per person, for deals with no organization).
+ * `keyOf` folds keys together: clients that `pnpm dedupe` merged stand for
+ * several Pipedrive organizations, and their deals plan as one client.
+ */
+export function planClients(deals: PdDeal[], lk: Lookup, keyOf: (key: string) => string = (key) => key): ClientPlan[] {
   const groups = new Map<string, PdDeal[]>();
   for (const d of deals) {
     if (d.status === "deleted" || d.is_deleted || !lk.pipelines.has(d.pipeline_id) || !lk.stages.has(d.stage_id)) continue;
-    const key = d.org_id ? `org:${d.org_id}` : d.person_id ? `person:${d.person_id}` : `deal:${d.id}`;
+    const key = keyOf(d.org_id ? `org:${d.org_id}` : d.person_id ? `person:${d.person_id}` : `deal:${d.id}`);
     groups.set(key, [...(groups.get(key) ?? []), d]);
   }
   const plans: ClientPlan[] = [];

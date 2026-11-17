@@ -14,6 +14,7 @@
  *   the others: those with notes and activity first, newest first.
  */
 import type { CustomValues } from "@/db/schema";
+import type { ClientCategory, ClientHealth } from "@/lib/constants";
 import { matchKey } from "@/lib/phone/numbers";
 
 type Base = { id: string; createdAt: Date };
@@ -273,4 +274,76 @@ export function keepContactsOnImport(current: Pick<PersonFields, "email" | "phon
       .map(emailKey),
     otherPhones: distinct([current.phone, ...current.otherPhones], phoneKey).filter((p) => !phone || phoneId(p) !== phoneId(phone)),
   };
+}
+
+// ─── Clients ─────────────────────────────────────────────────────────────
+
+export type ClientFields = {
+  id: string;
+  createdAt: Date;
+  name: string;
+  category: ClientCategory;
+  value: number;
+  expectedCloseDate: string | null;
+  startedOn: string | null;
+  endedOn: string | null;
+  churnReason: string | null;
+  health: ClientHealth | null;
+  stripeCustomerId: string | null;
+  tags: string[];
+  personId: string | null;
+  organizationId: string | null;
+  ownerId: string | null;
+  custom: CustomValues;
+  lastActivityAt: Date | null;
+  archivedAt: Date | null;
+};
+
+const categoryRank: Record<ClientCategory, number> = { current: 0, past: 1, prospective: 2 };
+
+/**
+ * Clients that are the same relationship: one organization's clients, or,
+ * for clients with no organization, one person's. `organizationOf` and
+ * `personOf` say where each client will point once duplicate organizations
+ * and people are merged, so a preview groups them the same way.
+ */
+export function groupClients<T extends Base & { organizationId: string | null; personId: string | null }>(rows: T[], organizationOf: (id: string) => string = (id) => id, personOf: (id: string) => string = (id) => id) {
+  return groupByShared(rows, (c) => (c.organizationId ? [`o:${organizationOf(c.organizationId)}`] : c.personId ? [`p:${personOf(c.personId)}`] : []));
+}
+
+/**
+ * Which client of a group is kept: one that isn't archived, then the
+ * furthest along (current, then past, then prospective, as the Pipedrive
+ * import ranks deals), then the oldest. The others fill its blanks, newest
+ * first; fields that only mean something in one category (value, expected
+ * close, health, end date, churn reason) only come from clients in the same
+ * category.
+ */
+export function pickClientSurvivor<T extends ClientFields>(group: T[]) {
+  const sorted = [...group].sort((a, b) => Number(!!a.archivedAt) - Number(!!b.archivedAt) || categoryRank[a.category] - categoryRank[b.category] || byAge(a, b));
+  const survivor = sorted[0];
+  const donors = sorted.slice(1).sort((a, b) => byAge(b, a));
+  return { survivor, donors };
+}
+
+export function planClientMerge(survivor: ClientFields, donors: ClientFields[]) {
+  const same = donors.filter((d) => d.category === survivor.category);
+  const patch: Partial<ClientFields> = {
+    ...fillGaps(survivor, same, ["expectedCloseDate", "endedOn", "churnReason", "health"] as const),
+    ...fillGaps(survivor, donors, ["stripeCustomerId", "personId", "organizationId", "ownerId"] as const),
+  };
+  if (!survivor.value) {
+    const value = same.find((d) => d.value)?.value;
+    if (value) patch.value = value;
+  }
+  // Client since: the earliest start of any of them.
+  const started = [survivor.startedOn, ...donors.map((d) => d.startedOn)].filter((d): d is string => !!d).sort()[0] ?? null;
+  if (started !== survivor.startedOn) patch.startedOn = started;
+  const tags = [...new Set([...survivor.tags, ...donors.flatMap((d) => d.tags)])];
+  if (tags.length !== survivor.tags.length) patch.tags = tags;
+  const custom = mergeCustom(survivor.custom, donors.map((d) => d.custom));
+  if (custom) patch.custom = custom;
+  const last = latest([survivor.lastActivityAt, ...donors.map((d) => d.lastActivityAt)]);
+  if (!sameTime(last, survivor.lastActivityAt)) patch.lastActivityAt = last;
+  return patch;
 }

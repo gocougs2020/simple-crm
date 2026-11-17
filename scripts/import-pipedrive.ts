@@ -87,6 +87,21 @@ class Links {
     }
     return out;
   }
+  /** For external ids of this kind that share a local record (merged by `pnpm dedupe`): each one → the first of its group. */
+  aliases(kind: string) {
+    const byLocal = new Map<string, string[]>();
+    for (const [key, localId] of this.map) {
+      if (!key.startsWith(`${kind}:`)) continue;
+      byLocal.set(localId, [...(byLocal.get(localId) ?? []), key.slice(kind.length + 1)]);
+    }
+    const out = new Map<string, string>();
+    for (const keys of byLocal.values()) {
+      if (keys.length < 2) continue;
+      const [first] = [...keys].sort();
+      for (const k of keys) out.set(k, first);
+    }
+    return out;
+  }
   /** Forgets a mapping. */
   async remove(kind: string, id: PdId | string) {
     this.map.delete(`${kind}:${id}`);
@@ -184,7 +199,11 @@ async function runImport(db: Database) {
   log(`  ${pdActivities.length} activities`);
 
   const lk: Lookup = { pipelines: new Map(pipelines.map((p) => [p.id, p])), stages: new Map(stages.map((s) => [s.id, s])) };
-  const plans = planClients(deals, lk);
+  const links = new Links(db);
+  await links.load();
+  // Clients merged by `pnpm dedupe` stand for several Pipedrive organizations: plan their deals together, as one client.
+  const clientAliases = links.aliases("client");
+  const plans = planClients(deals, lk, (key) => clientAliases.get(key) ?? key);
   const stagePlan = planStages(plans, lk);
   const productDeals = deals.filter((d) => lk.pipelines.has(d.pipeline_id) && pipelineRole(lk.pipelines.get(d.pipeline_id)!).kind === "product" && d.status !== "deleted" && !d.is_deleted);
   const serviceNames = [...new Set(pipelines.map(pipelineRole).flatMap((r) => (r.kind === "product" ? [r.service] : [])))];
@@ -205,8 +224,6 @@ async function runImport(db: Database) {
     return;
   }
 
-  const links = new Links(db);
-  await links.load();
   const now = new Date();
 
   // ── Team: match Pipedrive users by email, then name. Anyone missing is added as a deactivated teammate so history stays attributed.
@@ -395,7 +412,7 @@ async function runImport(db: Database) {
     if (current) {
       const moved = current.stageId !== values.stageId;
       // Follow Pipedrive's archiving, but only where the import is the one that archived: a client archived or restored by hand stays as it is.
-      const archivedByImport = !!links.get("client_archived", plan.key);
+      const archivedByImport = [plan.key, ...[...clientAliases].filter(([, to]) => to === plan.key).map(([from]) => from)].some((k) => !!links.get("client_archived", k));
       const archive = plan.archivedAt && !current.archivedAt && !archivedByImport ? { archivedAt: plan.archivedAt } : !plan.archivedAt && current.archivedAt && archivedByImport ? { archivedAt: null } : {};
       await db
         .update(schema.clients)
@@ -429,6 +446,8 @@ async function runImport(db: Database) {
       clientIds.set(plan.key, row.id);
       clientsCreated++;
     }
+    // Keys folded into this one (merged clients) find it too, for notes and activities on those organizations.
+    for (const [from, to] of clientAliases) if (to === plan.key) clientIds.set(from, clientIds.get(plan.key)!);
     for (const d of plan.deals) {
       dealClient.set(d.id, clientIds.get(plan.key)!);
       links.add("deal", d.id, clientIds.get(plan.key)!);
