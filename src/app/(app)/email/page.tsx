@@ -51,11 +51,12 @@ async function Inbox({ searchParams }: Pick<PageProps<"/email">, "searchParams">
   const t = schema.inboxThreads;
   const db = await getDb();
 
-  // Resend counts unread for the whole team; here each teammate sees only their own (src/lib/conversations/read-rules.ts).
+  // Resend counts unread for the whole team; here each teammate sees only their own (src/lib/conversations/read-rules.ts),
+  // over the same 90 days as the sidebar badge.
   const counts = await db
     .select({ inboxId: t.resendInboxId, n: sql<number>`count(*)::int` })
     .from(t)
-    .where(and(eq(t.folder, "inbox"), unreadFor("inbox_threads", user.id)))
+    .where(and(eq(t.folder, "inbox"), unreadFor("inbox_threads", user.id), sql`${t.lastMessageAt} >= now() - interval '90 days'`))
     .groupBy(t.resendInboxId);
   inboxes = inboxes.map((i) => ({ ...i, unread: counts.find((c) => c.inboxId === i.id)?.n ?? 0 }));
 

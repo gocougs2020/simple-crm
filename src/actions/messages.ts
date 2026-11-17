@@ -1,7 +1,7 @@
 "use server";
 
 import { refresh } from "next/cache";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
@@ -93,11 +93,16 @@ export async function replyToTextThread(threadId: string, input: z.input<typeof 
     if (!t.phoneNumberId) throw new ActionError("The number this conversation was on was deleted. Text them from their record with another number.");
     const number = await assertNumberAccess(user, t.phoneNumberId);
     const db = await getDb();
-    // STOP marks everyone with the number, so any of them having opted out means this number did.
+    // STOP marks everyone with the number, so any of them having opted out means this number did; so does the linked person having opted out.
     const [stopped] = await db
       .select({ firstName: people.firstName })
       .from(people)
-      .where(and(sql`${phoneDigits(people.phone)} = ${t.remoteKey}`, sql`${people.textOptOutAt} is not null`, isNull(people.archivedAt)))
+      .where(
+        and(
+          sql`${people.textOptOutAt} is not null`,
+          or(and(sql`${phoneDigits(people.phone)} = ${t.remoteKey}`, isNull(people.archivedAt)), t.personId ? eq(people.id, t.personId) : undefined),
+        ),
+      )
       .limit(1);
     if (stopped) throw new ActionError(`${stopped.firstName} replied STOP, so texts to this number are blocked. They can reply START to opt back in.`);
     const links = { personId: t.personId, organizationId: t.organizationId, clientId: t.clientId };
