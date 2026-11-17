@@ -30,7 +30,7 @@ Take a backup first (in Neon, create a branch), since merges can't be undone fro
 
 ## What counts as a duplicate
 
-- **Organizations** with exactly the same name, character for character. "Acme" and "Acme Inc" aren't duplicates, and neither are "Acme" and "acme".
+- **Organizations** whose whole names match, ignoring capitals (and spaces at either end). "acme" and "Acme" are duplicates; "Acme" and "Acme Inc" aren't. The kept organization keeps its own spelling.
 - **People** who share an email address (ignoring capitals) or a phone number (the last 10 digits, however it was typed, so "(303) 555-0123" and "+1 303 555 0123" match). Their other emails and phones count too, and it chains: if A shares an email with B and B a phone with C, all three are one person. Numbers under 7 digits are never compared.
 
 ## What happens to each group

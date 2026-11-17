@@ -102,7 +102,7 @@ Edits made in the CRM to imported fields are overwritten by Pipedrive's values o
 
 ## Duplicates
 
-Pipedrive accounts collect duplicates. After importing, run `pnpm dedupe` to merge organizations with the same name and people who share an email or phone; it's safe to run again after a later import. See [DEDUPE.md](DEDUPE.md).
+Pipedrive accounts collect duplicates. After importing, run `pnpm dedupe` to merge organizations with the same name (ignoring capitals) and people who share an email or phone; it's safe to run again after a later import. See [DEDUPE.md](DEDUPE.md).
 
 ## Starting over
 

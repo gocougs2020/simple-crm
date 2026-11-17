@@ -7,7 +7,7 @@
  *   pnpm dedupe --as=you@company.com     record the merges as this teammate instead of the owner
  *   pnpm dedupe --max-group=25           merge groups of people up to this size (10 by default; bigger ones are listed and skipped)
  *
- * Organizations: same name, character for character. People: a shared email
+ * Organizations: the same whole name, ignoring capitals. People: a shared email
  * address or phone number. In each group the oldest record with anything on it
  * is kept, its blanks are filled from the others, everything linked to the
  * others moves to it, and the others are deleted. Safe to run again: a second

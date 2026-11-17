@@ -3,7 +3,8 @@
  * (scripts/dedupe.ts), the Pipedrive import and tests share the same rules.
  * See docs/DEDUPE.md.
  *
- * - Organizations are duplicates when their names are exactly the same.
+ * - Organizations are duplicates when their whole names match, ignoring
+ *   capitals ("acme" and "Acme", but not "Acme" and "Acme Inc").
  * - People are duplicates when they share an email address (any case) or a
  *   phone number (the last 10 digits, however it was typed), directly or
  *   through each other: A shares an email with B and B a phone with C makes
@@ -30,13 +31,17 @@ const isBlank = (v: unknown) => v === null || v === undefined || (typeof v === "
 
 const byAge = <T extends Base>(a: T, b: T) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id);
 
-/** Organizations whose names are exactly the same, character for character. Only groups of two or more. */
+/** What organization names are compared on: the whole name, without capitals or spaces at either end. */
+export const nameKey = (name: string) => name.trim().toLowerCase();
+
+/** Organizations whose whole names match, ignoring capitals. Only groups of two or more, oldest first. */
 export function groupByName<T extends Base & { name: string }>(rows: T[]): T[][] {
   const groups = new Map<string, T[]>();
   for (const r of rows) {
-    const list = groups.get(r.name);
+    const key = nameKey(r.name);
+    const list = groups.get(key);
     if (list) list.push(r);
-    else groups.set(r.name, [r]);
+    else groups.set(key, [r]);
   }
   return [...groups.values()].filter((g) => g.length > 1).map((g) => g.sort(byAge));
 }

@@ -46,12 +46,12 @@ const person = (id: string, n: number, extra: Partial<PersonFields> = {}): Perso
 });
 
 describe("finding duplicates", () => {
-  it("groups organizations only on exactly the same name", () => {
-    const groups = groupByName([org("a", 3), org("b", 1), org("c", 2, { name: "Acme Inc" }), org("d", 4, { name: "acme" }), org("e", 5, { name: "Acme Inc" })]);
+  it("groups organizations on the whole name, ignoring capitals", () => {
+    const groups = groupByName([org("a", 3), org("b", 1), org("c", 2, { name: "Acme Inc" }), org("d", 4, { name: "acme" }), org("e", 5, { name: "ACME INC " }), org("f", 6, { name: "Acme Incorporated" })]);
     assert.deepEqual(
       groups.map((g) => g.map((r) => r.id)),
       [
-        ["b", "a"],
+        ["b", "a", "d"],
         ["c", "e"],
       ],
     );
