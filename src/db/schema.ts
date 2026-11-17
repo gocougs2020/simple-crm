@@ -295,6 +295,14 @@ export const people = pgTable(
     lastName: text("last_name"),
     email: text("email"),
     phone: text("phone"),
+    /**
+     * More addresses and numbers for the same person, besides `email` and
+     * `phone` (which campaigns, texts and the composer use). Filled in when
+     * duplicates are merged (scripts/dedupe.ts); mail, calls and texts from
+     * any of them still land on this person.
+     */
+    otherEmails: jsonb("other_emails").$type<string[]>().notNull().default([]),
+    otherPhones: jsonb("other_phones").$type<string[]>().notNull().default([]),
     title: text("title"),
     organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "set null" }),
     ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
@@ -339,6 +347,26 @@ export const people = pgTable(
     // Calls and texts are matched on the last 10 digits, whatever way the number was typed (src/lib/phone/numbers.ts).
     index("people_phone_digits_idx").on(sql`right(regexp_replace(regexp_replace(${t.phone}, '\\s*(x|ext\\.?|extension|#)\\s*[0-9]+\\s*$', '', 'i'), '[^0-9]', '', 'g'), 10)`),
   ],
+);
+
+/**
+ * Organizations a person is also at, besides their main one
+ * (`people.organization_id`). Merging duplicates (scripts/dedupe.ts) keeps
+ * every organization the duplicates were at here, so the person shows on
+ * each organization's page.
+ */
+export const personOrganizations = pgTable(
+  "person_organizations",
+  {
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => people.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.personId, t.organizationId] }), index("person_organizations_org_idx").on(t.organizationId)],
 );
 
 /** Each client category has one or more pipelines of its own stages (prospects: Lead → Proposal; current: Onboarding → Renewal). */

@@ -97,6 +97,9 @@ function CustomFieldRows({ entity, values, onSave }: { entity: EntityType; value
 
 // ─── Person ──────────────────────────────────────────────────────────────
 
+/** A typed list ("a@x.com, b@y.com") as distinct, trimmed values. */
+const splitList = (v: string | null, separator: RegExp) => [...new Set((v ?? "").split(separator).map((x) => x.trim()).filter(Boolean))];
+
 export function PersonDetails({ person, organization }: { person: Person; organization: Organization | null }) {
   const { comms, workspace } = useApp();
   const save = (patch: Parameters<typeof updatePerson>[1]) => updatePerson(person.id, patch).then(ok);
@@ -128,6 +131,40 @@ export function PersonDetails({ person, organization }: { person: Person; organi
             ) : undefined
           }
           {...text((phone) => save({ phone }), { type: "tel", format: formatPhoneInput })}
+        />
+        <InlineField
+          label="Other emails"
+          value={person.otherEmails.join(", ") || null}
+          empty="Add another email"
+          display={
+            person.otherEmails.length ? (
+              <span className="flex flex-col">
+                {person.otherEmails.map((e) => (
+                  <a key={e} href={`mailto:${e}`} className="truncate underline-offset-2 hover:underline" onClick={(ev) => ev.stopPropagation()}>
+                    {e}
+                  </a>
+                ))}
+              </span>
+            ) : undefined
+          }
+          {...text((v) => save({ otherEmails: splitList(v, /[\s,;]+/) }), { placeholder: "Separate them with commas" })}
+        />
+        <InlineField
+          label="Other phones"
+          value={person.otherPhones.join(", ") || null}
+          empty="Add another phone"
+          display={
+            person.otherPhones.length ? (
+              <span className="flex flex-col">
+                {person.otherPhones.map((p) => (
+                  <a key={p} href={`tel:${p.replace(/[^\d+]/g, "")}`} className="underline-offset-2 hover:underline" onClick={(ev) => ev.stopPropagation()}>
+                    {p}
+                  </a>
+                ))}
+              </span>
+            ) : undefined
+          }
+          {...text((v) => save({ otherPhones: splitList(v, /[,;\n]+/) }), { type: "tel", placeholder: "Separate them with commas" })}
         />
         <InlineField label="Job title" value={person.title} {...text((title) => save({ title }))} />
         <InlineField<PickerValue>
@@ -515,9 +552,9 @@ export function RelatedPeople({ people, organization }: { people: Person[]; orga
   );
 }
 
-export function OrganizationCard({ org }: { org: Organization }) {
+export function OrganizationCard({ org, title = "Organization" }: { org: Organization; title?: string }) {
   return (
-    <SideCard title="Organization">
+    <SideCard title={title}>
       <Link href={`/organizations/${org.id}`} className="-mx-2 flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-sunken">
         <span className="flex size-8 items-center justify-center rounded-md bg-sunken">
           <BuildingOffice2Icon className="size-4 text-muted" />

@@ -1,0 +1,159 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { contactKeys, distinct, emailKey, fillGaps, groupByName, groupByShared, keepContactsOnImport, mergeCustom, phoneKey, pickSurvivor, planOrganizationMerge, planPersonMerge, type OrgFields, type PersonFields } from "./merge";
+
+const day = (n: number) => new Date(Date.UTC(2024, 0, n));
+
+const org = (id: string, n: number, extra: Partial<OrgFields> = {}): OrgFields => ({
+  id,
+  createdAt: day(n),
+  name: "Acme",
+  domain: null,
+  phone: null,
+  address: null,
+  industry: null,
+  ownerId: null,
+  custom: {},
+  lastActivityAt: null,
+  archivedAt: null,
+  ...extra,
+});
+
+const person = (id: string, n: number, extra: Partial<PersonFields> = {}): PersonFields => ({
+  id,
+  createdAt: day(n),
+  firstName: "Ada",
+  lastName: null,
+  email: null,
+  phone: null,
+  otherEmails: [],
+  otherPhones: [],
+  title: null,
+  organizationId: null,
+  ownerId: null,
+  tags: [],
+  custom: {},
+  marketingOptIn: true,
+  unsubscribedAt: null,
+  emailBouncedAt: null,
+  lastCampaignAt: null,
+  decisionMaker: false,
+  textConsentAt: null,
+  textOptOutAt: null,
+  lastActivityAt: null,
+  archivedAt: null,
+  ...extra,
+});
+
+describe("finding duplicates", () => {
+  it("groups organizations only on exactly the same name", () => {
+    const groups = groupByName([org("a", 3), org("b", 1), org("c", 2, { name: "Acme Inc" }), org("d", 4, { name: "acme" }), org("e", 5, { name: "Acme Inc" })]);
+    assert.deepEqual(
+      groups.map((g) => g.map((r) => r.id)),
+      [
+        ["b", "a"],
+        ["c", "e"],
+      ],
+    );
+  });
+
+  it("compares emails without case and phones on their last 10 digits", () => {
+    assert.equal(emailKey("  Ada@Example.COM "), "ada@example.com");
+    assert.equal(phoneKey("(303) 555-0123"), phoneKey("+1 303.555.0123 x12"));
+    assert.equal(phoneKey("123"), "");
+  });
+
+  it("groups people who share an email or phone, through each other too", () => {
+    const rows = [
+      person("a", 1, { email: "ada@x.com" }),
+      person("b", 2, { email: "ADA@x.com", phone: "303-555-0123" }),
+      person("c", 3, { phone: "+13035550123" }),
+      person("d", 4, { email: "grace@x.com", otherPhones: ["(720) 555-0000"] }),
+      person("e", 5, { phone: "720 555 0000" }),
+      person("f", 6, { email: "alone@x.com", phone: "12" }),
+      person("g", 7, { phone: "12" }),
+    ];
+    const groups = groupByShared(rows, contactKeys);
+    assert.deepEqual(
+      groups.map((g) => g.map((r) => r.id)),
+      [
+        ["a", "b", "c"],
+        ["d", "e"],
+      ],
+    );
+  });
+
+  it("keeps the oldest record with something on it", () => {
+    const group = [org("old-empty", 1), org("middle", 2), org("newest", 3)];
+    const { survivor, merged, empty } = pickSurvivor(group, (r) => r.id !== "old-empty");
+    assert.equal(survivor.id, "middle");
+    assert.deepEqual(
+      merged.map((r) => r.id),
+      ["newest"],
+    );
+    assert.deepEqual(
+      empty.map((r) => r.id),
+      ["old-empty"],
+    );
+    assert.equal(pickSurvivor(group, () => false).survivor.id, "old-empty");
+  });
+});
+
+describe("combining duplicates", () => {
+  it("fills only blank fields, from the oldest source that has them", () => {
+    const target: Record<"a" | "b" | "c", string | null> = { a: "kept", b: null, c: "" };
+    assert.deepEqual(fillGaps(target, [{ a: "x", b: null, c: "first" }, { b: "second", c: "later" }], ["a", "b", "c"] as const), { b: "second", c: "first" });
+    assert.deepEqual(mergeCustom({ size: 10, tier: null }, [{ size: 20, tier: "gold", region: "west" }]), { size: 10, tier: "gold", region: "west" });
+    assert.equal(mergeCustom({ size: 10 }, [{ size: 20 }]), null);
+  });
+
+  it("keeps an organization's details and fills its gaps", () => {
+    const patch = planOrganizationMerge(org("a", 1, { domain: "acme.com", archivedAt: day(9) }), [org("b", 2, { domain: "other.com", address: "1 Main St", lastActivityAt: day(20) })]);
+    assert.deepEqual(patch, { address: "1 Main St", lastActivityAt: day(20), archivedAt: null });
+  });
+
+  it("keeps every email and phone of the group, the survivor's as the main ones", () => {
+    const { patch, alsoAt } = planPersonMerge(
+      person("a", 1, { email: "ada@x.com", phone: "303-555-0123", organizationId: "org1", tags: ["vip"] }),
+      [
+        person("b", 2, { email: "ADA@x.com", otherEmails: ["ada@home.com"], phone: "+1 (303) 555-0123", organizationId: "org2", tags: ["vip", "west"], textOptOutAt: day(5) }),
+        person("c", 3, { email: "lovelace@y.com", phone: "720-555-0000", organizationId: "org1", marketingOptIn: false, decisionMaker: true }),
+      ],
+      { survivor: ["org3"], others: ["org2"] },
+    );
+    assert.equal(patch.email, undefined);
+    assert.deepEqual(patch.otherEmails, ["ada@home.com", "lovelace@y.com"]);
+    assert.equal(patch.phone, undefined);
+    assert.deepEqual(patch.otherPhones, ["720-555-0000"]);
+    assert.deepEqual(alsoAt, ["org3", "org2"]);
+    assert.deepEqual(patch.tags, ["vip", "west"]);
+    assert.equal(patch.marketingOptIn, false);
+    assert.equal(patch.decisionMaker, true);
+    assert.deepEqual(patch.textOptOutAt, day(5));
+  });
+
+  it("takes a main email, phone and organization from the others when the survivor has none", () => {
+    const { patch, alsoAt } = planPersonMerge(person("a", 1, { phone: "303-555-0123" }), [person("b", 2, { email: "ada@x.com", emailBouncedAt: day(3), phone: "3035550123", organizationId: "org2" })]);
+    assert.equal(patch.email, "ada@x.com");
+    assert.deepEqual(patch.emailBouncedAt, day(3));
+    assert.equal(patch.otherEmails, undefined);
+    assert.equal(patch.otherPhones, undefined);
+    assert.equal(patch.organizationId, "org2");
+    assert.deepEqual(alsoAt, []);
+  });
+
+  it("changes nothing when merging a record into itself again", () => {
+    const a = person("a", 1, { email: "ada@x.com", otherEmails: ["ada@home.com"], phone: "303-555-0123" });
+    assert.deepEqual(planPersonMerge(a, [{ email: "ada@home.com", phone: "3035550123" }]).patch, {});
+  });
+
+  it("keeps replaced contacts when Pipedrive changes the main ones", () => {
+    assert.deepEqual(keepContactsOnImport({ email: "old@x.com", phone: "303-555-0123", otherEmails: ["new@x.com"], otherPhones: [] }, { email: "new@x.com", phone: null }), {
+      email: "new@x.com",
+      phone: "303-555-0123",
+      otherEmails: ["old@x.com"],
+      otherPhones: [],
+    });
+    assert.deepEqual(distinct(["12", " 12 ", "(303) 555-0123", "3035550123"], phoneKey), ["12", "(303) 555-0123"]);
+  });
+});

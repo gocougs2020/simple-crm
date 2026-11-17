@@ -19,6 +19,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import * as schema from "@/db/schema";
 import type { CustomValues } from "@/db/schema";
 import type { ActivityType, ClientCategory, CustomFieldType, EntityType } from "@/lib/constants";
+import { keepContactsOnImport, planOrganizationMerge, planPersonMerge, type OrgFields, type PersonFields } from "@/lib/crm/merge";
 import { rankBetween } from "@/lib/rank";
 import { sanitizeHtml, textToHtml } from "@/lib/safe-html";
 import { mapLimit, PipedriveApi, type PdActivity, type PdDeal, type PdField, type PdId, type PdMailMessage, type PdUser } from "./pipedrive/api";
@@ -74,6 +75,17 @@ class Links {
   async save(kind: string, id: PdId | string, localId: string) {
     this.add(kind, id, localId);
     await this.flush();
+  }
+  /** Local records that stand for more than one Pipedrive record of this kind: duplicates merged by `pnpm dedupe`. */
+  shared(kind: string) {
+    const seen = new Set<string>();
+    const out = new Set<string>();
+    for (const [key, localId] of this.map) {
+      if (!key.startsWith(`${kind}:`)) continue;
+      if (seen.has(localId)) out.add(localId);
+      seen.add(localId);
+    }
+    return out;
   }
   /** Forgets a mapping. */
   async remove(kind: string, id: PdId | string) {
@@ -699,12 +711,35 @@ async function upsert<V extends Record<string, unknown>>(
     await links.flush();
     await db.insert(schema.events).values(created.map((row) => ({ entityType: kind, entityId: row.id, action: "created", data: { source: SOURCE }, userId: actorId })));
   }
-  await mapLimit(known, 8, (r) =>
-    db
+  // Records that stand for more than one Pipedrive record were merged (pnpm dedupe): Pipedrive only fills their blanks, so the duplicates don't overwrite each other.
+  const merged = links.shared(kind);
+  const current = new Map<string, Record<string, unknown>>();
+  for (const batch of chunks([...new Set(known.map((r) => links.get(kind, r.pd)!))], 500)) {
+    for (const row of (await db.select().from(table).where(inArray(table.id, batch))) as Record<string, unknown>[]) current.set(row.id as string, row);
+  }
+  const alsoAt: { personId: string; organizationId: string }[] = [];
+  await mapLimit(known, 8, async (r) => {
+    const id = links.get(kind, r.pd)!;
+    const now = current.get(id);
+    if (!now) return;
+    let values: Record<string, unknown> = r.values;
+    if (kind === "organization") {
+      if (merged.has(id)) values = planOrganizationMerge(now as unknown as OrgFields, [r.values as Partial<OrgFields>]);
+    } else if (merged.has(id)) {
+      const plan = planPersonMerge(now as unknown as PersonFields, [r.values as Partial<PersonFields>]);
+      values = plan.patch;
+      alsoAt.push(...plan.alsoAt.map((organizationId) => ({ personId: id, organizationId })));
+    } else {
+      // Pipedrive's primary email and phone lead, but the ones they replace are kept as other emails and phones.
+      values = { ...r.values, ...keepContactsOnImport(now as unknown as PersonFields, r.values as unknown as { email: string | null; phone: string | null }) };
+    }
+    if (!Object.keys(values).length) return;
+    await db
       .update(table)
-      .set({ ...r.values, updatedAt: new Date() } as never)
-      .where(eq(table.id, links.get(kind, r.pd)!)),
-  );
+      .set({ ...values, updatedAt: new Date() } as never)
+      .where(eq(table.id, id));
+  });
+  if (alsoAt.length) await db.insert(schema.personOrganizations).values(alsoAt).onConflictDoNothing();
   await links.flush();
   for (const r of rows) ids.set(r.pd, links.get(kind, r.pd)!);
   return { created: fresh.length, updated: known.length };

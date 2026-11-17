@@ -27,6 +27,8 @@ const personLabels = {
   lastName: "Last name",
   email: "Email",
   phone: "Phone",
+  otherEmails: "Other emails",
+  otherPhones: "Other phones",
   title: "Job title",
   organizationId: "Organization",
   ownerId: "Owner",
