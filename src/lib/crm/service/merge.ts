@@ -70,7 +70,7 @@ export async function mergeOrganizations(a: Actor, input: z.input<typeof mergeIn
   const { keepId, others } = parse(input);
   return withTransaction(async (db: Database) => {
     const t = db as unknown as MergeDatabase;
-    const rows = await t.select().from(organizations).where(inArray(organizations.id, [keepId, ...others]));
+    const rows = await t.select().from(organizations).where(inArray(organizations.id, [keepId, ...others])).for("update");
     const keep = rows.find((r) => r.id === keepId);
     if (!keep) throw new NotFoundError("The organization to keep was deleted. Reload the page and pick another.");
     const donors = rows.filter((r) => r.id !== keepId).sort(donorOrder);
@@ -89,7 +89,7 @@ export async function mergePeople(a: Actor, input: z.input<typeof mergeInput>) {
   return withTransaction(async (db: Database) => {
     const t = db as unknown as MergeDatabase;
     const all = [keepId, ...others];
-    const rows = await t.select().from(people).where(inArray(people.id, all));
+    const rows = await t.select().from(people).where(inArray(people.id, all)).for("update");
     const keep = rows.find((r) => r.id === keepId);
     if (!keep) throw new NotFoundError("The person to keep was deleted. Reload the page and pick someone else.");
     const donors = rows.filter((r) => r.id !== keepId).sort(donorOrder);
