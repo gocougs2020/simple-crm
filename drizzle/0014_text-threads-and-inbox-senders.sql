@@ -1,5 +1,18 @@
 -- Safe to run again: the first previews of this branch applied an earlier version of these changes (as 0013 and
 -- 0014) to a database that preview and production share, so each step skips what's already there.
+-- PR #20's 0013 (person merge lists) is older than the earlier version of these changes, so a database that had
+-- them applied skipped it: restore what it adds. Does nothing where it's already there.
+CREATE TABLE IF NOT EXISTS "person_organizations" (
+	"person_id" uuid NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "person_organizations_person_id_organization_id_pk" PRIMARY KEY("person_id","organization_id")
+);--> statement-breakpoint
+ALTER TABLE "people" ADD COLUMN IF NOT EXISTS "other_emails" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "people" ADD COLUMN IF NOT EXISTS "other_phones" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "person_organizations" ADD CONSTRAINT "person_organizations_person_id_people_id_fk" FOREIGN KEY ("person_id") REFERENCES "public"."people"("id") ON DELETE cascade ON UPDATE no action; EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "person_organizations" ADD CONSTRAINT "person_organizations_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action; EXCEPTION WHEN duplicate_object THEN NULL; END $$;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "person_organizations_org_idx" ON "person_organizations" USING btree ("organization_id");--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "inbox_sends" (
 	"resend_email_id" text PRIMARY KEY NOT NULL,
 	"user_id" uuid,
