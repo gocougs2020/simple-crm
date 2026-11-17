@@ -143,7 +143,11 @@ async function repointAudiences(db: Database, field: "organizationIds" | "person
   }
 }
 
-/** Spreadsheet imports forget merged records, so undoing one can't delete what they were merged into. */
+/**
+ * Spreadsheet imports forget every record in a merge, the kept one too: it now
+ * holds what was moved from the others, so undoing the import mustn't delete
+ * it (or put back its pre-import values over the merged ones).
+ */
 async function forgetInImports(db: Database, field: "createdIds" | "createdOrgIds", ids: string[]) {
   const column = field === "createdIds" ? schema.peopleImports.createdIds : schema.peopleImports.createdOrgIds;
   const rows = await db
@@ -218,7 +222,7 @@ async function dedupeOrganizations(db: Database, apply: boolean, actorId: string
       }
       await moveHistory(t, "organization", ids, keep);
       await repointAudiences(t, "organizationIds", ids, keep);
-      await forgetInImports(t, "createdOrgIds", ids);
+      await forgetInImports(t, "createdOrgIds", [...ids, keep]);
       await t
         .update(schema.organizations)
         .set({ ...patch, ...summaryReset, updatedAt: new Date() })
@@ -303,7 +307,7 @@ async function dedupePeople(db: Database, apply: boolean, actorId: string) {
       }
       await moveHistory(t, "person", ids, keep);
       await repointAudiences(t, "personIds", ids, keep);
-      await forgetInImports(t, "createdIds", ids);
+      await forgetInImports(t, "createdIds", [...ids, keep]);
       await t
         .update(schema.people)
         .set({ ...patch, ...summaryReset, updatedAt: new Date() })

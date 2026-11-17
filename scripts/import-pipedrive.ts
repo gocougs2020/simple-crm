@@ -736,21 +736,26 @@ async function upsert<V extends Record<string, unknown>>(
   for (const batch of chunks([...new Set(known.map((r) => links.get(kind, r.pd)!))], 500)) {
     for (const row of (await db.select().from(table).where(inArray(table.id, batch))) as Record<string, unknown>[]) current.set(row.id as string, row);
   }
-  const alsoAt: { personId: string; organizationId: string }[] = [];
-  await mapLimit(known, 8, async (r) => {
+  // One update per local record. A merged record gets all of its Pipedrive records in one go, so they don't overwrite each other's emails, tags and fields.
+  const incoming = new Map<string, V[]>();
+  for (const r of known) {
     const id = links.get(kind, r.pd)!;
+    incoming.set(id, [...(incoming.get(id) ?? []), r.values]);
+  }
+  const alsoAt: { personId: string; organizationId: string }[] = [];
+  await mapLimit([...incoming], 8, async ([id, list]) => {
     const now = current.get(id);
     if (!now) return;
-    let values: Record<string, unknown> = r.values;
+    let values: Record<string, unknown> = list[0];
     if (kind === "organization") {
-      if (merged.has(id)) values = planOrganizationMerge(now as unknown as OrgFields, [r.values as Partial<OrgFields>]);
+      if (merged.has(id)) values = planOrganizationMerge(now as unknown as OrgFields, list as Partial<OrgFields>[]);
     } else if (merged.has(id)) {
-      const plan = planPersonMerge(now as unknown as PersonFields, [r.values as Partial<PersonFields>]);
+      const plan = planPersonMerge(now as unknown as PersonFields, list as Partial<PersonFields>[]);
       values = plan.patch;
       alsoAt.push(...plan.alsoAt.map((organizationId) => ({ personId: id, organizationId })));
     } else {
       // Pipedrive's primary email and phone lead, but the ones they replace are kept as other emails and phones.
-      values = { ...r.values, ...keepContactsOnImport(now as unknown as PersonFields, r.values as unknown as { email: string | null; phone: string | null }) };
+      values = { ...list[0], ...keepContactsOnImport(now as unknown as PersonFields, list[0] as unknown as { email: string | null; phone: string | null }) };
     }
     if (!Object.keys(values).length) return;
     await db
