@@ -2,7 +2,7 @@
 
 import clsx from "clsx";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDownIcon, ChevronUpIcon } from "@heroicons/react/20/solid";
 import { useListParams } from "./use-params";
 
@@ -30,6 +30,7 @@ export function DataTable<T>({
   defaultSort,
   bulk,
   empty,
+  paging,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -37,8 +38,11 @@ export function DataTable<T>({
   href: (row: T) => string;
   mine?: (row: T) => boolean;
   defaultSort?: string;
-  bulk?: (ids: string[], clear: () => void) => ReactNode;
+  /** `ids` are the selected rows' ids; `selected` the rows themselves. */
+  bulk?: (ids: string[], clear: () => void, selected: T[]) => ReactNode;
   empty?: ReactNode;
+  /** Rows load as the table is scrolled (usePagedRows): `total` is how many there are in all. */
+  paging?: { total: number; hasMore: boolean; loading: boolean; error: string | null; loadMore: () => void };
 }) {
   const router = useRouter();
   const { get, set } = useListParams();
@@ -59,6 +63,18 @@ export function DataTable<T>({
   };
   const allOn = rows.length > 0 && selected.size === rows.length;
 
+  // Load the next page a little before the end comes into view, so scrolling doesn't stop.
+  const scroller = useRef<HTMLDivElement>(null);
+  const sentinel = useRef<HTMLDivElement>(null);
+  const loadMore = paging?.loadMore;
+  const wantMore = !!paging?.hasMore && !paging.loading && !paging.error;
+  useEffect(() => {
+    if (!wantMore || !loadMore || !sentinel.current) return;
+    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && loadMore(), { root: scroller.current, rootMargin: "0px 0px 800px 0px" });
+    io.observe(sentinel.current);
+    return () => io.disconnect();
+  }, [wantMore, loadMore, rows.length]);
+
   if (!rows.length && empty) return <div className="px-4 lg:px-6">{empty}</div>;
 
   return (
@@ -66,13 +82,19 @@ export function DataTable<T>({
       {bulk && selected.size ? (
         <div className="sticky top-12 z-20 mb-2 flex animate-pop-in items-center gap-3 rounded-lg border border-line bg-primary px-3 py-2 text-[13px] text-white shadow-md lg:top-2">
           <span className="font-medium tabular-nums">{selected.size} selected</span>
-          <div className="flex flex-1 flex-wrap items-center gap-2">{bulk([...selected], () => setSelected(new Set()))}</div>
+          <div className="flex flex-1 flex-wrap items-center gap-2">
+            {bulk(
+              [...selected],
+              () => setSelected(new Set()),
+              rows.filter((r) => selected.has(rowId(r))),
+            )}
+          </div>
           <button type="button" onClick={() => setSelected(new Set())} className="text-white/70 hover:text-white">
             Clear
           </button>
         </div>
       ) : null}
-      <div className="table-container max-h-[calc(100dvh-11rem)]">
+      <div ref={scroller} className="table-container max-h-[calc(100dvh-11rem)]">
         <table className="w-full border-collapse text-left text-[13.5px]">
           <thead className="sticky top-0 z-10 bg-surface shadow-[0_1px_0_var(--border)]">
             <tr>
@@ -147,10 +169,30 @@ export function DataTable<T>({
             })}
           </tbody>
         </table>
+        {paging ? <div ref={sentinel} aria-hidden className="h-px" /> : null}
+        {paging?.loading ? <p className="border-t border-line px-3 py-2.5 text-center text-fine">Loading more…</p> : null}
+        {paging?.error ? (
+          <p className="border-t border-line px-3 py-2.5 text-center text-fine">
+            {paging.error}{" "}
+            <button type="button" onClick={paging.loadMore} className="font-medium text-accent hover:underline">
+              Try again
+            </button>
+          </p>
+        ) : null}
       </div>
       <p className="mt-2 text-fine">
-        {rows.length.toLocaleString()} {rows.length === 1 ? "row" : "rows"}
-        {rows.length >= 500 ? " · showing the first 500. Search or filter to narrow it down." : ""}
+        {paging ? (
+          <>
+            {rows.length < paging.total ? `${rows.length.toLocaleString()} of ` : null}
+            {paging.total.toLocaleString()} {paging.total === 1 ? "row" : "rows"}
+            {rows.length < paging.total ? " · more load as you scroll" : ""}
+          </>
+        ) : (
+          <>
+            {rows.length.toLocaleString()} {rows.length === 1 ? "row" : "rows"}
+            {rows.length >= 500 ? " · showing the first 500. Search or filter to narrow it down." : ""}
+          </>
+        )}
       </p>
     </div>
   );

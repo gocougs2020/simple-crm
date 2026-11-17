@@ -1,4 +1,4 @@
-import type { OptionalFeature } from "@/lib/api/spec";
+import { isDestructive, type OptionalFeature } from "@/lib/api/spec";
 import type { Permission } from "@/lib/permissions";
 import { offered, toolOperations } from "@/lib/mcp/protocol";
 
@@ -7,11 +7,11 @@ import { offered, toolOperations } from "@/lib/mcp/protocol";
  * (tested): the role check is passed in.
  */
 
-/** Archive and delete: the teammate confirms with a button in text chat. Voice chat leaves them out, since there's no button to press. */
-export const needsConfirmation = (name: string) => toolOperations.some((o) => o.tool === name && o.method === "DELETE");
+/** Archive, delete and merge: the teammate confirms with a button in text chat. Voice chat leaves them out, since there's no button to press. */
+export const needsConfirmation = (name: string) => toolOperations.some((o) => o.tool === name && isDestructive(o));
 
 export function allowedOperations(allowed: (p: Permission) => boolean, opts: { voice?: boolean; features?: readonly OptionalFeature[] } = {}) {
-  return toolOperations.filter((o) => allowed(o.permission) && offered(o, opts.features ?? []) && !(opts.voice && o.method === "DELETE"));
+  return toolOperations.filter((o) => allowed(o.permission) && offered(o, opts.features ?? []) && !(opts.voice && isDestructive(o)));
 }
 
 /** Tool output the model sees. Long lists are trimmed so one call can't fill the context. */

@@ -43,7 +43,7 @@ export function agentInstructions(c: PromptContext) {
     `Their user id is ${c.user.id}: use it for ownerId or assigneeId when they say "me" or "mine".`,
     `It is ${text}. Today is ${date} in the workspace time zone (${c.workspace.timezone}). Money is in ${c.workspace.currency}.`,
     c.canWrite
-      ? "You can read and change records with your tools. Archiving and deleting ask the teammate to confirm with a button first; you don't need to ask again in words."
+      ? "You can read and change records with your tools. Archiving, deleting and merging ask the teammate to confirm with a button first; you don't need to ask again in words."
       : `Their role is read-only, so you can only look things up. If they ask for a change, say their role can't make changes and that an admin can give them edit access.`,
     "",
     "## The CRM",

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { currentRecordId } from "@/lib/crm/merged";
 import { Suspense } from "react";
 import { z } from "zod";
 import { Composer } from "@/components/activity/composer";
@@ -43,7 +44,12 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
   const { id } = await params;
   if (!z.uuid().safeParse(id).success) notFound();
   const row = await getClient(id);
-  if (!row) notFound();
+  if (!row) {
+    // A link to a record that was merged away opens the one it was merged into.
+    const current = await currentRecordId("client", id);
+    if (current !== id) redirect(`/clients/${current}`);
+    notFound();
+  }
   const { client, person, organization } = row;
   const c = client.category;
   const [tl, app, services, metrics] = await Promise.all([

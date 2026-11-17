@@ -4,10 +4,10 @@ import { StarIcon } from "@heroicons/react/20/solid";
 import { appConfig } from "@/app.config";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { ArrowUpTrayIcon, PlusIcon } from "@heroicons/react/20/solid";
 import { UserIcon } from "@heroicons/react/24/outline";
-import { addTag, assignOwner, setArchived } from "@/actions/records";
+import { addTag, assignOwner, morePeople, setArchived } from "@/actions/records";
 import { useApp } from "@/components/app-context";
 import { CategoryBadge } from "@/components/clients/client-controls";
 import { BulkButton } from "@/components/clients/clients-view";
@@ -17,23 +17,51 @@ import { openCreate } from "@/components/shell/create-store";
 import { AgoCell, NextActivityCell, OwnerCell } from "@/components/table/cells";
 import { DataTable, type Column } from "@/components/table/data-table";
 import { OwnerFilter, SearchBox, Toolbar } from "@/components/table/toolbar";
+import { usePagedRows } from "@/components/table/use-paged-rows";
 import { useListParams } from "@/components/table/use-params";
+import { MergeDialog, type MergeCandidate } from "@/components/records/merge-dialog";
 import { Avatar } from "@/components/ui/avatar";
 import { Tag } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Select } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
-import type { listPeople } from "@/lib/crm/records";
+import type { listPeople, PeopleFilter } from "@/lib/crm/records";
 import { personName } from "@/lib/format";
 import { ImportDialog } from "./import-dialog";
 
 type Row = Awaited<ReturnType<typeof listPeople>>[number];
 
-export function PeopleView({ rows, tags, filtered }: { rows: Row[]; tags: string[]; filtered: boolean }) {
+const rowId = (r: Row) => r.person.id;
+
+export function PeopleView({ rows: first, total, filter, pageSize, tags, filtered }: { rows: Row[]; total: number; filter: PeopleFilter; pageSize: number; tags: string[]; filtered: boolean }) {
   const { viewer, customFields, money, team, member, canEdit } = useApp();
   const { get, set } = useListParams();
   const [importing, setImporting] = useState(false);
+  const [merging, setMerging] = useState<{ rows: Row[]; done: () => void } | null>(null);
+  const filterKey = JSON.stringify(filter);
+  const fetchPage = useCallback((offset: number, limit: number) => morePeople(JSON.parse(filterKey), { offset, limit }), [filterKey]);
+  const paging = usePagedRows({ first, total, filterKey, rowId, pageSize, fetchPage });
+  const rows = paging.rows;
+
+  const candidate = (r: Row): MergeCandidate => ({
+    id: r.person.id,
+    title: personName(r.person),
+    subtitle: r.person.email ?? r.person.phone,
+    createdAt: r.person.createdAt,
+    lastActivityAt: r.person.lastActivityAt,
+    fields: [
+      { label: "First name", value: r.person.firstName },
+      { label: "Last name", value: r.person.lastName },
+      { label: "Email", value: r.person.email },
+      { label: "Phone", value: r.person.phone },
+      { label: "Job title", value: r.person.title },
+      { label: "Organization", value: r.organizationName },
+      { label: "Owner", value: r.person.ownerId ? (member(r.person.ownerId)?.name ?? "A former teammate") : null },
+      ...customFields.filter((f) => f.entityType === "person").map((f) => ({ label: f.label, value: formatCustomValue(f, r.person.custom[f.key], money) || null })),
+    ],
+    extras: [r.clientCategories.length ? "Client contact" : null, r.person.tags.length ? `${r.person.tags.length} ${r.person.tags.length === 1 ? "tag" : "tags"}` : null].filter((x): x is string => !!x),
+  });
 
   const columns: Column<Row>[] = [
     {
@@ -75,7 +103,7 @@ export function PeopleView({ rows, tags, filtered }: { rows: Row[]; tags: string
 
   return (
     <>
-      <PageHeader title="People" count={rows.length}>
+      <PageHeader title="People" count={total}>
         {canEdit ? (
           <>
             <Button variant="outline" onClick={() => setImporting(true)}>
@@ -104,8 +132,9 @@ export function PeopleView({ rows, tags, filtered }: { rows: Row[]; tags: string
       <DataTable
         columns={columns}
         rows={rows}
-        rowId={(r) => r.person.id}
+        rowId={rowId}
         href={(r) => `/people/${r.person.id}`}
+        paging={{ total, ...paging }}
         mine={(r) => r.person.ownerId === viewer.id}
         defaultSort="name"
         empty={
@@ -129,7 +158,7 @@ export function PeopleView({ rows, tags, filtered }: { rows: Row[]; tags: string
             />
           )
         }
-        bulk={(ids, clear) => (
+        bulk={(ids, clear, selected) => (
           <>
             <select
               className="h-7 rounded-md border border-white/20 bg-white/10 px-2 text-[12.5px] text-white"
@@ -179,10 +208,22 @@ export function PeopleView({ rows, tags, filtered }: { rows: Row[]; tags: string
             >
               Archive
             </BulkButton>
+            {canEdit && selected.length > 1 ? <BulkButton onClick={() => setMerging({ rows: selected, done: clear })}>Merge</BulkButton> : null}
           </>
         )}
       />
       {importing ? <ImportDialog onClose={() => setImporting(false)} /> : null}
+      {merging ? (
+        <MergeDialog
+          entity="person"
+          candidates={merging.rows.map(candidate)}
+          onClose={() => setMerging(null)}
+          onMerged={() => {
+            merging.done();
+            setMerging(null);
+          }}
+        />
+      ) : null}
     </>
   );
 }

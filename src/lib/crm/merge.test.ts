@@ -224,4 +224,14 @@ describe("merging clients", () => {
     );
     assert.deepEqual(planClientMerge(survivor, donors), { stripeCustomerId: "cus_1", startedOn: "2021-01-01", tags: ["referral"] });
   });
+
+  it("among prospects, keeps the one in the stage with the higher win probability", () => {
+    const probability: Record<string, number> = { lead: 10, negotiation: 80 };
+    const rows = [client("lead", 1), client("negotiation", 2)];
+    assert.equal(pickClientSurvivor(rows, (c) => probability[c.id]).survivor.id, "negotiation");
+    // Without probabilities, the oldest, as before.
+    assert.equal(pickClientSurvivor(rows).survivor.id, "lead");
+    // A current client still beats any prospect.
+    assert.equal(pickClientSurvivor([...rows, client("current", 3, { category: "current" })], (c) => probability[c.id] ?? 0).survivor.id, "current");
+  });
 });
