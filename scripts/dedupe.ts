@@ -217,7 +217,7 @@ async function dedupeOrganizations(db: Database, apply: boolean, actorId: string
       await t.delete(schema.personOrganizations).where(inArray(schema.personOrganizations.organizationId, ids));
       // Someone whose main organization just became the kept one isn't "also at" it too.
       await t.execute(sql`delete from person_organizations po using people p where po.person_id = p.id and po.organization_id = ${keep} and p.organization_id = ${keep}`);
-      for (const table of [schema.clients, schema.activities, schema.files, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textMessages]) {
+      for (const table of [schema.clients, schema.activities, schema.files, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textMessages, schema.textThreads]) {
         await t.update(table).set({ organizationId: keep }).where(inArray(table.organizationId, ids));
       }
       await moveHistory(t, "organization", ids, keep);
@@ -291,7 +291,7 @@ async function dedupePeople(db: Database, apply: boolean, actorId: string) {
     const { patch, alsoAt: orgs } = planPersonMerge(plan.survivor, others, { survivor: alsoAt.get(keep) ?? [], others: ids.flatMap((id) => alsoAt.get(id) ?? []) });
     await db.transaction(async (tx) => {
       const t = tx as unknown as Database;
-      for (const table of [schema.clients, schema.activities, schema.files, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls]) {
+      for (const table of [schema.clients, schema.activities, schema.files, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textThreads]) {
         await t.update(table).set({ personId: keep }).where(inArray(table.personId, ids));
       }
       // A campaign sends each person one email or text. When two of them got the same campaign, the kept record keeps its own; the other's copy stays without a person.
@@ -384,7 +384,7 @@ async function dedupeClients(db: Database, apply: boolean, actorId: string, orgM
     await db.transaction(async (tx) => {
       const t = tx as unknown as Database;
       // Services (what they use or used) and metrics come along with everything on the timeline.
-      for (const table of [schema.clientServices, schema.clientMetrics, schema.activities, schema.files, schema.outboundEmails, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textMessages]) {
+      for (const table of [schema.clientServices, schema.clientMetrics, schema.activities, schema.files, schema.outboundEmails, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textMessages, schema.textThreads]) {
         await t.update(table).set({ clientId: keep }).where(inArray(table.clientId, ids));
       }
       await moveHistory(t, "client", ids, keep);

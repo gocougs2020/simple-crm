@@ -6,13 +6,14 @@ import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
 import { ActionError, actionAdmin, actionEditor, actionUser } from "@/lib/auth";
+import { assertCanChangeRead } from "@/lib/conversations/read-state";
 import { recordEvent } from "@/lib/crm/events";
 import { getResend, inEmailScope } from "@/lib/email";
-import { applyThreadLinks, assertDomainInScope, assertInboxInScope, InboxError, listInboxes, must, resendOrThrow, syncAllInboxes, syncInbox, syncThread, webhookEvents } from "@/lib/email/inbox";
+import { applyThreadLinks, assertDomainInScope, assertInboxInScope, creditSender, InboxError, listInboxes, must, resendOrThrow, syncAllInboxes, syncInbox, syncThread, webhookEvents } from "@/lib/email/inbox";
 import { siteOrigin } from "@/lib/origin";
 import { htmlToText, sanitizeHtml } from "@/lib/safe-html";
 
-const { inboxThreads, inboxMessages, activities, clients, people } = schema;
+const { inboxThreads, inboxMessages, clients, people } = schema;
 const uuid = z.uuid();
 
 /** Turns Resend and sync failures into sentences the interface can show. */
@@ -82,10 +83,8 @@ export async function replyToThread(threadId: string, input: z.input<typeof repl
         "send the reply",
       ),
     );
+    await creditSender(sent.id, user.id);
     await inbox(() => syncThread(t.resendInboxId, t.resendThreadId));
-    // The sync logs the reply with no author; it was this teammate.
-    const [msg] = await db.select({ activityId: inboxMessages.activityId }).from(inboxMessages).where(eq(inboxMessages.resendEmailId, sent.id));
-    if (msg?.activityId) await db.update(activities).set({ userId: user.id, assigneeId: user.id }).where(eq(activities.id, msg.activityId));
     refresh();
   });
 }
@@ -110,10 +109,8 @@ export async function composeEmail(input: z.input<typeof composeInput>): Promise
     const key = crypto.randomUUID();
     const draft = await inbox(async () => must(await resend.inboxes.drafts.create({ inboxId: data.inboxId, to: data.to, cc: data.cc?.length ? data.cc : undefined, subject: data.subject, html }, { idempotencyKey: `draft-${key}` }), "prepare the email"));
     const sent = await inbox(async () => must(await resend.inboxes.drafts.send({ inboxId: data.inboxId, draftId: draft.id }, { idempotencyKey: `send-${key}` }), "send the email"));
+    await creditSender(sent.id, user.id);
     await inbox(() => syncInbox(data.inboxId, { limit: 10 }));
-    const db = await getDb();
-    const [msg] = await db.select({ activityId: inboxMessages.activityId }).from(inboxMessages).where(eq(inboxMessages.resendEmailId, sent.id));
-    if (msg?.activityId) await db.update(activities).set({ userId: user.id, assigneeId: user.id }).where(eq(activities.id, msg.activityId));
     refresh();
   });
 }
@@ -132,10 +129,17 @@ export async function moveThread(threadId: string, folder: "inbox" | "archive" |
   });
 }
 
+/**
+ * Marks a conversation read or unread, here and in Resend. Only whoever's
+ * unread it is may (the record's owner, or anyone when nobody owns it:
+ * src/lib/conversations/read-rules.ts).
+ */
 export async function markThreadRead(threadId: string, read: boolean): Promise<Result> {
   return run(async () => {
-    await actionUser();
+    const user = await actionUser();
+    read = z.boolean().parse(read);
     const t = await threadOrThrow(threadId);
+    await assertCanChangeRead(t, user.id);
     if (t.read === read) return;
     const resend = await inbox(async () => resendOrThrow());
     await inbox(async () => must(await resend.inboxes.threads.update({ inboxId: t.resendInboxId, threadId: t.resendThreadId, read }), "update the conversation"));

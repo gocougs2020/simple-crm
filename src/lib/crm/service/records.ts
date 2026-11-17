@@ -12,6 +12,8 @@ import { distinct, emailKey, phoneKey } from "@/lib/crm/merge";
 import { id, orgInput, personInput } from "@/lib/crm/schemas";
 import { ConflictError, NotFoundError } from "@/lib/errors";
 import { recordAssigned } from "@/lib/push/triggers";
+import { matchKey } from "@/lib/phone/numbers";
+import { adoptThreadsForPhones } from "@/lib/twilio/threads";
 
 type Person = typeof schema.people.$inferSelect;
 
@@ -165,6 +167,7 @@ export async function createPerson(a: Actor, input: z.input<typeof personInput> 
     .returning({ id: people.id });
   await recordEvent({ entityType: "person", entityId: row.id, action: "created", ...stamp(a) });
   recordAssigned(a, { entity: "person", id: row.id, name: [data.firstName, data.lastName].filter(Boolean).join(" ") || "a contact", ownerId: ownerFor(a, data.ownerId) });
+  await adoptThreadsForPhones([data.phone, ...(data.otherPhones ?? [])]);
   return row;
 }
 
@@ -197,6 +200,9 @@ export async function updatePerson(a: Actor, personId: string, patch: Partial<z.
   ];
   if (changes.length) await recordEvent({ entityType: "person", entityId: before.id, action: "updated", data: { changes }, ...stamp(a) });
   if (data.ownerId !== undefined) recordAssigned(a, { entity: "person", id: before.id, name: [data.firstName ?? before.firstName, data.lastName ?? before.lastName].filter(Boolean).join(" ") || "a contact", ownerId: data.ownerId, previousOwnerId: before.ownerId });
+  // New numbers, main or other: conversations with them that nobody had move onto this person.
+  const had = new Set([before.phone, ...before.otherPhones].map((p) => matchKey(p)));
+  await adoptThreadsForPhones([data.phone, ...(data.otherPhones ?? [])].filter((p) => p && !had.has(matchKey(p))));
   return { id: before.id };
 }
 

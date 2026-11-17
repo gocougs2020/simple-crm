@@ -93,13 +93,13 @@ function PersonDialog({ req, onClose }: { req: Extract<CreateRequest, { kind: "p
   const d = req.defaults ?? {};
   const [firstName, setFirstName] = useState(d.firstName ?? "");
   const [lastName, setLastName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState(d.email ?? "");
+  const [phone, setPhone] = useState(d.phone ? formatPhoneInput(d.phone) : "");
   const [title, setTitle] = useState("");
   const [org, setOrg] = useState<PickerValue>(d.organizationId ? { record: { id: d.organizationId, label: d.organizationName ?? "" } } : null);
   const [ownerId, setOwnerId] = useState<string | null>(viewer.id);
   const [custom, setCustom] = useState<Record<string, unknown>>({});
-  const [openAfter, setOpenAfter] = useState(true);
+  const [openAfter, setOpenAfter] = useState(d.openAfter ?? true);
   const done = useCreated("/people", "Person", onClose);
   const { pending, error, submit } = useSubmit(
     () =>

@@ -9,7 +9,7 @@ import type { ClientCategory } from "@/lib/constants";
  * prefill the form (a client created from a person's page starts linked to them).
  */
 export type CreateRequest =
-  | { kind: "person"; defaults?: { organizationId?: string; organizationName?: string; firstName?: string } }
+  | { kind: "person"; defaults?: { organizationId?: string; organizationName?: string; firstName?: string; phone?: string; email?: string; openAfter?: boolean } }
   | { kind: "organization"; defaults?: { name?: string } }
   | { kind: "client"; defaults?: { category?: ClientCategory; stageId?: string; personId?: string; personName?: string; organizationId?: string; organizationName?: string; name?: string } }
   | null;
