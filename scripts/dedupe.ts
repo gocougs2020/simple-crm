@@ -44,6 +44,12 @@ async function connect(): Promise<{ db: Database; close: () => Promise<void> }> 
     const { drizzle } = await import("drizzle-orm/neon-serverless");
     const { migrate } = await import("drizzle-orm/neon-serverless/migrator");
     const pool = new Pool({ connectionString: url });
+    // A dropped WebSocket is reported as an "error" event on the connection. The pool
+    // listens only while a connection sits idle, so one that drops mid-transaction would
+    // otherwise crash the script; with a listener the failed query rejects instead and
+    // `withRetry` tries the group again on a fresh connection.
+    pool.on("error", () => {});
+    pool.on("connect", (client: { on: (event: "error", listener: () => void) => unknown }) => client.on("error", () => {}));
     const db = drizzle({ client: pool, schema });
     await migrate(db, { migrationsFolder: "drizzle" });
     log(`Database: ${new URL(url).host}`);
@@ -58,6 +64,42 @@ async function connect(): Promise<{ db: Database; close: () => Promise<void> }> 
   await migrate(db, { migrationsFolder: "drizzle" });
   log("Database: local (.data/pglite)");
   return { db: db as unknown as Database, close: () => client.close() };
+}
+
+/** A lost connection (no SQLSTATE, or class 08), a server restart, or a serialization failure or deadlock: worth trying again. */
+function isTransient(err: unknown): boolean {
+  for (let e: unknown = err; e; e = (e as { cause?: unknown }).cause) {
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) return code.startsWith("08") || ["57P01", "57P02", "57P03", "40001", "40P01"].includes(code);
+  }
+  return true;
+}
+
+/**
+ * Merges one group, trying again on a fresh connection when the connection drops.
+ * `pending` says whether the group still needs merging: a drop just after COMMIT
+ * can hide that it went through, and merging twice would log the merge twice.
+ */
+async function withRetry(label: string, pending: () => Promise<boolean>, merge: () => Promise<void>) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      if (attempt > 1 && !(await pending())) return;
+      return await merge();
+    } catch (err) {
+      if (attempt >= 5 || !isTransient(err)) throw new Error(`Couldn't merge ${label}: ${describe(err)}. The groups before it are merged; run again to continue.`, { cause: err });
+      log(`  Merging ${label} failed (${describe(err)}), trying again (${attempt} of 4)`);
+      await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
+    }
+  }
+}
+
+function describe(err: unknown): string {
+  const parts: string[] = [];
+  for (let e: unknown = err; e && parts.length < 4; e = (e as { cause?: unknown }).cause) {
+    const m = e instanceof Error ? e.message.split("\n")[0] : (e as { message?: string }).message;
+    if (m && !m.startsWith("Failed query")) parts.push(m);
+  }
+  return parts.join(": ") || "the database connection closed";
 }
 
 const rowsOf = <T>(result: unknown) => ((result as { rows?: T[] }).rows ?? (result as T[])) as T[];
@@ -206,7 +248,8 @@ async function dedupeOrganizations(db: Database, apply: boolean, actorId: string
     const ids = others.map((o) => o.id);
     const keep = plan.survivor.id;
     const patch = planOrganizationMerge(plan.survivor, others);
-    await db.transaction(async (tx) => {
+    const stillThere = async () => ids.length > 0 && (await db.select({ id: schema.organizations.id }).from(schema.organizations).where(inArray(schema.organizations.id, ids)).limit(1)).length > 0;
+    await withRetry(`“${plan.survivor.name}”`, stillThere, () => db.transaction(async (tx) => {
       const t = tx as unknown as Database;
       await t.update(schema.people).set({ organizationId: keep }).where(inArray(schema.people.organizationId, ids));
       // Other organizations people are at: move to the kept one, unless it's already their main one.
@@ -235,7 +278,7 @@ async function dedupeOrganizations(db: Database, apply: boolean, actorId: string
         data: { merged: plan.merged.map(briefly), deleted: plan.empty.map(briefly), filled: Object.keys(patch) },
         userId: actorId,
       });
-    });
+    }));
   }
   log(`  ${merged} to merge, ${deleted} empty to delete${apply ? ": done" : ""}`);
   return movedTo;
@@ -289,7 +332,8 @@ async function dedupePeople(db: Database, apply: boolean, actorId: string) {
     const ids = others.map((p) => p.id);
     const keep = plan.survivor.id;
     const { patch, alsoAt: orgs } = planPersonMerge(plan.survivor, others, { survivor: alsoAt.get(keep) ?? [], others: ids.flatMap((id) => alsoAt.get(id) ?? []) });
-    await db.transaction(async (tx) => {
+    const stillThere = async () => ids.length > 0 && (await db.select({ id: schema.people.id }).from(schema.people).where(inArray(schema.people.id, ids)).limit(1)).length > 0;
+    await withRetry(fullName(plan.survivor), stillThere, () => db.transaction(async (tx) => {
       const t = tx as unknown as Database;
       for (const table of [schema.clients, schema.activities, schema.files, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textThreads]) {
         await t.update(table).set({ personId: keep }).where(inArray(table.personId, ids));
@@ -323,7 +367,7 @@ async function dedupePeople(db: Database, apply: boolean, actorId: string) {
         data: { merged: plan.merged.map((p) => briefly(row(p))), deleted: plan.empty.map((p) => briefly(row(p))), filled: Object.keys(patch) },
         userId: actorId,
       });
-    });
+    }));
   }
   log(`  ${merged} to merge, ${deleted} empty to delete${skipped ? `, ${skipped} large groups skipped` : ""}${apply ? ": done" : ""}`);
   return movedTo;
@@ -381,7 +425,8 @@ async function dedupeClients(db: Database, apply: boolean, actorId: string, orgM
     const ids = donors.map((c) => c.id);
     const keep = survivor.id;
     const patch = planClientMerge(survivor, donors);
-    await db.transaction(async (tx) => {
+    const stillThere = async () => ids.length > 0 && (await db.select({ id: schema.clients.id }).from(schema.clients).where(inArray(schema.clients.id, ids)).limit(1)).length > 0;
+    await withRetry(`the clients of “${survivor.name}”`, stillThere, () => db.transaction(async (tx) => {
       const t = tx as unknown as Database;
       // Services (what they use or used) and metrics come along with everything on the timeline.
       for (const table of [schema.clientServices, schema.clientMetrics, schema.activities, schema.files, schema.outboundEmails, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textMessages, schema.textThreads]) {
@@ -400,7 +445,7 @@ async function dedupeClients(db: Database, apply: boolean, actorId: string, orgM
         data: { merged: donors.map((c) => ({ ...briefly(c), category: c.category })), deleted: [], filled: Object.keys(patch) },
         userId: actorId,
       });
-    });
+    }));
   }
   log(`  ${merged} to merge${apply ? ": done" : ""}`);
 }
