@@ -122,7 +122,7 @@ Email threads and text conversations share one rule (`src/lib/conversations/read
 - Nobody's (no record, or no owner): it's unread for everyone, and the first teammate to open it marks it read for everyone.
 - There's one `read` flag per conversation, not one per teammate, so when the record changes hands an unread conversation becomes the new owner's unread with nothing to copy.
 - The sidebar's Email and Messages counts, the per-inbox counts and the Unread filters all count what's unread for the viewer. Email counts only the inbox folder from the last 90 days, as before.
-- Nothing polls: the Messages page fetches what's new when the tab comes back into view, and push alerts cover the rest.
+- Open pages catch up on their own ([Live updates](#live-updates)); the Messages page also fetches what's new when the tab comes back into view, and push alerts cover the rest.
 - Freshness: the Resend webhook (`/api/webhooks/resend`, signature-verified) syncs a thread as soon as mail arrives; a cron every 15 minutes and the "Sync now" button catch anything missed. Syncing is idempotent.
 - Received HTML goes through the same allow-list sanitizer as notes. The plain-text part is preferred when present, because sanitized marketing HTML reads poorly.
 
@@ -163,7 +163,16 @@ Record pages open with an AI summary of the record, shared by the team and rewri
 
 ## Background jobs
 
-Vercel Cron, all on the same quarter-hour blocks so the database can scale to zero between them (Neon suspends after a few idle minutes): the campaign cron (email and text campaigns), the inbox sync, the Microsoft 365 mailbox sync (which skips the blocks that don't fit `microsoft.syncEveryMinutes`) and the notifications cron (meeting and task pushes, morning summaries and agenda emails) run at :00, :15, :30 and :45, and the delivery check runs at :00. Nothing runs more often than every 15 minutes, and nothing in the browser polls. Scheduled campaigns are rounded up to the next quarter hour, so they go out exactly when the cron runs. Work someone starts by hand ("Send now", "Sync now") runs right away.
+Vercel Cron, all on the same quarter-hour blocks so the database can scale to zero between them (Neon suspends after a few idle minutes): the campaign cron (email and text campaigns), the inbox sync, the Microsoft 365 mailbox sync (which skips the blocks that don't fit `microsoft.syncEveryMinutes`) and the notifications cron (meeting and task pushes, morning summaries and agenda emails) run at :00, :15, :30 and :45, and the delivery check runs at :00. Nothing runs more often than every 15 minutes. The browser's only repeated request is the live-update check below, which stops when no one is using the page. Scheduled campaigns are rounded up to the next quarter hour, so they go out exactly when the cron runs. Work someone starts by hand ("Send now", "Sync now") runs right away.
+
+## Live updates
+
+Open pages show changes without a reload: a task the assistant just added, a call that came in, a teammate's edit.
+
+- **How:** `LiveUpdates` (`src/components/live-updates.tsx`, in the `(app)` layout) asks `/api/live` for the newest change's version: the latest `events.created_at` or `activities.updated_at` (`src/lib/live.ts`, two index lookups). When it moved, `router.refresh()` re-renders the page and the sidebar counts on the server. What's typed, open or scrolled in the browser stays as it was.
+- **When it asks:** right away after each assistant tool call (chat and voice, `checkForChanges()`), when the tab comes back into view or the window regains focus, and every `live.pollSeconds` (30) while the tab is visible and someone clicked or typed in the last `live.idleMinutes` (10). Hidden or idle tabs don't ask, so a CRM left open overnight lets Neon suspend.
+- **Cost:** a check is one small function call and one indexed query. A dozen people working 8 hours a day is about 250,000 checks a month, well within Vercel Pro's included invocations, and the database is awake during working hours anyway. Raise `live.pollSeconds` to ask less often, or set it to `0` to rely on focus and assistant checks alone.
+- **Why not sockets:** a push service (Pusher, Ably) or Neon's logical replication would add a vendor or keep the database from sleeping, for a difference of a few seconds. `activities.updated_at`, set by Drizzle on every update (`$onUpdate` in `schema.ts`), keeps the check honest for edits that don't set it by hand.
 
 ## Knowledge source
 

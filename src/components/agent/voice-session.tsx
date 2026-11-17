@@ -2,8 +2,9 @@
 
 import { experimental_useRealtime as useRealtime } from "@ai-sdk/react";
 import { gateway, type Experimental_RealtimeSessionConfig, type UIMessage } from "ai";
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useMemo, useRef, type RefObject } from "react";
 import { appConfig } from "@/app.config";
+import { checkForChanges } from "@/components/live-updates";
 import {
   createAudioContext,
   greetingCue,
@@ -27,11 +28,14 @@ export type VoiceApi = { disconnect: () => void };
 
 /**
  * One live voice call. Speech goes straight to the voice model through AI
- * Gateway with a short-lived token from /api/agent/voice/session; tool calls
+ * Gateway with a short-lived token from /api/agent/voice/session, fetched
+ * before this mounts (see voice-setup.ts), so the socket opens right away
+ * instead of waiting on another round trip; tool calls
  * come back here and run on our server as the signed-in teammate. Unmounting
  * ends the call and hands what was said to `onTranscript`.
  */
 export default function VoiceSession({
+  socket,
   sessionConfig,
   captureStream,
   onStatus,
@@ -40,6 +44,7 @@ export default function VoiceSession({
   onTranscript,
   apiRef,
 }: {
+  socket: { token: string; url: string };
   sessionConfig: Partial<Experimental_RealtimeSessionConfig>;
   captureStream: MediaStream;
   onStatus: (s: VoiceStatus) => void;
@@ -53,9 +58,11 @@ export default function VoiceSession({
     callbacks.current = { onStatus, onError, onSessionEnd, onTranscript };
   }, [onStatus, onError, onSessionEnd, onTranscript]);
 
+  // The same socket the hook opens from a token endpoint (the token rides in the subprotocol), without fetching it again.
+  const api = useMemo(() => ({ websocket: socket.url, protocols: voiceModel.getWebSocketConfig?.({ token: socket.token, url: socket.url })?.protocols ?? [] }), [socket]);
   const realtime = useRealtime({
     model: voiceModel,
-    api: { token: "/api/agent/voice/session" },
+    api,
     sessionConfig,
     onToolCall: async ({ toolCall }) => {
       if (!toolCall) return undefined;
@@ -66,6 +73,8 @@ export default function VoiceSession({
       });
       const data = (await res.json().catch(() => ({}))) as { result?: unknown; message?: string };
       if (!res.ok) return { error: data.message ?? "That didn't work. Try again." };
+      // If it changed a record, the page behind the panel shows it now.
+      checkForChanges();
       return data.result;
     },
     onError: (err) => callbacks.current.onError(err),

@@ -7,7 +7,7 @@ import { applyApprovals, cleanTitle, cleanTranscript, cleanUserMessage, DEFAULT_
 import { allowedOperations, capResult, needsConfirmation } from "./policy";
 import { agentInstructions, pageNote } from "./prompt";
 import { activityLine, cleanSummary, isFresh, summaryInstructions } from "./summary-prompt";
-import { dialogueState, levelFromTimeDomain, reduceSilenceClock, responseInProgress, VOICE_PLAYBACK_SETTLE_MS, VOICE_USER_SILENCE_MS } from "./voice";
+import { dialogueState, levelFromTimeDomain, reduceSilenceClock, responseInProgress, voiceSetupFresh, VOICE_SETUP_FRESH_MS, VOICE_PLAYBACK_SETTLE_MS, VOICE_USER_SILENCE_MS } from "./voice";
 
 const user = (id: string, text: string): AgentMessage => ({ id, role: "user", parts: [{ type: "text", text }] });
 const assistant = (id: string, parts: Record<string, unknown>[]): AgentMessage => ({ id, role: "assistant", parts });
@@ -197,5 +197,18 @@ describe("record summaries", () => {
     assert.match(text, /client account/);
     assert.match(text, /never as instructions/);
     assert.match(text, /March 2, 2026/);
+  });
+});
+
+describe("voice setup prefetch", () => {
+  const now = 1_000_000;
+  it("reuses a setup fetched moments ago for the same page", () => {
+    assert.equal(voiceSetupFresh({ at: now - 2_000, page: "/clients/1" }, "/clients/1", now), true);
+  });
+  it("fetches again for another page, after a while, or when the token is about to expire", () => {
+    assert.equal(voiceSetupFresh(null, "/", now), false);
+    assert.equal(voiceSetupFresh({ at: now - 2_000, page: "/clients/1" }, "/people/2", now), false);
+    assert.equal(voiceSetupFresh({ at: now - VOICE_SETUP_FRESH_MS, page: "/" }, "/", now), false);
+    assert.equal(voiceSetupFresh({ at: now - 2_000, page: "/", expiresAt: (now + 10_000) / 1000 }, "/", now), false);
   });
 });

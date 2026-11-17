@@ -177,7 +177,7 @@ async function logInbound(call: typeof phoneCalls.$inferSelect, number: PhoneNum
     .values({
       type: "task",
       subject: `Add notes from the call with ${who}`,
-      body: textToHtml(`${who}${callerName ? "" : `, who isn't in the CRM yet,`} called ${number.label}. Write up what it was about on the call, then check this off.`),
+      body: textToHtml(`${who}${callerName ? "" : `, who isn't in the CRM yet,`} called ${number.label}, ${formatPhone(number.number)}. ${forwarded}\n\nWrite up what it was about on the call, then check this off.`),
       dueAt: zonedTime(await workspaceToday(), "00:00", ws.timezone),
       dueHasTime: false,
       userId: null,

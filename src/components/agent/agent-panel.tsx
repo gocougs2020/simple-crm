@@ -21,7 +21,7 @@ import {
   StopIcon,
   TrashIcon,
 } from "@heroicons/react/24/outline";
-import { deleteAgentThread, listAgentThreads, loadAgentThread, prepareVoiceChat, rateAgentMessage, saveVoiceTranscript, type ThreadSummary } from "@/actions/agent";
+import { deleteAgentThread, listAgentThreads, loadAgentThread, rateAgentMessage, saveVoiceTranscript, type ThreadSummary } from "@/actions/agent";
 import { appConfig } from "@/app.config";
 import { useApp } from "@/components/app-context";
 import { endMessage, isGreetingCue, primeAudio, VOICE_MIC_CONSTRAINTS, voiceSessionConfig, type VoiceEndReason } from "@/lib/agent/voice";
@@ -30,6 +30,8 @@ import { AssistantParts, awaitingApproval, hasVisibleContent, textOf } from "./a
 import { DictationButton, type DictationState } from "./dictation-button";
 import { VoicePresence } from "./voice-presence";
 import VoiceSession, { type VoiceApi, type VoiceStatus } from "./voice-session";
+import { prefetchVoiceSetup, takeVoiceSetup } from "./voice-setup";
+import { checkForChanges } from "@/components/live-updates";
 
 const COMPOSER_MIN = 40;
 const COMPOSER_MAX = 160;
@@ -115,6 +117,7 @@ export function AgentPanel({ configured }: { configured: boolean }) {
   const [voiceNotice, setVoiceNotice] = useState("");
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>(IDLE_VOICE);
   const [voiceStream, setVoiceStream] = useState<MediaStream | null>(null);
+  const [voiceSocket, setVoiceSocket] = useState<{ token: string; url: string } | null>(null);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -150,6 +153,24 @@ export function AgentPanel({ configured }: { configured: boolean }) {
   });
   const busy = status === "submitted" || status === "streaming";
   const voiceLive = !!voiceConfig;
+
+  // A tool finished while the assistant is answering: the page behind the panel catches up right away,
+  // so a task it just added shows on the record without a reload. Read-only tools change nothing, so nothing refreshes.
+  const settledTools = useRef(new Set<string>());
+  useEffect(() => {
+    let finished = false;
+    for (const m of messages) {
+      if (m.role !== "assistant") continue;
+      for (const p of m.parts as { type: string; state?: string; toolCallId?: string }[]) {
+        if (!(p.type === "dynamic-tool" || p.type.startsWith("tool-")) || p.state !== "output-available" || !p.toolCallId) continue;
+        if (settledTools.current.has(p.toolCallId)) continue;
+        settledTools.current.add(p.toolCallId);
+        finished = true;
+      }
+    }
+    // A saved thread loading isn't news; only tools that finish during an answer are.
+    if (finished && busy) checkForChanges();
+  }, [messages, busy]);
 
   // Opening the panel: the thread list, and the saved messages of the current thread.
   useEffect(() => {
@@ -223,8 +244,15 @@ export function AgentPanel({ configured }: { configured: boolean }) {
     voiceApi.current?.disconnect();
     releaseMic();
     setVoiceConfig(null);
+    setVoiceSocket(null);
     setVoiceStarting(false);
     setVoiceStatus(IDLE_VOICE);
+  };
+
+  /** Pointing at the button fetches the setup, so the click only waits for the microphone and the socket. */
+  const warmVoice = () => {
+    if (!services.ai.voice || voiceConfig || voiceStarting) return;
+    prefetchVoiceSetup(window.location.pathname).catch(() => {});
   };
 
   async function startVoice() {
@@ -252,9 +280,9 @@ export function AgentPanel({ configured }: { configured: boolean }) {
         return null;
       });
     try {
-      const [prep, stream] = await Promise.all([prepareVoiceChat(window.location.pathname), mic]);
+      // The setup was usually fetched on hover; the microphone opens alongside it.
+      const [setup, stream] = await Promise.all([takeVoiceSetup(window.location.pathname), mic]);
       if (cancelled()) return releaseMic();
-      if (!prep.ok) throw new Error(prep.error);
       if (micError || !stream?.getTracks().some((t) => t.readyState === "live")) {
         releaseMic();
         setVoiceError("Allow microphone access in your browser to use voice chat.");
@@ -262,7 +290,8 @@ export function AgentPanel({ configured }: { configured: boolean }) {
       }
       fresh.current.delete(threadId);
       setVoiceStream(stream);
-      setVoiceConfig(voiceSessionConfig(prep.data.instructions));
+      setVoiceSocket({ token: setup.token, url: setup.url });
+      setVoiceConfig(voiceSessionConfig(setup.instructions, setup.tools));
     } catch (err) {
       const wasCancelled = cancelled();
       releaseMic();
@@ -505,7 +534,13 @@ export function AgentPanel({ configured }: { configured: boolean }) {
                       <>
                         {voiceError ? <p className="max-w-64 text-[12px] text-error">{voiceError}</p> : null}
                         {voiceNotice ? <p className="max-w-64 text-[12px] text-muted">{voiceNotice}</p> : null}
-                        <button type="button" onClick={() => void startVoice()} disabled={voiceStarting} className="mt-1 inline-flex h-10 items-center gap-2 rounded-full border border-line-strong bg-surface px-5 text-[13.5px] font-medium text-primary hover:bg-sunken disabled:opacity-50">
+                        <button
+                          type="button"
+                          onClick={() => void startVoice()}
+                          onPointerEnter={warmVoice}
+                          onFocus={warmVoice}
+                          onTouchStart={warmVoice}
+                          disabled={voiceStarting} className="mt-1 inline-flex h-10 items-center gap-2 rounded-full border border-line-strong bg-surface px-5 text-[13.5px] font-medium text-primary hover:bg-sunken disabled:opacity-50">
                           <SpeakerWaveIcon className="size-4" aria-hidden />
                           Start voice chat
                         </button>
@@ -576,8 +611,9 @@ export function AgentPanel({ configured }: { configured: boolean }) {
         ) : null}
       </div>
 
-      {voiceConfig && voiceStream ? (
+      {voiceConfig && voiceStream && voiceSocket ? (
         <VoiceSession
+          socket={voiceSocket}
           sessionConfig={voiceConfig}
           captureStream={voiceStream}
           onStatus={(s) => {

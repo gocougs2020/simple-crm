@@ -572,7 +572,8 @@ export const activities = pgTable(
     calendarEventId: text("calendar_event_id"),
     calendarAccountId: uuid("calendar_account_id").references((): AnyPgColumn => connectedAccounts.id, { onDelete: "set null" }),
     createdAt: createdAt(),
-    updatedAt: updatedAt(),
+    // Set on every update through Drizzle, so "what changed lately" (src/lib/live.ts) sees edits that don't set it by hand.
+    updatedAt: updatedAt().$onUpdate(() => new Date()),
   },
   (t) => [
     index("activities_person_idx").on(t.personId, t.createdAt),
@@ -581,6 +582,8 @@ export const activities = pgTable(
     index("activities_assignee_due_idx").on(t.assigneeId, t.completedAt, t.dueAt),
     index("activities_call_idx").on(t.callId),
     index("activities_text_idx").on(t.textMessageId),
+    // The newest activity change, for the open-page refresh check (src/lib/live.ts).
+    index("activities_updated_idx").on(t.updatedAt),
   ],
 );
 
@@ -604,7 +607,8 @@ export const events = pgTable(
     apiKeyId: uuid("api_key_id").references(() => apiKeys.id, { onDelete: "set null" }),
     createdAt: createdAt(),
   },
-  (t) => [index("events_entity_idx").on(t.entityType, t.entityId, t.createdAt)],
+  // events_created_idx: the newest change, which open pages check to know when to refresh (src/lib/live.ts).
+  (t) => [index("events_entity_idx").on(t.entityType, t.entityId, t.createdAt), index("events_created_idx").on(t.createdAt)],
 );
 
 export const files = pgTable(

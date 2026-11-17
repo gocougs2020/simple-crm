@@ -120,6 +120,18 @@ export type AppConfig = {
     /** The hour (0–23, workspace time zone) the morning push summary and agenda emails go out. */
     morningHour: number;
   };
+  live: {
+    /**
+     * Open pages ask whether anything changed this often (seconds) and
+     * refresh when it did: calls, texts and email coming in, teammates'
+     * edits. Only while the tab is visible and someone used it lately. 0 turns
+     * the check off (pages still catch up when the tab comes back into view,
+     * and right after the assistant changes something).
+     */
+    pollSeconds: number;
+    /** After this many minutes without a click or key press, open pages stop asking until someone's back, so the database can sleep. */
+    idleMinutes: number;
+  };
   records: {
     /**
      * What a starred person at an organization is called: the people who make
@@ -240,6 +252,10 @@ const defaults = {
   },
   notifications: {
     morningHour: 7,
+  },
+  live: {
+    pollSeconds: 30,
+    idleMinutes: 10,
   },
   records: {
     keyContactLabel: "Decision maker",
