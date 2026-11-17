@@ -11,7 +11,7 @@
  *   one group of three.
  * - In each group the oldest record that has anything on it (people,
  *   notes, clients…) is kept. Its own details stay; blanks are filled from
- *   the others, oldest first.
+ *   the others: those with notes and activity first, newest first.
  */
 import type { CustomValues } from "@/db/schema";
 import { matchKey } from "@/lib/phone/numbers";
@@ -76,17 +76,25 @@ export function groupByShared<T extends Base>(rows: T[], keys: (r: T) => string[
 
 /**
  * Which record of a group is kept: the oldest with anything on it, or the
- * oldest when none has. The rest are merged into it (oldest first), or
- * deleted when there's nothing on them.
+ * oldest when none has. The rest are merged into it, or deleted when there's
+ * nothing on them.
+ *
+ * `donors` is the order the others fill the kept record's blanks in: records
+ * with something on them before empty ones, and the newest first within
+ * each, so a website comes from the newer, active duplicate rather than an
+ * empty one.
  */
 export function pickSurvivor<T extends Base>(group: T[], hasData: (r: T) => boolean) {
   const sorted = [...group].sort(byAge);
   const survivor = sorted.find(hasData) ?? sorted[0];
   const rest = sorted.filter((r) => r !== survivor);
-  return { survivor, merged: rest.filter(hasData), empty: rest.filter((r) => !hasData(r)) };
+  const merged = rest.filter(hasData);
+  const empty = rest.filter((r) => !hasData(r));
+  const newestFirst = (list: T[]) => [...list].reverse();
+  return { survivor, merged, empty, donors: [...newestFirst(merged), ...newestFirst(empty)] };
 }
 
-/** The fields `target` has blank, filled from the first source that has them. Only changed fields are returned. */
+/** The fields `target` has blank, filled from the first source that has them (pass sources in priority order). Only changed fields are returned. */
 export function fillGaps<T extends Record<string, unknown>, K extends keyof T>(target: T, sources: Partial<T>[], fields: readonly K[]): Partial<Pick<T, K>> {
   const patch: Partial<Pick<T, K>> = {};
   for (const f of fields) {

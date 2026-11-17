@@ -97,6 +97,16 @@ describe("finding duplicates", () => {
     );
     assert.equal(pickSurvivor(group, () => false).survivor.id, "old-empty");
   });
+
+  it("fills blanks from records with something on them first, newest first, then empty ones", () => {
+    const group = [org("keep", 1), org("old-empty", 2, { domain: "empty-old.com" }), org("active-old", 3, { domain: "active-old.com" }), org("active-new", 4, { domain: "active-new.com" }), org("new-empty", 5, { domain: "empty-new.com", address: "9 Late St" })];
+    const plan = pickSurvivor(group, (r) => r.id.startsWith("keep") || r.id.startsWith("active"));
+    assert.deepEqual(
+      plan.donors.map((r) => r.id),
+      ["active-new", "active-old", "new-empty", "old-empty"],
+    );
+    assert.deepEqual(planOrganizationMerge(plan.survivor, plan.donors), { domain: "active-new.com", address: "9 Late St" });
+  });
 });
 
 describe("combining duplicates", () => {

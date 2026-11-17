@@ -194,7 +194,7 @@ async function dedupeOrganizations(db: Database, apply: boolean, actorId: string
     else if (i === 25) log(`  …and ${groups.length - 25} more (--verbose lists them all; the CSV has every one)`);
     if (!apply) continue;
 
-    const others = [...plan.merged, ...plan.empty];
+    const others = plan.donors;
     const ids = others.map((o) => o.id);
     const keep = plan.survivor.id;
     const patch = planOrganizationMerge(plan.survivor, others);
@@ -274,7 +274,7 @@ async function dedupePeople(db: Database, apply: boolean, actorId: string) {
     else if (i === 25) log(`  …and ${groups.length - 25} more (--verbose lists them all; the CSV has every one)`);
     if (!apply) continue;
 
-    const others = [...plan.merged, ...plan.empty];
+    const others = plan.donors;
     const ids = others.map((p) => p.id);
     const keep = plan.survivor.id;
     const { patch, alsoAt: orgs } = planPersonMerge(plan.survivor, others, { survivor: alsoAt.get(keep) ?? [], others: ids.flatMap((id) => alsoAt.get(id) ?? []) });
