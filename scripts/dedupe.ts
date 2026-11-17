@@ -7,8 +7,8 @@
  *   pnpm dedupe --as=you@company.com     record the merges as this teammate instead of the owner
  *   pnpm dedupe --max-group=25           merge groups of people up to this size (10 by default; bigger ones are listed and skipped)
  *
- * Organizations: the same whole name, ignoring capitals. People: a shared email
- * address or phone number. In each group the oldest record with anything on it
+ * Organizations: the same whole name, ignoring capitals. People: the same name
+ * and a shared email address or phone number. In each group the oldest record with anything on it
  * is kept, its blanks are filled from the others, everything linked to the
  * others moves to it, and the others are deleted. Then each organization's
  * clients (or, without one, each person's) become one client. Safe to run again: a second
@@ -24,7 +24,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import * as schema from "@/db/schema";
 import type { CampaignAudience } from "@/db/schema";
-import { contactKeys, groupByName, groupByShared, groupClients, pickClientSurvivor, pickSurvivor, planClientMerge, planOrganizationMerge, planPersonMerge } from "@/lib/crm/merge";
+import { contactKeys, groupByName, personMatchKeys, groupByShared, groupClients, pickClientSurvivor, pickSurvivor, planClientMerge, planOrganizationMerge, planPersonMerge } from "@/lib/crm/merge";
 
 type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
 
@@ -244,7 +244,7 @@ const fullName = (p: { firstName: string; lastName: string | null }) => [p.first
 async function dedupePeople(db: Database, apply: boolean, actorId: string) {
   const movedTo = new Map<string, string>();
   const all = await db.select().from(schema.people);
-  const groups = groupByShared(all, contactKeys);
+  const groups = groupByShared(all, personMatchKeys);
   const counts = await personCounts(
     db,
     groups.flat().map((p) => p.id),
@@ -255,10 +255,10 @@ async function dedupePeople(db: Database, apply: boolean, actorId: string) {
   let merged = 0;
   let deleted = 0;
   let skipped = 0;
-  // A big group usually means a shared line or inbox (a switchboard, info@), not one person: list it and leave it unless asked.
+  // A safety net: even with matching names, a big group is more likely a shared line or inbox than one person. List it and leave it unless asked.
   const maxGroup = Number(option("max-group") ?? 10);
   if (!Number.isInteger(maxGroup) || maxGroup < 2) throw new Error("--max-group takes a whole number of 2 or more.");
-  log(`\nPeople: ${groups.length} groups sharing an email or phone`);
+  log(`\nPeople: ${groups.length} groups with the same name sharing an email or phone`);
   for (const [i, group] of groups.entries()) {
     if (group.length > maxGroup) {
       skipped++;

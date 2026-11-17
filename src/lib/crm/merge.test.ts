@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { contactKeys, distinct, emailKey, fillGaps, groupByName, groupClients, pickClientSurvivor, planClientMerge, type ClientFields, groupByShared, keepContactsOnImport, mergeCustom, phoneKey, pickSurvivor, planOrganizationMerge, planPersonMerge, type OrgFields, type PersonFields } from "./merge";
+import { distinct, personMatchKeys, emailKey, fillGaps, groupByName, groupClients, pickClientSurvivor, planClientMerge, type ClientFields, groupByShared, keepContactsOnImport, mergeCustom, phoneKey, pickSurvivor, planOrganizationMerge, planPersonMerge, type OrgFields, type PersonFields } from "./merge";
 
 const day = (n: number) => new Date(Date.UTC(2024, 0, n));
 
@@ -85,22 +85,24 @@ describe("finding duplicates", () => {
     assert.equal(phoneKey("123"), "");
   });
 
-  it("groups people who share an email or phone, through each other too", () => {
+  it("groups people with the same name who share an email or phone, through each other too", () => {
     const rows = [
-      person("a", 1, { email: "ada@x.com" }),
-      person("b", 2, { email: "ADA@x.com", phone: "303-555-0123" }),
-      person("c", 3, { phone: "+13035550123" }),
-      person("d", 4, { email: "grace@x.com", otherPhones: ["(720) 555-0000"] }),
-      person("e", 5, { phone: "720 555 0000" }),
-      person("f", 6, { email: "alone@x.com", phone: "12" }),
-      person("g", 7, { phone: "12" }),
+      person("a", 1, { lastName: "Lovelace", email: "ada@x.com" }),
+      person("b", 2, { firstName: "ADA", lastName: " Lovelace", email: "ADA@x.com", phone: "303-555-0123" }),
+      person("c", 3, { lastName: "Lovelace", phone: "+13035550123" }),
+      person("d", 4, { firstName: "A.", lastName: "Lovelace", phone: "303-555-0123" }),
+      person("e", 5, { firstName: "Grace", email: "grace@x.com", otherPhones: ["(720) 555-0000"] }),
+      person("f", 6, { firstName: "Grace", phone: "720 555 0000" }),
+      person("g", 7, { firstName: "Bob", phone: "720 555 0000" }),
+      person("h", 8, { firstName: "Rob", phone: "12" }),
+      person("i", 9, { firstName: "Rob", phone: "12" }),
     ];
-    const groups = groupByShared(rows, contactKeys);
+    const groups = groupByShared(rows, personMatchKeys);
     assert.deepEqual(
       groups.map((g) => g.map((r) => r.id)),
       [
         ["a", "b", "c"],
-        ["d", "e"],
+        ["e", "f"],
       ],
     );
   });

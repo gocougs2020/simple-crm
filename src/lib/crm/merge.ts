@@ -5,10 +5,10 @@
  *
  * - Organizations are duplicates when their whole names match, ignoring
  *   capitals ("acme" and "Acme", but not "Acme" and "Acme Inc").
- * - People are duplicates when they share an email address (any case) or a
- *   phone number (the last 10 digits, however it was typed), directly or
- *   through each other: A shares an email with B and B a phone with C makes
- *   one group of three.
+ * - People are duplicates when they have the same name and share an email
+ *   address (any case) or a phone number (the last 10 digits, however it was
+ *   typed), directly or through each other. The name keeps an office's main
+ *   line or a shared inbox from merging different people.
  * - In each group the oldest record that has anything on it (people,
  *   notes, clients…) is kept. Its own details stay; blanks are filled from
  *   the others: those with notes and activity first, newest first.
@@ -52,6 +52,16 @@ export const contactKeys = (p: { email?: string | null; phone?: string | null; o
   ...[p.email, ...(p.otherEmails ?? [])].map(emailKey).filter(Boolean).map((k) => `e:${k}`),
   ...[p.phone, ...(p.otherPhones ?? [])].map(phoneKey).filter(Boolean).map((k) => `p:${k}`),
 ];
+
+/** What people's names are compared on: first and last name, without capitals or extra spaces. */
+export const personNameKey = (p: { firstName: string; lastName?: string | null }) =>
+  `${p.firstName} ${p.lastName ?? ""}`.trim().replace(/\s+/g, " ").toLowerCase();
+
+/** What makes two people the same person: the same name and a shared email or phone. */
+export const personMatchKeys = (p: Parameters<typeof contactKeys>[0] & { firstName: string; lastName?: string | null }) => {
+  const name = personNameKey(p);
+  return contactKeys(p).map((k) => `${k}|${name}`);
+};
 
 /** Records that share any key, directly or through each other (union–find). Only groups of two or more, oldest first. */
 export function groupByShared<T extends Base>(rows: T[], keys: (r: T) => string[]): T[][] {
