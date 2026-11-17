@@ -14,7 +14,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { appConfig } from "@/app.config";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { timeline } from "@/lib/crm/activities";
-import { clientsOfPerson, getPerson } from "@/lib/crm/records";
+import { clientsOfPerson, getPerson, otherOrganizationsOf } from "@/lib/crm/records";
 import { personName } from "@/lib/format";
 import { z } from "zod";
 
@@ -41,7 +41,7 @@ async function Person({ params }: Pick<PageProps<"/people/[id]">, "params">) {
   const row = await getPerson(id);
   if (!row) notFound();
   const { person, organization } = row;
-  const [tl, clients] = await Promise.all([timeline("person", id), clientsOfPerson(id, person.organizationId)]);
+  const [tl, clients, alsoAt] = await Promise.all([timeline("person", id), clientsOfPerson(id, person.organizationId), otherOrganizationsOf(id)]);
   const name = personName(person);
   return (
     <>
@@ -65,6 +65,9 @@ async function Person({ params }: Pick<PageProps<"/people/[id]">, "params">) {
           <>
             <PersonDetails person={person} organization={organization} />
             {organization ? <OrganizationCard org={organization} /> : null}
+            {alsoAt.map((org) => (
+              <OrganizationCard key={org.id} org={org} title="Also at" />
+            ))}
             <RelatedClients clients={clients} create={{ kind: "client", defaults: { personId: id, personName: name, organizationId: organization?.id, organizationName: organization?.name } }} />
             <FilesCard files={tl.files} emailFiles={tl.emailFiles} links={{ personId: id, organizationId: person.organizationId }} />
           </>

@@ -681,6 +681,9 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
     email?: string;
     detail?: string | null;
     phone?: string;
+    /** Duplicates merged into this record (scripts/dedupe.ts). */
+    merged?: { name: string }[];
+    deleted?: { name: string }[];
   };
   const cat = (c?: string) => (c && c in clientCategoryLabels ? clientCategoryLabels[c as ClientCategory].one.toLowerCase() : c);
   let text: React.ReactNode;
@@ -766,6 +769,19 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
     case "reopened":
       text = <>reopened this</>;
       break;
+    case "merged": {
+      const merged = d.merged?.length ?? 0;
+      const deleted = d.deleted?.length ?? 0;
+      text = (
+        <>
+          {merged ? <>merged {merged === 1 ? "a duplicate" : `${merged} duplicates`} into this</> : null}
+          {merged && deleted ? "; " : null}
+          {deleted ? <>removed {deleted === 1 ? "an empty duplicate" : `${deleted} empty duplicates`}</> : null}
+        </>
+      );
+      icon = <ArrowsRightLeftIcon className="size-3.5" />;
+      break;
+    }
     case "archived":
       text = <>archived this</>;
       break;

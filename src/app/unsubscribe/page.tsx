@@ -6,6 +6,7 @@ import { AuthFrame } from "@/components/auth/auth-frame";
 import { Button } from "@/components/ui/button";
 import { getDb, schema } from "@/db";
 import { verifyUnsubscribe } from "@/lib/auth";
+import { currentRecordId } from "@/lib/crm/merged";
 import { getWorkspace } from "@/lib/workspace";
 
 export const metadata: Metadata = { title: "Unsubscribe" };
@@ -24,7 +25,8 @@ async function unsubscribe(formData: FormData) {
   const personId = await verifyUnsubscribe(String(formData.get("t") ?? ""));
   if (!personId) return;
   const db = await getDb();
-  await db.update(schema.people).set({ unsubscribedAt: new Date(), marketingOptIn: false }).where(eq(schema.people.id, personId));
+  // A link sent to a duplicate that's since been merged unsubscribes the person it was merged into.
+  await db.update(schema.people).set({ unsubscribedAt: new Date(), marketingOptIn: false }).where(eq(schema.people.id, await currentRecordId("person", personId)));
   redirect("/unsubscribe?done=1");
 }
 

@@ -8,9 +8,12 @@ import { cleanCustomValues } from "@/lib/crm/custom-fields";
 import { appConfig } from "@/app.config";
 import { diff, labelRelations, recordEvent } from "@/lib/crm/events";
 import { withCustomChanges } from "@/lib/crm/inputs";
+import { distinct, emailKey, phoneKey } from "@/lib/crm/merge";
 import { id, orgInput, personInput } from "@/lib/crm/schemas";
 import { ConflictError, NotFoundError } from "@/lib/errors";
 import { recordAssigned } from "@/lib/push/triggers";
+
+type Person = typeof schema.people.$inferSelect;
 
 /**
  * Creating, changing and archiving people and organizations. Shared by the
@@ -27,6 +30,8 @@ const personLabels = {
   lastName: "Last name",
   email: "Email",
   phone: "Phone",
+  otherEmails: "Other emails",
+  otherPhones: "Other phones",
   title: "Job title",
   organizationId: "Organization",
   ownerId: "Owner",
@@ -124,9 +129,27 @@ export async function insertPersonByName(a: Actor, fullName: string, organizatio
   return p;
 }
 
+/**
+ * Other emails and phones without duplicates or the primary one, whichever
+ * changed: making an other address primary takes it off the list. Only the
+ * lists that change are returned.
+ */
+function otherContacts(data: Partial<Pick<Person, "email" | "phone" | "otherEmails" | "otherPhones">>, before: Pick<Person, "email" | "phone" | "otherEmails" | "otherPhones">) {
+  const out: Partial<Pick<Person, "otherEmails" | "otherPhones">> = {};
+  const email = data.email !== undefined ? data.email : before.email;
+  const emails = distinct(data.otherEmails ?? before.otherEmails, emailKey).filter((e) => emailKey(e) !== emailKey(email));
+  if (data.otherEmails || JSON.stringify(emails) !== JSON.stringify(before.otherEmails)) out.otherEmails = emails;
+  const phone = data.phone !== undefined ? data.phone : before.phone;
+  const same = (p: string) => !!phone && (phoneKey(p) ? phoneKey(p) === phoneKey(phone) : p.trim().toLowerCase() === phone.trim().toLowerCase());
+  const phones = distinct(data.otherPhones ?? before.otherPhones, phoneKey).filter((p) => !same(p));
+  if (data.otherPhones || JSON.stringify(phones) !== JSON.stringify(before.otherPhones)) out.otherPhones = phones;
+  return out;
+}
+
 export async function createPerson(a: Actor, input: z.input<typeof personInput> & { newOrganizationName?: string }) {
   assertCan(a, "records:write");
-  const { textConsent, ...data } = personInput.parse(input);
+  const { textConsent, ...parsed } = personInput.parse(input);
+  const data = { ...parsed, ...otherContacts(parsed, { email: null, phone: null, otherEmails: [], otherPhones: [] }) };
   await Promise.all([assertUser(data.ownerId, "owner"), assertOrganization(data.organizationId)]);
   const db = await getDb();
   let organizationId = data.organizationId ?? null;
@@ -147,11 +170,12 @@ export async function createPerson(a: Actor, input: z.input<typeof personInput> 
 
 export async function updatePerson(a: Actor, personId: string, patch: Partial<z.input<typeof personInput>>) {
   assertCan(a, "records:write");
-  const { textConsent, ...data } = personInput.partial().parse(patch);
-  await Promise.all([assertUser(data.ownerId, "owner"), assertOrganization(data.organizationId)]);
+  const { textConsent, ...parsed } = personInput.partial().parse(patch);
+  await Promise.all([assertUser(parsed.ownerId, "owner"), assertOrganization(parsed.organizationId)]);
   const db = await getDb();
   const [before] = await db.select().from(people).where(eq(people.id, id.parse(personId)));
   if (!before) throw new NotFoundError("This person was deleted.");
+  const data = { ...parsed, ...otherContacts(parsed, before) };
   if (data.email && data.email !== before.email) {
     const [dupe] = await db
       .select({ id: people.id })

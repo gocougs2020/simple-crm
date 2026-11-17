@@ -3,16 +3,17 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { StarToggle } from "@/components/phone/contact-actions";
-import { useState } from "react";
-import { BriefcaseIcon, BuildingOffice2Icon, PlusIcon } from "@heroicons/react/20/solid";
+import { useState, useTransition } from "react";
+import { BriefcaseIcon, BuildingOffice2Icon, PlusIcon, XMarkIcon } from "@heroicons/react/20/solid";
 import { updateClient } from "@/actions/clients";
 import { updateOrganization, updatePerson } from "@/actions/records";
 import { CategoryBadge, Chip, HealthBadge } from "@/components/clients/client-controls";
 import { useApp } from "@/components/app-context";
 import { openCreate } from "@/components/shell/create-store";
 import { Avatar } from "@/components/ui/avatar";
+import { toast } from "@/components/ui/toast";
 import { StatusBadge, Tag } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, Spinner } from "@/components/ui/button";
 import { Checkbox, Input, Select, Textarea } from "@/components/ui/field";
 import type { schema } from "@/db";
 import { churnReasons, clientHealthLabels, clientHealths, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
@@ -97,6 +98,124 @@ function CustomFieldRows({ entity, values, onSave }: { entity: EntityType; value
 
 // ─── Person ──────────────────────────────────────────────────────────────
 
+/**
+ * A person's other emails or phones, besides the primary one. Each can be
+ * made primary (what the composer, calls, texts and campaigns use) or
+ * removed, and more can be added. Making one primary keeps the old primary
+ * in the list.
+ */
+function OtherContacts({
+  label,
+  kind,
+  values,
+  primary,
+  onSave,
+}: {
+  label: string;
+  kind: "email" | "phone";
+  values: string[];
+  primary: string | null;
+  onSave: (primary: string | null, others: string[]) => Promise<{ ok: true } | { ok: false; error: string }>;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [pending, start] = useTransition();
+  const noun = kind === "email" ? "email" : "phone";
+  const run = (main: string | null, others: string[], done?: () => void) =>
+    start(async () => {
+      const r = await onSave(main, others);
+      if (!r.ok) toast.error(r.error);
+      else done?.();
+    });
+  const add = () => {
+    if (pending) return;
+    const v = draft.trim();
+    const same = (x: string | null) => !!x && x.trim().toLowerCase() === v.toLowerCase();
+    if (!v || same(primary) || values.some(same)) {
+      setDraft("");
+      return setAdding(false);
+    }
+    // With no primary yet, the first one added becomes it.
+    if (!primary) run(v, values, () => (setDraft(""), setAdding(false)));
+    else run(primary, [...values, v], () => (setDraft(""), setAdding(false)));
+  };
+  const action = "rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-sunken hover:text-primary disabled:opacity-50";
+  return (
+    <div className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-start gap-2 py-1.5">
+      <dt className="pt-1.5 text-[12.5px] text-muted">{label}</dt>
+      <dd className="min-w-0">
+        {values.map((v) => (
+          <div key={v} className="group/item relative flex min-h-8 flex-wrap items-center gap-x-1">
+            <a href={kind === "email" ? `mailto:${v}` : `tel:${v.replace(/[^\d+]/g, "")}`} className="min-w-0 flex-1 truncate text-[13.5px] text-primary underline-offset-2 hover:underline">
+              {v}
+            </a>
+            {/* With a mouse, the actions show over the end of the row on hover, so the address gets the full width. On touch screens they stay in the row. */}
+            <span className="flex items-center gap-0.5 rounded-md bg-surface pointer-fine:absolute pointer-fine:top-1/2 pointer-fine:right-0 pointer-fine:-translate-y-1/2 pointer-fine:pl-2 pointer-fine:opacity-0 pointer-fine:transition-opacity pointer-fine:group-hover/item:opacity-100 pointer-fine:focus-within:opacity-100">
+            <button
+              type="button"
+              className={action}
+              disabled={pending}
+              onClick={() =>
+                run(
+                  v,
+                  [...(primary ? [primary] : []), ...values.filter((x) => x !== v)],
+                )
+              }
+              aria-label={`Make ${v} the primary ${noun}`}
+            >
+              Make primary
+            </button>
+            <button
+              type="button"
+              className={clsx(action, "px-1")}
+              disabled={pending}
+              onClick={() =>
+                run(
+                  primary,
+                  values.filter((x) => x !== v),
+                )
+              }
+              aria-label={`Remove ${v}`}
+            >
+              <XMarkIcon className="size-3.5" />
+            </button>
+            </span>
+          </div>
+        ))}
+        {adding ? (
+          <div className="flex items-center gap-1.5">
+            <Input
+              type={kind === "email" ? "email" : "tel"}
+              value={draft}
+              onChange={(e) => setDraft(kind === "phone" ? formatPhoneInput(e.target.value) : e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  add();
+                }
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  setDraft("");
+                  setAdding(false);
+                }
+              }}
+              onBlur={add}
+              autoFocus
+              aria-label={`Another ${noun}`}
+              className="h-8 text-[13.5px]"
+            />
+            {pending ? <Spinner className="size-4 text-faint" /> : null}
+          </div>
+        ) : (
+          <button type="button" onClick={() => setAdding(true)} className="-mx-2 min-h-8 rounded-md px-2 py-1.5 text-left text-[13.5px] text-faint hover:bg-sunken">
+            Add another {noun}
+          </button>
+        )}
+      </dd>
+    </div>
+  );
+}
+
 export function PersonDetails({ person, organization }: { person: Person; organization: Organization | null }) {
   const { comms, workspace } = useApp();
   const save = (patch: Parameters<typeof updatePerson>[1]) => updatePerson(person.id, patch).then(ok);
@@ -104,7 +223,7 @@ export function PersonDetails({ person, organization }: { person: Person; organi
     <SideCard title="Details">
       <dl>
         <InlineField
-          label="Email"
+          label={person.otherEmails.length ? "Primary email" : "Email"}
           value={person.email}
           copy={person.email}
           display={
@@ -117,7 +236,7 @@ export function PersonDetails({ person, organization }: { person: Person; organi
           {...text((email) => save({ email }), { type: "email" })}
         />
         <InlineField
-          label="Phone"
+          label={person.otherPhones.length ? "Primary phone" : "Phone"}
           value={person.phone}
           copy={person.phone}
           display={
@@ -128,6 +247,20 @@ export function PersonDetails({ person, organization }: { person: Person; organi
             ) : undefined
           }
           {...text((phone) => save({ phone }), { type: "tel", format: formatPhoneInput })}
+        />
+        <OtherContacts
+          label="Other emails"
+          kind="email"
+          values={person.otherEmails}
+          primary={person.email}
+          onSave={(main, others) => save({ email: main, otherEmails: others })}
+        />
+        <OtherContacts
+          label="Other phones"
+          kind="phone"
+          values={person.otherPhones}
+          primary={person.phone}
+          onSave={(main, others) => save({ phone: main, otherPhones: others })}
         />
         <InlineField label="Job title" value={person.title} {...text((title) => save({ title }))} />
         <InlineField<PickerValue>
@@ -515,9 +648,9 @@ export function RelatedPeople({ people, organization }: { people: Person[]; orga
   );
 }
 
-export function OrganizationCard({ org }: { org: Organization }) {
+export function OrganizationCard({ org, title = "Organization" }: { org: Organization; title?: string }) {
   return (
-    <SideCard title="Organization">
+    <SideCard title={title}>
       <Link href={`/organizations/${org.id}`} className="-mx-2 flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-sunken">
         <span className="flex size-8 items-center justify-center rounded-md bg-sunken">
           <BuildingOffice2Icon className="size-4 text-muted" />

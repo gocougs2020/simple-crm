@@ -87,6 +87,7 @@ Unknown keys, wrong types, invalid JSON and unsafe CSS values fail the build wit
 - [docs/THEMING.md](docs/THEMING.md): changing the design
 - [docs/DEPLOYING.md](docs/DEPLOYING.md): production setup
 - [docs/PIPEDRIVE-IMPORT.md](docs/PIPEDRIVE-IMPORT.md): importing from Pipedrive
+- [docs/DEDUPE.md](docs/DEDUPE.md): merging duplicate organizations and people
 - [docs/BUILD-LOG.md](docs/BUILD-LOG.md): decisions made while building it
 
 ## Scripts
@@ -101,6 +102,7 @@ Unknown keys, wrong types, invalid JSON and unsafe CSS values fail the build wit
 | `pnpm db:migrate` | Apply migrations to `DATABASE_URL` (runs in the Vercel build) |
 | `pnpm email:dev` | Preview the email templates in `src/emails` |
 | `pnpm import:pipedrive` | Import a Pipedrive account ([how it maps](docs/PIPEDRIVE-IMPORT.md)) |
+| `pnpm dedupe` | Find duplicate organizations and people and merge them (`--yes` to apply; [how](docs/DEDUPE.md)) |
 
 ## Contributing
 

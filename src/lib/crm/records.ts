@@ -3,7 +3,7 @@ import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from "dri
 import { getDb, schema } from "@/db";
 import { clientCategoryLabels, type ClientCategory } from "@/lib/constants";
 
-const { people, organizations, clients, stages } = schema;
+const { people, organizations, clients, stages, personOrganizations } = schema;
 
 /** Escapes % and _ so a search for "50%" means the literal text. */
 export const likeTerm = (q: string) => `%${q.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
@@ -35,7 +35,7 @@ export async function listPeople(f: PeopleFilter = {}) {
   const where: SQL[] = [isNull(people.archivedAt)];
   if (f.q?.trim()) {
     const t = likeTerm(f.q);
-    where.push(or(ilike(sql`${people.firstName} || ' ' || coalesce(${people.lastName}, '')`, t), ilike(people.email, t), ilike(people.phone, t), ilike(organizations.name, t))!);
+    where.push(or(ilike(sql`${people.firstName} || ' ' || coalesce(${people.lastName}, '')`, t), ilike(people.email, t), ilike(people.phone, t), ilike(sql`${people.otherEmails}::text`, t), ilike(sql`${people.otherPhones}::text`, t), ilike(organizations.name, t))!);
   }
   if (f.ownerId) where.push(f.ownerId === "none" ? isNull(people.ownerId) : eq(people.ownerId, f.ownerId));
   if (f.organizationId) where.push(eq(people.organizationId, f.organizationId));
@@ -65,6 +65,18 @@ export async function getPerson(id: string) {
     .where(eq(people.id, id))
     .limit(1);
   return row ?? null;
+}
+
+/** The organizations a person is also at, besides their main one (merged duplicates keep every one). */
+export async function otherOrganizationsOf(personId: string) {
+  const db = await getDb();
+  return db
+    .select({ organization: organizations })
+    .from(personOrganizations)
+    .innerJoin(organizations, eq(organizations.id, personOrganizations.organizationId))
+    .where(and(eq(personOrganizations.personId, personId), isNull(organizations.archivedAt)))
+    .orderBy(asc(organizations.name))
+    .then((rows) => rows.map((r) => r.organization));
 }
 
 export async function allTags() {
@@ -118,7 +130,12 @@ export async function peopleOf(organizationId: string) {
   return db
     .select()
     .from(people)
-    .where(and(eq(people.organizationId, organizationId), isNull(people.archivedAt)))
+    .where(
+      and(
+        or(eq(people.organizationId, organizationId), sql`exists (select 1 from ${personOrganizations} po where po.person_id = ${people.id} and po.organization_id = ${organizationId})`),
+        isNull(people.archivedAt),
+      ),
+    )
     .orderBy(asc(people.firstName), asc(people.lastName));
 }
 
