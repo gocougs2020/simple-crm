@@ -110,6 +110,8 @@ export async function placeCall(req: CallRequest) {
   } catch (err) {
     call = null;
     if (cancelled()) return { ok: false as const, error: "The call was cancelled." };
+    // The Voice SDK's own error (it carries a Twilio code) says why, for the browser console.
+    console.error("[call] couldn't start", err);
     const message = err instanceof Error && /permission|notallowed/i.test(err.message) ? "The browser couldn't use your microphone. Allow it in the address bar and try again." : "The call couldn't start. Check your connection and try again.";
     set({ phase: "ended", error: message, endedAt: Date.now() });
     return { ok: false as const, error: message };

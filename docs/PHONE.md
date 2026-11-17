@@ -51,7 +51,7 @@ Settings → **Phone numbers** (admins) is where numbers are bought by area code
    - **Get a number**: type an area code, pick from the local numbers Twilio has that can do voice, SMS and MMS, name it, set the cell phone calls ring, who answers (they get the write-up tasks and texts from unknown numbers) and who can use it, then **Buy**. The number is bought in the Twilio account (a monthly charge), already pointed at the CRM, and added to the messaging service when one is set.
    - **Delete number** (in a number's Edit) releases it from the Twilio account for good: it stops working and stops being billed. Calls and texts it carried stay on the records.
    - After moving to a new domain, **Reconnect all** and **Repair** point everything at it again.
-6. Teammates with access see Call and Text on records right away. The browser asks for the microphone the first time.
+6. Teammates with access see Call and Text on records right away. The browser asks for the microphone the first time. With `TWILIO_ACCOUNT_SID` set at build time, the site's `Permissions-Policy` allows the microphone and the CSP allows the Voice SDK's Twilio hosts (`wss://*.twilio.com`, `https://*.twilio.com`, sounds from `sdk.twilio.com`); a deployment that adds Twilio later needs a redeploy before calls connect.
 
 ## Consent and opt-outs
 

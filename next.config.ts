@@ -4,7 +4,9 @@ import { appConfig } from "./app.config";
 const isDev = process.env.NODE_ENV === "development";
 // The AI features a deployment turned on decide what the browser may reach and use (app.config.ts, agent.*).
 const voiceChat = appConfig.agent.enabled && appConfig.agent.voice;
-const microphone = voiceChat || appConfig.agent.dictation;
+// Calling from the browser (Twilio Voice SDK) needs the microphone and Twilio's signaling, event and sound hosts.
+const calling = !!process.env.TWILIO_ACCOUNT_SID?.trim();
+const microphone = voiceChat || appConfig.agent.dictation || calling;
 // The Vercel Toolbar (comments, feedback) only runs on preview deployments.
 const toolbar = process.env.VERCEL_ENV === "preview" ? " https://vercel.live" : "";
 
@@ -20,7 +22,10 @@ const contentSecurityPolicy = [
   `font-src 'self' data:${toolbar ? " https://vercel.live https://assets.vercel.com" : ""}`,
   // Browser uploads go straight to Vercel Blob.
   // Voice chat streams audio straight to AI Gateway's realtime socket, with a short-lived token from our server.
-  `connect-src 'self' https://vercel.com https://*.blob.vercel-storage.com${voiceChat ? " wss://ai-gateway.vercel.sh" : ""}${toolbar}${toolbar ? " wss://ws-us3.pusher.com" : ""}`,
+  // Browser calls signal over wss://voice-js.<edge>.twilio.com and report call quality to eventgw.twilio.com.
+  `connect-src 'self' https://vercel.com https://*.blob.vercel-storage.com${voiceChat ? " wss://ai-gateway.vercel.sh" : ""}${calling ? " wss://*.twilio.com https://*.twilio.com" : ""}${toolbar}${toolbar ? " wss://ws-us3.pusher.com" : ""}`,
+  // The Voice SDK's ringing and keypad tones come from sdk.twilio.com.
+  `media-src 'self' blob: data:${calling ? " https://sdk.twilio.com" : ""}`,
   "worker-src 'self' blob:",
   // The email preview renders in a sandboxed srcdoc iframe.
   `frame-src 'self'${toolbar}`,
@@ -38,7 +43,7 @@ const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "SAMEORIGIN" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  // The microphone is for dictation and voice chat, on this site only, and only when either is turned on.
+  // The microphone is for calls, dictation and voice chat, on this site only, and only when one of them is turned on.
   { key: "Permissions-Policy", value: `camera=(), microphone=${microphone ? "(self)" : "()"}, geolocation=(), browsing-topics=()` },
   // A private CRM: never indexed, even if a URL leaks.
   { key: "X-Robots-Tag", value: "noindex, nofollow" },

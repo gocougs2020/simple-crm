@@ -363,15 +363,12 @@ function Conversation({ thread }: { thread: Open }) {
           {thread.messages.map((m, i) => {
             // A day divider before the first text of each day.
             const prev = thread.messages[i - 1];
-            const next = thread.messages[i + 1];
             const divider = !prev || dayKey(prev.createdAt, tz) !== dayKey(m.createdAt, tz);
             const out = m.direction === "outbound";
             const campaign = !!m.campaignId;
-            // Teammates are credited on every text they sent; campaign texts go to whoever created the campaign.
+            // Teammates are credited by name under every text they sent; campaign texts go to whoever created the campaign.
             const author = out ? member(m.userId) : undefined;
             const sender = out ? (author?.name ?? "A teammate") : (thread.personName ?? thread.organizationName ?? formatPhone(thread.remote));
-            // Initials once per run of texts from the same sender, like a chat app.
-            const sameAsNext = !!next && next.direction === m.direction && next.userId === m.userId && !!next.campaignId === campaign && dayKey(next.createdAt, tz) === dayKey(m.createdAt, tz);
             const failed = m.status === "failed" || m.status === "undelivered";
             return (
               <li key={m.id} className="flex flex-col">
@@ -380,8 +377,7 @@ function Conversation({ thread }: { thread: Open }) {
                     {formatDay(m.createdAt, tz)}
                   </p>
                 ) : null}
-                <div className={clsx("flex max-w-[85%] items-end gap-2", out ? "flex-row-reverse self-end" : "self-start")}>
-                  <span className="mb-5 flex w-6 shrink-0 justify-center">{sameAsNext ? null : <Avatar name={out ? sender : (thread.personName ?? thread.organizationName ?? "#")} size="sm" />}</span>
+                <div className={clsx("flex max-w-[85%]", out ? "self-end" : "self-start")}>
                   <div className={clsx("flex min-w-0 flex-col", out ? "items-end" : "items-start")}>
                     {campaign ? (
                       <span className="mb-0.5 flex items-center gap-1 text-[11px] font-medium text-secondary">
