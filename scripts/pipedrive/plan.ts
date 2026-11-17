@@ -77,7 +77,7 @@ export type ClientPlan = {
 
 /**
  * One client per organization (or per person, for deals with no organization).
- * `keyOf` folds keys together: clients that `pnpm dedupe` merged stand for
+ * `keyOf` folds keys together: clients that `pnpm run dedupe` merged stand for
  * several Pipedrive organizations, and their deals plan as one client.
  */
 export function planClients(deals: PdDeal[], lk: Lookup, keyOf: (key: string) => string = (key) => key): ClientPlan[] {

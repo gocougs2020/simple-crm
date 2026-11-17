@@ -11,8 +11,9 @@ import { clientCategories, type EntityType } from "@/lib/constants";
 import { sessionActor } from "@/lib/crm/actor";
 import { recordEvent } from "@/lib/crm/events";
 import { id, optionalId, type orgInput, type personInput } from "@/lib/crm/schemas";
-import { globalSearch, lookup } from "@/lib/crm/records";
+import { globalSearch, listOrganizations, listPeople, lookup, pageSize } from "@/lib/crm/records";
 import * as svc from "@/lib/crm/service/records";
+import * as merging from "@/lib/crm/service/merge";
 
 const { people, organizations, clients } = schema;
 
@@ -93,6 +94,48 @@ export async function addTag(personIds: string[], tag: string): Promise<Result<{
       .returning({ id: people.id });
     refresh();
     return { count: rows.length };
+  });
+}
+
+// ─── Merge ───────────────────────────────────────────────────────────────
+
+/** Merges the picked people or organizations into the one chosen to keep. */
+export async function mergeRecords(entity: "person" | "organization", keepId: string, mergeIds: string[]): Promise<Result<{ id: string; merged: number; clientsMerged: number }>> {
+  return run(async () => {
+    const actor = sessionActor(await actionEditor());
+    const kind = z.enum(["person", "organization"]).parse(entity);
+    const result = kind === "person" ? await merging.mergePeople(actor, { keepId, mergeIds }) : await merging.mergeOrganizations(actor, { keepId, mergeIds });
+    refresh();
+    return result;
+  });
+}
+
+// ─── Paging through lists ────────────────────────────────────────────────
+
+const listFilter = z.object({
+  q: z.string().max(200).optional(),
+  ownerId: z.string().max(40).optional(),
+  tag: z.string().max(40).optional(),
+  sort: z.string().max(40).optional(),
+  dir: z.enum(["asc", "desc"]).optional(),
+});
+const pageRange = z.object({ offset: z.number().int().min(0).max(1_000_000), limit: z.number().int().min(1).max(2000).default(pageSize) });
+
+/** The next rows of the People table as it's scrolled. */
+export async function morePeople(filter: z.input<typeof listFilter>, range: z.input<typeof pageRange>): Promise<Result<Awaited<ReturnType<typeof listPeople>>>> {
+  return run(async () => {
+    const user = await actionUser();
+    const f = listFilter.parse(filter);
+    return listPeople({ ...f, ownerId: f.ownerId === "me" ? user.id : f.ownerId }, pageRange.parse(range));
+  });
+}
+
+/** The next rows of the Organizations table as it's scrolled. */
+export async function moreOrganizations(filter: z.input<typeof listFilter>, range: z.input<typeof pageRange>): Promise<Result<Awaited<ReturnType<typeof listOrganizations>>>> {
+  return run(async () => {
+    const user = await actionUser();
+    const f = listFilter.parse(filter);
+    return listOrganizations({ ...f, ownerId: f.ownerId === "me" ? user.id : f.ownerId }, pageRange.parse(range));
   });
 }
 

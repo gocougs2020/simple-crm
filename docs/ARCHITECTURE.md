@@ -56,7 +56,7 @@ app.config.ts        product defaults (name, theme, layout), overridable per dep
 | `inbox_threads`, `inbox_messages` | A mirror of the workspace's Resend inboxes, linked to people, organizations and clients |
 | `inbox_sends` | Who sent each email from the inbox page, by Resend's id, so the sync credits them however the send and the webhook race |
 | `people_imports` | What each spreadsheet import created and changed, so it can be undone |
-| `person_organizations` | Organizations a person is also at, besides their main one. Merging duplicates ([DEDUPE.md](DEDUPE.md)) keeps every organization they were at here. People also have `other_emails` and `other_phones`, which mail, call and text matching use |
+| `person_organizations` | Organizations a person is also at, besides their main one. Merging duplicates, by hand or with the script ([DEDUPE.md](DEDUPE.md)), keeps every organization they were at here. People also have `other_emails` and `other_phones`, which mail, call and text matching use |
 | `external_ids` | Which record here came from which record in Pipedrive, so the [Pipedrive import](PIPEDRIVE-IMPORT.md) can run again without duplicating and be removed cleanly |
 | `connected_accounts`, `synced_emails` | Each teammate's connected Microsoft 365 mailbox and calendar (tokens encrypted), and every message the mailbox sync looked at: copied or kept out, why, and the screen's probability. See [MICROSOFT.md](MICROSOFT.md) |
 | `phone_numbers`, `phone_number_users`, `phone_calls`, `text_messages` | The Twilio numbers the team uses and who may use each, and every call and text through them. Each call and text is also an activity on the record it matched. See [PHONE.md](PHONE.md) |
@@ -83,7 +83,7 @@ Choices worth knowing:
 - **Record changes live in `src/lib/crm/service/`.** Each function takes an `Actor` (`src/lib/crm/actor.ts`): a teammate in the browser, a teammate through their personal key, or a workspace key. It checks the actor's permission (`src/lib/permissions.ts`), validates with the shared schemas (`src/lib/crm/schemas.ts`), and writes history. Server actions wrap these and call `refresh()`; the API and MCP call them directly.
 - **Roles** are one table in `src/lib/permissions.ts`: owners and admins can do everything, members work records, viewers only read. The interface hides what a role can't do; the server refuses it regardless.
 - **Server actions** return `Result<T>` (`{ ok, data }` or `{ ok: false, error }`) through `run()` in `src/lib/action.ts`. Errors meant for people are `ActionError`s with a sentence that says what to do; anything else is logged and reported generically.
-- **List state lives in the URL** (`?q=&owner=&sort=`), so views are shareable and survive reloads. View preferences that should follow a person across devices (board vs table, pipeline) are saved on `users.prefs`.
+- **List state lives in the URL** (`?q=&owner=&sort=`), so views are shareable and survive reloads. The People and Organizations tables render their first 100 rows and the total, then load 100 more as you near the bottom (`usePagedRows`, `src/components/table/use-paged-rows.ts`). Each page picks its ids first (filter, sort, offset on the one table) and only then works out organizations, clients and next activity for those rows, so deep pages stay cheap; the total is counted once per view, not per page. View preferences that should follow a person across devices (board vs table, pipeline) are saved on `users.prefs`.
 
 ## Email
 

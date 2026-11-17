@@ -1,6 +1,6 @@
 import { jsonSchema } from "@/lib/api/openapi";
 import { operationList, type OperationId } from "@/lib/api/operations";
-import type { Operation, OptionalFeature } from "@/lib/api/spec";
+import { isDestructive, type Operation, type OptionalFeature } from "@/lib/api/spec";
 import type { Permission } from "@/lib/permissions";
 
 /**
@@ -74,7 +74,7 @@ export function toolFor(op: ToolOp): Tool {
     annotations: {
       title: op.summary,
       readOnlyHint: op.method === "GET",
-      destructiveHint: op.method === "DELETE",
+      destructiveHint: isDestructive(op),
       idempotentHint: op.method !== "POST",
       openWorldHint: false,
     },

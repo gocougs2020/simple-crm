@@ -102,7 +102,7 @@ Unknown keys, wrong types, invalid JSON and unsafe CSS values fail the build wit
 | `pnpm db:migrate` | Apply migrations to `DATABASE_URL` (runs in the Vercel build) |
 | `pnpm email:dev` | Preview the email templates in `src/emails` |
 | `pnpm import:pipedrive` | Import a Pipedrive account ([how it maps](docs/PIPEDRIVE-IMPORT.md)) |
-| `pnpm dedupe` | Find duplicate organizations and people and merge them (`--yes` to apply; [how](docs/DEDUPE.md)) |
+| `pnpm run dedupe` | Find duplicate organizations and people and merge them (`--yes` to apply; [how](docs/DEDUPE.md)) |
 
 ## Contributing
 

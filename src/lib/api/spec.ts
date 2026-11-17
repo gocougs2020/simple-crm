@@ -37,7 +37,12 @@ export type Operation<P extends Obj | undefined = Obj | undefined, Q extends Obj
   example?: Record<string, unknown>;
   /** Only offered as a tool where this feature is set up (the REST endpoint explains how when it isn't). */
   feature?: OptionalFeature;
+  /** Deletes or can't be undone, without being a DELETE (a merge). */
+  destructive?: boolean;
 };
+
+/** Archives, deletes and merges: MCP marks them destructive and the assistant asks before running them. */
+export const isDestructive = (o: Pick<Operation, "method" | "destructive">) => o.method === "DELETE" || !!o.destructive;
 
 export const op = <P extends Obj | undefined = undefined, Q extends Obj | undefined = undefined, B extends Obj | undefined = undefined>(o: Operation<P, Q, B>) => o;
 

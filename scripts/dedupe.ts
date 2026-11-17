@@ -1,11 +1,11 @@
 /**
  * Finds duplicate organizations, people and clients and merges them. See docs/DEDUPE.md.
  *
- *   pnpm dedupe                          show what would be merged and deleted, write nothing
- *   pnpm dedupe --yes                    merge and delete
- *   pnpm dedupe --only=organizations     just organizations (or --only=people, --only=clients)
- *   pnpm dedupe --as=you@company.com     record the merges as this teammate instead of the owner
- *   pnpm dedupe --max-group=25           merge groups of people up to this size (10 by default; bigger ones are listed and skipped)
+ *   pnpm run dedupe                          show what would be merged and deleted, write nothing
+ *   pnpm run dedupe --yes                    merge and delete
+ *   pnpm run dedupe --only=organizations     just organizations (or --only=people, --only=clients)
+ *   pnpm run dedupe --as=you@company.com     record the merges as this teammate instead of the owner
+ *   pnpm run dedupe --max-group=25           merge groups of people up to this size (10 by default; bigger ones are listed and skipped)
  *
  * Organizations: the same whole name, ignoring capitals. People: the same name
  * and a shared email address or phone number. In each group the oldest record with anything on it
@@ -20,11 +20,11 @@
  * writes a CSV of what it found to .data/.
  */
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import * as schema from "@/db/schema";
-import type { CampaignAudience } from "@/db/schema";
-import { contactKeys, groupByName, personMatchKeys, groupByShared, groupClients, pickClientSurvivor, pickSurvivor, planClientMerge, planOrganizationMerge, planPersonMerge } from "@/lib/crm/merge";
+import { contactKeys, groupByName, personMatchKeys, groupByShared, groupClients, pickClientSurvivor, pickSurvivor } from "@/lib/crm/merge";
+import { fullName, mergeClientsInto, mergeOrganizationsInto, mergePeopleInto, stageProbabilities } from "@/lib/crm/merge-records";
 
 type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
 type Transaction = (merge: (t: Database) => Promise<void>) => Promise<void>;
@@ -189,58 +189,6 @@ function addToReport(record: string, group: number, action: string, r: { id: str
   report.push([record, String(group), action, r.id, r.name, r.email ?? "", r.phone ?? "", r.category ?? "", r.createdAt.toISOString().slice(0, 10), String(c?.people ?? 0), String(c?.clients ?? 0), String(c?.activities ?? 0), String(c?.other ?? 0)]);
 }
 
-// ─── Shared steps ────────────────────────────────────────────────────────
-
-/** Saved audiences and campaign filters that name merged records point at the one that's kept. */
-async function repointAudiences(db: Database, field: "organizationIds" | "personIds", from: string[], to: string) {
-  const swap = (a: CampaignAudience) => {
-    const list = a[field];
-    if (!list?.some((id) => from.includes(id))) return null;
-    return { ...a, [field]: [...new Set(list.map((id) => (from.includes(id) ? to : id)))] };
-  };
-  const like = sql.raw(`'${field}'`);
-  for (const r of await db.select({ id: schema.audiences.id, filters: schema.audiences.filters }).from(schema.audiences).where(sql`${schema.audiences.filters} ? ${like}`)) {
-    const next = swap(r.filters);
-    if (next) await db.update(schema.audiences).set({ filters: next }).where(eq(schema.audiences.id, r.id));
-  }
-  for (const r of await db.select({ id: schema.campaigns.id, audience: schema.campaigns.audience }).from(schema.campaigns).where(sql`${schema.campaigns.audience} ? ${like}`)) {
-    const next = swap(r.audience);
-    if (next) await db.update(schema.campaigns).set({ audience: next }).where(eq(schema.campaigns.id, r.id));
-  }
-}
-
-/**
- * Spreadsheet imports forget every record in a merge, the kept one too: it now
- * holds what was moved from the others, so undoing the import mustn't delete
- * it (or put back its pre-import values over the merged ones).
- */
-async function forgetInImports(db: Database, field: "createdIds" | "createdOrgIds", ids: string[]) {
-  const column = field === "createdIds" ? schema.peopleImports.createdIds : schema.peopleImports.createdOrgIds;
-  const rows = await db
-    .select({ id: schema.peopleImports.id, created: column, updates: schema.peopleImports.updates })
-    .from(schema.peopleImports)
-    .where(sql`${column} ?| ${`{${ids.join(",")}}`}::text[] or (${field === "createdIds"} and exists (select 1 from jsonb_array_elements(${schema.peopleImports.updates}) u where u->>'id' = any(${uuids(ids)}::text[])))`);
-  for (const r of rows) {
-    await db
-      .update(schema.peopleImports)
-      .set({ [field]: r.created.filter((id) => !ids.includes(id)), ...(field === "createdIds" ? { updates: r.updates.filter((u) => !ids.includes(u.id)) } : {}) })
-      .where(eq(schema.peopleImports.id, r.id));
-  }
-}
-
-/** History of the merged records moves to the one that's kept (all but their "created" entries); external ids follow so the Pipedrive import updates the kept record instead of bringing the others back. */
-async function moveHistory(db: Database, entity: "organization" | "person" | "client", from: string[], to: string) {
-  await db.delete(schema.events).where(and(eq(schema.events.entityType, entity), inArray(schema.events.entityId, from), eq(schema.events.action, "created")));
-  await db
-    .update(schema.events)
-    .set({ entityId: to })
-    .where(and(eq(schema.events.entityType, entity), inArray(schema.events.entityId, from)));
-  await db.update(schema.externalIds).set({ localId: to }).where(inArray(schema.externalIds.localId, from));
-}
-
-const summaryReset = { summary: null, summaryAt: null, summaryStartedAt: null };
-const briefly = (r: { id: string; name: string; createdAt: Date }) => ({ id: r.id, name: r.name, createdAt: r.createdAt.toISOString() });
-
 // ─── Organizations ───────────────────────────────────────────────────────
 
 /** Returns where each merged or deleted organization went, so clients can be grouped the same way in a preview. */
@@ -270,46 +218,18 @@ async function dedupeOrganizations(db: Database, transaction: Transaction, apply
 
     const others = plan.donors;
     const ids = others.map((o) => o.id);
-    const keep = plan.survivor.id;
-    const patch = planOrganizationMerge(plan.survivor, others);
     const stillThere = async () => ids.length > 0 && (await db.select({ id: schema.organizations.id }).from(schema.organizations).where(inArray(schema.organizations.id, ids)).limit(1)).length > 0;
-    await withRetry(`“${plan.survivor.name}”`, stillThere, () => transaction(async (t) => {
-      await t.update(schema.people).set({ organizationId: keep }).where(inArray(schema.people.organizationId, ids));
-      // Other organizations people are at: move to the kept one, unless it's already their main one.
-      await t.execute(sql`insert into person_organizations (person_id, organization_id, created_at)
-        select po.person_id, ${keep}, min(po.created_at) from person_organizations po join people p on p.id = po.person_id
-        where po.organization_id = any(${uuids(ids)}) and p.organization_id is distinct from ${keep} group by po.person_id
-        on conflict do nothing`);
-      await t.delete(schema.personOrganizations).where(inArray(schema.personOrganizations.organizationId, ids));
-      // Someone whose main organization just became the kept one isn't "also at" it too.
-      await t.execute(sql`delete from person_organizations po using people p where po.person_id = p.id and po.organization_id = ${keep} and p.organization_id = ${keep}`);
-      for (const table of [schema.clients, schema.activities, schema.files, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textMessages, schema.textThreads]) {
-        await t.update(table).set({ organizationId: keep }).where(inArray(table.organizationId, ids));
-      }
-      await moveHistory(t, "organization", ids, keep);
-      await repointAudiences(t, "organizationIds", ids, keep);
-      await forgetInImports(t, "createdOrgIds", [...ids, keep]);
-      await t
-        .update(schema.organizations)
-        .set({ ...patch, ...summaryReset, updatedAt: new Date() })
-        .where(eq(schema.organizations.id, keep));
-      await t.delete(schema.organizations).where(inArray(schema.organizations.id, ids));
-      await t.insert(schema.events).values({
-        entityType: "organization",
-        entityId: keep,
-        action: "merged",
-        data: { merged: plan.merged.map(briefly), deleted: plan.empty.map(briefly), filled: Object.keys(patch) },
-        userId: actorId,
-      });
-    }));
+    await withRetry(`“${plan.survivor.name}”`, stillThere, () =>
+      transaction(async (t) => {
+        await mergeOrganizationsInto(t, { keep: plan.survivor, donors: others, merged: plan.merged, deleted: plan.empty, by: { userId: actorId } });
+      }),
+    );
   }
   log(`  ${merged} to merge, ${deleted} empty to delete${apply ? ": done" : ""}`);
   return movedTo;
 }
 
 // ─── People ──────────────────────────────────────────────────────────────
-
-const fullName = (p: { firstName: string; lastName: string | null }) => [p.firstName, p.lastName].filter(Boolean).join(" ");
 
 async function dedupePeople(db: Database, transaction: Transaction, apply: boolean, actorId: string) {
   const movedTo = new Map<string, string>();
@@ -354,42 +274,12 @@ async function dedupePeople(db: Database, transaction: Transaction, apply: boole
     const others = plan.donors;
     const ids = others.map((p) => p.id);
     const keep = plan.survivor.id;
-    const { patch, alsoAt: orgs } = planPersonMerge(plan.survivor, others, { survivor: alsoAt.get(keep) ?? [], others: ids.flatMap((id) => alsoAt.get(id) ?? []) });
     const stillThere = async () => ids.length > 0 && (await db.select({ id: schema.people.id }).from(schema.people).where(inArray(schema.people.id, ids)).limit(1)).length > 0;
-    await withRetry(fullName(plan.survivor), stillThere, () => transaction(async (t) => {
-      for (const table of [schema.clients, schema.activities, schema.files, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textThreads]) {
-        await t.update(table).set({ personId: keep }).where(inArray(table.personId, ids));
-      }
-      // A campaign sends each person one email or text. When two of them got the same campaign, the kept record keeps its own; the other's copy stays without a person.
-      for (const id of ids) {
-        for (const table of [schema.outboundEmails, schema.textMessages]) {
-          const name = table === schema.outboundEmails ? "outbound_emails" : "text_messages";
-          // Qualified by hand: inside the subquery an unqualified campaign_id would mean x's.
-          await t
-            .update(table)
-            .set({ personId: keep })
-            .where(and(eq(table.personId, id), sql.raw(`("${name}"."campaign_id" is null or not exists (select 1 from ${name} x where x.campaign_id = "${name}"."campaign_id" and x.person_id = '${keep}'))`)));
-        }
-      }
-      await moveHistory(t, "person", ids, keep);
-      await repointAudiences(t, "personIds", ids, keep);
-      await forgetInImports(t, "createdIds", [...ids, keep]);
-      await t
-        .update(schema.people)
-        .set({ ...patch, ...summaryReset, updatedAt: new Date() })
-        .where(eq(schema.people.id, keep));
-      await t.delete(schema.people).where(inArray(schema.people.id, ids));
-      const main = patch.organizationId !== undefined ? patch.organizationId : plan.survivor.organizationId;
-      if (orgs.length) await t.insert(schema.personOrganizations).values(orgs.map((organizationId) => ({ personId: keep, organizationId }))).onConflictDoNothing();
-      if (main) await t.delete(schema.personOrganizations).where(and(eq(schema.personOrganizations.personId, keep), eq(schema.personOrganizations.organizationId, main)));
-      await t.insert(schema.events).values({
-        entityType: "person",
-        entityId: keep,
-        action: "merged",
-        data: { merged: plan.merged.map((p) => briefly(row(p))), deleted: plan.empty.map((p) => briefly(row(p))), filled: Object.keys(patch) },
-        userId: actorId,
-      });
-    }));
+    await withRetry(fullName(plan.survivor), stillThere, () =>
+      transaction(async (t) => {
+        await mergePeopleInto(t, { keep: plan.survivor, donors: others, merged: plan.merged, deleted: plan.empty, alsoAt: { survivor: alsoAt.get(keep) ?? [], others: ids.flatMap((id) => alsoAt.get(id) ?? []) }, by: { userId: actorId } });
+      }),
+    );
   }
   log(`  ${merged} to merge, ${deleted} empty to delete${skipped ? `, ${skipped} large groups skipped` : ""}${apply ? ": done" : ""}`);
   return movedTo;
@@ -433,10 +323,11 @@ async function dedupeClients(db: Database, transaction: Transaction, apply: bool
     db,
     groups.flat().map((c) => c.id),
   );
+  const probability = await stageProbabilities(db, groups.flat().map((c) => c.id));
   let merged = 0;
   log(`\nClients: ${groups.length} organizations (or people) with more than one client`);
   for (const [i, group] of groups.entries()) {
-    const { survivor, donors } = pickClientSurvivor(group);
+    const { survivor, donors } = pickClientSurvivor(group, (c) => probability.get(c.id) ?? 0);
     merged += donors.length;
     addToReport("client", i + 1, "keep", survivor, counts.get(survivor.id));
     for (const c of donors) addToReport("client", i + 1, "merge", c, counts.get(c.id));
@@ -445,28 +336,12 @@ async function dedupeClients(db: Database, transaction: Transaction, apply: bool
     if (!apply) continue;
 
     const ids = donors.map((c) => c.id);
-    const keep = survivor.id;
-    const patch = planClientMerge(survivor, donors);
     const stillThere = async () => ids.length > 0 && (await db.select({ id: schema.clients.id }).from(schema.clients).where(inArray(schema.clients.id, ids)).limit(1)).length > 0;
-    await withRetry(`the clients of “${survivor.name}”`, stillThere, () => transaction(async (t) => {
-      // Services (what they use or used) and metrics come along with everything on the timeline.
-      for (const table of [schema.clientServices, schema.clientMetrics, schema.activities, schema.files, schema.outboundEmails, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textMessages, schema.textThreads]) {
-        await t.update(table).set({ clientId: keep }).where(inArray(table.clientId, ids));
-      }
-      await moveHistory(t, "client", ids, keep);
-      await t
-        .update(schema.clients)
-        .set({ ...patch, ...summaryReset, updatedAt: new Date() })
-        .where(eq(schema.clients.id, keep));
-      await t.delete(schema.clients).where(inArray(schema.clients.id, ids));
-      await t.insert(schema.events).values({
-        entityType: "client",
-        entityId: keep,
-        action: "merged",
-        data: { merged: donors.map((c) => ({ ...briefly(c), category: c.category })), deleted: [], filled: Object.keys(patch) },
-        userId: actorId,
-      });
-    }));
+    await withRetry(`the clients of “${survivor.name}”`, stillThere, () =>
+      transaction(async (t) => {
+        await mergeClientsInto(t, { keep: survivor, donors, by: { userId: actorId } });
+      }),
+    );
   }
   log(`  ${merged} to merge${apply ? ": done" : ""}`);
 }

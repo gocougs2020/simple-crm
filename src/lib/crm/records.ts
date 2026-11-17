@@ -21,6 +21,9 @@ function nextActivity(col: "person_id" | "organization_id" | "client_id", idCol:
 // ─── People ──────────────────────────────────────────────────────────────
 
 export type PeopleFilter = { q?: string; ownerId?: string; organizationId?: string; tag?: string; sort?: string; dir?: "asc" | "desc" };
+/** Which rows of a list: the tables load this many at a time as they're scrolled. */
+export type Page = { offset?: number; limit?: number };
+export const pageSize = 100;
 
 const peopleSorts: Record<string, SQL | ReturnType<typeof sql>> = {
   name: sql`lower(${people.firstName} || ' ' || coalesce(${people.lastName}, ''))`,
@@ -30,8 +33,9 @@ const peopleSorts: Record<string, SQL | ReturnType<typeof sql>> = {
   created: sql`${people.createdAt}`,
 };
 
-export async function listPeople(f: PeopleFilter = {}) {
-  const db = await getDb();
+const ordered = (order: SQL, dir: "asc" | "desc") => (dir === "desc" ? sql`${order} desc nulls last` : sql`${order} asc nulls last`);
+
+function peopleQuery(f: PeopleFilter) {
   const where: SQL[] = [isNull(people.archivedAt)];
   if (f.q?.trim()) {
     const t = likeTerm(f.q);
@@ -42,6 +46,27 @@ export async function listPeople(f: PeopleFilter = {}) {
   if (f.tag) where.push(sql`${people.tags} ? ${f.tag}`);
   const order = peopleSorts[f.sort ?? ""] ?? peopleSorts.name;
   const dir = f.dir ?? (f.sort === "lastActivity" || f.sort === "lastCampaign" || f.sort === "created" ? "desc" : "asc");
+  return { where: and(...where), sort: ordered(order as SQL, dir) };
+}
+
+/**
+ * One page of the People table. The page's ids are picked first (filter,
+ * sort, offset: cheap, on the people table alone), and only those rows get
+ * their organization, clients and next activity, so scrolling further never
+ * makes Postgres work out the extras for rows it skips.
+ */
+export async function listPeople(f: PeopleFilter = {}, { offset = 0, limit = pageSize }: Page = {}) {
+  const db = await getDb();
+  const { where, sort } = peopleQuery(f);
+  const page = db
+    .select({ id: people.id, n: sql<number>`row_number() over (order by ${sort}, ${people.id})`.as("n") })
+    .from(people)
+    .leftJoin(organizations, eq(organizations.id, people.organizationId))
+    .where(where)
+    .orderBy(sort, asc(people.id))
+    .limit(limit)
+    .offset(offset)
+    .as("page");
   return db
     .select({
       person: people,
@@ -49,11 +74,19 @@ export async function listPeople(f: PeopleFilter = {}) {
       clientCategories: sql<string[]>`(select coalesce(json_agg(distinct c.category), '[]') from clients c where c.person_id = ${people.id} and c.archived_at is null)`,
       next: nextActivity("person_id", sql`${people.id}`),
     })
-    .from(people)
+    .from(page)
+    .innerJoin(people, eq(people.id, page.id))
     .leftJoin(organizations, eq(organizations.id, people.organizationId))
-    .where(and(...where))
-    .orderBy(dir === "desc" ? sql`${order} desc nulls last` : sql`${order} asc nulls last`, asc(people.id))
-    .limit(500);
+    .orderBy(asc(page.n));
+}
+
+/** How many people the People table holds with these filters, for its heading. */
+export async function countPeople(f: PeopleFilter = {}) {
+  const db = await getDb();
+  const { where } = peopleQuery(f);
+  const query = db.select({ n: count() }).from(people);
+  const [row] = await (f.q?.trim() ? query.leftJoin(organizations, eq(organizations.id, people.organizationId)) : query).where(where);
+  return row?.n ?? 0;
 }
 
 export async function getPerson(id: string) {
@@ -89,8 +122,10 @@ export async function allTags() {
 
 export type OrgFilter = { q?: string; ownerId?: string; sort?: string; dir?: "asc" | "desc" };
 
-export async function listOrganizations(f: OrgFilter = {}) {
-  const db = await getDb();
+// Qualified by hand: in a select with no joins Drizzle renders a column as a bare "id", which the subquery would read as its own.
+const peopleCount = sql<number>`(select count(*)::int from people p where p.organization_id = "organizations"."id" and p.archived_at is null)`;
+
+function organizationsQuery(f: OrgFilter) {
   const where: SQL[] = [isNull(organizations.archivedAt)];
   if (f.q?.trim()) {
     const t = likeTerm(f.q);
@@ -101,22 +136,42 @@ export async function listOrganizations(f: OrgFilter = {}) {
     name: sql`lower(${organizations.name})`,
     lastActivity: sql`${organizations.lastActivityAt}`,
     created: sql`${organizations.createdAt}`,
-    people: sql`2`,
+    people: peopleCount,
   };
   const order = sorts[f.sort ?? ""] ?? sorts.name;
   const dir = f.dir ?? (["lastActivity", "created", "people"].includes(f.sort ?? "") ? "desc" : "asc");
+  return { where: and(...where), sort: ordered(order, dir) };
+}
+
+/** One page of the Organizations table, picked like the People table's: ids first, extras only for the rows shown. */
+export async function listOrganizations(f: OrgFilter = {}, { offset = 0, limit = pageSize }: Page = {}) {
+  const db = await getDb();
+  const { where, sort } = organizationsQuery(f);
+  const page = db
+    .select({ id: organizations.id, n: sql<number>`row_number() over (order by ${sort}, "organizations"."id")`.as("n") })
+    .from(organizations)
+    .where(where)
+    .orderBy(sort, asc(organizations.id))
+    .limit(limit)
+    .offset(offset)
+    .as("page");
   return db
     .select({
       organization: organizations,
-      // Qualified by hand: in a select with no joins Drizzle renders a column as a bare "id", which the subquery would read as its own.
-      peopleCount: sql<number>`(select count(*)::int from people p where p.organization_id = "organizations"."id" and p.archived_at is null)`,
+      peopleCount,
       clientCategories: sql<string[]>`(select coalesce(json_agg(distinct c.category), '[]') from clients c where c.organization_id = "organizations"."id" and c.archived_at is null)`,
-      next: nextActivity("organization_id", sql`${organizations.id}`),
+      next: nextActivity("organization_id", sql`"organizations"."id"`),
     })
-    .from(organizations)
-    .where(and(...where))
-    .orderBy(dir === "desc" ? sql`${order} desc nulls last` : sql`${order} asc nulls last`, asc(organizations.id))
-    .limit(500);
+    .from(page)
+    .innerJoin(organizations, eq(organizations.id, page.id))
+    .orderBy(asc(page.n));
+}
+
+/** How many organizations the Organizations table holds with these filters, for its heading. */
+export async function countOrganizations(f: OrgFilter = {}) {
+  const db = await getDb();
+  const [row] = await db.select({ n: count() }).from(organizations).where(organizationsQuery(f).where);
+  return row?.n ?? 0;
 }
 
 export async function getOrganization(id: string) {

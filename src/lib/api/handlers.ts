@@ -5,6 +5,7 @@ import { can, type Actor } from "@/lib/crm/actor";
 import { dayBounds } from "@/lib/crm/activities";
 import * as activities from "@/lib/crm/service/activities";
 import * as clients from "@/lib/crm/service/clients";
+import * as merging from "@/lib/crm/service/merge";
 import * as records from "@/lib/crm/service/records";
 import { NotFoundError } from "@/lib/errors";
 import { fetchKnowledge } from "@/lib/knowledge/source";
@@ -65,6 +66,10 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
     await records.updatePerson(a, params.id, body);
     return q.getPerson(ctx, params.id);
   },
+  async mergePeople(a, { params, body }, ctx) {
+    const { id } = await merging.mergePeople(a, { keepId: params.id, mergeIds: body.mergeIds });
+    return q.getPerson(ctx, id);
+  },
   async archivePerson(a, { params }) {
     await archive(a, "person", params.id, true);
     return deleted(params.id);
@@ -85,6 +90,10 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
   async updateOrganization(a, { params, body }, ctx) {
     await records.updateOrganization(a, params.id, body);
     return q.getOrganization(ctx, params.id);
+  },
+  async mergeOrganizations(a, { params, body }, ctx) {
+    const { id } = await merging.mergeOrganizations(a, { keepId: params.id, mergeIds: body.mergeIds });
+    return q.getOrganization(ctx, id);
   },
   async archiveOrganization(a, { params }) {
     await archive(a, "organization", params.id, true);

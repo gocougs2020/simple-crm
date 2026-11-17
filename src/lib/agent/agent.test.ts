@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { AgentMessage } from "@/db/schema";
 import { roleCan } from "@/lib/permissions";
+import { isDestructive } from "@/lib/api/spec";
 import { applyApprovals, cleanTitle, cleanTranscript, cleanUserMessage, DEFAULT_TITLE, fallbackTitle, MAX_USER_TEXT, mergeIncoming, trimForStorage } from "./messages";
 import { allowedOperations, capResult, needsConfirmation } from "./policy";
 import { agentInstructions, pageNote } from "./prompt";
@@ -96,7 +97,7 @@ describe("assistant tools", () => {
     assert.equal(needsConfirmation("delete_task"), true);
     assert.equal(needsConfirmation("create_task"), false);
     const voice = allowedOperations((p) => roleCan("owner", p), { voice: true });
-    assert.ok(voice.length > 0 && voice.every((o) => o.method !== "DELETE"));
+    assert.ok(voice.length > 0 && voice.every((o) => !isDestructive(o)));
   });
 
   it("trims long results and says so", () => {

@@ -2,7 +2,8 @@
 
 import { PlusIcon } from "@heroicons/react/20/solid";
 import { BuildingOffice2Icon } from "@heroicons/react/24/outline";
-import { assignOwner, setArchived } from "@/actions/records";
+import { useCallback, useState } from "react";
+import { assignOwner, moreOrganizations, setArchived } from "@/actions/records";
 import { useApp } from "@/components/app-context";
 import { CategoryBadge } from "@/components/clients/client-controls";
 import { BulkButton } from "@/components/clients/clients-view";
@@ -12,15 +13,42 @@ import { openCreate } from "@/components/shell/create-store";
 import { AgoCell, NextActivityCell, OwnerCell } from "@/components/table/cells";
 import { DataTable, type Column } from "@/components/table/data-table";
 import { OwnerFilter, SearchBox, Toolbar } from "@/components/table/toolbar";
+import { usePagedRows } from "@/components/table/use-paged-rows";
+import { MergeDialog, type MergeCandidate } from "@/components/records/merge-dialog";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/components/ui/toast";
-import type { listOrganizations } from "@/lib/crm/records";
+import type { listOrganizations, OrgFilter } from "@/lib/crm/records";
 
 type Row = Awaited<ReturnType<typeof listOrganizations>>[number];
 
-export function OrganizationsView({ rows, filtered }: { rows: Row[]; filtered: boolean }) {
+const rowId = (r: Row) => r.organization.id;
+
+export function OrganizationsView({ rows: first, total, filter, pageSize, filtered }: { rows: Row[]; total: number; filter: OrgFilter; pageSize: number; filtered: boolean }) {
   const { viewer, customFields, money, team, member, canEdit } = useApp();
+  const [merging, setMerging] = useState<{ rows: Row[]; done: () => void } | null>(null);
+  const filterKey = JSON.stringify(filter);
+  const fetchPage = useCallback((offset: number, limit: number) => moreOrganizations(JSON.parse(filterKey), { offset, limit }), [filterKey]);
+  const paging = usePagedRows({ first, total, filterKey, rowId, pageSize, fetchPage });
+  const rows = paging.rows;
+
+  const candidate = (r: Row): MergeCandidate => ({
+    id: r.organization.id,
+    title: r.organization.name,
+    subtitle: r.organization.domain,
+    createdAt: r.organization.createdAt,
+    lastActivityAt: r.organization.lastActivityAt,
+    fields: [
+      { label: "Name", value: r.organization.name },
+      { label: "Website", value: r.organization.domain },
+      { label: "Phone", value: r.organization.phone },
+      { label: "Address", value: r.organization.address },
+      { label: "Industry", value: r.organization.industry },
+      { label: "Owner", value: r.organization.ownerId ? (member(r.organization.ownerId)?.name ?? "A former teammate") : null },
+      ...customFields.filter((f) => f.entityType === "organization").map((f) => ({ label: f.label, value: formatCustomValue(f, r.organization.custom[f.key], money) || null })),
+    ],
+    extras: [r.peopleCount ? `${r.peopleCount} ${r.peopleCount === 1 ? "person" : "people"}` : null, r.clientCategories.length ? `${r.clientCategories.length === 1 ? "Client" : "Clients"}: ${r.clientCategories.join(", ")}` : null].filter((x): x is string => !!x),
+  });
   const columns: Column<Row>[] = [
     {
       key: "name",
@@ -60,7 +88,7 @@ export function OrganizationsView({ rows, filtered }: { rows: Row[]; filtered: b
   ];
   return (
     <>
-      <PageHeader title="Organizations" count={rows.length}>
+      <PageHeader title="Organizations" count={total}>
         {canEdit ? (
           <Button variant="primary" onClick={() => openCreate({ kind: "organization" })}>
             <PlusIcon />
@@ -75,8 +103,9 @@ export function OrganizationsView({ rows, filtered }: { rows: Row[]; filtered: b
       <DataTable
         columns={columns}
         rows={rows}
-        rowId={(r) => r.organization.id}
+        rowId={rowId}
         href={(r) => `/organizations/${r.organization.id}`}
+        paging={{ total, ...paging }}
         mine={(r) => r.organization.ownerId === viewer.id}
         defaultSort="name"
         empty={
@@ -87,7 +116,7 @@ export function OrganizationsView({ rows, filtered }: { rows: Row[]; filtered: b
             action={filtered ? undefined : <Button variant="primary" onClick={() => openCreate({ kind: "organization" })}>Add an organization</Button>}
           />
         }
-        bulk={(ids, clear) => (
+        bulk={(ids, clear, selected) => (
           <>
             <select
               className="h-7 rounded-md border border-white/20 bg-white/10 px-2 text-[12.5px] text-white"
@@ -125,9 +154,21 @@ export function OrganizationsView({ rows, filtered }: { rows: Row[]; filtered: b
             >
               Archive
             </BulkButton>
+            {canEdit && selected.length > 1 ? <BulkButton onClick={() => setMerging({ rows: selected, done: clear })}>Merge</BulkButton> : null}
           </>
         )}
       />
+      {merging ? (
+        <MergeDialog
+          entity="organization"
+          candidates={merging.rows.map(candidate)}
+          onClose={() => setMerging(null)}
+          onMerged={() => {
+            merging.done();
+            setMerging(null);
+          }}
+        />
+      ) : null}
     </>
   );
 }

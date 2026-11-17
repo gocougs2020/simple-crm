@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { currentRecordId } from "@/lib/crm/merged";
 import { Suspense } from "react";
 import { DynamicMarker } from "@/components/dynamic-marker";
 import { Composer } from "@/components/activity/composer";
@@ -39,7 +40,12 @@ async function Person({ params }: Pick<PageProps<"/people/[id]">, "params">) {
   const { id } = await params;
   if (!z.uuid().safeParse(id).success) notFound();
   const row = await getPerson(id);
-  if (!row) notFound();
+  if (!row) {
+    // A link to a record that was merged away opens the one it was merged into.
+    const current = await currentRecordId("person", id);
+    if (current !== id) redirect(`/people/${current}`);
+    notFound();
+  }
   const { person, organization } = row;
   const [tl, clients, alsoAt] = await Promise.all([timeline("person", id), clientsOfPerson(id, person.organizationId), otherOrganizationsOf(id)]);
   const name = personName(person);

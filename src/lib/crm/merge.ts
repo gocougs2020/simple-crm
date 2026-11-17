@@ -324,13 +324,20 @@ export function groupClients<T extends Base & { organizationId: string | null; p
 /**
  * Which client of a group is kept: one that isn't archived, then the
  * furthest along (current, then past, then prospective, as the Pipedrive
- * import ranks deals), then the oldest. The others fill its blanks, newest
- * first; fields that only mean something in one category (value, expected
- * close, health, end date, churn reason) only come from clients in the same
- * category.
+ * import ranks deals; among prospects, the stage with the higher win
+ * probability when `probability` is given), then the oldest. The others fill
+ * its blanks, newest first; fields that only mean something in one category
+ * (value, expected close, health, end date, churn reason) only come from
+ * clients in the same category.
  */
-export function pickClientSurvivor<T extends ClientFields>(group: T[]) {
-  const sorted = [...group].sort((a, b) => Number(!!a.archivedAt) - Number(!!b.archivedAt) || categoryRank[a.category] - categoryRank[b.category] || byAge(a, b));
+export function pickClientSurvivor<T extends ClientFields>(group: T[], probability: (c: T) => number = () => 0) {
+  const sorted = [...group].sort(
+    (a, b) =>
+      Number(!!a.archivedAt) - Number(!!b.archivedAt) ||
+      categoryRank[a.category] - categoryRank[b.category] ||
+      (a.category === "prospective" ? probability(b) - probability(a) : 0) ||
+      byAge(a, b),
+  );
   const survivor = sorted[0];
   const donors = sorted.slice(1).sort((a, b) => byAge(b, a));
   return { survivor, donors };
