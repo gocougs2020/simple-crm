@@ -1,11 +1,11 @@
 /**
  * Finds duplicate organizations, people and clients and merges them. See docs/DEDUPE.md.
  *
- *   pnpm dedupe                          show what would be merged and deleted, write nothing
- *   pnpm dedupe --yes                    merge and delete
- *   pnpm dedupe --only=organizations     just organizations (or --only=people, --only=clients)
- *   pnpm dedupe --as=you@company.com     record the merges as this teammate instead of the owner
- *   pnpm dedupe --max-group=25           merge groups of people up to this size (10 by default; bigger ones are listed and skipped)
+ *   pnpm dedupe:records                          show what would be merged and deleted, write nothing
+ *   pnpm dedupe:records --yes                    merge and delete
+ *   pnpm dedupe:records --only=organizations     just organizations (or --only=people, --only=clients)
+ *   pnpm dedupe:records --as=you@company.com     record the merges as this teammate instead of the owner
+ *   pnpm dedupe:records --max-group=25           merge groups of people up to this size (10 by default; bigger ones are listed and skipped)
  *
  * Organizations: the same whole name, ignoring capitals. People: the same name
  * and a shared email address or phone number. In each group the oldest record with anything on it

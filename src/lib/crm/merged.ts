@@ -4,7 +4,7 @@ import { getDb, schema } from "@/db";
 import type { EntityType } from "@/lib/constants";
 
 /**
- * The record an id stands for now. `pnpm dedupe` deletes duplicates and
+ * The record an id stands for now. `pnpm dedupe:records` deletes duplicates and
  * notes on the kept record which ids were merged into it ("merged" history),
  * so a link that still carries a duplicate's id, like the unsubscribe link in
  * an email sent before the merge, reaches the kept record. Follows a few

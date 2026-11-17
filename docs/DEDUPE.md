@@ -1,19 +1,19 @@
 # Merging duplicates
 
-`pnpm dedupe` finds duplicate organizations and people and merges each group into one record, then makes sure each organization has one client. Run it whenever duplicates may have come in: after the Pipedrive import, and again after the final one. A second run only touches new duplicates; when there are none it changes nothing.
+`pnpm dedupe:records` finds duplicate organizations and people and merges each group into one record, then makes sure each organization has one client. Run it whenever duplicates may have come in: after the Pipedrive import, and again after the final one. A second run only touches new duplicates; when there are none it changes nothing.
 
 ## Run it
 
 Same settings as the [Pipedrive import](PIPEDRIVE-IMPORT.md): with `DATABASE_URL` in `.env.local` it works on that database, without it on the local one in `.data/` (stop `pnpm dev` first).
 
 ```bash
-pnpm dedupe
+pnpm dedupe:records
 ```
 
 Shows every group it found and what it would do, and writes the full list to `.data/dedupe-<time>-preview.csv` (one row per record: kept, merged or deleted, with how many people, clients and activities each has). Nothing changes. Check the list, then:
 
 ```bash
-pnpm dedupe --yes
+pnpm dedupe:records --yes
 ```
 
 | Option | What it does |
@@ -62,9 +62,9 @@ pnpm import:pipedrive
 ```
 
 ```bash
-pnpm dedupe
+pnpm dedupe:records
 ```
 
 ```bash
-pnpm dedupe --yes
+pnpm dedupe:records --yes
 ```

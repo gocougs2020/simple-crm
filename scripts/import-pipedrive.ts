@@ -76,7 +76,7 @@ class Links {
     this.add(kind, id, localId);
     await this.flush();
   }
-  /** Local records that stand for more than one Pipedrive record of this kind: duplicates merged by `pnpm dedupe`. */
+  /** Local records that stand for more than one Pipedrive record of this kind: duplicates merged by `pnpm dedupe:records`. */
   shared(kind: string) {
     const seen = new Set<string>();
     const out = new Set<string>();
@@ -87,7 +87,7 @@ class Links {
     }
     return out;
   }
-  /** For external ids of this kind that share a local record (merged by `pnpm dedupe`): each one → the first of its group. */
+  /** For external ids of this kind that share a local record (merged by `pnpm dedupe:records`): each one → the first of its group. */
   aliases(kind: string) {
     const byLocal = new Map<string, string[]>();
     for (const [key, localId] of this.map) {
@@ -201,7 +201,7 @@ async function runImport(db: Database) {
   const lk: Lookup = { pipelines: new Map(pipelines.map((p) => [p.id, p])), stages: new Map(stages.map((s) => [s.id, s])) };
   const links = new Links(db);
   await links.load();
-  // Clients merged by `pnpm dedupe` stand for several Pipedrive organizations: plan their deals together, as one client.
+  // Clients merged by `pnpm dedupe:records` stand for several Pipedrive organizations: plan their deals together, as one client.
   const clientAliases = links.aliases("client");
   const plans = planClients(deals, lk, (key) => clientAliases.get(key) ?? key);
   const stagePlan = planStages(plans, lk);
@@ -730,7 +730,7 @@ async function upsert<V extends Record<string, unknown>>(
     await links.flush();
     await db.insert(schema.events).values(created.map((row) => ({ entityType: kind, entityId: row.id, action: "created", data: { source: SOURCE }, userId: actorId })));
   }
-  // Records that stand for more than one Pipedrive record were merged (pnpm dedupe): Pipedrive only fills their blanks, so the duplicates don't overwrite each other.
+  // Records that stand for more than one Pipedrive record were merged (pnpm dedupe:records): Pipedrive only fills their blanks, so the duplicates don't overwrite each other.
   const merged = links.shared(kind);
   const current = new Map<string, Record<string, unknown>>();
   for (const batch of chunks([...new Set(known.map((r) => links.get(kind, r.pd)!))], 500)) {

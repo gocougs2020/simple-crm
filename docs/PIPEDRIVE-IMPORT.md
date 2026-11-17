@@ -98,11 +98,11 @@ Every imported record is remembered in `external_ids`, so a second run:
 - adds notes, activities and email that are new since, and
 - leaves alone anything created in the CRM by hand.
 
-Edits made in the CRM to imported fields are overwritten by Pipedrive's values on the next run, so once the team works in the CRM, stop running the import. Two exceptions: an email or phone that Pipedrive replaces is kept in the person's other emails and phones, and a record that duplicates were merged into (`pnpm dedupe`) only has its blanks filled.
+Edits made in the CRM to imported fields are overwritten by Pipedrive's values on the next run, so once the team works in the CRM, stop running the import. Two exceptions: an email or phone that Pipedrive replaces is kept in the person's other emails and phones, and a record that duplicates were merged into (`pnpm dedupe:records`) only has its blanks filled.
 
 ## Duplicates
 
-Pipedrive accounts collect duplicates. After importing, run `pnpm dedupe` to merge organizations with the same name (ignoring capitals) and people who share an email or phone; it's safe to run again after a later import. See [DEDUPE.md](DEDUPE.md).
+Pipedrive accounts collect duplicates. After importing, run `pnpm dedupe:records` to merge organizations with the same name (ignoring capitals) and people who share an email or phone; it's safe to run again after a later import. See [DEDUPE.md](DEDUPE.md).
 
 ## Starting over
 
