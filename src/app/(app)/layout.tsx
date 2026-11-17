@@ -11,6 +11,7 @@ import { commsFor } from "@/lib/comms";
 import { unreadTextCount } from "@/lib/conversations/texts";
 import { phoneConfigured } from "@/lib/twilio/config";
 import { CallPanel } from "@/components/phone/call-panel";
+import { LiveUpdates } from "@/components/live-updates";
 
 /** Everything inside requires a signed-in, active teammate. */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -35,6 +36,7 @@ async function Gate({ children }: { children: React.ReactNode }) {
       <TooltipProvider delayDuration={300}>
         <AppShell due={due} unread={unread} unreadTexts={unreadTexts}>{children}</AppShell>
         {comms.calling ? <CallPanel /> : null}
+        <LiveUpdates />
         <Toaster />
       </TooltipProvider>
     </AppProvider>

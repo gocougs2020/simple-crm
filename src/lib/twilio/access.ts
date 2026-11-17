@@ -4,6 +4,7 @@ import { getDb, schema } from "@/db";
 import type { User } from "@/lib/auth";
 import { ForbiddenError, NotFoundError } from "@/lib/errors";
 import { roleCan } from "@/lib/permissions";
+import { numberTeammateId } from "@/lib/phone/rules";
 
 /**
  * Who may call and text from which number. A number is open to everyone who
@@ -66,4 +67,17 @@ export async function numberByE164(e164: string) {
   const db = await getDb();
   const [n] = await db.select().from(phoneNumbers).where(eq(phoneNumbers.number, e164));
   return n ?? null;
+}
+
+/** The teammate who looks after a number's calls and texts: whose cell it forwards to, else the one picked in Settings (numberTeammateId). */
+export async function numberTeammate(number: Pick<PhoneNumber, "forwardTo" | "forwardUserId">): Promise<{ id: string; name: string; phone: string | null } | null> {
+  if (!number.forwardTo && !number.forwardUserId) return null;
+  const db = await getDb();
+  const u = schema.users;
+  const team = await db
+    .select({ id: u.id, name: u.name, phone: u.phone })
+    .from(u)
+    .where(and(isNull(u.deactivatedAt), or(sql`${u.phone} is not null`, number.forwardUserId ? eq(u.id, number.forwardUserId) : undefined)));
+  const id = numberTeammateId(number, team.map((t) => ({ ...t, active: true })));
+  return team.find((t) => t.id === id) ?? null;
 }

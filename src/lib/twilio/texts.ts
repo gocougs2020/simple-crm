@@ -12,7 +12,7 @@ import { laterTextStatus, optKeyword } from "@/lib/phone/rules";
 import { notify } from "@/lib/push/notify";
 import { textToHtml } from "@/lib/safe-html";
 import { getWorkspace } from "@/lib/workspace";
-import { numberByE164, type PhoneNumber } from "./access";
+import { numberByE164, numberTeammate, type PhoneNumber } from "./access";
 import { bumpThread, threadFor } from "./threads";
 import { twilio, TwilioError } from "./client";
 import { WEBHOOKS } from "./config";
@@ -142,7 +142,9 @@ async function logReceived(row: typeof textMessages.$inferSelect, number: PhoneN
   if (links.personId || links.organizationId) {
     await db.insert(activities).values({ type: "text", direction: "inbound", body: html, occurredAt: now, userId: null, textMessageId: row.id, personId: links.personId, organizationId: links.organizationId, clientId: links.clientId });
     await touch(links, now);
-  } else if (number.forwardUserId && !keyword) {
+  }
+  const teammate = await numberTeammate(number);
+  if (!(links.personId || links.organizationId) && teammate && !keyword) {
     // Nobody in the CRM has this number: a task, so the text isn't lost.
     const ws = await getWorkspace();
     await db.insert(activities).values({
@@ -152,10 +154,10 @@ async function logReceived(row: typeof textMessages.$inferSelect, number: PhoneN
       dueAt: zonedTime(await workspaceToday(), "00:00", ws.timezone),
       dueHasTime: false,
       userId: null,
-      assigneeId: number.forwardUserId,
+      assigneeId: teammate.id,
     });
   }
-  const ownerId = await ownerOf(links) ?? number.forwardUserId;
+  const ownerId = (await ownerOf(links)) ?? teammate?.id ?? null;
   notify([ownerId], {
     kind: "inbound_text",
     title: `Text from ${who}`,

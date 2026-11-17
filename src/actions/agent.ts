@@ -3,17 +3,12 @@
 import { z } from "zod";
 import type { AgentMessage } from "@/db/schema";
 import { run, type Result } from "@/lib/action";
-import { assistantActor } from "@/lib/agent/actor";
 import { cleanTranscript } from "@/lib/agent/messages";
-import { agentInstructions } from "@/lib/agent/prompt";
-import { featureInstructions } from "@/lib/api/features";
 import { deleteThread, ensureThread, getThread, listThreads, renameThread, saveMessages } from "@/lib/agent/threads";
 import { ActionError, actionCan, actionUser } from "@/lib/auth";
 import { aiFeatures, aiOffMessage } from "@/lib/agent/config";
 import { ensureSummary, type Summary } from "@/lib/agent/summary";
 import { rateLimit } from "@/lib/rate-limit";
-import { can } from "@/lib/crm/actor";
-import { getWorkspace } from "@/lib/workspace";
 
 /**
  * The assistant's threads. Each teammate sees only their own: every query is
@@ -53,25 +48,6 @@ export async function deleteAgentThread(id: string): Promise<Result> {
   return run(async () => {
     const user = await actionUser();
     await deleteThread(user.id, threadId.parse(id));
-  });
-}
-
-/** Instructions for a voice chat: the same as text chat, tuned for speaking. */
-export async function prepareVoiceChat(page?: string): Promise<Result<{ instructions: string }>> {
-  return run(async () => {
-    const user = await actionUser();
-    if (!aiFeatures().voice) throw new ActionError(aiOffMessage("voice"));
-    const [actor, ws] = await Promise.all([assistantActor(user), getWorkspace()]);
-    const instructions = agentInstructions({
-      user,
-      canWrite: can(actor, "records:write"),
-      workspace: { name: ws.name, timezone: ws.timezone, currency: ws.currency },
-      now: new Date(),
-      page: z.string().max(300).optional().parse(page),
-      voice: true,
-      knowledge: featureInstructions(),
-    });
-    return { instructions };
   });
 }
 

@@ -3,6 +3,7 @@
 import { refresh } from "next/cache";
 import { and, asc, count, eq, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
 import { ActionError, actionAdmin, actionUser, hashToken, randomToken, revokeSessions } from "@/lib/auth";
@@ -12,6 +13,7 @@ import { defaultStages } from "@/lib/crm/defaults";
 import { sendEmail } from "@/lib/email";
 import { siteOrigin } from "@/lib/origin";
 import { hashPassword, passwordProblem, verifyPassword } from "@/lib/password";
+import { toE164 } from "@/lib/phone/numbers";
 import { loadSampleData } from "@/lib/sample-data";
 import InviteEmail from "@/emails/invite";
 
@@ -20,14 +22,33 @@ const uuid = z.uuid();
 
 // ─── Profile ─────────────────────────────────────────────────────────────
 
-export async function updateProfile(input: { name: string; title: string | null }): Promise<Result> {
+/** `phone`: their cell. Incoming calls forwarded to it leave their write-up task with them (numberTeammate). */
+export async function updateProfile(input: { name: string; title: string | null; phone?: string | null }): Promise<Result> {
   return run(async () => {
     const user = await actionUser();
-    const data = z.object({ name: z.string().trim().min(1, "Enter your name.").max(80), title: z.string().trim().max(80).nullable() }).parse(input);
+    const data = z
+      .object({
+        name: z.string().trim().min(1, "Enter your name.").max(80),
+        title: z.string().trim().max(80).nullable(),
+        phone: z
+          .string()
+          .trim()
+          .max(40)
+          .nullable()
+          .optional()
+          .transform((v, ctx) => {
+            if (v === undefined) return undefined;
+            if (!v) return null;
+            const n = toE164(v, appConfig.phone.defaultCountryCode);
+            if (!n) ctx.addIssue({ code: "custom", message: "Enter your cell phone with its area code." });
+            return n;
+          }),
+      })
+      .parse(input);
     const db = await getDb();
     await db
       .update(users)
-      .set({ name: data.name, title: data.title || null })
+      .set({ name: data.name, title: data.title || null, ...(data.phone !== undefined ? { phone: data.phone } : {}) })
       .where(eq(users.id, user.id));
     refresh();
   });

@@ -30,11 +30,24 @@ export function pickGreeting(random: () => number = Math.random) {
 export const greetingCue = (greeting: string) => `The teammate just connected. Say exactly this sentence, don't call any tools, then wait: ${greeting}`;
 export const isGreetingCue = (text: string) => text.startsWith("The teammate just connected.");
 
+/** What /api/agent/voice/session returns: a single-use socket token, its URL, the tools and the instructions. */
+export type VoiceSetup = { token: string; url: string; expiresAt?: number; tools?: Experimental_RealtimeSessionConfig["tools"]; instructions: string };
+
+/** A setup fetched ahead of the click (on hover) is used for this long; the token itself lasts 5 minutes. */
+export const VOICE_SETUP_FRESH_MS = 4 * 60 * 1000;
+
+/** A prefetched setup is still good: young enough, for the same page, and its token isn't about to expire. */
+export function voiceSetupFresh(entry: { at: number; page: string; expiresAt?: number } | null, page: string, now: number) {
+  if (!entry || entry.page !== page || now - entry.at >= VOICE_SETUP_FRESH_MS) return false;
+  return entry.expiresAt == null || entry.expiresAt * 1000 - now > 30_000;
+}
+
 /** Speech to speech: audio in, audio out, the server decides when a turn ends. */
-export function voiceSessionConfig(instructions: string): Partial<Experimental_RealtimeSessionConfig> {
+export function voiceSessionConfig(instructions: string, tools?: Experimental_RealtimeSessionConfig["tools"]): Partial<Experimental_RealtimeSessionConfig> {
   const format = { type: "audio/pcm", rate: SAMPLE_RATE };
   return {
     instructions,
+    ...(tools ? { tools } : {}),
     outputModalities: ["audio"],
     inputAudioFormat: format,
     outputAudioFormat: format,

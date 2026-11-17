@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Checkbox, Field, Input, Select } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
-import { formatPhone } from "@/lib/phone/numbers";
+import { formatPhone, matchKey } from "@/lib/phone/numbers";
 import { Section } from "./nav";
 
 type NumberRow = { id: string; label: string; number: string; forwardTo: string | null; forwardUserId: string | null; access: "everyone" | "selected"; userIds: string[] };
@@ -27,11 +27,14 @@ export function PhoneSettings({
   auth,
   calling,
   numbers,
+  cells = [],
 }: {
   configured: boolean;
   auth: { via: "api-key" | "auth-token" | null; webhooks: boolean };
   calling: { ready: boolean; fromEnv: boolean; origin: string | null; currentOrigin: string };
   numbers: NumberRow[];
+  /** Teammates' cell phones (Settings → Profile), so a forwarding number can say whose it is. */
+  cells?: Cell[];
 }) {
   const [pending, start] = useTransition();
   const [editing, setEditing] = useState<NumberRow | "new" | null>(null);
@@ -120,7 +123,7 @@ export function PhoneSettings({
         {numbers.length ? (
           <ul className="divide-y divide-line">
             {numbers.map((n) => {
-              const forwardUser = member(n.forwardUserId);
+              const forwardUser = member((n.forwardTo ? cellOwner(cells, n.forwardTo) : null) ?? n.forwardUserId);
               return (
                 <li key={n.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
                   <div className="min-w-0 flex-1">
@@ -143,13 +146,21 @@ export function PhoneSettings({
           <p className="p-5 text-[13.5px] text-muted">No numbers yet. Get one by area code; it can call, text and send pictures.</p>
         )}
       </Section>
-      {editing ? <NumberDialog row={editing === "new" ? null : editing} onClose={() => setEditing(null)} /> : null}
+      {editing ? <NumberDialog row={editing === "new" ? null : editing} cells={cells} onClose={() => setEditing(null)} /> : null}
     </>
   );
 }
 
-function NumberDialog({ row, onClose }: { row: NumberRow | null; onClose: () => void }) {
-  const { team } = useApp();
+type Cell = { userId: string; phone: string };
+
+/** The teammate whose cell phone this is, matched the same way calls are (last 10 digits). */
+function cellOwner(cells: Cell[], raw: string) {
+  const key = matchKey(raw);
+  return key.length >= 7 ? (cells.find((c) => matchKey(c.phone) === key)?.userId ?? null) : null;
+}
+
+function NumberDialog({ row, cells, onClose }: { row: NumberRow | null; cells: Cell[]; onClose: () => void }) {
+  const { team, member } = useApp();
   const [areaCode, setAreaCode] = useState("");
   const [available, setAvailable] = useState<Available[] | null>(null);
   const [picked, setPicked] = useState("");
@@ -159,6 +170,7 @@ function NumberDialog({ row, onClose }: { row: NumberRow | null; onClose: () => 
   const [access, setAccess] = useState<"everyone" | "selected">(row?.access ?? "everyone");
   const [userIds, setUserIds] = useState<string[]>(row?.userIds ?? []);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const forwardCell = cellOwner(cells, forwardTo);
   const [pending, start] = useTransition();
   const [searching, startSearch] = useTransition();
 
@@ -282,9 +294,29 @@ function NumberDialog({ row, onClose }: { row: NumberRow | null; onClose: () => 
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Forward calls to" optional hint="A cell phone. Leave blank to not take calls.">
-            {(p) => <Input {...p} type="tel" value={forwardTo} onChange={(e) => setForwardTo(e.target.value)} placeholder="(303) 555-0123" />}
+            {(p) => (
+              <Input
+                {...p}
+                type="tel"
+                value={forwardTo}
+                onChange={(e) => {
+                  setForwardTo(e.target.value);
+                  const owner = cellOwner(cells, e.target.value);
+                  if (owner) setForwardUserId(owner);
+                }}
+                placeholder="(303) 555-0123"
+              />
+            )}
           </Field>
-          <Field label="Who answers" optional hint="Gets the task to write up each call, and texts from unknown numbers.">
+          <Field
+            label="Who answers"
+            optional
+            hint={
+              forwardCell && member(forwardCell)
+                ? `It's ${member(forwardCell)!.name}'s cell, so they get the task to write up each call, and texts from unknown numbers.`
+                : "Gets the task to write up each call, and texts from unknown numbers. A teammate whose cell phone (in their profile) is the forwarding number gets them instead."
+            }
+          >
             {(p) => <OwnerSelect id={p.id} value={forwardUserId} onChange={setForwardUserId} noneLabel="Nobody" />}
           </Field>
         </div>
