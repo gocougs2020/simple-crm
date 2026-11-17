@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
 import { ActionError, actionAdmin, actionEditor, actionUser } from "@/lib/auth";
+import { assertCanChangeRead } from "@/lib/conversations/read-state";
 import { recordEvent } from "@/lib/crm/events";
 import { getResend, inEmailScope } from "@/lib/email";
 import { applyThreadLinks, assertDomainInScope, assertInboxInScope, InboxError, listInboxes, must, resendOrThrow, syncAllInboxes, syncInbox, syncThread, webhookEvents } from "@/lib/email/inbox";
@@ -132,10 +133,17 @@ export async function moveThread(threadId: string, folder: "inbox" | "archive" |
   });
 }
 
+/**
+ * Marks a conversation read or unread, here and in Resend. Only whoever's
+ * unread it is may (the record's owner, or anyone when nobody owns it:
+ * src/lib/conversations/read-rules.ts).
+ */
 export async function markThreadRead(threadId: string, read: boolean): Promise<Result> {
   return run(async () => {
-    await actionUser();
+    const user = await actionUser();
+    read = z.boolean().parse(read);
     const t = await threadOrThrow(threadId);
+    await assertCanChangeRead(t, user.id);
     if (t.read === read) return;
     const resend = await inbox(async () => resendOrThrow());
     await inbox(async () => must(await resend.inboxes.threads.update({ inboxId: t.resendInboxId, threadId: t.resendThreadId, read }), "update the conversation"));

@@ -126,7 +126,7 @@ const textInput = z.object({
 });
 
 /** Texts a person from one of the team's numbers, and puts it on their timeline. */
-export async function sendTextMessage(input: z.input<typeof textInput>): Promise<Result<{ activityId: string }>> {
+export async function sendTextMessage(input: z.input<typeof textInput>): Promise<Result<{ activityId: string; threadId: string | null }>> {
   return run(async () => {
     const user = await actionEditor();
     requirePhone();
@@ -143,7 +143,7 @@ export async function sendTextMessage(input: z.input<typeof textInput>): Promise
     const activity = await logSentText(result.row);
     await rememberNumber(user.id, user.prefs, number.id);
     refresh();
-    return { activityId: activity.id };
+    return { activityId: activity.id, threadId: result.row.threadId };
   });
 }
 

@@ -1129,6 +1129,43 @@ export const phoneCalls = pgTable(
   (t) => [uniqueIndex("phone_calls_sid_idx").on(t.callSid), index("phone_calls_person_idx").on(t.personId)],
 );
 
+/**
+ * A text conversation for the Messages page: everything between one of the
+ * team's numbers and one outside number. `read` is one flag for the whole
+ * conversation; whose it is depends on who owns the linked record
+ * (src/lib/conversations/read-state.ts), so it follows the record when the owner changes.
+ */
+export const textThreads = pgTable(
+  "text_threads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Our number. Null once the number is deleted: the conversation stays, but can't be replied to from here. */
+    phoneNumberId: uuid("phone_number_id").references(() => phoneNumbers.id, { onDelete: "set null" }),
+    /** Their number, E.164 as Twilio gave it. */
+    remote: text("remote").notNull(),
+    /** The last 10 digits of `remote` (src/lib/phone/numbers.ts `matchKey`), what conversations are matched on. */
+    remoteKey: text("remote_key").notNull(),
+    personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
+    organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "set null" }),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+    read: boolean("read").notNull().default(true),
+    /**
+     * The latest one-to-one text either way. Campaign texts don't move it, so a
+     * campaign doesn't push real conversations down the list; a conversation
+     * with only campaign texts (null) isn't listed until someone replies.
+     */
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("text_threads_number_remote_idx").on(t.phoneNumberId, t.remoteKey).where(sql`${t.phoneNumberId} is not null`),
+    index("text_threads_last_idx").on(t.lastMessageAt),
+    index("text_threads_person_idx").on(t.personId),
+    index("text_threads_org_idx").on(t.organizationId),
+  ],
+);
+
 export type TextStatus = "queued" | "sending" | "sent" | "delivered" | "undelivered" | "failed" | "received";
 
 /** A text through one of the numbers, either way. Each is a text activity on the person it matched. */
@@ -1152,11 +1189,14 @@ export const textMessages = pgTable(
     organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "set null" }),
     clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
     campaignId: uuid("campaign_id").references(() => campaigns.id, { onDelete: "cascade" }),
+    /** The conversation it's part of, on the Messages page. */
+    threadId: uuid("thread_id").references(() => textThreads.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
     uniqueIndex("text_messages_sid_idx").on(t.messageSid),
+    index("text_messages_thread_idx").on(t.threadId, t.createdAt),
     uniqueIndex("text_messages_campaign_person_idx").on(t.campaignId, t.personId),
     index("text_messages_person_idx").on(t.personId, t.createdAt),
   ],

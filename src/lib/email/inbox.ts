@@ -3,6 +3,7 @@ import { and, eq, gte, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { GetInboxThreadEmailResponseSuccess, Resend } from "resend";
 import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
+import { unreadFor } from "@/lib/conversations/read-state";
 import { touch } from "@/lib/crm/events";
 import { linksForEmails } from "@/lib/crm/match";
 import { emailDomainsScoped, getResend, inEmailScope } from "@/lib/email";
@@ -304,13 +305,13 @@ export async function syncAllInboxes(limit = 50) {
   return { inboxes: inboxes.length, synced };
 }
 
-/** Unread conversations in the inbox folder, for the sidebar badge. */
-export async function unreadCount() {
+/** Conversations in the inbox folder unread for this teammate (theirs, or nobody's: src/lib/conversations/read-rules.ts), for the sidebar badge. */
+export async function unreadCount(userId: string) {
   const db = await getDb();
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(inboxThreads)
-    .where(and(eq(inboxThreads.folder, "inbox"), eq(inboxThreads.read, false), gte(inboxThreads.lastMessageAt, new Date(Date.now() - 90 * 86400_000))));
+    .where(and(eq(inboxThreads.folder, "inbox"), unreadFor("inbox_threads", userId), gte(inboxThreads.lastMessageAt, new Date(Date.now() - 90 * 86400_000))));
   return row?.n ?? 0;
 }
 

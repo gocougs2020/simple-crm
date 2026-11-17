@@ -92,6 +92,13 @@
       "when": 1794861000000,
       "tag": "0012_screen-score-and-hidden-mail",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794888927767,
+      "tag": "0013_text-threads",
+      "breakpoints": true
     }
   ]
 }

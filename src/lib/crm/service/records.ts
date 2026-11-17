@@ -11,6 +11,7 @@ import { withCustomChanges } from "@/lib/crm/inputs";
 import { id, orgInput, personInput } from "@/lib/crm/schemas";
 import { ConflictError, NotFoundError } from "@/lib/errors";
 import { recordAssigned } from "@/lib/push/triggers";
+import { adoptThreadsForPhone } from "@/lib/twilio/threads";
 
 /**
  * Creating, changing and archiving people and organizations. Shared by the
@@ -142,6 +143,7 @@ export async function createPerson(a: Actor, input: z.input<typeof personInput> 
     .returning({ id: people.id });
   await recordEvent({ entityType: "person", entityId: row.id, action: "created", ...stamp(a) });
   recordAssigned(a, { entity: "person", id: row.id, name: [data.firstName, data.lastName].filter(Boolean).join(" ") || "a contact", ownerId: ownerFor(a, data.ownerId) });
+  if (data.phone) await adoptThreadsForPhone(data.phone);
   return row;
 }
 
@@ -173,6 +175,7 @@ export async function updatePerson(a: Actor, personId: string, patch: Partial<z.
   ];
   if (changes.length) await recordEvent({ entityType: "person", entityId: before.id, action: "updated", data: { changes }, ...stamp(a) });
   if (data.ownerId !== undefined) recordAssigned(a, { entity: "person", id: before.id, name: [data.firstName ?? before.firstName, data.lastName ?? before.lastName].filter(Boolean).join(" ") || "a contact", ownerId: data.ownerId, previousOwnerId: before.ownerId });
+  if (data.phone && data.phone !== before.phone) await adoptThreadsForPhone(data.phone);
   return { id: before.id };
 }
 

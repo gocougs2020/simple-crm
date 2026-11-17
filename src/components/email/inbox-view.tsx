@@ -31,6 +31,10 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tooltip } from
 import { RichText, type RichTextHandle } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
 import { formatAgo, formatDateTime, formatFull } from "@/lib/format";
+import { RecordDetails } from "@/components/conversations/record-details";
+import { ReadNote } from "@/components/conversations/read-note";
+import type { RecordContext } from "@/lib/conversations/record-context";
+import type { ReadState } from "@/lib/conversations/read-rules";
 import { EmailTabs } from "./email-tabs";
 
 export type InboxSummary = { id: string; address: string; name: string | null; unread: number };
@@ -56,6 +60,8 @@ export type OpenThread = {
   subject: string | null;
   folder: "inbox" | "archive" | "spam" | "sent" | "trash";
   read: boolean;
+  /** Whose unread this is, for the viewer (src/lib/conversations/read-rules.ts). */
+  readState: ReadState;
   inboxAddress: string;
   person: { id: string; label: string } | null;
   client: { id: string; label: string } | null;
@@ -73,7 +79,7 @@ export type OpenThread = {
   }[];
 };
 
-type Filters = { folder: string; inbox?: string; q?: string; unlinked?: boolean };
+type Filters = { folder: string; inbox?: string; q?: string; unlinked?: boolean; unread?: boolean };
 
 const folderList = [
   { value: "inbox", label: "Inbox", icon: InboxIcon },
@@ -106,6 +112,7 @@ export function InboxView({
   inboxError,
   threads,
   open,
+  context,
   filters,
 }: {
   configured: boolean;
@@ -114,6 +121,7 @@ export function InboxView({
   inboxError: string | null;
   threads: InboxThreadRow[];
   open: OpenThread | null;
+  context: RecordContext | null;
   filters: Filters;
 }) {
   const [syncing, startSync] = useTransition();
@@ -177,12 +185,17 @@ export function InboxView({
           />
         </div>
       ) : (
-        <div className="grid min-h-0 flex-1 md:grid-cols-[190px_minmax(0,1fr)] lg:grid-cols-[200px_340px_minmax(0,1fr)]">
+        <div className="grid min-h-0 flex-1 md:grid-cols-[190px_minmax(0,1fr)] lg:grid-cols-[200px_340px_minmax(0,1fr)] 2xl:grid-cols-[200px_340px_minmax(0,1fr)_300px]">
           <Rail inboxes={inboxes} filters={filters} hidden={!!open} />
           <ThreadList threads={threads} filters={filters} openId={open?.id ?? null} hidden={!!open} />
-          <div className={clsx("min-h-0 min-w-0 overflow-y-auto border-line scroll-thin lg:border-l", open ? "md:col-span-2 lg:col-span-1" : "hidden lg:block")}>
+          <div className={clsx("min-h-0 min-w-0 overflow-y-auto border-line scroll-thin lg:border-l", open ? "md:col-span-2 lg:col-span-1" : "hidden lg:block 2xl:col-span-2")}>
             {open ? <ThreadPane key={open.id} thread={open} /> : <EmptyState variant="minimal" icon={EnvelopeIcon} title="Pick a conversation" description="Replies send from the inbox it arrived in and land on the linked records' timelines." className="h-full" />}
           </div>
+          {open ? (
+            <aside aria-label="Who it's with" className="hidden min-h-0 overflow-y-auto border-l border-line bg-canvas scroll-thin 2xl:block">
+              <RecordDetails context={context} unknown={{ email: [...open.messages].reverse().find((m) => m.direction === "inbound")?.from.replace(/^.*<([^>]+)>.*$/, "$1") }} />
+            </aside>
+          ) : null}
         </div>
       )}
       {composing ? <Compose inboxes={inboxes} defaultInbox={filters.inbox} onClose={() => setComposing(false)} /> : null}
@@ -219,6 +232,12 @@ function Rail({ inboxes, filters, hidden }: { inboxes: InboxSummary[]; filters: 
         <button type="button" className={item(!!filters.unlinked)} onClick={() => set({ unlinked: filters.unlinked ? null : "1", t: null })}>
           <span className="size-4" aria-hidden />
           Not linked yet
+        </button>
+        <button type="button" aria-pressed={!!filters.unread} className={item(!!filters.unread)} onClick={() => set({ unread: filters.unread ? null : "1", t: null })}>
+          <span className="flex size-4 items-center justify-center" aria-hidden>
+            <span className="size-2 rounded-full bg-accent" />
+          </span>
+          Unread only
         </button>
       </div>
     </nav>
@@ -271,8 +290,16 @@ function ThreadList({ threads, filters, openId, hidden }: { threads: InboxThread
           <li>
             <EmptyState
               variant="minimal"
-              title={filters.q ? "Nothing matches" : `Nothing in ${folderLabel.toLowerCase()}`}
-              description={filters.q ? "Try different words, or another folder." : filters.unlinked ? "Every conversation is linked to a person or client." : "New mail shows up here. Use Sync now if you're expecting something."}
+              title={filters.q ? "Nothing matches" : filters.unread ? "You're all caught up" : `Nothing in ${folderLabel.toLowerCase()}`}
+              description={
+                filters.q
+                  ? "Try different words, or another folder."
+                  : filters.unread
+                    ? "Nothing here is unread for you. Mail for records someone else owns is unread for them."
+                    : filters.unlinked
+                      ? "Every conversation is linked to a person or client."
+                      : "New mail shows up here. Use Sync now if you're expecting something."
+              }
             />
           </li>
         ) : null}
@@ -289,10 +316,12 @@ function ThreadPane({ thread }: { thread: OpenThread }) {
   const editor = useRef<RichTextHandle>(null);
   const [body, setBody] = useState("");
 
-  // Opening an unread conversation marks it read, here and in Resend.
+  // Opening an unread conversation marks it read, here and in Resend, when it's this teammate's to read:
+  // they own the record, or nobody does. Someone else's stays unread for them.
+  const canChange = thread.readState.canChange;
   useEffect(() => {
-    if (!thread.read) void markThreadRead(thread.id, true);
-  }, [thread.id, thread.read]);
+    if (!thread.read && canChange) void markThreadRead(thread.id, true);
+  }, [thread.id, thread.read, canChange]);
 
   const act = (fn: () => Promise<{ ok: boolean; error?: string }>, message: string, after?: () => void) =>
     start(async () => {
@@ -328,6 +357,7 @@ function ThreadPane({ thread }: { thread: OpenThread }) {
             <p className="text-[12.5px] text-muted">
               In {thread.inboxAddress} · {thread.messages.length} message{thread.messages.length === 1 ? "" : "s"}
             </p>
+            <ReadNote state={thread.readState} read={thread.read} />
           </div>
           <div className="flex items-center gap-1">
             {thread.folder !== "archive" ? (
@@ -344,9 +374,11 @@ function ThreadPane({ thread }: { thread: OpenThread }) {
                 </Button>
               </MenuTrigger>
               <MenuContent className="w-48">
-                <MenuItem icon={<EnvelopeSolid />} onSelect={() => act(() => markThreadRead(thread.id, false), "Marked unread", () => set({ t: null }))}>
-                  Mark unread
-                </MenuItem>
+                {canChange ? (
+                  <MenuItem icon={<EnvelopeSolid />} onSelect={() => act(() => markThreadRead(thread.id, false), "Marked unread", () => set({ t: null }))}>
+                    Mark unread
+                  </MenuItem>
+                ) : null}
                 {thread.folder !== "inbox" ? (
                   <MenuItem icon={<InboxIcon />} onSelect={() => move("inbox", "Moved to the inbox")}>
                     Move to inbox

@@ -13,6 +13,7 @@ import { notify } from "@/lib/push/notify";
 import { textToHtml } from "@/lib/safe-html";
 import { getWorkspace } from "@/lib/workspace";
 import { numberByE164, type PhoneNumber } from "./access";
+import { bumpThread, threadFor } from "./threads";
 import { twilio, TwilioError } from "./client";
 import { WEBHOOKS } from "./config";
 
@@ -44,13 +45,15 @@ type Send = {
  */
 export async function sendText(s: Send) {
   const db = await getDb();
+  const threadId = await threadFor(s.number.id, s.to, s.links);
   const [row] = await db
     .insert(textMessages)
-    .values({ direction: "outbound", from: s.number.number, to: s.to, body: s.body, status: "queued", phoneNumberId: s.number.id, userId: s.userId, campaignId: s.campaignId ?? null, ...s.links })
+    .values({ direction: "outbound", from: s.number.number, to: s.to, body: s.body, status: "queued", phoneNumberId: s.number.id, userId: s.userId, campaignId: s.campaignId ?? null, threadId, ...s.links })
     .onConflictDoNothing()
     .returning();
   // A campaign text this person already got (unique campaign + person): nothing to do.
   if (!row) return { row: null, sent: false as const };
+  if (!s.campaignId) await bumpThread(threadId, row.createdAt, "outbound");
   try {
     const msg = await twilio<{ sid: string; status: TextStatus }>("POST", "/Messages", { From: s.number.number, To: s.to, Body: s.body, StatusCallback: `${s.origin}${WEBHOOKS.smsStatus}` });
     await db.update(textMessages).set({ messageSid: msg.sid, status: msg.status === "queued" ? "queued" : "sending", updatedAt: new Date() }).where(eq(textMessages.id, row.id));
@@ -107,14 +110,17 @@ export async function receiveText(p: Record<string, string>) {
   const links = await linksForPhone(p.From ?? "");
   const media = Array.from({ length: Math.min(Number(p.NumMedia ?? 0) || 0, 10) }, (_, i) => ({ url: p[`MediaUrl${i}`] ?? "", contentType: p[`MediaContentType${i}`] ?? "" })).filter((m) => m.url.startsWith("https://"));
   const body = (p.Body ?? "").slice(0, 5000);
+  const threadId = await threadFor(number.id, p.From ?? "", links);
   const [row] = await db
     .insert(textMessages)
-    .values({ messageSid: p.MessageSid, direction: "inbound", from: p.From ?? "", to: number.number, body, media, status: "received", phoneNumberId: number.id, personId: links.personId, organizationId: links.organizationId, clientId: links.clientId })
+    .values({ messageSid: p.MessageSid, direction: "inbound", from: p.From ?? "", to: number.number, body, media, status: "received", phoneNumberId: number.id, threadId, personId: links.personId, organizationId: links.organizationId, clientId: links.clientId })
     .onConflictDoNothing()
     .returning();
   // Twilio retried a webhook that already landed.
   if (!row) return;
   try {
+    // STOP and START replies are bookkeeping, not something to answer: they don't leave the conversation unread.
+    if (!optKeyword(body)) await bumpThread(threadId, row.createdAt, "inbound");
     await logReceived(row, number, links, media.length);
   } catch (err) {
     // Without its timeline entry the text would be lost: forget it, so Twilio's retry (the route answers 500) does it all again.
@@ -153,7 +159,7 @@ async function logReceived(row: typeof textMessages.$inferSelect, number: PhoneN
     kind: "inbound_text",
     title: `Text from ${who}`,
     body: body.slice(0, 140) || "Open it to see it.",
-    url: links.personId ? `/people/${links.personId}` : links.organizationId ? `/organizations/${links.organizationId}` : "/activities",
+    url: row.threadId ? `/messages?t=${row.threadId}` : links.personId ? `/people/${links.personId}` : "/activities",
     dedupeKey: `text:${row.id}`,
   });
 }
