@@ -43,14 +43,14 @@ export function AppShell({ due, unread = 0, unreadTexts = 0, children }: { due: 
 
   const nav: NavItem[] = [
     { href: "/", label: "Home", icon: HomeIcon },
+    ...(comms.phone ? [{ href: "/messages", label: "Messages", icon: ChatBubbleLeftRightIcon, badge: unreadTexts || undefined, badgeLabel: "unread" }] : []),
+    { href: "/email", label: "Email", icon: EnvelopeIcon, badge: unread || undefined, badgeLabel: "unread" },
     { href: "/clients", label: "Clients", icon: BriefcaseIcon },
+    { href: "/activities", label: "Activities", icon: CheckCircleIcon, badge: due.overdue + due.today || undefined, badgeLabel: "due", tone: due.overdue ? "error" : undefined },
     { href: "/people", label: "People", icon: UserIcon },
     { href: "/organizations", label: "Organizations", icon: BuildingOffice2Icon },
-    { href: "/activities", label: "Activities", icon: CheckCircleIcon, badge: due.overdue + due.today || undefined, badgeLabel: "due", tone: due.overdue ? "error" : undefined },
     { href: "/calendar", label: "Calendar", icon: CalendarDaysIcon },
     { href: "/files", label: "Files", icon: FolderIcon },
-    { href: "/email", label: "Email", icon: EnvelopeIcon, badge: unread || undefined, badgeLabel: "unread" },
-    ...(comms.phone ? [{ href: "/messages", label: "Messages", icon: ChatBubbleLeftRightIcon, badge: unreadTexts || undefined, badgeLabel: "unread" }] : []),
   ];
 
   const sidebar = (
