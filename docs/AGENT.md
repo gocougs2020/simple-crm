@@ -55,7 +55,7 @@ A skill is a set of instructions saved for the agent: how to write up a call, wh
 
 | | Who it's for | Who can add or change it |
 | --- | --- | --- |
-| **Your skills** | Your agent only | You (not viewers), in Settings or by asking the agent |
+| **Your skills** | Your agent only | You (not viewers), in Settings or by asking the agent. An admin can open and change a teammate's in Settings, never through a key, a connected app or an agent |
 | **Shared with the team** | Every teammate's agent | Admins, in Settings only (never an agent, a key or a connected app): add one, or open any skill (their own or a teammate's) and share it. Taking it back returns it to whoever wrote it |
 
 - **Two ways a skill is used** (`mode`): *When it's relevant* (the default) lists the skill by name and description, and the agent reads it with `get_skill` before doing work it covers. *Always* puts its instructions in every conversation: up to 5 per teammate and 5 shared, 4,000 characters each. Admins use this to apply something to the whole team.
@@ -71,7 +71,7 @@ A scheduled job is work the agent does on its own, on a cadence: "every Monday a
 - **Cadence:** every day, every weekday, weekly on a day, monthly on a day (1 to 28), or once on a date, at a time on the quarter hour in the workspace's time zone. The most often a job runs is once a day.
 - **Each run is background work** ([below](#background-work)): the agent cron starts a run as the job's teammate when its time comes, with their access at that moment and under the same per-run, monthly and concurrency limits. The answer is saved on the run (Background tasks in the panel) with a push notification. A job that can't start (the month's budget is spent, the teammate lost edit access) says why on the job in Settings and tries again at its next time.
 - **Shared jobs are offers.** An admin, in Settings only, adds a job for the team, or opens any job and shares it. It doesn't run by itself: each teammate who presses **Add to mine** gets their own copy, which runs as them and can be changed without affecting anyone else. Changing the offer later doesn't change copies already added.
-- **Admins** can also see, pause and delete teammates' jobs.
+- **Admins** can also see, change, pause and delete teammates' jobs, in Settings only. An admin's key, connected app or agent sees and changes the admin's own jobs and nothing of anyone else's, since a job runs as its teammate.
 - A one-time job turns itself off after it runs. **Run now** in Settings starts a job right away without changing its schedule.
 - Background runs can read jobs but can't create or change them, so a run can't schedule more of itself.
 - Limits: 20 jobs per teammate and 20 offers.

@@ -29,15 +29,22 @@ function teammate(a: Actor): User {
   return a.user;
 }
 
-const who = (a: Actor & { kind: "user" }) => ({ id: a.user.id, admin: can(a, "workspace:admin") });
+/**
+ * Whether this is an admin acting in person: signed in, in the browser. An
+ * admin's key, connected app or agent counts as the teammate only, so it sees
+ * and changes its own teammate's skills and nobody else's.
+ */
+const inPerson = (a: Actor) => a.kind === "user" && !a.keyId && can(a, "workspace:admin");
+const who = (a: Actor & { kind: "user" }) => ({ id: a.user.id, admin: inPerson(a) });
 
 /**
- * A shared skill is part of every teammate's agent, so it's only created,
- * changed or deleted by an admin acting in person, in Settings: never by an
- * agent, a key or a connected app, whoever they act for.
+ * A shared skill is part of every teammate's agent, and another teammate's
+ * skill is part of theirs, so both are only created, changed or deleted by an
+ * admin acting in person, in Settings: never by an agent, a key or a
+ * connected app, whoever they act for.
  */
 function assertInPerson(a: Actor) {
-  if (a.kind !== "user" || a.keyId) throw new ForbiddenError("Skills shared with the whole team are managed in Settings › Agent, by an admin. An agent can save and change the teammate's own skills.");
+  if (a.kind !== "user" || a.keyId) throw new ForbiddenError("Skills shared with the whole team, and other teammates' skills, are managed in Settings › Agent, by an admin. An agent can save and change the teammate's own skills.");
   assertCan(a, "workspace:admin");
 }
 
@@ -62,7 +69,7 @@ export async function listSkills(a: Actor, opts: { scope?: "mine" | "shared" | "
   const shared = eq(skills.scope, "workspace");
   if (opts.scope === "mine") return rows(mine);
   if (opts.scope === "shared") return rows(shared);
-  if (opts.scope === "all" && can(a, "workspace:admin")) return rows(undefined);
+  if (opts.scope === "all" && inPerson(a)) return rows(undefined);
   return rows(or(mine, shared));
 }
 
@@ -117,7 +124,7 @@ export async function updateSkill(a: Actor, id: string, patch: SkillPatch) {
   const me = who(a as Actor & { kind: "user" });
   if (!canEditSkill(me, current)) throw new ForbiddenError(current.scope === "workspace" ? "Shared skills are managed by admins. Ask one to change it, or save your own version." : "That skill belongs to another teammate.");
   const scope = data.scope ?? current.scope;
-  if (scope !== current.scope || scope === "workspace") assertInPerson(a);
+  if (scope !== current.scope || scope === "workspace" || current.userId !== me.id) assertInPerson(a);
   const next = { name: data.name ?? current.name, mode: data.mode ?? current.mode, instructions: data.instructions ?? current.instructions };
   await assertRoom(scope, current.userId, (data.enabled ?? current.enabled) ? next : { ...next, mode: "on_demand" }, current.id);
   const db = await getDb();
@@ -134,7 +141,7 @@ export async function deleteSkill(a: Actor, id: string) {
   assertNotRun(a);
   const current = await find(a, id);
   if (!canEditSkill(who(a as Actor & { kind: "user" }), current)) throw new ForbiddenError(current.scope === "workspace" ? "Shared skills are managed by admins." : "That skill belongs to another teammate.");
-  if (current.scope === "workspace") assertInPerson(a);
+  if (current.scope === "workspace" || current.userId !== teammate(a).id) assertInPerson(a);
   const db = await getDb();
   await db.delete(skills).where(eq(skills.id, current.id));
   return current;

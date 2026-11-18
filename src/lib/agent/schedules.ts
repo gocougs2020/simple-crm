@@ -35,7 +35,13 @@ function teammate(a: Actor): User {
   return a.user;
 }
 
-const who = (a: Actor) => ({ id: teammate(a).id, admin: can(a, "workspace:admin") });
+/**
+ * Whether this is an admin acting in person: signed in, in the browser. An
+ * admin's key, connected app or agent counts as the teammate only, so it sees
+ * and changes its own teammate's jobs and nobody else's.
+ */
+const inPerson = (a: Actor) => a.kind === "user" && !a.keyId && can(a, "workspace:admin");
+const who = (a: Actor) => ({ id: teammate(a).id, admin: inPerson(a) });
 
 /** Before any change: edit access, a teammate, not a run, and background work switched on. */
 function assertCanChange(a: Actor) {
@@ -46,9 +52,13 @@ function assertCanChange(a: Actor) {
   return user;
 }
 
-/** Offers to the whole team are made by an admin in person, in Settings: never by an agent, a key or a connected app. */
+/**
+ * Offers to the whole team, and changes to another teammate's job (which runs
+ * as them), are made by an admin in person, in Settings: never by an agent, a
+ * key or a connected app.
+ */
 function assertInPerson(a: Actor) {
-  if (a.kind !== "user" || a.keyId) throw new ForbiddenError("Jobs offered to the whole team are managed in Settings › Agent, by an admin. An agent can schedule and change the teammate's own jobs.");
+  if (a.kind !== "user" || a.keyId) throw new ForbiddenError("Jobs offered to the whole team, and other teammates' jobs, are managed in Settings › Agent, by an admin. An agent can schedule and change the teammate's own jobs.");
   assertCan(a, "workspace:admin");
 }
 
@@ -69,7 +79,7 @@ export async function listJobs(a: Actor, opts: { scope?: "mine" | "shared" | "al
   const shared = eq(jobs.scope, "workspace");
   if (opts.scope === "mine") return rows(mine);
   if (opts.scope === "shared") return rows(shared);
-  if (opts.scope === "all" && can(a, "workspace:admin")) return rows(undefined);
+  if (opts.scope === "all" && inPerson(a)) return rows(undefined);
   return rows(or(mine, shared));
 }
 
@@ -124,7 +134,7 @@ export async function updateJob(a: Actor, id: string, patch: JobPatch) {
   assertCanChange(a);
   const current = await find(a, id);
   if (!canEditJob(who(a), current)) throw new ForbiddenError(current.scope === "workspace" ? "Shared jobs are managed by admins. Add it to your own jobs to change your copy." : "That job belongs to another teammate.");
-  if (current.scope === "workspace") assertInPerson(a);
+  if (current.scope === "workspace" || current.userId !== teammate(a).id) assertInPerson(a);
   const data = jobPatch.parse(patch);
   if (data.scope && data.scope !== current.scope) throw new ActionError("A job can't be moved between yours and the team's. Share it from Settings instead, which offers the team a copy.");
   if (data.name && data.name.toLowerCase() !== current.name.toLowerCase()) await assertRoom(current.scope, current.userId, data.name, current.id);
@@ -149,7 +159,7 @@ export async function deleteJob(a: Actor, id: string) {
   assertCanChange(a);
   const current = await find(a, id);
   if (!canEditJob(who(a), current)) throw new ForbiddenError(current.scope === "workspace" ? "Shared jobs are managed by admins." : "That job belongs to another teammate.");
-  if (current.scope === "workspace") assertInPerson(a);
+  if (current.scope === "workspace" || current.userId !== teammate(a).id) assertInPerson(a);
   const db = await getDb();
   await db.delete(jobs).where(eq(jobs.id, current.id));
   return current;
