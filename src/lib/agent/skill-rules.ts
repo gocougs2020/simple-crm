@@ -31,7 +31,7 @@ export const skillInput = z.object({
     .max(MAX_SKILL_INSTRUCTIONS, `Keep the instructions under ${MAX_SKILL_INSTRUCTIONS.toLocaleString("en-US")} characters.`)
     .describe("What to do, step by step, in markdown."),
   mode: z.enum(agentSkillModes).optional().describe('on_demand (the default): read when a request matches the description. always: part of the instructions in every conversation; keep those short.'),
-  scope: z.enum(agentScopes).optional().describe("personal (the default): only this teammate's agent uses it. workspace: shared with everyone's agent; admins only."),
+  scope: z.enum(agentScopes).optional().describe("personal (the default): only this teammate's agent uses it. workspace (shared with everyone's agent) can only be set by an admin in Settings."),
   enabled: z.boolean().optional().describe("false pauses the skill without deleting it."),
 });
 export type SkillInput = z.infer<typeof skillInput>;

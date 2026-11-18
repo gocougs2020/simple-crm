@@ -29,8 +29,10 @@ export function runTitle(prompt: string, max = 80) {
  * on the web or in a record must never become standing instructions or
  * recurring work.
  */
-const READ_ONLY_TAGS = new Set(["Skills", "Scheduled jobs"]);
-export const runMayUse = (op: Pick<Operation, "method" | "destructive" | "tag">) => !isDestructive(op) && op.tag !== "Agent" && !(READ_ONLY_TAGS.has(op.tag) && op.method !== "GET");
+const STANDING_TAGS = new Set(["Skills", "Scheduled jobs"]);
+/** Saves or changes a skill or a scheduled job: something the agent will act on later, with nobody asking. */
+export const writesStanding = (op: Pick<Operation, "method" | "tag">) => STANDING_TAGS.has(op.tag) && op.method !== "GET";
+export const runMayUse = (op: Pick<Operation, "method" | "destructive" | "tag">) => !isDestructive(op) && op.tag !== "Agent" && !writesStanding(op);
 
 /**
  * Whether a note's text calls on the agent: "@Agent" (whatever the

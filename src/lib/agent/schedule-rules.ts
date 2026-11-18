@@ -42,7 +42,7 @@ const jobFields = {
   weekday: z.coerce.number().int().min(1).max(7).nullish().describe("For every: week. 1 is Monday, 7 is Sunday."),
   monthDay: z.coerce.number().int().min(1).max(28).nullish().describe("For every: month. The day of the month, 1 to 28."),
   onDate: date.nullish().describe("For every: once. The date it runs, YYYY-MM-DD."),
-  scope: z.enum(agentScopes).optional().describe("personal (the default): runs for this teammate. workspace: offered to the whole team, where each teammate who adds it gets their own copy; admins only."),
+  scope: z.enum(agentScopes).optional().describe("personal (the default): runs for this teammate. workspace (offered to the whole team) can only be set by an admin in Settings."),
   enabled: z.boolean().optional().describe("false pauses the job."),
 };
 

@@ -143,7 +143,13 @@ describe("skill and job tools", () => {
     assert.ok(viewer.includes("list_skills") && viewer.includes("get_skill") && viewer.includes("list_scheduled_jobs"));
     assert.ok(!viewer.includes("create_skill") && !viewer.includes("create_scheduled_job"));
     assert.ok(needsConfirmation("delete_skill") && needsConfirmation("delete_scheduled_job"));
-    assert.ok(!needsConfirmation("create_skill"));
+    // Skills and jobs outlive the chat, so saving one waits for a button too, and voice (no button) can't.
+    for (const t of ["create_skill", "update_skill", "create_scheduled_job", "update_scheduled_job", "add_shared_scheduled_job"]) assert.ok(needsConfirmation(t), t);
+    assert.ok(!needsConfirmation("get_skill") && !needsConfirmation("create_person"));
+    const voice = allowedOperations(() => true, { voice: true, features: ["background"] }).map((o) => o.tool);
+    assert.ok(voice.includes("list_skills") && !voice.includes("create_skill") && !voice.includes("update_scheduled_job"));
+    assert.match(confirmReason("create_skill"), /later conversations/);
+    assert.match(confirmReason("create_scheduled_job"), /on its own/);
     assert.match(confirmReason("delete_skill"), /for good/);
     assert.match(confirmReason("archive_client"), /restored/);
   });

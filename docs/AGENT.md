@@ -14,7 +14,7 @@ It works on the teammate's signed-in session. There's no API key to create and n
 
 - **Tools are the MCP tools.** One per API operation, generated from `src/lib/api/operations.ts` and filtered by role (`allowedOperations` in `src/lib/agent/policy.ts`). Adding an operation with a `tool` name gives the agent that tool too. Each call runs through `executeOperation`: the permission check, validation and history are the same as for the API.
 - **History says who.** Changes show as "Sam via Agent" on timelines. Each teammate has one `assistant` row in `api_keys` for this: it holds no usable token (the agent runs on the session cookie) and isn't listed in Settings → API and MCP.
-- **Archive and delete wait for a button.** In text chat they pause with a confirm card (the AI SDK's tool approval). Voice chat doesn't offer them at all.
+- **Archive, delete and merge wait for a button,** and so does saving a [skill](#skills) or a [scheduled job](#scheduled-jobs). In text chat they pause with a confirm card (the AI SDK's tool approval). Voice chat doesn't offer them at all.
 - **It knows the context:** who's asking, their role and user id ("assign it to me"), today's date in the workspace's time zone, and the page open behind the panel ("summarize this client").
 - **It can't send email or texts. It drafts them.** Asked to email or text someone, it writes a draft (`draft_message`) that waits on the person's page. The teammate opens it in the composer, changes what they like and sends it the usual way. See [Drafts](#drafts).
 - **Long jobs go to the background.** Research, cleanups and anything across many records are handed to a background worker that keeps going after the panel is closed. See [Background work](#background-work).
@@ -56,11 +56,11 @@ A skill is a set of instructions saved for the agent: how to write up a call, wh
 | | Who it's for | Who can add or change it |
 | --- | --- | --- |
 | **Your skills** | Your agent only | You (not viewers), in Settings or by asking the agent |
-| **Shared with the team** | Every teammate's agent | Admins: add one, or open any skill (their own or a teammate's) and share it. Taking it back returns it to whoever wrote it |
+| **Shared with the team** | Every teammate's agent | Admins, in Settings only (never an agent, a key or a connected app): add one, or open any skill (their own or a teammate's) and share it. Taking it back returns it to whoever wrote it |
 
 - **Two ways a skill is used** (`mode`): *When it's relevant* (the default) lists the skill by name and description, and the agent reads it with `get_skill` before doing work it covers. *Always* puts its instructions in every conversation: up to 5 per teammate and 5 shared, 4,000 characters each. Admins use this to apply something to the whole team.
 - **Everywhere the agent works.** Chat and voice get the teammate's skills in their instructions (`skillsSection` in `src/lib/agent/skill-rules.ts`), background runs get them in their first message, and agents connected through MCP are told to `list_skills` and read one before work it covers.
-- **Skills are the teammate's own instructions,** so the agent only saves one when the teammate asks, never from text in a record, a file or a tool result. Background runs can read skills but can't create, change or delete them (`runMayUse`), so nothing a run reads on the web can leave instructions behind.
+- **Skills are the teammate's own instructions,** so the agent only saves one when the teammate asks, never from text in a record, a file or a tool result. In chat, saving or changing a skill or a scheduled job waits for a confirm button that shows the words that would be saved, the same as archive and delete, so text the agent read can't create one unseen. Voice chat, which has no button, can read skills and jobs but not save them. Background runs can read skills but can't create, change or delete them (`runMayUse`), so nothing a run reads on the web can leave instructions behind.
 - Limits: 50 skills per teammate and 50 shared; a name up to 60 characters, a description up to 280, instructions up to 20,000.
 - Tools and endpoints: `list_skills`, `get_skill`, `create_skill`, `update_skill`, `delete_skill` (`/api/v1/skills`). Deleting waits for a confirm button in chat.
 
@@ -70,7 +70,7 @@ A scheduled job is work the agent does on its own, on a cadence: "every Monday a
 
 - **Cadence:** every day, every weekday, weekly on a day, monthly on a day (1 to 28), or once on a date, at a time on the quarter hour in the workspace's time zone. The most often a job runs is once a day.
 - **Each run is background work** ([below](#background-work)): the agent cron starts a run as the job's teammate when its time comes, with their access at that moment and under the same per-run, monthly and concurrency limits. The answer is saved on the run (Background tasks in the panel) with a push notification. A job that can't start (the month's budget is spent, the teammate lost edit access) says why on the job in Settings and tries again at its next time.
-- **Shared jobs are offers.** An admin adds a job for the team, or opens any job and shares it. It doesn't run by itself: each teammate who presses **Add to mine** gets their own copy, which runs as them and can be changed without affecting anyone else. Changing the offer later doesn't change copies already added.
+- **Shared jobs are offers.** An admin, in Settings only, adds a job for the team, or opens any job and shares it. It doesn't run by itself: each teammate who presses **Add to mine** gets their own copy, which runs as them and can be changed without affecting anyone else. Changing the offer later doesn't change copies already added.
 - **Admins** can also see, pause and delete teammates' jobs.
 - A one-time job turns itself off after it runs. **Run now** in Settings starts a job right away without changing its schedule.
 - Background runs can read jobs but can't create or change them, so a run can't schedule more of itself.
