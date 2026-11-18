@@ -64,6 +64,9 @@ export function cleanCadence(c: Cadence): Required<Cadence> {
   return { every: c.every, time: time.parse(c.time), weekday: c.every === "week" ? c.weekday! : null, monthDay: c.every === "month" ? c.monthDay! : null, onDate: c.every === "once" ? c.onDate! : null };
 }
 
+/** Whether two cadences run at the same times. */
+export const sameCadence = (a: Cadence, b: Cadence) => a.every === b.every && a.time === b.time && (a.weekday ?? null) === (b.weekday ?? null) && (a.monthDay ?? null) === (b.monthDay ?? null) && (a.onDate ?? null) === (b.onDate ?? null);
+
 /** 1 (Monday) to 7 (Sunday) for a calendar day. */
 const weekdayOf = (ymd: string) => new Date(`${ymd}T12:00:00Z`).getUTCDay() || 7;
 const addDays = (ymd: string, days: number) => {

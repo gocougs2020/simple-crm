@@ -4,7 +4,7 @@ import { operationList } from "@/lib/api/operations";
 import { allowedOperations, confirmReason, needsConfirmation } from "./policy";
 import { agentInstructions } from "./prompt";
 import { runMayUse, runMessage } from "./run-rules";
-import { cadenceLabel, canEditJob, canSeeJob, cleanCadence, jobInput, nextRun } from "./schedule-rules";
+import { cadenceLabel, canEditJob, canSeeJob, cleanCadence, jobInput, nextRun, sameCadence } from "./schedule-rules";
 import { alwaysRefusal, canEditSkill, canSeeSkill, MAX_ALWAYS_INSTRUCTIONS, MAX_ALWAYS_SKILLS, skillInput, skillsSection, type SkillBrief } from "./skill-rules";
 
 const sam = { id: "u1", name: "Sam Lee", email: "sam@x.co", role: "member" as const };
@@ -102,6 +102,14 @@ describe("scheduled jobs", () => {
   it("runs a one-time job once", () => {
     assert.equal(iso(nextRun({ every: "once", onDate: "2026-11-19", time: "14:00" }, wed9, tz)), "2026-11-19T21:00:00.000Z");
     assert.equal(nextRun({ every: "once", onDate: "2026-11-17", time: "14:00" }, wed9, tz), null);
+  });
+
+  it("tells a change of cadence from a change of wording, so an edit doesn't skip a run that's due", () => {
+    const stored = { every: "week" as const, time: "08:00", weekday: 1, monthDay: null, onDate: null };
+    assert.ok(sameCadence(cleanCadence({ every: "week", time: "08:00", weekday: 1 }), stored));
+    assert.ok(!sameCadence(cleanCadence({ every: "week", time: "08:15", weekday: 1 }), stored));
+    assert.ok(!sameCadence(cleanCadence({ every: "week", time: "08:00", weekday: 2 }), stored));
+    assert.ok(!sameCadence(cleanCadence({ every: "day", time: "08:00" }), stored));
   });
 
   it("says its cadence in words", () => {

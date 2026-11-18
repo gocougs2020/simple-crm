@@ -10,7 +10,7 @@ import { getWorkspace } from "@/lib/workspace";
 import { assistantActor } from "./actor";
 import { aiFeatures, aiOffMessage } from "./config";
 import { startRun } from "./runs";
-import { canEditJob, canSeeJob, cleanCadence, jobInput, jobPatch, MAX_JOBS, nextRun, type Cadence, type JobInput, type JobPatch } from "./schedule-rules";
+import { canEditJob, canSeeJob, cleanCadence, jobInput, jobPatch, MAX_JOBS, nextRun, sameCadence, type Cadence, type JobInput, type JobPatch } from "./schedule-rules";
 
 /**
  * The agent's scheduled jobs: work it does on its own, on a cadence
@@ -146,10 +146,20 @@ export async function updateJob(a: Actor, id: string, patch: JobPatch) {
     onDate: data.onDate === undefined ? current.onDate : data.onDate,
   });
   const enabled = data.enabled ?? current.enabled;
+  // A change to the name or the wording leaves the next run where it is: recomputing it from now would skip
+  // an occurrence that's due and waiting for the cron. Only a new cadence, or switching it on or off, moves it.
+  const rescheduled = !sameCadence(cadence, current) || enabled !== current.enabled || (enabled && !current.nextRunAt);
   const db = await getDb();
   const [row] = await db
     .update(jobs)
-    .set({ name: data.name ?? current.name, prompt: data.request ?? current.prompt, ...cadence, enabled, nextRunAt: await plan(current.scope, enabled, cadence), ...(enabled ? { lastError: null } : {}) })
+    .set({
+      name: data.name ?? current.name,
+      prompt: data.request ?? current.prompt,
+      ...cadence,
+      enabled,
+      ...(rescheduled ? { nextRunAt: await plan(current.scope, enabled, cadence) } : {}),
+      ...(enabled ? { lastError: null } : {}),
+    })
     .where(eq(jobs.id, current.id))
     .returning();
   return { ...row, ownerName: current.ownerName } satisfies JobRow;

@@ -58,23 +58,34 @@ export function Markdown({ text, onNavigate }: { text: string; onNavigate?: () =
   );
 }
 
-const previewFields: [string, string][] = [
-  ["name", "Name"],
-  ["description", "When to use it"],
-  ["instructions", "Instructions"],
-  ["request", "What it does"],
-  ["every", "How often"],
-  ["time", "Time"],
-  ["scope", "For"],
-  ["mode", "Used"],
+const weekdayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const previewFields: [string, string, (v: unknown) => string | null][] = [
+  ["name", "Name", (v) => (typeof v === "string" ? v : null)],
+  ["description", "When to use it", (v) => (typeof v === "string" ? v : null)],
+  ["instructions", "Instructions", (v) => (typeof v === "string" ? v : null)],
+  ["request", "What it does", (v) => (typeof v === "string" ? v : null)],
+  ["every", "How often", (v) => (typeof v === "string" ? v : null)],
+  ["weekday", "Day of the week", (v) => weekdayNames[Number(v) - 1] ?? null],
+  ["monthDay", "Day of the month", (v) => (typeof v === "number" || typeof v === "string" ? String(v) : null)],
+  ["onDate", "Date", (v) => (typeof v === "string" ? v : null)],
+  ["time", "Time", (v) => (typeof v === "string" ? v : null)],
+  ["scope", "For", (v) => (v === "workspace" ? "The whole team" : v === "personal" ? "Just you" : null)],
+  ["mode", "Used", (v) => (v === "always" ? "Always on" : v === "on_demand" ? "When it's relevant" : null)],
+  ["enabled", "Status", (v) => (v === true ? "On" : v === false ? "Paused" : null)],
 ];
 
-/** What a skill or scheduled job would save, shown on its confirm card so the teammate approves the words, not just the tool's name. */
-function standingPreview(input: unknown): [string, string][] {
-  if (!input || typeof input !== "object") return [];
+/**
+ * What a skill or scheduled job tool would save, shown on its confirm card so
+ * the teammate approves the values, not just the tool's name: every field the
+ * call sets, including a change of only the day, the time or on and off.
+ */
+export function standingPreview(tool: string, input: unknown): [string, string][] {
+  if (!/skill|scheduled_job/.test(tool) || !input || typeof input !== "object") return [];
   const fields = input as Record<string, unknown>;
-  if (typeof fields.instructions !== "string" && typeof fields.request !== "string" && typeof fields.scope !== "string" && typeof fields.mode !== "string" && typeof fields.every !== "string") return [];
-  return previewFields.flatMap(([key, label]): [string, string][] => (typeof fields[key] === "string" && fields[key] ? [[label, (fields[key] as string).replace(/^workspace$/, "The whole team").replace(/^always$/, "Always on")]] : []));
+  return previewFields.flatMap(([key, label, show]): [string, string][] => {
+    const value = fields[key] === undefined || fields[key] === null ? null : show(fields[key]);
+    return value ? [[label, value]] : [];
+  });
 }
 
 /** One tool call: running, done, failed, or waiting for the teammate to confirm. */
@@ -85,7 +96,7 @@ function ToolActivity({ part, onApprove }: { part: ToolPart; onApprove: (id: str
       <div className="rounded-lg border border-warning-border bg-warning-surface px-3 py-2.5 text-[13px] text-primary" role="group" aria-label={`Confirm: ${label}`}>
         <p className="font-medium">{label}?</p>
         <p className="mt-0.5 text-[12.5px] text-secondary">{part.approval.requestReason ?? "This changes your CRM."}</p>
-        {standingPreview(part.input).map(([key, value]) => (
+        {standingPreview(nameOf(part), part.input).map(([key, value]) => (
           <p key={key} className="mt-1.5 max-h-40 overflow-y-auto rounded-md border border-line bg-surface px-2 py-1.5 text-[12.5px] whitespace-pre-wrap text-primary">
             <span className="block text-[11px] font-semibold text-muted">{key}</span>
             {value}
