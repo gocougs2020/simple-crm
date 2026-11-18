@@ -549,13 +549,34 @@ export async function cancelRun(actor: Actor, runId: string) {
 /**
  * Stops an earlier run for the same note or task when it's handed over again
  * (a task edited and given back, say), so only the newest run works on it.
+ * A teammate can replace their own run; replacing someone else's takes an
+ * admin, the same rule as stopping a run. Otherwise it's refused, with who to ask.
  */
-export async function supersedeRuns(activityId: string) {
+export async function supersedeRuns(actor: Actor, activityId: string, opts: { check?: boolean } = {}) {
+  if (actor.kind !== "user") return;
   const db = await getDb();
+  const going = await db
+    .select({ run: runs, owner: schema.users.name })
+    .from(runs)
+    .innerJoin(schema.users, eq(schema.users.id, runs.userId))
+    .where(and(eq(runs.activityId, activityId), inArray(runs.status, [...ACTIVE])));
+  const theirs = going.find((g) => g.run.userId !== actor.user.id);
+  if (theirs && !can(actor, "workspace:admin")) {
+    throw new ActionError(`${appConfig.agent.name} is already working on this for ${theirs.owner}. Wait for it to finish, or ask them or an admin to stop it.`);
+  }
+  if (opts.check || !going.length) return;
   const stopped = await db
     .update(runs)
     .set({ status: "cancelled", error: "Stopped because the task was handed over again. The newer run answers it.", finishedAt: new Date() })
-    .where(and(eq(runs.activityId, activityId), inArray(runs.status, [...ACTIVE])))
+    .where(
+      and(
+        inArray(
+          runs.id,
+          going.map((g) => g.run.id),
+        ),
+        inArray(runs.status, [...ACTIVE]),
+      ),
+    )
     .returning();
   await Promise.all(stopped.map((run) => stopSession(run)));
 }

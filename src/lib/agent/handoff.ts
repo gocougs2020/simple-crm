@@ -17,13 +17,17 @@ import { assertCanStart, startRun, supersedeRuns } from "./runs";
 type Handed = Pick<typeof schema.activities.$inferSelect, "id" | "type" | "subject" | "body" | "personId" | "organizationId" | "clientId">;
 
 /** Refuses up front, with a sentence, when the agent can't take work right now (turned off, budget spent, read-only access). */
-export const assertCanHandOff = (actor: Actor) => assertCanStart(actor);
+export async function assertCanHandOff(actor: Actor, activityId?: string) {
+  await assertCanStart(actor);
+  // Handing over a task someone else's run is working on is refused before anything is saved.
+  if (activityId) await supersedeRuns(actor, activityId, { check: true });
+}
 
 /** Starts a run for a task or note and links it, so the timeline can show how it's going. */
 export async function handOff(actor: Actor, activity: Handed, source: "task" | "mention") {
   const text = [activity.subject, htmlToText(activity.body)].filter(Boolean).join("\n\n").trim();
   await assertCanStart(actor);
-  await supersedeRuns(activity.id);
+  await supersedeRuns(actor, activity.id);
   const run = await startRun(
     actor,
     { prompt: text, title: activity.subject || text, source, activityId: activity.id, personId: activity.personId, organizationId: activity.organizationId, clientId: activity.clientId },

@@ -110,7 +110,7 @@ export async function updateActivity(a: Actor, activityId: string, patch: Partia
   assertCan(a, "records:write");
   const data = activityInput.partial().parse(patch);
   await checkLinks(data);
-  if (data.agent) await (await handoff()).assertCanHandOff(a);
+  if (data.agent) await (await handoff()).assertCanHandOff(a, z.uuid().parse(activityId));
   const db = await getDb();
   const before = await getActivityRow(activityId);
   // Anyone can reschedule or reassign a task; only the author (or an admin) can rewrite what was logged.
