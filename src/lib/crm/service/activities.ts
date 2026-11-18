@@ -155,7 +155,9 @@ export async function replyToNote(a: Actor, activityId: string, input: z.input<t
   if (opts.handOff !== false && calledOn(a, "note", body)) {
     // Only this teammate's reply is the request. The note and the earlier replies may have been written by
     // someone else, a script or the agent itself, so they go along as quoted context, never as instructions.
-    const quoted = async (what: string, userId: string | null, apiKeyId: string | null, text: string) => `${what} by ${await authorName(userId, apiKeyId)}:\n${text.replace(/<\/?thread>/gi, "")}`;
+    // No angle brackets survive in what's quoted (names included), so nothing in it can close the <thread> block early.
+    const plain = (s: string) => s.replace(/</g, "‹").replace(/>/g, "›");
+    const quoted = async (what: string, userId: string | null, apiKeyId: string | null, text: string) => `${what} by ${plain(await authorName(userId, apiKeyId))}:\n${plain(text)}`;
     const context = [
       await quoted("Note", note.userId, note.apiKeyId, [note.subject, htmlToText(note.body)].filter(Boolean).join("\n\n")),
       ...(await Promise.all(before.map((r) => quoted("Reply", r.userId, r.apiKeyId, htmlToText(r.body))))),
