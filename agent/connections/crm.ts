@@ -5,7 +5,7 @@ import { crmToken, protectionBypass, runOf } from "../lib/run";
  * The CRM's own MCP endpoint, as the teammate this run works for. The CRM
  * decides which tools exist from their role when it lists them, checks the
  * role again on every call, and records each change as "<teammate> via
- * Assistant". The token names the run, so it stops working when the run ends
+ * Agent". The token names the run, so it stops working when the run ends
  * or is cancelled. Sessions that aren't a CRM run get no connection at all.
  */
 export default defineDynamic((ctx) => {

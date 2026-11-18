@@ -17,7 +17,7 @@ import {
 import { logActivity, type ActivityInput } from "@/actions/activities";
 import { listPersonDrafts, resolveDraft, type PersonDraft } from "@/actions/drafts";
 import { useApp } from "@/components/app-context";
-import { ASSISTANT_ASSIGNEE, OwnerSelect } from "@/components/records/owner-select";
+import { AGENT_ASSIGNEE, OwnerSelect } from "@/components/records/owner-select";
 import { appConfig } from "@/app.config";
 import { Button } from "@/components/ui/button";
 import { Input, Kbd } from "@/components/ui/field";
@@ -49,7 +49,7 @@ export type Links = { personId?: string | null; organizationId?: string | null; 
 export function Composer({ links, recipient, initialType = "note" }: { links: Links; recipient?: (EmailRecipient & { phone?: string | null; textOptedOut?: boolean }) | null; initialType?: ActivityType }) {
   const [type, setType] = useState<ActivityType>(initialType);
   const { canEdit, services } = useApp();
-  // Emails and texts the assistant drafted to this person, waiting for this teammate to review and send (docs/AGENT.md).
+  // Emails and texts the agent drafted to this person, waiting for this teammate to review and send (docs/AGENT.md).
   const [drafts, setDrafts] = useState<PersonDraft[]>([]);
   const [reviewing, setReviewing] = useState<PersonDraft | null>(null);
   const personId = recipient?.personId;
@@ -60,7 +60,7 @@ export function Composer({ links, recipient, initialType = "note" }: { links: Li
     listPersonDrafts(personId).then((r) => {
       if (!current || !r.ok) return;
       setDrafts(r.data);
-      // A link from the assistant or a notification (?draft=…) opens that draft in the composer.
+      // A link from the agent or a notification (?draft=…) opens that draft in the composer.
       const wanted = new URLSearchParams(window.location.search).get("draft");
       const open = wanted ? r.data.find((d) => d.id === wanted) : null;
       if (open) {
@@ -221,7 +221,7 @@ function CallNow({ links, recipient }: { links: Links; recipient: EmailRecipient
 function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
   const { workspace, viewer, services, canEdit } = useApp();
   const tz = workspace.timezone;
-  // Background work (docs/AGENT.md): tasks can go to the assistant, and a note can call on it with @Assistant.
+  // Background work (docs/AGENT.md): tasks can go to the agent, and a note can call on it with @Agent.
   const assistantWorks = services.ai.background && canEdit;
   const editor = useRef<RichTextHandle>(null);
   const [body, setBody] = useState("");
@@ -245,7 +245,7 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
   const at = zonedTime(day || dayFromToday(tz), time || "00:00", tz);
   // A meeting in the future is being scheduled, not logged.
   const planned = isTask || ((type === "meeting" || type === "call") && at.getTime() > now + 60_000);
-  const forAssistant = isTask && assigneeId === ASSISTANT_ASSIGNEE;
+  const forAssistant = isTask && assigneeId === AGENT_ASSIGNEE;
   const label = forAssistant ? `Give to ${appConfig.agent.name}` : isTask ? "Add task" : planned ? `Schedule ${type}` : `Log ${activityLabels[type].toLowerCase()}`;
 
   const reset = () => {
@@ -274,7 +274,7 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
         ...(type === "call" || type === "email" || type === "text" ? { direction } : {}),
         ...(type === "call" ? { outcome: planned ? null : outcome } : {}),
         ...(type === "meeting" ? { outcome: planned ? null : outcome, durationMinutes: duration ? Number(duration) : null } : {}),
-        ...(planned ? { dueAt: at.toISOString(), dueHasTime: !!time, ...(forAssistant ? { assigneeId: viewer.id, assistant: true } : { assigneeId }), done: false } : { occurredAt: at.toISOString(), done: true }),
+        ...(planned ? { dueAt: at.toISOString(), dueHasTime: !!time, ...(forAssistant ? { assigneeId: viewer.id, agent: true } : { assigneeId }), done: false } : { occurredAt: at.toISOString(), done: true }),
       };
       const r = await logActivity(input);
       if (!r.ok) return void toast.error(r.error);
@@ -339,7 +339,7 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
           ) : null}
           {planned ? (
             <div className="w-40">
-              <OwnerSelect value={assigneeId} onChange={setAssigneeId} allowNone={false} assistant={isTask && assistantWorks} className="[&_select]:h-8 [&_select]:text-[13px]" />
+              <OwnerSelect value={assigneeId} onChange={setAssigneeId} allowNone={false} agent={isTask && assistantWorks} className="[&_select]:h-8 [&_select]:text-[13px]" />
             </div>
           ) : null}
           {!planned ? <FollowUp value={followUp} onChange={setFollowUp} /> : null}

@@ -4,7 +4,7 @@ import { isDestructive, type Operation } from "@/lib/api/spec";
 import { localNow } from "./prompt";
 
 /**
- * The rules for the assistant's background runs. Pure (tested): what a run
+ * The rules for the agent's background runs. Pure (tested): what a run
  * may do, what it's told, and how its spend is counted. The database and eve
  * calls are in runs.ts.
  */
@@ -26,16 +26,16 @@ export function runTitle(prompt: string, max = 80) {
  * Nobody is watching a run, so it can't archive, delete or merge (those wait
  * for a confirm button in chat), and it can't start more runs of itself.
  */
-export const runMayUse = (op: Pick<Operation, "method" | "destructive" | "tag">) => !isDestructive(op) && op.tag !== "Assistant";
+export const runMayUse = (op: Pick<Operation, "method" | "destructive" | "tag">) => !isDestructive(op) && op.tag !== "Agent";
 
 /**
- * Whether a note's text calls on the assistant: "@Assistant" (whatever the
- * deployment names it) or "@assistant", as its own word. An email address
+ * Whether a note's text calls on the agent: "@Agent" (whatever the
+ * deployment names it) or "@agent", as its own word. An email address
  * like sam@assistant.example doesn't count.
  */
-export function mentionsAssistant(text: string | null | undefined, name = appConfig.agent.name) {
+export function mentionsAgent(text: string | null | undefined, name = appConfig.agent.name) {
   if (!text) return false;
-  const names = [...new Set([name, "assistant"].map((n) => n.trim().toLowerCase()).filter(Boolean))].map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const names = [...new Set([name, "agent"].map((n) => n.trim().toLowerCase()).filter(Boolean))].map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   return new RegExp(`(^|[^\\w@.])@(${names.join("|")})(?![\\w@]|\\.\\w)`, "i").test(text);
 }
 
@@ -57,7 +57,7 @@ type Caps = Pick<typeof appConfig.agent.background, "monthlyBudgetUsd" | "maxCon
 export type BudgetState = { spentMicroUsd: number; active: number };
 
 export const budgetUsedUp = (cfg: Pick<Caps, "monthlyBudgetUsd"> = appConfig.agent.background) =>
-  `The assistant's background work has used this month's budget (${formatUsd(cfg.monthlyBudgetUsd)}). It starts again next month, or an admin can raise agent.background.monthlyBudgetUsd.`;
+  `The agent's background work has used this month's budget (${formatUsd(cfg.monthlyBudgetUsd)}). It starts again next month, or an admin can raise agent.background.monthlyBudgetUsd.`;
 
 /**
  * Why new runs can't be accepted right now, as a sentence, or null when they
@@ -94,7 +94,7 @@ export type RunMessageContext = {
   source: AgentRunSource;
   /** The record the request is about, when there is one. */
   record?: RunRecord | null;
-  /** The note that mentioned the assistant or the task given to it. */
+  /** The note that mentioned the agent or the task given to it. */
   activity?: { id: string; type: "note" | "task"; subject: string | null } | null;
   knowledge?: string | null;
   prompt: string;
@@ -109,7 +109,7 @@ const answerGoes: Record<AgentRunSource, string> = {
 };
 
 const asked: Record<AgentRunSource, string> = {
-  chat: "They asked in the assistant chat.",
+  chat: "They asked in the agent chat.",
   api: "They asked through a connected app.",
   mention: "They mentioned you in a note.",
   task: "They assigned you a task.",

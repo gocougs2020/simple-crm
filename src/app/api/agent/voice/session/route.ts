@@ -43,7 +43,7 @@ export async function POST(request: Request) {
       getWorkspace(),
       siteOrigin(),
     ]);
-    const tools = await realtimeTools({ tools: agentTools(actor, { origin, assistant: true }, { voice: true }) });
+    const tools = await realtimeTools({ tools: agentTools(actor, { origin, agent: true }, { voice: true }) });
     const instructions = agentInstructions({
       user: gate.user,
       canWrite: can(actor, "records:write"),

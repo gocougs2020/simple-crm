@@ -12,7 +12,7 @@ import { sanitizeHtml, textToHtml, htmlToText } from "@/lib/safe-html";
 
 /**
  * Drafts: emails and texts written for a teammate to review and send. This is
- * how the assistant "sends" a message: it writes one here, and the teammate
+ * how the agent "sends" a message: it writes one here, and the teammate
  * opens it in the person's composer, edits it if they like, and sends it the
  * usual way. Nothing in this file sends anything.
  */
@@ -61,11 +61,11 @@ export async function createDraft(a: Actor, input: DraftInput) {
   // From background work the teammate isn't looking: tell them something is waiting.
   if (runId) {
     notify([user.id], {
-      kind: "assistant_done",
+      kind: "agent_done",
       title: `${appConfig.agent.name} drafted ${data.kind === "email" ? "an email" : "a text"} to ${name}`,
       body: data.kind === "email" ? (row.subject ?? "Review it and send.") : "Review it and send.",
       url: draftUrl(row),
-      dedupeKey: `assistant_draft:${row.id}`,
+      dedupeKey: `agent_draft:${row.id}`,
     });
   }
   return { ...row, personName: name };

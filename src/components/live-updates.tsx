@@ -8,7 +8,7 @@ import { liveCheckDue } from "@/lib/live-rules";
 const CHANGED_EVENT = "crm:changed";
 
 /**
- * Something on this page may be out of date (the assistant just changed a
+ * Something on this page may be out of date (the agent just changed a
  * record, say): check now and refresh if anything moved. Safe to call often:
  * calls while a check is under way share one follow-up request.
  */
@@ -21,7 +21,7 @@ export function checkForChanges() {
  * newest change's version and calls router.refresh() when it moved, which
  * re-renders the page and the sidebar counts on the server while keeping
  * whatever is typed or open in the browser. It asks:
- * - right away when checkForChanges() is called (after the assistant acts),
+ * - right away when checkForChanges() is called (after the agent acts),
  * - when the tab comes back into view or the window regains focus,
  * - every `live.pollSeconds` while the tab is visible and someone clicked or
  *   typed in the last `live.idleMinutes`; a tab left open overnight stops,

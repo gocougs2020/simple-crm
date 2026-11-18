@@ -1,10 +1,10 @@
 import type { AgentMessage } from "@/db/schema";
 
 /**
- * How assistant threads are stored and continued. Pure (tested): the chat
+ * How agent threads are stored and continued. Pure (tested): the chat
  * route loads a thread, merges in the one message the browser sent, and saves
  * what comes back. The browser never sends the whole history, so it can't
- * rewrite what the assistant said or what a tool returned.
+ * rewrite what the agent said or what a tool returned.
  */
 
 export const DEFAULT_TITLE = "New chat";
@@ -34,7 +34,7 @@ export function cleanUserMessage(raw: unknown, now = Date.now()): AgentMessage |
 
 /**
  * Applies the teammate's answers to confirmation requests (approve or deny an
- * archive, say) from the browser's copy of the assistant's last message onto
+ * archive, say) from the browser's copy of the agent's last message onto
  * the stored copy. Only approvals change; tool inputs and outputs stay as stored.
  */
 export function applyApprovals(stored: AgentMessage, incoming: unknown): { message: AgentMessage; changed: boolean } {
@@ -63,7 +63,7 @@ export type Merge = { ok: true; messages: AgentMessage[]; submitted: boolean } |
  * The history to answer from, given what's stored and the message the browser sent:
  * - a new message from the teammate is added at the end;
  * - an edited one (an id that's already stored) replaces that turn and everything after it;
- * - the assistant's last message comes back when the teammate answers a confirmation.
+ * - the agent's last message comes back when the teammate answers a confirmation.
  */
 export function mergeIncoming(stored: AgentMessage[], incoming: unknown, now = Date.now()): Merge {
   if (isRecord(incoming) && incoming.role === "assistant") {

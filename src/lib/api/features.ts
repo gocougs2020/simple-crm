@@ -12,7 +12,7 @@ import type { OptionalFeature } from "./spec";
 export function enabledFeatures(): OptionalFeature[] {
   const features: OptionalFeature[] = [];
   if (knowledgeSource()) features.push("knowledge");
-  // The assistant's background work (docs/AGENT.md): its tools appear only where it can run.
+  // The agent's background work (docs/AGENT.md): its tools appear only where it can run.
   if (aiFeatures().background) features.push("background");
   return features;
 }

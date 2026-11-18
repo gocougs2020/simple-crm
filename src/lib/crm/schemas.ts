@@ -169,10 +169,10 @@ export const activityInput = z.object({
   personId: z.uuid().nullable().optional(),
   organizationId: z.uuid().nullable().optional(),
   clientId: z.uuid().nullable().optional().describe("Linking a client also links its contact and organization; linking a person also links their organization."),
-  assistant: z
+  agent: z
     .boolean()
     .optional()
-    .describe("Tasks: true hands the task to the CRM's assistant, which does the work in the background as you, adds its answer to the task and marks it done. Needs background work set up on the deployment."),
+    .describe("Tasks: true hands the task to the CRM's agent, which does the work in the background as you, adds its answer to the task and marks it done. Needs background work set up on the deployment."),
   /** Logging something that already happened (a call you just made) vs planning it. */
   done: z.boolean().optional().describe("true logs something that already happened; false plans it. Defaults to false for tasks and anything with a dueAt, true otherwise."),
 });

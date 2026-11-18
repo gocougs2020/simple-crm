@@ -66,14 +66,14 @@ The code is public; the data and secrets never are. This page is how that holds.
 - TwiML is built with every value escaped, so a caller's number or a typed message can't change what Twilio does. The Twilio API key secret Settings creates (legacy auth-token setup only) is stored encrypted.
 - STOP replies opt people out immediately, and text campaigns need recorded consent by default.
 
-## The assistant's background work
+## The agent's background work
 
 - A background run acts as one teammate and reaches the CRM only through `/api/mcp`, with a token signed for that run (`src/lib/agent/run-token.ts`, HS256, ten minutes). The CRM checks on every call that the run is still going and the teammate still active, reads their role fresh, and offers only the tools that role allows. Cancelling a run or changing someone's access takes effect at once.
 - A run gets less than its teammate, never more: no archive, delete or merge, no starting further runs, and no way to send email or texts (it writes drafts only the teammate can send).
 - Starting a run needs edit access. Read-only roles, keys and connected apps can't, and workspace keys can't: a run always belongs to a teammate.
 - The agent's own routes (`/eve/v1`) accept only tokens the CRM signed. Browsers never call it.
 - Web research is done by a helper with no CRM connection and no write tools. What it reads from the web reaches the worker as text to weigh, and both are told that text from pages, records and messages is never an instruction.
-- A note calls on the assistant only when a teammate wrote it in the browser. Notes written through a key, a connected app or the assistant itself never start work.
+- A note calls on the agent only when a teammate wrote it in the browser. Notes written through a key, a connected app or the agent itself never start work.
 - Spend is capped per run, per month and by run time (`agent.background.*`), on top of the AI Gateway key's own budget.
 
 ## Knowledge source

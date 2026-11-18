@@ -3,7 +3,7 @@ import { getUser, type User } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
 
 /**
- * The checks every /api/agent route runs first. The assistant runs on the
+ * The checks every /api/agent route runs first. The agent runs on the
  * teammate's signed-in session (the cookie), so these routes also refuse
  * requests started by another site's pages.
  */
@@ -15,13 +15,13 @@ const LIMIT_PER_MINUTE = 40;
 const LIMIT_PER_DAY = 2_000;
 
 export async function agentRequest(request: Request, opts: { cost?: number } = {}): Promise<{ ok: true; user: User } | { ok: false; response: Response }> {
-  if (request.headers.get("sec-fetch-site") === "cross-site") return { ok: false, response: agentError(403, "Use the assistant from inside the CRM.") };
+  if (request.headers.get("sec-fetch-site") === "cross-site") return { ok: false, response: agentError(403, "Use the agent from inside the CRM.") };
   const origin = request.headers.get("origin");
   if (origin) {
     try {
-      if (new URL(origin).host !== new URL(request.url).host && new URL(origin).host !== request.headers.get("x-forwarded-host")) return { ok: false, response: agentError(403, "Use the assistant from inside the CRM.") };
+      if (new URL(origin).host !== new URL(request.url).host && new URL(origin).host !== request.headers.get("x-forwarded-host")) return { ok: false, response: agentError(403, "Use the agent from inside the CRM.") };
     } catch {
-      return { ok: false, response: agentError(403, "Use the assistant from inside the CRM.") };
+      return { ok: false, response: agentError(403, "Use the agent from inside the CRM.") };
     }
   }
   const user = await getUser();
@@ -32,7 +32,7 @@ export async function agentRequest(request: Request, opts: { cost?: number } = {
     rateLimit("agent-day", user.id, { limit: LIMIT_PER_DAY, cost }),
   ]);
   if (minute.limited) return { ok: false, response: agentError(429, "That's a lot of requests in a minute. Wait a moment and try again.", { "Retry-After": "60" }) };
-  if (day.limited) return { ok: false, response: agentError(429, "You've reached today's assistant limit. It resets at midnight UTC.") };
+  if (day.limited) return { ok: false, response: agentError(429, "You've reached today's agent limit. It resets at midnight UTC.") };
   return { ok: true, user };
 }
 

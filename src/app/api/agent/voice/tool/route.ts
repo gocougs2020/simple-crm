@@ -24,6 +24,6 @@ export async function POST(request: Request) {
     return agentError(400, "That tool call couldn't be read.");
   }
   const actor = await assistantActor(gate.user);
-  const result = await runTool(actor, input.toolName, input.input, { origin: await siteOrigin(), assistant: true }, { voice: true });
+  const result = await runTool(actor, input.toolName, input.input, { origin: await siteOrigin(), agent: true }, { voice: true });
   return Response.json({ result }, { headers: { "Cache-Control": "no-store" } });
 }

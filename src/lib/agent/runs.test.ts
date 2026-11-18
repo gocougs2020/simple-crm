@@ -4,7 +4,7 @@ import { roleCan } from "@/lib/permissions";
 import { toolOperations } from "@/lib/mcp/protocol";
 import { markdownToHtml } from "./markdown";
 import { allowedOperations } from "./policy";
-import { budgetRefusal, formatUsd, mentionsAssistant, monthStart, runFailure, runMayUse, runMessage, runTitle, usdToMicro } from "./run-rules";
+import { budgetRefusal, formatUsd, mentionsAgent, monthStart, runFailure, runMayUse, runMessage, runTitle, usdToMicro } from "./run-rules";
 import { signRunToken, verifyRunToken } from "./run-token";
 
 const caps = { monthlyBudgetUsd: 30, maxConcurrentPerUser: 3, maxRunUsd: 0.75, maxBulkRecords: 50 };
@@ -33,22 +33,22 @@ describe("background runs: what a run may do", () => {
   });
 });
 
-describe("background runs: calling on the assistant in a note", () => {
-  it("answers to @Assistant and to the deployment's own name, as a word", () => {
-    assert.ok(mentionsAssistant("@Assistant find who runs this company"));
-    assert.ok(mentionsAssistant("Can you check this, @assistant?"));
-    assert.ok(mentionsAssistant("(@Assistant) please"));
-    assert.ok(mentionsAssistant("@Scout research them", "Scout"));
-    assert.ok(mentionsAssistant("@assistant research them", "Scout"));
+describe("background runs: calling on the agent in a note", () => {
+  it("answers to @Agent and to the deployment's own name, as a word", () => {
+    assert.ok(mentionsAgent("@Agent find who runs this company"));
+    assert.ok(mentionsAgent("Can you check this, @agent?"));
+    assert.ok(mentionsAgent("(@Agent) please"));
+    assert.ok(mentionsAgent("@Scout research them", "Scout"));
+    assert.ok(mentionsAgent("@agent research them", "Scout"));
   });
 
   it("ignores email addresses, longer words and plain talk about it", () => {
-    assert.ok(!mentionsAssistant("Mail sam@assistant.example about it"));
-    assert.ok(!mentionsAssistant("ask the assistant later"));
-    assert.ok(!mentionsAssistant("@assistants"));
-    assert.ok(!mentionsAssistant("@Scout", "Sc.out"));
-    assert.ok(!mentionsAssistant(""));
-    assert.ok(!mentionsAssistant(null));
+    assert.ok(!mentionsAgent("Mail sam@assistant.example about it"));
+    assert.ok(!mentionsAgent("ask the agent later"));
+    assert.ok(!mentionsAgent("@assistants"));
+    assert.ok(!mentionsAgent("@Scout", "Sc.out"));
+    assert.ok(!mentionsAgent(""));
+    assert.ok(!mentionsAgent(null));
   });
 
   it("lets a run write drafts but not send, archive or start runs", () => {
@@ -96,7 +96,7 @@ describe("background runs: the first message", () => {
   it("says who it's for, how they asked and where the answer goes", () => {
     const text = runMessage({ ...base, source: "chat" });
     assert.match(text, /working in the background for Sam Lee \(sam@example\.com\), a member at Acme/);
-    assert.match(text, /"Sam Lee via Assistant"/);
+    assert.match(text, /"Sam Lee via Agent"/);
     assert.match(text, /posted back into their chat/);
     assert.ok(text.endsWith("## The request\nResearch Globex and add its people."));
   });

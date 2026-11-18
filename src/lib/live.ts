@@ -5,7 +5,7 @@ import { getDb } from "@/db";
 /**
  * The newest change anywhere in the CRM, as an opaque version string. Every
  * record change writes an `events` row, and every note, call, text, email,
- * meeting and task (logged by hand, by the assistant or by a webhook) is an
+ * meeting and task (logged by hand, by the agent or by a webhook) is an
  * `activities` row whose `updated_at` moves on each edit. Both maxes read one
  * end of an index, so this costs well under a millisecond however big the
  * tables get. Open pages compare it with the one they last saw and refresh

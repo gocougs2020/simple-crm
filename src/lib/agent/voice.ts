@@ -12,7 +12,7 @@ const SAMPLE_RATE = 24_000;
 export const VOICE_SPEAK_LEVEL = 0.22;
 /** Hard cap for one call, from when the socket is ready. */
 export const VOICE_MAX_SESSION_MS = 5 * 60 * 1000;
-/** After the assistant finishes speaking, this much silence ends the call. */
+/** After the agent finishes speaking, this much silence ends the call. */
 export const VOICE_USER_SILENCE_MS = 30 * 1000;
 /** Brief gaps between playback chunks don't start the silence clock. */
 export const VOICE_PLAYBACK_SETTLE_MS = 600;
@@ -93,7 +93,7 @@ export function reduceSilenceClock(state: SilenceClock | null, { now, assistantS
 
 export type VoiceDialogue = { phase: "error" | "connecting" | "assistant" | "user" | "listening"; label: string; speaker: "assistant" | "user" | null };
 
-/** Who the voice stage shows. The assistant's playback wins over the mic. */
+/** Who the voice stage shows. The agent's playback wins over the mic. */
 export function dialogueState({ status, isPlaying, userSpeaking, name }: { status?: string; isPlaying?: boolean; userSpeaking?: boolean; name: string }): VoiceDialogue {
   if (status === "error") return { phase: "error", label: "Voice chat disconnected", speaker: null };
   if (status !== "connected") return { phase: "connecting", label: "Connecting…", speaker: null };

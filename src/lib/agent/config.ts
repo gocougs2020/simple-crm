@@ -24,7 +24,7 @@ export type AiFeatures = ReturnType<typeof aiFeatures>;
 
 /** The sentence for a feature that's off, saying why and where to change it. */
 export function aiOffMessage(feature: keyof AiFeatures) {
-  const name = { chat: "The assistant", voice: "Voice chat", dictation: "Dictation", summaries: "Summaries", background: "Background work" }[feature];
+  const name = { chat: "The agent", voice: "Voice chat", dictation: "Dictation", summaries: "Summaries", background: "Background work" }[feature];
   return aiGatewayAvailable()
     ? `${name} is turned off on this deployment (agent settings in app.config.ts or NEXT_PUBLIC_APP_CONFIG).`
     : `${name} isn't set up on this deployment yet. An admin can add an AI Gateway API key (AI_GATEWAY_API_KEY; see docs/AGENT.md).`;

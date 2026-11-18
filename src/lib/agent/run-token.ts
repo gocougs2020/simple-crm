@@ -9,7 +9,7 @@ import { SignJWT, jwtVerify } from "jose";
  * - "eve": the CRM starts a run. The agent's channel accepts it and runs the
  *   session as that teammate.
  * - "crm": the agent calls the CRM's MCP endpoint during the run. The CRM
- *   turns it into "the teammate, via Assistant", with the teammate's role as
+ *   turns it into "the teammate, via Agent", with the teammate's role as
  *   it is at that moment.
  * - "report": the agent tells the CRM how a run ended and what it cost.
  *

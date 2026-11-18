@@ -1,7 +1,7 @@
 /**
  * A knowledge source: a read-only JSON API about the organization that runs
  * this CRM (usually its own website's content API: pages, posts, resources,
- * company facts). The REST API, MCP and the assistant read it through one
+ * company facts). The REST API, MCP and the agent read it through one
  * operation (`getKnowledge`, tool `get_knowledge`), so agents can answer
  * questions about the organization from its own published material.
  *
@@ -211,7 +211,7 @@ export function knowledgeToolDescription(generic: string, source: Pick<Knowledge
   return [`${generic} Connected source: ${source.name}.`, source.description].filter(Boolean).join(" ");
 }
 
-/** A paragraph for the assistant's and MCP's instructions. */
+/** A paragraph for the agent's and MCP's instructions. */
 export function knowledgeInstructions(source: Pick<KnowledgeSource, "name" | "description">) {
   return [
     `${KNOWLEDGE_TOOL} reads ${source.name}, the organization's own published material.${source.description ? ` ${source.description}` : ""}`,

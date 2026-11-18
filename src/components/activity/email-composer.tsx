@@ -23,7 +23,7 @@ type SendingInbox = Awaited<ReturnType<typeof listSendingInboxes>>[number];
 export function EmailComposer({ links, recipient, draft, onDraftSent }: { links: Links; recipient: EmailRecipient; draft?: { subject: string | null; body: string } | null; onDraftSent?: () => void }) {
   const editor = useRef<RichTextHandle>(null);
   const subjectRef = useRef<HTMLInputElement>(null);
-  // A draft the assistant wrote starts the email off; the teammate edits it like any other before sending.
+  // A draft the agent wrote starts the email off; the teammate edits it like any other before sending.
   const [subject, setSubject] = useState(draft?.subject ?? "");
   const [body, setBody] = useState(draft?.body ?? "");
   const [cc, setCc] = useState("");

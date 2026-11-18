@@ -29,7 +29,7 @@ import { MapPinIcon } from "@heroicons/react/24/outline";
 import { deleteActivity, setCompleted, setPinned, updateActivity } from "@/actions/activities";
 import { deleteFile } from "@/actions/files";
 import { useApp } from "@/components/app-context";
-import { ASSISTANT_ASSIGNEE, OwnerSelect } from "@/components/records/owner-select";
+import { AGENT_ASSIGNEE, OwnerSelect } from "@/components/records/owner-select";
 import { Avatar } from "@/components/ui/avatar";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -222,7 +222,7 @@ export function Timeline({
   );
 }
 
-/** A note or task the assistant was handed: how its background work is going. */
+/** A note or task the agent was handed: how its background work is going. */
 function AssistantStatus({ status }: { status: ActivityRow["assistantStatus"] }) {
   if (!status) return null;
   const tone = status === "done" ? "success" : status === "failed" ? "error" : status === "cancelled" ? "neutral" : "info";
@@ -617,15 +617,15 @@ function EditActivity({ row, onClose }: { row: ActivityRow; onClose: () => void 
   const [time, setTime] = useState(open && !a.dueHasTime ? "" : timeKey(when, tz));
   const [assigneeId, setAssigneeId] = useState(a.assigneeId);
   const [pending, start] = useTransition();
-  // An open task can be handed to the assistant: it stays this teammate's, and the assistant does the work for them.
-  const forAssistant = assigneeId === ASSISTANT_ASSIGNEE;
+  // An open task can be handed to the agent: it stays this teammate's, and the agent does the work for them.
+  const forAssistant = assigneeId === AGENT_ASSIGNEE;
   const save = () =>
     start(async () => {
       const at = zonedTime(day, time || "00:00", tz).toISOString();
       const r = await updateActivity(a.id, {
         subject: subject || null,
         body,
-        ...(open ? { dueAt: at, dueHasTime: !!time, ...(forAssistant ? { assistant: true } : { assigneeId }) } : a.type !== "note" ? { occurredAt: at } : {}),
+        ...(open ? { dueAt: at, dueHasTime: !!time, ...(forAssistant ? { agent: true } : { assigneeId }) } : a.type !== "note" ? { occurredAt: at } : {}),
       });
       if (!r.ok) return void toast.error(r.error);
       toast.success(forAssistant ? `${appConfig.agent.name} is on it. The answer lands on the task.` : "Saved");
@@ -656,7 +656,7 @@ function EditActivity({ row, onClose }: { row: ActivityRow; onClose: () => void 
             <Field label="Time" optional={open}>
               {(p) => <Input {...p} type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-32" step={900} />}
             </Field>
-            {open ? <Field label="Assigned to">{(p) => <OwnerSelect id={p.id} value={assigneeId} onChange={setAssigneeId} allowNone={false} assistant={a.type === "task" && services.ai.background && canEdit} />}</Field> : null}
+            {open ? <Field label="Assigned to">{(p) => <OwnerSelect id={p.id} value={assigneeId} onChange={setAssigneeId} allowNone={false} agent={a.type === "task" && services.ai.background && canEdit} />}</Field> : null}
           </div>
         ) : null}
         <RichText value={body} onChange={setBody} onSubmit={save} minHeight={120} autoFocus={a.type === "note"} dictation />

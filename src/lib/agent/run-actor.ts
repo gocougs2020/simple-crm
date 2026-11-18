@@ -8,7 +8,7 @@ import { verifyRunToken } from "./run-token";
 /**
  * Who a background run's token acts as when it reaches MCP: the teammate the
  * run works for, through their "assistant" key row, so history reads
- * "Sam via Assistant". Checked on every request: the run must still be going
+ * "Sam via Agent". Checked on every request: the run must still be going
  * and the teammate still active, and their role is read fresh, so cancelling
  * a run or changing someone's access takes effect at once.
  */

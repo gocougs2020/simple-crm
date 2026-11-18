@@ -237,7 +237,7 @@ describe("reading the knowledge source", () => {
 describe("knowledge tool", () => {
   const viewer = (p: Parameters<typeof roleCan>[1]) => roleCan("viewer", p);
 
-  it("is an MCP and assistant tool only where a source is connected", () => {
+  it("is an MCP and agent tool only where a source is connected", () => {
     assert.equal(operations.getKnowledge.tool, KNOWLEDGE_TOOL);
     assert.ok(!toolsFor(viewer).some((t) => t.name === KNOWLEDGE_TOOL));
     const tool = toolsFor(viewer, ["knowledge"]).find((t) => t.name === KNOWLEDGE_TOOL);
@@ -253,7 +253,7 @@ describe("knowledge tool", () => {
     assert.match(knowledgeInstructions(s), /get_knowledge reads Acme website/);
   });
 
-  it("tells the assistant about the source only when one is connected", () => {
+  it("tells the agent about the source only when one is connected", () => {
     const base = { user: { id: "u1", name: "Sam", email: "sam@example.com", role: "owner" as const }, canWrite: true, workspace: { name: "Acme", timezone: "UTC", currency: "USD" }, now: new Date("2026-11-16T12:00:00Z") };
     assert.doesNotMatch(agentInstructions(base), /get_knowledge/);
     const text = agentInstructions({ ...base, knowledge: knowledgeInstructions({ name: "Acme website", description: null }) });

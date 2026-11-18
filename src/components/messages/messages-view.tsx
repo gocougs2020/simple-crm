@@ -425,7 +425,7 @@ function Conversation({ thread }: { thread: Open }) {
         <div ref={end} />
       </div>
 
-      {/* Room on the right for the assistant's button, which sits over this corner until the details column takes it. */}
+      {/* Room on the right for the agent's button, which sits over this corner until the details column takes it. */}
       <div className="border-t border-line bg-surface py-3 pr-[5.5rem] pl-4 lg:pl-5 xl:pr-5">
         {blocked ? (
           <p className="flex items-center gap-1.5 text-[13px] text-muted">

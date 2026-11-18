@@ -10,7 +10,7 @@ import type { ModelName } from "./models";
  * page can read it.
  */
 export type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
-/** Parts of the API a deployment turns on with its own configuration. Their MCP and assistant tools only appear where they're set up. */
+/** Parts of the API a deployment turns on with its own configuration. Their MCP and agent tools only appear where they're set up. */
 export type OptionalFeature = "knowledge" | "background";
 type Obj = z.ZodObject;
 
@@ -41,7 +41,7 @@ export type Operation<P extends Obj | undefined = Obj | undefined, Q extends Obj
   destructive?: boolean;
 };
 
-/** Archives, deletes and merges: MCP marks them destructive and the assistant asks before running them. */
+/** Archives, deletes and merges: MCP marks them destructive and the agent asks before running them. */
 export const isDestructive = (o: Pick<Operation, "method" | "destructive">) => o.method === "DELETE" || !!o.destructive;
 
 export const op = <P extends Obj | undefined = undefined, Q extends Obj | undefined = undefined, B extends Obj | undefined = undefined>(o: Operation<P, Q, B>) => o;

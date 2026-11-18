@@ -9,7 +9,7 @@ import { sessionActor } from "@/lib/crm/actor";
 import * as svc from "@/lib/crm/service/drafts";
 
 /**
- * Drafts the assistant wrote for the signed-in teammate (docs/AGENT.md). They
+ * Drafts the agent wrote for the signed-in teammate (docs/AGENT.md). They
  * review one in the person's composer and send it the usual way; these
  * actions only list drafts and mark them sent or discarded.
  */

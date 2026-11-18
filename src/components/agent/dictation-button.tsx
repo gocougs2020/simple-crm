@@ -7,7 +7,7 @@ import { LiveBars } from "@/components/ui/live-bars";
 
 export type DictationState = { recording: boolean; transcribing: boolean };
 
-/** The assistant composer's microphone: record, then the speech-to-text model fills in the message. */
+/** The agent composer's microphone: record, then the speech-to-text model fills in the message. */
 export function DictationButton({ disabled, active, onTranscript, onStateChange, onError }: { disabled?: boolean; active: boolean; onTranscript: (text: string) => void; onStateChange: (s: DictationState) => void; onError: (message: string) => void }) {
   const { phase, level, start, stop } = useDictation({ active, onText: onTranscript, onError });
   const stateChange = useRef(onStateChange);

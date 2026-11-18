@@ -202,13 +202,13 @@ export const Knowledge = z.object({
   content: z.unknown().describe("What the source returned: its JSON as is, or text."),
 });
 
-export const AssistantTask = z.object({
+export const AgentTask = z.object({
   id: uuid,
   title: z.string(),
   request: z.string().describe("What was asked for."),
-  source: z.enum(agentRunSources).describe("Where it was asked: the assistant chat, a mention in a note, an assigned task, a bulk request, or the API."),
+  source: z.enum(agentRunSources).describe("Where it was asked: the agent chat, a mention in a note, an assigned task, a bulk request, or the API."),
   status: z.enum(agentRunStatuses).describe("queued and running are still going; done, failed and cancelled are final."),
-  result: z.string().nullable().describe("The assistant's answer (markdown), once done."),
+  result: z.string().nullable().describe("The agent's answer (markdown), once done."),
   error: z.string().nullable().describe("Why it didn't finish, in a sentence."),
   costUsd: z.number().describe("Model spend so far, in US dollars."),
   personId: uuid.nullable(),
@@ -220,10 +220,10 @@ export const AssistantTask = z.object({
   finishedAt: z.string().nullable(),
 });
 
-export const AssistantBulk = z.object({
-  batchId: uuid.describe("Shared by every task of this request. List them with GET /assistant/tasks."),
+export const AgentBulk = z.object({
+  batchId: uuid.describe("Shared by every task of this request. List them with GET /agent/tasks."),
   count: z.number().int().describe("How many tasks were started, one per record."),
-  tasks: z.array(AssistantTask),
+  tasks: z.array(AgentTask),
 });
 
 export const Draft = z.object({
@@ -240,5 +240,5 @@ export const Draft = z.object({
 });
 
 /** Named schemas, in the order the docs list them. */
-export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, ClientService, Metric, User, CustomField, Me, SearchResult, AssistantTask, AssistantBulk, Draft, Knowledge, Deleted } as const;
+export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, ClientService, Metric, User, CustomField, Me, SearchResult, AgentTask, AgentBulk, Draft, Knowledge, Deleted } as const;
 export type ModelName = keyof typeof models;

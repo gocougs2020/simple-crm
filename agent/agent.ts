@@ -2,7 +2,7 @@ import { defineAgent } from "eve";
 import { background, overBudget } from "./lib/limits";
 
 /**
- * The assistant's background worker: it does long jobs for a teammate
+ * The agent's background worker: it does long jobs for a teammate
  * (research, cleanups, follow-ups) after they've closed the chat. It has no
  * shell, no files and no web access of its own. It changes the CRM only
  * through the CRM's MCP tools, as the teammate who asked (connections/crm.ts),

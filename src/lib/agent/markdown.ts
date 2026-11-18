@@ -1,5 +1,5 @@
 /**
- * Turns the assistant's markdown answer into the simple HTML that notes and
+ * Turns the agent's markdown answer into the simple HTML that notes and
  * tasks store (paragraphs, lists, bold, italic, code, links). Pure (tested).
  * The result still goes through sanitizeHtml before it's saved; this only
  * decides structure, and escapes everything that isn't markup it wrote.

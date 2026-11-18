@@ -9,14 +9,14 @@ import { assistantActor } from "./actor";
 import { assertCanStart, startRun } from "./runs";
 
 /**
- * Handing work to the assistant from a record: a task given to it, or a note
+ * Handing work to the agent from a record: a task given to it, or a note
  * that mentions it. Called from the activity service, so it works the same
  * from the browser, the API and MCP. The run acts as whoever handed it over.
  */
 
 type Handed = Pick<typeof schema.activities.$inferSelect, "id" | "type" | "subject" | "body" | "personId" | "organizationId" | "clientId">;
 
-/** Refuses up front, with a sentence, when the assistant can't take work right now (turned off, budget spent, read-only access). */
+/** Refuses up front, with a sentence, when the agent can't take work right now (turned off, budget spent, read-only access). */
 export const assertCanHandOff = (actor: Actor) => assertCanStart(actor);
 
 /** Starts a run for a task or note and links it, so the timeline can show how it's going. */
@@ -32,7 +32,7 @@ export async function handOff(actor: Actor, activity: Handed, source: "task" | "
 }
 
 /**
- * A note mentioned the assistant. The note is already saved, so a refusal
+ * A note mentioned the agent. The note is already saved, so a refusal
  * (the budget is spent, say) becomes a short reply on the same record instead
  * of an error.
  */

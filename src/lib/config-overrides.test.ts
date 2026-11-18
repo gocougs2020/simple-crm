@@ -84,7 +84,7 @@ describe("applyConfigOverrides", () => {
     );
   });
 
-  it("checks the assistant and installed-app settings", () => {
+  it("checks the agent and installed-app settings", () => {
     const merged = applyConfigOverrides(defaults, { json: '{"agent":{"name":"Ada","suggestions":["Hi"]},"pwa":{"shortName":"Acme","iconBackground":"#2f629f"}}' });
     assert.equal(merged.agent.name, "Ada");
     assert.deepEqual(merged.agent.suggestions, ["Hi"]);

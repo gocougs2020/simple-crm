@@ -22,7 +22,7 @@ import { budgetRefusal, budgetUsedUp, MAX_RUN_PROMPT, MAX_RUN_RESULT, monthStart
 import { signRunToken, type RunClaims } from "./run-token";
 
 /**
- * The assistant's background runs: long jobs it does for a teammate after
+ * The agent's background runs: long jobs it does for a teammate after
  * they've moved on (docs/AGENT.md). The work happens in the eve agent
  * (agent/), a separate service of this deployment. This file is the CRM's
  * side: it accepts a request, hands it to eve signed for one teammate, hears
@@ -30,7 +30,7 @@ import { signRunToken, type RunClaims } from "./run-token";
  *
  * A run never has more access than the teammate: eve calls back into
  * /api/mcp with a token that names the run, and the CRM turns that into
- * "the teammate, via Assistant" with their role at that moment.
+ * "the teammate, via Agent" with their role at that moment.
  */
 
 const runs = schema.agentRuns;
@@ -97,7 +97,7 @@ function requester(actor: Actor): User {
   return actor.user;
 }
 
-/** Throws, with a sentence, when this actor can't give the assistant work right now. */
+/** Throws, with a sentence, when this actor can't give the agent work right now. */
 export async function assertCanStart(actor: Actor, wanted = 1) {
   const user = requester(actor);
   const refusal = budgetRefusal(await budgetState(user.id), wanted);
@@ -107,13 +107,13 @@ export async function assertCanStart(actor: Actor, wanted = 1) {
 
 function cleanPrompt(prompt: string) {
   const text = prompt.trim().slice(0, MAX_RUN_PROMPT);
-  if (!text) throw new ActionError("Say what the assistant should do.");
+  if (!text) throw new ActionError("Say what the agent should do.");
   return text;
 }
 
 /**
- * The first time a teammate gives the assistant background work, their devices
- * start getting "The assistant finished" (devices set up before this alert
+ * The first time a teammate gives the agent background work, their devices
+ * start getting "The agent finished" (devices set up before this alert
  * existed don't have it). After that it's theirs to turn off in Settings.
  */
 async function offerAlert(userId: string) {
@@ -123,12 +123,12 @@ async function offerAlert(userId: string) {
   const subs = schema.pushSubscriptions;
   await db
     .update(subs)
-    .set({ alerts: sql`${subs.alerts} || '["assistant_done"]'::jsonb` })
-    .where(and(eq(subs.userId, userId), sql`not ${subs.alerts} @> '["assistant_done"]'::jsonb`));
+    .set({ alerts: sql`${subs.alerts} || '["agent_done"]'::jsonb` })
+    .where(and(eq(subs.userId, userId), sql`not ${subs.alerts} @> '["agent_done"]'::jsonb`));
 }
 
 /**
- * Accepts work for the assistant and starts it if there's room; otherwise it
+ * Accepts work for the agent and starts it if there's room; otherwise it
  * waits its turn. Returns the run as it stands.
  */
 export async function startRun(actor: Actor, input: StartRunInput): Promise<Run> {
@@ -314,7 +314,7 @@ async function dispatch(run: Run, origin: string) {
     console.error("[agent] run didn't start", run.id, err);
     const [failed] = await db
       .update(runs)
-      .set({ status: "failed", error: "The assistant's background worker didn't answer, so this never started. Try again in a moment.", finishedAt: new Date() })
+      .set({ status: "failed", error: "The agent's background worker didn't answer, so this never started. Try again in a moment.", finishedAt: new Date() })
       .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
       .returning();
     if (failed) await deliver(failed).catch((e) => console.error("[agent] deliver", e));
@@ -443,7 +443,7 @@ async function postToActivity(run: Run) {
     if (run.status === "done" && !source.completedAt) await activities.setCompleted(actor, source.id, true);
     return;
   }
-  // The answer is the assistant's own writing: it never hands work back to itself, whatever the text says.
+  // The answer is the agent's own writing: it never hands work back to itself, whatever the text says.
   await activities.logActivity(
     actor,
     { type: "note", subject: run.status === "done" ? null : `${appConfig.agent.name} couldn't finish`, body: answer, personId: source.personId, organizationId: source.organizationId, clientId: source.clientId },
@@ -463,15 +463,15 @@ async function deliver(run: Run) {
       .where(and(eq(runs.batchId, run.batchId), inArray(runs.status, [...ACTIVE])));
     if (left?.n) return;
     await postToThread(run, { batchDone: true }).catch((err) => console.error("[agent] thread", err));
-    notify([run.userId], { kind: "assistant_done", title: `${appConfig.agent.name} finished a bulk request`, body: run.title, url: "/?assistant=tasks", dedupeKey: `assistant_done:batch:${run.batchId}` });
+    notify([run.userId], { kind: "agent_done", title: `${appConfig.agent.name} finished a bulk request`, body: run.title, url: "/?agent=tasks", dedupeKey: `agent_done:batch:${run.batchId}` });
     return;
   }
   notify([run.userId], {
-    kind: "assistant_done",
+    kind: "agent_done",
     title: run.status === "done" ? `${appConfig.agent.name} finished` : `${appConfig.agent.name} couldn't finish`,
     body: run.title,
-    url: recordUrl(run) ?? "/?assistant=tasks",
-    dedupeKey: `assistant_done:${run.id}`,
+    url: recordUrl(run) ?? "/?agent=tasks",
+    dedupeKey: `agent_done:${run.id}`,
   });
 }
 

@@ -16,7 +16,7 @@ export async function transcribe(blob: Blob) {
 }
 
 /**
- * Record from the microphone, then transcribe. Shared by the assistant's
+ * Record from the microphone, then transcribe. Shared by the agent's
  * composer and the activity editors. `level` is the mic level (a ref, read
  * every frame by LiveBars). Unmounting, or `active` turning false, throws
  * away a recording in progress, even one still waiting on the permission prompt.

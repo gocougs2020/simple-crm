@@ -23,8 +23,8 @@ import type { InputOf } from "./spec";
  * in its API shape.
  */
 
-/** `assistant` marks a call from the in-app assistant; `threadId` is the chat it came from, so work it starts can answer there. */
-export type HandlerContext = { origin: string; assistant?: boolean; threadId?: string };
+/** `agent` marks a call from the in-app agent; `threadId` is the chat it came from, so work it starts can answer there. */
+export type HandlerContext = { origin: string; agent?: boolean; threadId?: string };
 type Handler<O> = (a: Actor, input: InputOf<O>, ctx: HandlerContext) => Promise<unknown>;
 
 const deleted = (id: string) => ({ id, deleted: true as const });
@@ -41,22 +41,22 @@ async function todayStart() {
 }
 
 export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
-  // Assistant
-  async startAssistantTask(a, { body }, ctx) {
-    const run = await runs.startRun(a, { prompt: body.request, title: body.title, source: ctx.assistant ? "chat" : "api", threadId: ctx.threadId, personId: body.personId, organizationId: body.organizationId, clientId: body.clientId });
-    return q.toAssistantTask(run);
+  // Agent
+  async startAgentTask(a, { body }, ctx) {
+    const run = await runs.startRun(a, { prompt: body.request, title: body.title, source: ctx.agent ? "chat" : "api", threadId: ctx.threadId, personId: body.personId, organizationId: body.organizationId, clientId: body.clientId });
+    return q.toAgentTask(run);
   },
-  listAssistantTasks: async (a, { query }) => (await runs.listRuns(a, query)).map(q.toAssistantTask),
-  getAssistantTask: async (a, { params }) => q.toAssistantTask(await runs.getRun(a, params.id)),
-  async startAssistantBulk(a, { body }, ctx) {
+  listAgentTasks: async (a, { query }) => (await runs.listRuns(a, query)).map(q.toAgentTask),
+  getAgentTask: async (a, { params }) => q.toAgentTask(await runs.getRun(a, params.id)),
+  async startAgentBulk(a, { body }, ctx) {
     const started = await runs.startBulk(a, { ...body, threadId: ctx.threadId });
-    return { batchId: started.batchId, count: started.runs.length, tasks: started.runs.map(q.toAssistantTask) };
+    return { batchId: started.batchId, count: started.runs.length, tasks: started.runs.map(q.toAgentTask) };
   },
   async draftMessage(a, { body }, ctx) {
     return q.toDraft(await drafts.createDraft(a, body), ctx);
   },
   listDrafts: async (a, { query }, ctx) => (await drafts.listDrafts(a, query)).map((d) => q.toDraft(d, ctx)),
-  cancelAssistantTask: async (a, { params }) => q.toAssistantTask(await runs.cancelRun(a, params.id)),
+  cancelAgentTask: async (a, { params }) => q.toAgentTask(await runs.cancelRun(a, params.id)),
 
   async me(a) {
     const db = await getDb();

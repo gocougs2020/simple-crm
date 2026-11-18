@@ -86,15 +86,15 @@ function TaskRow({ task, nested, open, onToggle, onStop, stopping, onNavigate }:
 }
 
 /**
- * What the assistant is doing in the background for this teammate, and what
+ * What the agent is doing in the background for this teammate, and what
  * it finished lately: a bar under the panel's header that opens into a list.
  * Hidden until there's something to show. `refreshKey` changes when a chat
- * answer ends, since the assistant may have just handed a job off.
+ * answer ends, since the agent may have just handed a job off.
  */
 export function AgentTasks({ open, threadId, refreshKey, onAnswer, onNavigate }: { open: boolean; threadId: string; refreshKey: number; onAnswer: () => void; onNavigate?: () => void }) {
   const [tasks, setTasks] = useState<AgentTask[]>([]);
   // A notification about finished work opens the panel on this list (the launcher opens the panel, which only renders in the browser).
-  const [expanded, setExpanded] = useState(() => new URLSearchParams(window.location.search).get("assistant") === "tasks");
+  const [expanded, setExpanded] = useState(() => new URLSearchParams(window.location.search).get("agent") === "tasks");
   const [openId, setOpenId] = useState<string | null>(null);
   const [stopping, setStopping] = useState<string | null>(null);
   const [error, setError] = useState("");

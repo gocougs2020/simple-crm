@@ -14,7 +14,7 @@ export type TextRecipient = { personId: string; name: string; phone: string | nu
 export function TextComposer({ recipient, clientId, draft, onDraftSent }: { recipient: TextRecipient; clientId?: string | null; draft?: { body: string } | null; onDraftSent?: () => void }) {
   const { comms } = useApp();
   const [numberId, setNumberId] = useState(comms.defaultNumberId ?? comms.numbers[0]?.id ?? "");
-  // A draft the assistant wrote starts the text off.
+  // A draft the agent wrote starts the text off.
   const [body, setBody] = useState(draft?.body ?? "");
   const [pending, start] = useTransition();
   const segments = smsSegments(body);

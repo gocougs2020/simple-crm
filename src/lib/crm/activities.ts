@@ -53,7 +53,7 @@ function activityRows(where: SQL | undefined, opts: { order: SQL[]; limit: numbe
         inboxFrom: sql<string | null>`(select m."from" from inbox_messages m where m.activity_id = ${activities.id} limit 1)`,
         inboxTo: sql<string[] | null>`(select m."to" from inbox_messages m where m.activity_id = ${activities.id} limit 1)`,
         inboxAddress: schema.inboxThreads.inboxAddress,
-        /** The assistant's background run for this note or task, when it was handed one: how it's going. */
+        /** The agent's background run for this note or task, when it was handed one: how it's going. */
         assistantStatus: schema.agentRuns.status,
       })
       .from(activities)

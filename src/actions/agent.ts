@@ -14,7 +14,7 @@ import type { AgentRunSource, AgentRunStatus } from "@/lib/constants";
 import { rateLimit } from "@/lib/rate-limit";
 
 /**
- * The assistant's threads. Each teammate sees only their own: every query is
+ * The agent's threads. Each teammate sees only their own: every query is
  * scoped to the signed-in user. Chatting itself streams through
  * /api/agent/chat.
  */
@@ -66,7 +66,7 @@ export async function saveVoiceTranscript(id: string, transcript: unknown): Prom
   });
 }
 
-/** Thumbs up or down on one of the assistant's answers, kept on the stored message. */
+/** Thumbs up or down on one of the agent's answers, kept on the stored message. */
 export async function rateAgentMessage(id: string, messageId: string, feedback: "up" | "down" | null): Promise<Result> {
   return run(async () => {
     const user = await actionUser();
@@ -109,7 +109,7 @@ const toTask = (r: Run): AgentTask => ({
   finishedAt: r.finishedAt?.toISOString() ?? null,
 });
 
-/** The signed-in teammate's background tasks, newest first: what the assistant is working on for them and what it finished. */
+/** The signed-in teammate's background tasks, newest first: what the agent is working on for them and what it finished. */
 export async function listAgentTasks(): Promise<Result<AgentTask[]>> {
   return run(async () => {
     const user = await actionUser();

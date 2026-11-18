@@ -95,7 +95,7 @@ const nextConfig: NextConfig = {
 };
 
 /**
- * The assistant's background worker is an eve agent (agent/, docs/AGENT.md) that
+ * The agent's background worker is an eve agent (agent/, docs/AGENT.md) that
  * runs beside the app as its own service, reached at /eve/v1. `withEve` builds it
  * with the app and, in development, starts it with `next dev`.
  *

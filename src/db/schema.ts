@@ -572,7 +572,7 @@ export const activities = pgTable(
     callId: uuid("call_id").references((): AnyPgColumn => phoneCalls.id, { onDelete: "set null" }),
     /** Set when the activity is a text sent or received through the CRM's phone numbers. */
     textMessageId: uuid("text_message_id").references((): AnyPgColumn => textMessages.id, { onDelete: "set null" }),
-    /** The assistant's latest background run for this note (it was mentioned) or task (it was assigned). */
+    /** The agent's latest background run for this note (it was mentioned) or task (it was assigned). */
     agentRunId: uuid("agent_run_id").references((): AnyPgColumn => agentRuns.id, { onDelete: "set null" }),
     /** A planned meeting copied to the assignee's Outlook calendar: the event there, and the account it's in. */
     calendarEventId: text("calendar_event_id"),
@@ -935,18 +935,18 @@ export const externalIds = pgTable(
   (t) => [primaryKey({ columns: [t.source, t.kind, t.externalId] }), index("external_ids_local_idx").on(t.localId)],
 );
 
-// ─── AI assistant ────────────────────────────────────────────────────────
+// ─── AI agent ────────────────────────────────────────────────────────
 
 /**
- * One message of an assistant conversation, in the AI SDK's UI message shape
+ * One message of an agent conversation, in the AI SDK's UI message shape
  * (`UIMessage` from "ai"): text, tool calls with their input and output, and
  * approvals. Kept loose here so the schema doesn't depend on the SDK.
  */
 export type AgentMessage = { id: string; role: "system" | "user" | "assistant"; parts: Record<string, unknown>[]; metadata?: Record<string, unknown> };
 
 /**
- * A teammate's conversations with the in-app assistant. Private to them: only
- * `userId` can list, read or continue a thread. The assistant acts with that
+ * A teammate's conversations with the in-app agent. Private to them: only
+ * `userId` can list, read or continue a thread. The agent acts with that
  * teammate's role, and the changes it makes are attributed to them in history
  * like any other.
  */
@@ -970,10 +970,10 @@ export const agentThreads = pgTable(
 );
 
 /**
- * Work the assistant does in the background for a teammate (docs/AGENT.md):
+ * Work the agent does in the background for a teammate (docs/AGENT.md):
  * started from chat, by mentioning it in a note, by assigning it a task, or as
  * one record of a bulk request. Each run is one eve session (agent/) acting as
- * `userId`, with their role, and every change it makes is theirs "via Assistant".
+ * `userId`, with their role, and every change it makes is theirs "via Agent".
  */
 export const agentRuns = pgTable(
   "agent_runs",
@@ -992,7 +992,7 @@ export const agentRuns = pgTable(
     sessionId: text("session_id"),
     /** The chat the request came from; the answer is posted back into it. */
     threadId: uuid("thread_id").references(() => agentThreads.id, { onDelete: "set null" }),
-    /** The note that mentioned the assistant, or the task assigned to it. */
+    /** The note that mentioned the agent, or the task assigned to it. */
     activityId: uuid("activity_id").references((): AnyPgColumn => activities.id, { onDelete: "set null" }),
     /** The record the request is about, when there is one. */
     personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
@@ -1000,7 +1000,7 @@ export const agentRuns = pgTable(
     clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
     /** Runs started together by one bulk request share this. */
     batchId: uuid("batch_id"),
-    /** The assistant's answer (markdown), or what went wrong, in a sentence. */
+    /** The agent's answer (markdown), or what went wrong, in a sentence. */
     result: text("result"),
     error: text("error"),
     /** Model spend so far, in millionths of a US dollar, as AI Gateway reported it. */
@@ -1023,8 +1023,8 @@ export const agentRuns = pgTable(
 );
 
 /**
- * An email or text the assistant wrote for a teammate to review and send
- * (docs/AGENT.md). The assistant never sends anything itself: a draft waits
+ * An email or text the agent wrote for a teammate to review and send
+ * (docs/AGENT.md). The agent never sends anything itself: a draft waits
  * on the person's page until `userId` opens it in the composer and sends it,
  * or discards it.
  */
@@ -1032,7 +1032,7 @@ export const agentDrafts = pgTable(
   "agent_drafts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    /** Whose draft it is: the teammate the assistant was working for. Only they see it and can send it. */
+    /** Whose draft it is: the teammate the agent was working for. Only they see it and can send it. */
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),

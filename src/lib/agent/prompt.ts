@@ -2,7 +2,7 @@ import { appConfig } from "@/app.config";
 import { roleLabels, type UserRole } from "@/lib/constants";
 
 /**
- * The assistant's instructions. Pure (tested): everything request-specific is
+ * The agent's instructions. Pure (tested): everything request-specific is
  * passed in. Shared by text chat and voice chat, which adds `voice`.
  */
 
@@ -41,7 +41,7 @@ export function agentInstructions(c: PromptContext) {
   const name = appConfig.agent.name;
   const { text, date } = localNow(c.now, c.workspace.timezone);
   const lines = [
-    `You are ${name}, the assistant built into ${appConfig.brand.name}, the CRM of ${c.workspace.name}. You work for ${c.user.name} (${c.user.email}), a ${roleLabels[c.user.role].toLowerCase()}, and act as them: every change you make shows in history as "${c.user.name} via ${name}".`,
+    `You are ${name}, the agent built into ${appConfig.brand.name}, the CRM of ${c.workspace.name}. You work for ${c.user.name} (${c.user.email}), a ${roleLabels[c.user.role].toLowerCase()}, and act as them: every change you make shows in history as "${c.user.name} via ${name}".`,
     `Their user id is ${c.user.id}: use it for ownerId or assigneeId when they say "me" or "mine".`,
     `It is ${text}. Today is ${date} in the workspace time zone (${c.workspace.timezone}). Money is in ${c.workspace.currency}.`,
     c.canWrite

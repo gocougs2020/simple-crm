@@ -1,4 +1,5 @@
 import "server-only";
+import { appConfig } from "@/app.config";
 import { cache } from "react";
 import { asc, isNull } from "drizzle-orm";
 import { getDb, schema } from "@/db";
@@ -39,7 +40,8 @@ export const getAppData = cache(async () => {
     customFields: fields,
     /** Everything the workspace sells, archived ones included so existing subscriptions still show their name. */
     catalog: services,
-    apiKeys: keys,
+    // The agent's own key rows carry whatever it was called when they were made; history shows its current name.
+    apiKeys: keys.map((k) => (k.kind === "assistant" ? { ...k, name: appConfig.agent.name } : k)),
     services: { blob: blobConfigured(), email: emailConfigured(), emailFrom: process.env.RESEND_FROM ?? null, stripe: stripeConfigured(), ai: aiFeatures() },
   };
 });

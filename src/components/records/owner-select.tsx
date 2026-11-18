@@ -4,12 +4,12 @@ import { appConfig } from "@/app.config";
 import { useApp } from "@/components/app-context";
 import { Select } from "@/components/ui/field";
 
-/** The picker's value for "give this task to the assistant". Never saved as an assignee: the task stays the teammate's, and the assistant works on it for them. */
-export const ASSISTANT_ASSIGNEE = "assistant";
+/** The picker's value for "give this task to the agent". Never saved as an assignee: the task stays the teammate's, and the agent works on it for them. */
+export const AGENT_ASSIGNEE = "agent";
 
 /**
  * Pick a teammate. Deactivated teammates still show when they're the current value, so nothing silently changes.
- * `assistant` adds the assistant as a choice, for tasks it can do in the background (docs/AGENT.md).
+ * `agent` adds the agent as a choice, for tasks it can do in the background (docs/AGENT.md).
  */
 export function OwnerSelect({
   value,
@@ -18,7 +18,7 @@ export function OwnerSelect({
   allowNone = true,
   noneLabel = "No owner",
   className,
-  assistant = false,
+  agent = false,
 }: {
   value: string | null;
   onChange: (v: string | null) => void;
@@ -26,7 +26,7 @@ export function OwnerSelect({
   allowNone?: boolean;
   noneLabel?: string;
   className?: string;
-  assistant?: boolean;
+  agent?: boolean;
 }) {
   const { team, viewer } = useApp();
   const options = team.filter((m) => m.active || m.id === value);
@@ -40,7 +40,7 @@ export function OwnerSelect({
           {!m.active ? " (inactive)" : ""}
         </option>
       ))}
-      {assistant ? <option value={ASSISTANT_ASSIGNEE}>{appConfig.agent.name} (does it for you)</option> : null}
+      {agent ? <option value={AGENT_ASSIGNEE}>{appConfig.agent.name} (does it for you)</option> : null}
     </Select>
   );
 }

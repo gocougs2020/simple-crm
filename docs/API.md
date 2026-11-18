@@ -19,7 +19,7 @@ Keys are made in **Settings → API and MCP**. Only a SHA-256 hash is stored; th
 
 All three are rows in `api_keys` (`kind` = `oauth`, `personal`, `workspace`), so they share one place to list, attribute and revoke.
 
-The in-app assistant needs none of these: it runs on the teammate's signed-in session and uses the same operations as MCP, with their role (see [AGENT.md](AGENT.md)). Its changes are attributed through an `assistant` row per teammate, which holds no usable token and isn't listed in Settings.
+The in-app agent needs none of these: it runs on the teammate's signed-in session and uses the same operations as MCP, with their role (see [AGENT.md](AGENT.md)). Its changes are attributed through an `assistant` row per teammate, which holds no usable token and isn't listed in Settings.
 
 - A personal key follows its teammate: a role change applies to the key at once; deactivating the teammate stops it.
 - Keys can expire (30 days, 90 days, a year, or never). Revoking takes effect on the next request. Admins see and can revoke every key, including teammates' personal keys.
@@ -74,20 +74,20 @@ src/app/oauth/authorize/  the consent page (src/actions/oauth.ts decides)
 
 Setup for Claude Code, Cursor, VS Code and Claude Desktop is on `/developers#mcp`, and in the dialog shown when a key is created.
 
-## The assistant's background work and drafts
+## The agent's background work and drafts
 
-Two optional groups of operations let an agent work with the CRM's own assistant (see [AGENT.md](AGENT.md#background-work)):
+Two optional groups of operations let an agent work with the CRM's own agent (see [AGENT.md](AGENT.md#background-work)):
 
-- **Assistant** (`/assistant/tasks`, tools `start_background_task`, `start_bulk_background_task`, `list_background_tasks`, `get_background_task`, `cancel_background_task`): hand a longer job to the background worker, which does it as the key's teammate. Starting and stopping need edit access, so read-only keys and connected apps can't. Workspace keys can't either: a run always belongs to a teammate. These appear only where background work is set up.
+- **Agent** (`/agent/tasks`, tools `start_background_task`, `start_bulk_background_task`, `list_background_tasks`, `get_background_task`, `cancel_background_task`): hand a longer job to the background worker, which does it as the key's teammate. Starting and stopping need edit access, so read-only keys and connected apps can't. Workspace keys can't either: a run always belongs to a teammate. These appear only where background work is set up.
 - **Drafts** (`/drafts`, tools `draft_message`, `list_drafts`): write an email or text for the key's teammate to review and send. There is no operation that sends a message or a draft: the teammate does that in the CRM.
 
-Tasks take `assistant: true` on create and update to hand that task to the assistant.
+Tasks take `agent: true` on create and update to hand that task to the agent.
 
 ## Knowledge source
 
 A deployment can connect a read-only JSON API about its own organization (usually its website's content) with `KNOWLEDGE_API_URL`. `GET /knowledge?path=…` then reads one path under it, and MCP gets a `get_knowledge` tool. Without one, the endpoint answers 404 `not_configured` and the tool isn't listed. See [KNOWLEDGE.md](KNOWLEDGE.md).
 
-Operations can carry a `feature` (`src/lib/api/spec.ts`): they're documented everywhere but only offered as MCP and assistant tools where that feature is set up (`enabledFeatures` in `src/lib/api/features.ts`).
+Operations can carry a `feature` (`src/lib/api/spec.ts`): they're documented everywhere but only offered as MCP and agent tools where that feature is set up (`enabledFeatures` in `src/lib/api/features.ts`).
 
 ## How it's built
 

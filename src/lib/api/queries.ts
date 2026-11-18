@@ -479,8 +479,8 @@ export async function listServices() {
 
 export const toUser = (u: typeof users.$inferSelect) => ({ id: u.id, name: u.name, email: u.email, role: u.role, title: u.title, active: !u.deactivatedAt && !!u.passwordHash });
 
-/** A background run of the assistant, in its API shape. */
-export const toAssistantTask = (r: typeof schema.agentRuns.$inferSelect) => ({
+/** A background run of the agent, in its API shape. */
+export const toAgentTask = (r: typeof schema.agentRuns.$inferSelect) => ({
   id: r.id,
   title: r.title,
   request: r.prompt,
@@ -498,7 +498,7 @@ export const toAssistantTask = (r: typeof schema.agentRuns.$inferSelect) => ({
   finishedAt: r.finishedAt?.toISOString() ?? null,
 });
 
-/** A draft the assistant wrote, in its API shape. */
+/** A draft the agent wrote, in its API shape. */
 export const toDraft = (d: typeof schema.agentDrafts.$inferSelect & { personName: string }, ctx: { origin: string }) => ({
   id: d.id,
   kind: d.kind,

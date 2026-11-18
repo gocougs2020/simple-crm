@@ -12,7 +12,7 @@ import { ActionError, ForbiddenError, NotFoundError } from "@/lib/errors";
 import { calendarChanged, calendarRemoved } from "@/lib/microsoft/calendar";
 import { calendarTypes } from "@/lib/microsoft/config";
 import { taskAssigned } from "@/lib/push/triggers";
-import { mentionsAssistant } from "@/lib/agent/run-rules";
+import { mentionsAgent } from "@/lib/agent/run-rules";
 import { htmlToText, sanitizeHtml, textToHtml } from "@/lib/safe-html";
 
 /**
@@ -49,21 +49,21 @@ async function checkLinks(l: { personId?: string | null; organizationId?: string
   await Promise.all([assertPerson(l.personId), assertOrganization(l.organizationId), assertUser(l.assigneeId, "assignee")]);
 }
 
-/** Loaded on demand: the assistant's run service uses this file to save its answers. */
+/** Loaded on demand: the agent's run service uses this file to save its answers. */
 const handoff = () => import("@/lib/agent/handoff");
 
 /**
- * Whether a new note calls on the assistant. Only a note a teammate wrote
+ * Whether a new note calls on the agent. Only a note a teammate wrote
  * themselves, in the browser: text written by an agent or a script (any key,
- * the assistant included) never starts work, whatever it says.
+ * the agent included) never starts work, whatever it says.
  */
-const calledOn = (a: Actor, type: ActivityType, body: string | null) => type === "note" && a.kind === "user" && !a.keyId && mentionsAssistant(htmlToText(body));
+const calledOn = (a: Actor, type: ActivityType, body: string | null) => type === "note" && a.kind === "user" && !a.keyId && mentionsAgent(htmlToText(body));
 
 export async function logActivity(a: Actor, input: ActivityInput, opts: { requireLink?: boolean; handOff?: boolean } = {}) {
   assertCan(a, "records:write");
   const data = activityInput.parse(input);
-  // A task for the assistant: check it can take work before saving anything, so a refusal doesn't leave a task behind.
-  const forAssistant = opts.handOff !== false && data.type === "task" && !!data.assistant;
+  // A task for the agent: check it can take work before saving anything, so a refusal doesn't leave a task behind.
+  const forAssistant = opts.handOff !== false && data.type === "task" && !!data.agent;
   if (forAssistant) await (await handoff()).assertCanHandOff(a);
   await checkLinks(data);
   const links = await resolveLinks(data);
@@ -110,7 +110,7 @@ export async function updateActivity(a: Actor, activityId: string, patch: Partia
   assertCan(a, "records:write");
   const data = activityInput.partial().parse(patch);
   await checkLinks(data);
-  if (data.assistant) await (await handoff()).assertCanHandOff(a);
+  if (data.agent) await (await handoff()).assertCanHandOff(a);
   const db = await getDb();
   const before = await getActivityRow(activityId);
   // Anyone can reschedule or reassign a task; only the author (or an admin) can rewrite what was logged.
@@ -144,8 +144,8 @@ export async function updateActivity(a: Actor, activityId: string, patch: Partia
   if (data.assigneeId && data.assigneeId !== before.assigneeId && (before.dueAt || before.type === "task")) {
     taskAssigned(a, { ...before, ...links, subject: data.subject !== undefined ? data.subject : before.subject, assigneeId: data.assigneeId });
   }
-  // An open task handed to the assistant after the fact.
-  if (data.assistant && (data.type ?? before.type) === "task" && !before.completedAt) {
+  // An open task handed to the agent after the fact.
+  if (data.agent && (data.type ?? before.type) === "task" && !before.completedAt) {
     const [now] = await db.select().from(activities).where(eq(activities.id, before.id));
     if (now) await (await handoff()).handOff(a, now, "task");
   }
