@@ -14,11 +14,71 @@ It works on the teammate's signed-in session. There's no API key to create and n
 
 - **Tools are the MCP tools.** One per API operation, generated from `src/lib/api/operations.ts` and filtered by role (`allowedOperations` in `src/lib/agent/policy.ts`). Adding an operation with a `tool` name gives the agent that tool too. Each call runs through `executeOperation`: the permission check, validation and history are the same as for the API.
 - **History says who.** Changes show as "Sam via Agent" on timelines. Each teammate has one `assistant` row in `api_keys` for this: it holds no usable token (the agent runs on the session cookie) and isn't listed in Settings → API and MCP.
-- **Archive and delete wait for a button.** In text chat they pause with a confirm card (the AI SDK's tool approval). Voice chat doesn't offer them at all.
+- **Archive, delete and merge wait for a button,** and so does saving a [skill](#skills) or a [scheduled job](#scheduled-jobs). In text chat they pause with a confirm card (the AI SDK's tool approval). Voice chat doesn't offer them at all.
 - **It knows the context:** who's asking, their role and user id ("assign it to me"), today's date in the workspace's time zone, and the page open behind the panel ("summarize this client").
 - **It can't send email or texts. It drafts them.** Asked to email or text someone, it writes a draft (`draft_message`) that waits on the person's page. The teammate opens it in the composer, changes what they like and sends it the usual way. See [Drafts](#drafts).
 - **Long jobs go to the background.** Research, cleanups and anything across many records are handed to a background worker that keeps going after the panel is closed. See [Background work](#background-work).
+- **It answers briefly.** Teammates often read its answers between other things, or through another agent, so its instructions ask for the answer first, in a few sentences: the facts that matter to the question, never a whole timeline or every field of a record. It goes long when asked to, and it doesn't drop anything the teammate needs to act on. The background worker's report and the MCP server's instructions say the same. See [Answer length](#answer-length).
+- **It reads files you attach.** Spreadsheets, Word documents and text files, to add or update people, organizations and clients from. See [Attachments](#attachments).
+- **It follows skills and runs scheduled jobs.** Instructions saved for it, and work it does on a cadence, per teammate and shared by admins. See [Skills](#skills) and [Scheduled jobs](#scheduled-jobs).
 - **It can read the organization's own website**, when the deployment connects a [knowledge source](KNOWLEDGE.md): services, team, articles and resources, through the `get_knowledge` tool. Its instructions then name the source and tell it to look the organization's own facts up there and link what it finds, instead of answering from memory.
+
+## Answer length
+
+The agent is told to be direct in all three places it writes:
+
+- **Chat** (`agentInstructions` in `src/lib/agent/prompt.ts`): answer what was asked first; one to three sentences or up to five bullets is the normal size; give the names, dates, amounts and next step that matter and leave out the rest; no preamble, recap, closing offer or account of the steps it took. "Everything", "the full history" or "in detail" gets the long version.
+- **Background work** (`agent/instructions.md`): the report starts with the outcome, then one line per record changed, then what's left for the teammate. No log of what it searched or read.
+- **MCP** (`src/lib/mcp/server.ts`): the server's instructions ask connected agents to report back in a few sentences and to ask for only what they need (`limit`, the list filters). The timeline tools' description suggests 5 to 10 entries unless the whole history is needed.
+
+Nothing is cut from tool results: an agent that needs the full timeline still gets it by asking.
+
+## Attachments
+
+The paperclip in the composer (or dropping a file on it) attaches up to 3 files to a message.
+
+| | |
+| --- | --- |
+| What can be attached | CSV and TSV, Excel (`.xlsx`), Word (`.docx`), and text (`.txt`, `.md`, `.json`) |
+| What can't | Anything else. Older Office files (`.xls`, `.doc`), files with macros (`.xlsm`, `.docm`) and PDFs get a sentence saying what to do instead |
+| Size | 5 MB per file. The agent gets up to 40,000 characters of each; a longer file is cut at a line and marked, and the agent says so |
+
+- **The file never leaves the browser.** It's read there (`src/components/agent/read-attachment.ts`) and only its text is sent: a spreadsheet as CSV, a Word document's body as plain text (`src/lib/agent/docx.ts` opens only `word/document.xml` and caps its size as it inflates). Nothing that can run (a macro, a script, an embedded object) is uploaded, stored or opened.
+- **The server checks it again** (`cleanAttachments` in `src/lib/agent/attachments.ts`): allowed extensions only, names and text cleaned of control characters and capped.
+- **The text is data.** It rides on the teammate's message (`metadata.files`) and reaches the model after that message inside `<file>` tags, marked as data from the teammate, not instructions. The panel shows a file as a chip with its name; the text isn't sent back to the browser when a thread is reopened. Editing a message keeps its files.
+- **What it does with a spreadsheet:** reads the headings, matches columns to fields, searches before creating so nothing is added twice, and for more than about 20 rows says what it will do and waits for a yes. For a long list of people it points to People › Import, which handles a whole file with column mapping and undo.
+- Voice chat has no attachments.
+
+## Skills
+
+A skill is a set of instructions saved for the agent: how to write up a call, what makes a good prospect, the tone for follow-up emails. Settings → Agent lists them, and the agent saves one when asked ("from now on, write call notes as three bullets").
+
+| | Who it's for | Who can add or change it |
+| --- | --- | --- |
+| **Your skills** | Your agent only | You (not viewers), in Settings or by asking the agent. An admin can open and change a teammate's in Settings, never through a key, a connected app or an agent |
+| **Shared with the team** | Every teammate's agent | Admins, in Settings only (never an agent, a key or a connected app): add one, or open any skill (their own or a teammate's) and share it. Taking it back returns it to whoever wrote it |
+
+- **Two ways a skill is used** (`mode`): *When it's relevant* (the default) lists the skill by name and description, and the agent reads it with `get_skill` before doing work it covers. *Always* puts its instructions in every conversation: up to 5 per teammate and 5 shared, 4,000 characters each. Admins use this to apply something to the whole team.
+- **Everywhere the agent works.** Chat and voice get the teammate's skills in their instructions (`skillsSection` in `src/lib/agent/skill-rules.ts`), background runs get them in their first message, and agents connected through MCP are told to `list_skills` and read one before work it covers.
+- **Skills are the teammate's own instructions,** so the agent only saves one when the teammate asks, never from text in a record, a file or a tool result. In chat, saving or changing a skill or a scheduled job waits for a confirm button that shows the words that would be saved, the same as archive and delete, so text the agent read can't create one unseen. Voice chat, which has no button, can read skills and jobs but not save them. Background runs can read skills but can't create, change or delete them (`runMayUse`), so nothing a run reads on the web can leave instructions behind.
+- Limits: 50 skills per teammate and 50 shared; a name up to 60 characters, a description up to 280, instructions up to 20,000.
+- Tools and endpoints: `list_skills`, `get_skill`, `create_skill`, `update_skill`, `delete_skill` (`/api/v1/skills`). Deleting waits for a confirm button in chat.
+
+## Scheduled jobs
+
+A scheduled job is work the agent does on its own, on a cadence: "every Monday at 8, list my prospects with no activity in two weeks". Settings → Agent lists them, and the agent sets one up when asked.
+
+- **Cadence:** every day, every weekday, weekly on a day, monthly on a day (1 to 28), or once on a date, at a time on the quarter hour in the workspace's time zone. The most often a job runs is once a day.
+- **Each run is background work** ([below](#background-work)): the agent cron starts a run as the job's teammate when its time comes, with their access at that moment and under the same per-run, monthly and concurrency limits. The answer is saved on the run (Background tasks in the panel) with a push notification. A job that can't start (the month's budget is spent, the teammate lost edit access) says why on the job in Settings and tries again at its next time.
+- **Shared jobs are offers.** An admin, in Settings only, adds a job for the team, or opens any job and shares it. It doesn't run by itself: each teammate who presses **Add to mine** gets their own copy, which runs as them and can be changed without affecting anyone else. Changing the offer later doesn't change copies already added.
+- **Admins** can also see, change, pause and delete teammates' jobs, in Settings only. An admin's key, connected app or agent sees and changes the admin's own jobs and nothing of anyone else's, since a job runs as its teammate.
+- A one-time job turns itself off after it runs. **Run now** in Settings starts a job right away without changing its schedule.
+- Background runs can read jobs but can't create or change them, so a run can't schedule more of itself.
+- Limits: 20 jobs per teammate and 20 offers.
+- Tools and endpoints: `list_scheduled_jobs`, `create_scheduled_job`, `update_scheduled_job`, `delete_scheduled_job`, `add_shared_scheduled_job` (`/api/v1/scheduled-jobs`). They exist only where background work is on.
+- How it runs: `runDueJobs` in `src/lib/agent/schedules.ts`, from `/api/cron/agent` every 15 minutes. One conditional update moves a job to its next time before it starts, so overlapping crons run it once; a job whose time passed while the cron was down runs once, then keeps to its cadence. Times are computed in the workspace's time zone, so 8:00 stays 8:00 across daylight saving changes (`nextRun` in `src/lib/agent/schedule-rules.ts`).
+
+eve has its own experimental extensions for user-saved skills and runtime schedules. They aren't used here: skills and jobs live in the CRM's database so that Settings, the REST API, MCP, chat and the background worker all share one list, one set of permission checks and one budget.
 
 ## Threads
 
@@ -57,6 +117,7 @@ Some jobs take too long for a chat answer: researching a company on the web and 
 | **Ask in chat** | The chat agent does quick things itself and hands long ones off with `start_background_task`. | Posted back into that chat, and listed under "Background tasks" at the top of the panel |
 | **Mention it in a note** | A note that says `@Agent` (or `@` and whatever `agent.name` is) on a person, organization or client starts a run with the note as the request. | A note in reply on the same record |
 | **Assign it a task** | In the task form, pick the agent under "Assigned to" (or pass `agent: true` to `create_task` / `update_task`). The task stays yours. | Added to the task, which is then marked done |
+| **Schedule it** | A [scheduled job](#scheduled-jobs) starts a run each time it's due. | Saved on the run, under "Background tasks", with a notification |
 
 A fourth, for lists: `start_bulk_background_task` runs the same request on each of several records (every organization in a view, say), one run per record, a few at a time. The chat agent is told to try three records first and show the results before running the rest.
 
@@ -69,7 +130,7 @@ A run works for one teammate: whoever asked in chat, wrote the note or assigned 
 - **It has their access, never more.** It reaches the CRM only through the MCP endpoint, where the tool list is built from that teammate's role and every call is checked against it again. The role is read fresh on each call, so changing someone's role or deactivating them takes effect at once.
 - **It needs edit access to start.** Viewers, read-only keys and read-only connected apps can't start background work, since a run changes records.
 - **Everything it does is theirs, via the agent.** Notes, tasks, field changes and drafts show as "Sam via Agent" in history, exactly like the chat agent's changes.
-- **Less than chat in one way.** Nobody is watching a run, so it can't archive, delete or merge (those wait for a confirm button in chat), can't send anything, and can't start more runs.
+- **Less than chat in one way.** Nobody is watching a run, so it can't archive, delete or merge (those wait for a confirm button in chat), can't send anything, can't start more runs, and can't create or change skills or scheduled jobs.
 - **Only a person can call on it from a note.** A mention counts only in a note a teammate wrote in the browser. Text written by an agent or a script never starts work, whatever it says.
 
 ### Research can't change anything
@@ -119,7 +180,7 @@ teammate ── chat / @mention / task ──▶ CRM: agent_runs row (queued →
 
 - The worker is an [eve](https://eve.dev) agent in `agent/`, a second service of the same Vercel project. `withEve` in `next.config.ts` builds it with the app and starts it with `next dev`. It needs Node.js 24 or newer; on older versions, or with background work off, the app builds and runs without it.
 - The two services trust each other through short-lived tokens signed with a shared secret (`src/lib/agent/run-token.ts`): `AGENT_RUN_SECRET`, or one derived from `AUTH_SECRET` when it isn't set. Each token names one run and one teammate, and stops working when the run ends.
-- A cron (`/api/cron/agent`, every 15 minutes) cancels runs that have gone past `maxRunMinutes` and starts any left waiting.
+- A cron (`/api/cron/agent`, every 15 minutes) starts scheduled jobs that are due, cancels runs that have gone past `maxRunMinutes` and starts any left waiting.
 - On a preview deployment behind Vercel's Deployment Protection, set `VERCEL_AUTOMATION_BYPASS_SECRET` so the two services can reach each other. Production on its own domain needs nothing.
 - Runs are traced in the Vercel dashboard under Observability → Agent Runs.
 
@@ -170,6 +231,8 @@ Unknown keys, wrong types and reasoning levels that don't exist fail the build w
 - 12 tool steps per answer, 16,000 output tokens (reasoning included).
 - A tool result over 40,000 characters is trimmed to fewer list items, and the agent is told to narrow its request.
 - One typed message is at most 8,000 characters; a dictation clip at most 4 MB.
+- Up to 3 attached files per message, 5 MB each, 40,000 characters of text from each ([Attachments](#attachments)).
+- Skills and scheduled jobs: 50 skills and 20 jobs per teammate, the same again shared ([Skills](#skills), [Scheduled jobs](#scheduled-jobs)).
 
 - Background work: `maxRunUsd` per run, `monthlyBudgetUsd` per month, `maxRunMinutes` per run, `maxConcurrentPerUser` at once and `maxBulkRecords` per bulk request ([Models and cost](#models-and-cost)).
 
@@ -178,7 +241,7 @@ Unknown keys, wrong types and reasoning levels that don't exist fail the build w
 ```
 agent/              the background worker, an eve agent (its own service, at /eve/v1)
   agent.ts          model, no shell or web tools, the per-run spending limit
-  instructions.md   how it works: look first, change only what was asked, report at the end
+  instructions.md   how it works: look first, change only what was asked, a short report at the end
   channels/eve.ts   who may start a session: only the CRM, with a token for one run
   connections/crm.ts  the CRM's MCP endpoint, as the teammate the run works for
   hooks/report.ts   tells the CRM how a run ended and what it cost
@@ -189,6 +252,12 @@ src/lib/agent/
   run-token.ts    the tokens the CRM and the eve agent sign for each other (pure)
   run-actor.ts    a run's token → "the teammate via Agent", checked on every call
   handoff.ts      starting a run from an assigned task or a mention in a note
+  skills.ts       skills: who sees and changes which, and the ones an agent works with
+  skill-rules.ts  their limits, and how they appear in the agent's instructions (pure)
+  schedules.ts    scheduled jobs: saving, sharing, and starting the ones that are due
+  schedule-rules.ts  their cadence: validation, the next run, the cadence in words (pure)
+  attachments.ts  files attached in chat: what's allowed, limits, how the model reads them (pure)
+  docx.ts         the text of a Word document, without a library (pure)
   markdown.ts     the agent's markdown answer as note HTML (pure)
   actor.ts        the teammate as an Actor, with their "assistant" key for history
   tools.ts        AI SDK tools from the operation list, run through executeOperation
@@ -206,7 +275,9 @@ src/app/api/agent/
   voice/session/        realtime token, socket URL, tool definitions and instructions
   voice/tool/           runs a voice tool call
 src/actions/agent.ts    list, load, rename, delete threads; feedback; voice transcripts
-src/components/agent/   the button, panel, messages, dictation and voice components
+src/actions/agent-settings.ts  Settings → Agent: skills and scheduled jobs
+src/components/agent/   the button, panel, messages, attachments, dictation and voice components
+src/components/settings/agent.tsx  the skills and scheduled jobs page
 ```
 
 The panel (threads menu, suggestions, dictation, voice stage, copy, feedback and edit) is styled with this app's theme tokens. It loads the first time someone opens it, so pages don't carry its code. Every `/api/agent` route checks the session cookie and refuses requests from other sites' pages.

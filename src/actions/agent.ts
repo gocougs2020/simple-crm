@@ -3,6 +3,7 @@
 import { z } from "zod";
 import type { AgentMessage } from "@/db/schema";
 import { run, type Result } from "@/lib/action";
+import { withoutAttachmentText } from "@/lib/agent/attachments";
 import { cleanTranscript } from "@/lib/agent/messages";
 import { deleteThread, ensureThread, getThread, listThreads, renameThread, saveMessages } from "@/lib/agent/threads";
 import { ActionError, actionCan, actionUser } from "@/lib/auth";
@@ -36,7 +37,10 @@ export async function loadAgentThread(id: string): Promise<Result<{ id: string; 
   return run(async () => {
     const user = await actionUser();
     const row = await getThread(user.id, threadId.parse(id));
-    return row ? { id: row.id, title: row.title, messages: row.messages } : { id, title: "", messages: [] };
+    // Attached files show as names: their text stays on the server.
+    // Answers saved before ids were sent with the stream have none: give each one of its own, so the panel can tell them apart.
+    const messages = row ? withoutAttachmentText(row.messages).map((m, i) => (m.id ? m : { ...m, id: `saved-${i}` })) : [];
+    return { id: row?.id ?? id, title: row?.title ?? "", messages };
   });
 }
 

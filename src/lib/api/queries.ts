@@ -1,4 +1,7 @@
 import "server-only";
+import { cadenceLabel } from "@/lib/agent/schedule-rules";
+import type { JobRow } from "@/lib/agent/schedules";
+import type { SkillRow } from "@/lib/agent/skills";
 import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { getDb, schema } from "@/db";
@@ -496,6 +499,43 @@ export const toAgentTask = (r: typeof schema.agentRuns.$inferSelect) => ({
   createdAt: r.createdAt.toISOString(),
   startedAt: r.startedAt?.toISOString() ?? null,
   finishedAt: r.finishedAt?.toISOString() ?? null,
+});
+
+/** A skill in its API shape. Lists leave the instructions out: an agent reads the one it needs. */
+export const toSkill = (s: SkillRow, opts: { brief?: boolean } = {}) => ({
+  id: s.id,
+  name: s.name,
+  description: s.description,
+  instructions: opts.brief ? null : s.instructions,
+  mode: s.mode,
+  scope: s.scope,
+  enabled: s.enabled,
+  ownerId: s.userId,
+  ownerName: s.ownerName,
+  createdAt: s.createdAt.toISOString(),
+  updatedAt: s.updatedAt.toISOString(),
+});
+
+export const toScheduledJob = (j: JobRow) => ({
+  id: j.id,
+  name: j.name,
+  request: j.prompt,
+  every: j.every,
+  time: j.time,
+  weekday: j.weekday,
+  monthDay: j.monthDay,
+  onDate: j.onDate,
+  schedule: cadenceLabel(j),
+  scope: j.scope,
+  enabled: j.enabled,
+  nextRunAt: j.nextRunAt?.toISOString() ?? null,
+  lastRunAt: j.lastRunAt?.toISOString() ?? null,
+  lastTaskId: j.lastRunId,
+  lastError: j.lastError,
+  ownerId: j.userId,
+  ownerName: j.ownerName,
+  fromId: j.fromId,
+  createdAt: j.createdAt.toISOString(),
 });
 
 /** A draft the agent wrote, in its API shape. */

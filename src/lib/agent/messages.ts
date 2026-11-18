@@ -1,4 +1,5 @@
 import type { AgentMessage } from "@/db/schema";
+import { attachmentsOf, cleanAttachments } from "./attachments";
 
 /**
  * How agent threads are stored and continued. Pure (tested): the chat
@@ -24,12 +25,17 @@ export function messageText(m: { parts?: unknown } | null | undefined) {
     .join("");
 }
 
-/** A message the teammate typed: an id and its text, nothing else. Returns null when there's nothing to send. */
+/**
+ * A message the teammate typed: an id, its text and the files they attached
+ * (as text, checked again here), nothing else. Returns null when there's
+ * nothing to send.
+ */
 export function cleanUserMessage(raw: unknown, now = Date.now()): AgentMessage | null {
   if (!isRecord(raw) || raw.role !== "user" || typeof raw.id !== "string" || !/^[\w-]{1,64}$/.test(raw.id)) return null;
-  const text = messageText(raw).slice(0, MAX_USER_TEXT).trim();
+  const files = cleanAttachments(isRecord(raw.metadata) ? raw.metadata.files : undefined);
+  const text = messageText(raw).slice(0, MAX_USER_TEXT).trim() || (files.length ? `Attached ${files.map((f) => f.name).join(", ")}.` : "");
   if (!text) return null;
-  return { id: raw.id, role: "user", parts: [{ type: "text", text }], metadata: { createdAt: now } };
+  return { id: raw.id, role: "user", parts: [{ type: "text", text }], metadata: { createdAt: now, ...(files.length ? { files } : {}) } };
 }
 
 /**
@@ -68,16 +74,21 @@ export type Merge = { ok: true; messages: AgentMessage[]; submitted: boolean } |
 export function mergeIncoming(stored: AgentMessage[], incoming: unknown, now = Date.now()): Merge {
   if (isRecord(incoming) && incoming.role === "assistant") {
     const last = stored.at(-1);
-    if (!last || last.role !== "assistant" || last.id !== incoming.id) return { ok: false, error: "That confirmation is out of date. Ask again." };
+    // Answers saved before ids were sent with the stream have none: the last one takes the browser's.
+    const legacy = !!last && last.id === "" && typeof incoming.id === "string" && /^[\w-]{1,64}$/.test(incoming.id);
+    if (!last || last.role !== "assistant" || (last.id !== incoming.id && !legacy)) return { ok: false, error: "That confirmation is out of date. Ask again." };
     const { message, changed } = applyApprovals(last, incoming);
     if (!changed) return { ok: false, error: "Nothing to confirm in that message." };
-    return { ok: true, messages: [...stored.slice(0, -1), message], submitted: false };
+    return { ok: true, messages: [...stored.slice(0, -1), legacy ? { ...message, id: incoming.id as string } : message], submitted: false };
   }
   const message = cleanUserMessage(incoming, now);
   if (!message) return { ok: false, error: "Write a message first." };
   const at = stored.findIndex((m) => m.id === message.id);
   if (at >= 0 && stored[at].role !== "user") return { ok: false, error: "Only your own messages can be edited." };
-  return { ok: true, messages: [...(at >= 0 ? stored.slice(0, at) : stored), message], submitted: true };
+  // An edit changes the words: the files that came with the message stay with it.
+  const kept = at >= 0 && !attachmentsOf(message).length ? attachmentsOf(stored[at]) : [];
+  const next = kept.length ? { ...message, metadata: { ...message.metadata, files: kept } } : message;
+  return { ok: true, messages: [...(at >= 0 ? stored.slice(0, at) : stored), next], submitted: true };
 }
 
 /** Drops the oldest turns until the thread fits MAX_STORED_CHARS. A thread always starts with the teammate. */

@@ -1,4 +1,5 @@
-import { isDestructive, type OptionalFeature } from "@/lib/api/spec";
+import { isDestructive, type Operation, type OptionalFeature } from "@/lib/api/spec";
+import { writesStanding } from "./run-rules";
 import type { Permission } from "@/lib/permissions";
 import { offered, toolOperations } from "@/lib/mcp/protocol";
 
@@ -7,11 +8,31 @@ import { offered, toolOperations } from "@/lib/mcp/protocol";
  * (tested): the role check is passed in.
  */
 
-/** Archive, delete and merge: the teammate confirms with a button in text chat. Voice chat leaves them out, since there's no button to press. */
-export const needsConfirmation = (name: string) => toolOperations.some((o) => o.tool === name && isDestructive(o));
+/**
+ * What waits for the teammate's button press in text chat, and is left out of
+ * voice chat, where there's no button:
+ * - archive, delete and merge;
+ * - saving or changing a skill or a scheduled job. Those outlive the
+ *   conversation, so text the agent read in a record or an attached file must
+ *   never be able to create one unseen. The card shows what would be saved.
+ */
+const confirmed = (o: Pick<Operation, "method" | "destructive" | "tag">) => isDestructive(o) || writesStanding(o);
+export const needsConfirmation = (name: string) => toolOperations.some((o) => o.tool === name && confirmed(o));
+
+/** What the confirm card says under the tool's name. */
+export const confirmReason = (name: string) =>
+  name.startsWith("archive_")
+    ? "This archives a record. It can be restored later."
+    : name.startsWith("merge_")
+      ? "This merges records and can't be undone."
+      : name.startsWith("delete_")
+        ? "This deletes it for good."
+        : /skill/.test(name)
+          ? "The agent will follow these instructions in later conversations. Check them first."
+          : "The agent will do this on its own, on this schedule, as you. Check it first.";
 
 export function allowedOperations(allowed: (p: Permission) => boolean, opts: { voice?: boolean; features?: readonly OptionalFeature[] } = {}) {
-  return toolOperations.filter((o) => allowed(o.permission) && offered(o, opts.features ?? []) && !(opts.voice && isDestructive(o)));
+  return toolOperations.filter((o) => allowed(o.permission) && offered(o, opts.features ?? []) && !(opts.voice && confirmed(o)));
 }
 
 /** Tool output the model sees. Long lists are trimmed so one call can't fill the context. */

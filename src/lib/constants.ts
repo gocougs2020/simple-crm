@@ -139,7 +139,7 @@ export const notificationLabels: Record<NotificationKind, { label: string; hint:
 };
 
 /** Where a background run of the agent came from (docs/AGENT.md). */
-export const agentRunSources = ["chat", "mention", "task", "bulk", "api"] as const;
+export const agentRunSources = ["chat", "mention", "task", "bulk", "api", "schedule"] as const;
 export type AgentRunSource = (typeof agentRunSources)[number];
 /** queued: accepted, not started. running: the agent is working. The rest are final. */
 export const agentRunStatuses = ["queued", "running", "done", "failed", "cancelled"] as const;
@@ -150,6 +150,23 @@ export const agentDraftKinds = ["email", "text"] as const;
 export type AgentDraftKind = (typeof agentDraftKinds)[number];
 export const agentDraftStatuses = ["pending", "sent", "discarded"] as const;
 export type AgentDraftStatus = (typeof agentDraftStatuses)[number];
+/**
+ * Who a skill or scheduled job is for (docs/AGENT.md). personal: one teammate's own.
+ * workspace: shared by an admin with everyone. A shared skill is used by every
+ * teammate's agent; a shared job is offered, and runs for whoever adds it.
+ */
+export const agentScopes = ["personal", "workspace"] as const;
+export type AgentScope = (typeof agentScopes)[number];
+/** always: in the agent's instructions on every conversation. on_demand: listed, and read when the work calls for it. */
+export const agentSkillModes = ["on_demand", "always"] as const;
+export type AgentSkillMode = (typeof agentSkillModes)[number];
+export const agentSkillModeLabels: Record<AgentSkillMode, { label: string; hint: string }> = {
+  on_demand: { label: "When it's relevant", hint: "The agent reads it when a request matches the description." },
+  always: { label: "Always", hint: "Part of the agent's instructions in every conversation. Keep it short." },
+};
+/** How often a scheduled job runs. once: on one date. */
+export const scheduleEvery = ["day", "weekday", "week", "month", "once"] as const;
+export type ScheduleEvery = (typeof scheduleEvery)[number];
 export const agentRunActive = (status: AgentRunStatus) => status === "queued" || status === "running";
 
 /** Agenda emails a teammate can get (Settings → Notifications), sent in the morning in the workspace's time zone. */

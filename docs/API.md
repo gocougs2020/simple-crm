@@ -83,6 +83,15 @@ Two optional groups of operations let an agent work with the CRM's own agent (se
 
 Tasks take `agent: true` on create and update to hand that task to the agent.
 
+## Skills and scheduled jobs
+
+Two more groups cover what teammates save for agents in Settings → Agent (see [AGENT.md](AGENT.md#skills)):
+
+- **Skills** (`/skills`, tools `list_skills`, `get_skill`, `create_skill`, `update_skill`, `delete_skill`): instructions for how the team wants things done. A connected agent sees the key's teammate's own skills and the ones an admin shared with the team; the list leaves instructions out, and `get_skill` returns them. The MCP server's instructions tell agents to read a skill before doing work it covers. Saving, changing and deleting need edit access, and cover the teammate's own skills only: skills shared with the team are managed by an admin in Settings, never through a key, a connected app or an agent.
+- **Scheduled jobs** (`/scheduled-jobs`, tools `list_scheduled_jobs`, `create_scheduled_job`, `update_scheduled_job`, `delete_scheduled_job`, `add_shared_scheduled_job`): work the CRM's own agent does on a cadence, as the key's teammate. A `workspace` job is an offer an admin made in Settings; teammates add it to their own, and it can't be created or changed here. These appear only where background work is set up.
+
+Workspace keys can't use either group: a skill or a job always belongs to a teammate, or is shared by one. The agent's own background runs can read both but change neither.
+
 ## Knowledge source
 
 A deployment can connect a read-only JSON API about its own organization (usually its website's content) with `KNOWLEDGE_API_URL`. `GET /knowledge?path=…` then reads one path under it, and MCP gets a `get_knowledge` tool. Without one, the endpoint answers 404 `not_configured` and the tool isn't listed. See [KNOWLEDGE.md](KNOWLEDGE.md).
