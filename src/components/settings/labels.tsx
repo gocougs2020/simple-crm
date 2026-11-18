@@ -108,7 +108,7 @@ function LabelDialog({ label, inUse, onClose }: { label: Label | null; inUse: st
               variant="ghost"
               className="mr-auto text-error"
               onClick={() => {
-                if (!confirm(inUse ? `Delete ${label.name}? It comes off ${inUse} and out of any audience that uses it. This can't be undone.` : `Delete ${label.name}? This can't be undone.`)) return;
+                if (!confirm(inUse ? `Delete ${label.name}? It comes off ${inUse}. This can't be undone.` : `Delete ${label.name}? This can't be undone.`)) return;
                 start(async () => {
                   const r = await deleteLabel(label.name);
                   if (!r.ok) return void toast.error(r.error);

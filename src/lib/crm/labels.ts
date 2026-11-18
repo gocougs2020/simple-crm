@@ -53,9 +53,23 @@ export async function labelUsage() {
 
 const audienceKeys = ["tags", "excludeTags", "clientTags"] as const;
 
+/** Saved audiences and campaigns that haven't gone out whose filters name this label, by name. */
+export async function labelAudiences(name: string) {
+  const db = await getDb();
+  const uses = (a: CampaignAudience) => audienceKeys.some((k) => a[k]?.includes(name));
+  const audiences = (await db.select({ name: schema.audiences.name, filters: schema.audiences.filters }).from(schema.audiences)).filter((a) => uses(a.filters)).map((a) => a.name);
+  const campaigns = (await db.select({ name: schema.campaigns.name, audience: schema.campaigns.audience, status: schema.campaigns.status }).from(schema.campaigns))
+    .filter((c) => c.status !== "sent" && uses(c.audience))
+    .map((c) => c.name);
+  return { audiences, campaigns };
+}
+
 /**
- * Renames a label everywhere it's used (`to` given), or takes it off
- * everything (`to` null): records, saved audiences and campaigns' filters.
+ * Renames a label everywhere it's used (`to` given): records, saved
+ * audiences and campaigns' filters. With `to` null it comes off the records
+ * only. A filter is never emptied here, because an audience that loses its
+ * only label would quietly become everyone: deleting a label that a filter
+ * still names is refused first (deleteLabel in src/actions/settings.ts).
  */
 export async function rewriteLabel(from: string, to: string | null) {
   const db = await getDb();
@@ -69,6 +83,7 @@ export async function rewriteLabel(from: string, to: string | null) {
       })
       .where(sql`${table.tags} ? ${from}`);
   }
+  if (!to) return;
   const swap = (a: CampaignAudience) => {
     let changed = false;
     const next = { ...a };
@@ -76,8 +91,7 @@ export async function rewriteLabel(from: string, to: string | null) {
       const list = a[key];
       if (!list?.includes(from)) continue;
       changed = true;
-      const out = [...new Set(list.flatMap((t) => (t === from ? (to ? [to] : []) : [t])))];
-      next[key] = out.length ? out : undefined;
+      next[key] = [...new Set(list.map((t) => (t === from ? to : t)))];
     }
     return changed ? next : null;
   };
@@ -85,7 +99,7 @@ export async function rewriteLabel(from: string, to: string | null) {
     const next = swap(a.filters);
     if (next) await db.update(schema.audiences).set({ filters: next }).where(eq(schema.audiences.id, a.id));
   }
-  // Sent campaigns keep the audience they went to, as a record.
+  // Sent campaigns keep the audience they went to, as a record. One that's sending keeps going with the new name.
   for (const c of await db.select({ id: schema.campaigns.id, audience: schema.campaigns.audience, status: schema.campaigns.status }).from(schema.campaigns)) {
     if (c.status === "sent") continue;
     const next = swap(c.audience);

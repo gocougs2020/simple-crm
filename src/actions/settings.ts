@@ -1,6 +1,6 @@
 "use server";
 
-import { labelUsage, rewriteLabel } from "@/lib/crm/labels";
+import { labelAudiences, labelUsage, rewriteLabel } from "@/lib/crm/labels";
 import { refresh } from "next/cache";
 import { and, asc, count, eq, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -481,12 +481,16 @@ export async function setLabelHidden(name: string, hidden: boolean): Promise<Res
   });
 }
 
-/** Deletes a label and takes it off every record, audience and unsent campaign. Can't be undone. */
+/** Deletes a label and takes it off every record. Refused while a saved audience or an unsent campaign filters on it. Can't be undone. */
 export async function deleteLabel(name: string): Promise<Result> {
   return run(async () => {
     await actionAdmin();
     const n = z.string().trim().toLowerCase().min(1).max(40).parse(name);
     const db = await getDb();
+    // Taking a label out of a filter would widen who it reaches, so that's the teammate's call, made on the audience.
+    const { audiences, campaigns } = await labelAudiences(n);
+    const used = [...audiences.map((a) => `the audience "${a}"`), ...campaigns.map((c) => `the campaign "${c}"`)];
+    if (used.length) throw new ActionError(`${n} is a filter in ${used.slice(0, 3).join(", ")}${used.length > 3 ? ` and ${used.length - 3} more` : ""}. Take it out there first, or hide the label instead.`);
     await rewriteLabel(n, null);
     await db.delete(schema.labels).where(eq(schema.labels.name, n));
     refresh();
