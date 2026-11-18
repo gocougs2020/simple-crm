@@ -10,6 +10,10 @@ import { offered, toolOperations } from "@/lib/mcp/protocol";
 /** Archive, delete and merge: the teammate confirms with a button in text chat. Voice chat leaves them out, since there's no button to press. */
 export const needsConfirmation = (name: string) => toolOperations.some((o) => o.tool === name && isDestructive(o));
 
+/** What the confirm card says under the tool's name. */
+export const confirmReason = (name: string) =>
+  name.startsWith("archive_") ? "This archives a record. It can be restored later." : name.startsWith("merge_") ? "This merges records and can't be undone." : "This deletes it for good.";
+
 export function allowedOperations(allowed: (p: Permission) => boolean, opts: { voice?: boolean; features?: readonly OptionalFeature[] } = {}) {
   return toolOperations.filter((o) => allowed(o.permission) && offered(o, opts.features ?? []) && !(opts.voice && isDestructive(o)));
 }

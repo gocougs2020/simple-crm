@@ -2,6 +2,8 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import * as runs from "@/lib/agent/runs";
+import * as schedules from "@/lib/agent/schedules";
+import * as skills from "@/lib/agent/skills";
 import { can, type Actor } from "@/lib/crm/actor";
 import { dayBounds } from "@/lib/crm/activities";
 import * as activities from "@/lib/crm/service/activities";
@@ -57,6 +59,26 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
   },
   listDrafts: async (a, { query }, ctx) => (await drafts.listDrafts(a, query)).map((d) => q.toDraft(d, ctx)),
   cancelAgentTask: async (a, { params }) => q.toAgentTask(await runs.cancelRun(a, params.id)),
+
+  // Skills
+  listSkills: async (a, { query }) => (await skills.listSkills(a, query)).map((s) => q.toSkill(s, { brief: true })),
+  getSkill: async (a, { params }) => q.toSkill(await skills.getSkill(a, params.id)),
+  createSkill: async (a, { body }) => q.toSkill(await skills.createSkill(a, body)),
+  updateSkill: async (a, { params, body }) => q.toSkill(await skills.updateSkill(a, params.id, body)),
+  async deleteSkill(a, { params }) {
+    await skills.deleteSkill(a, params.id);
+    return deleted(params.id);
+  },
+
+  // Scheduled jobs
+  listScheduledJobs: async (a, { query }) => (await schedules.listJobs(a, query)).map(q.toScheduledJob),
+  createScheduledJob: async (a, { body }) => q.toScheduledJob(await schedules.createJob(a, body)),
+  updateScheduledJob: async (a, { params, body }) => q.toScheduledJob(await schedules.updateJob(a, params.id, body)),
+  async deleteScheduledJob(a, { params }) {
+    await schedules.deleteJob(a, params.id);
+    return deleted(params.id);
+  },
+  addScheduledJob: async (a, { params }) => q.toScheduledJob(await schedules.addSharedJob(a, params.id)),
 
   async me(a) {
     const db = await getDb();

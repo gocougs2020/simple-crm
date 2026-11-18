@@ -14,16 +14,19 @@ import {
   HandThumbDownIcon,
   HandThumbUpIcon,
   MinusIcon,
+  PaperClipIcon,
   PencilIcon,
   PencilSquareIcon,
   SparklesIcon,
   SpeakerWaveIcon,
   StopIcon,
   TrashIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { deleteAgentThread, listAgentThreads, loadAgentThread, rateAgentMessage, saveVoiceTranscript, type ThreadSummary } from "@/actions/agent";
 import { appConfig } from "@/app.config";
 import { useApp } from "@/components/app-context";
+import { ATTACHMENT_ACCEPT, MAX_ATTACHMENTS, type Attachment, type AttachmentChip } from "@/lib/agent/attachments";
 import { endMessage, isGreetingCue, primeAudio, VOICE_MIC_CONSTRAINTS, voiceSessionConfig, type VoiceEndReason } from "@/lib/agent/voice";
 import { closeAssistant, useAssistantState } from "./agent-store";
 import { AssistantParts, awaitingApproval, hasVisibleContent, textOf } from "./agent-message";
@@ -32,6 +35,7 @@ import { DictationButton, type DictationState } from "./dictation-button";
 import { VoicePresence } from "./voice-presence";
 import VoiceSession, { type VoiceApi, type VoiceStatus } from "./voice-session";
 import { prefetchVoiceSetup, takeVoiceSetup } from "./voice-setup";
+import { readAttachment } from "./read-attachment";
 import { checkForChanges } from "@/components/live-updates";
 
 const COMPOSER_MIN = 40;
@@ -45,6 +49,13 @@ const feedbackOf = (m: UIMessage): Feedback => {
   const f = (m.metadata as { feedback?: unknown } | undefined)?.feedback;
   return f === "up" || f === "down" ? f : null;
 };
+
+/** The files that came with a message, to show as chips. */
+const filesOf = (m: UIMessage): AttachmentChip[] => {
+  const files = (m.metadata as { files?: unknown } | undefined)?.files;
+  return Array.isArray(files) ? (files as AttachmentChip[]).filter((f) => f && typeof f.name === "string") : [];
+};
+const fileNote = (f: AttachmentChip) => [f.rows !== undefined ? `${f.rows} ${f.rows === 1 ? "row" : "rows"}` : "", f.truncated ? "start only" : ""].filter(Boolean).join(", ");
 
 /** The error the server sent ({ message }), or the transport's own. */
 function errorText(error: Error | undefined) {
@@ -113,6 +124,9 @@ export function AgentPanel({ configured }: { configured: boolean }) {
   const [atBottom, setAtBottom] = useState(true);
   const [dictation, setDictation] = useState<DictationState>({ recording: false, transcribing: false });
   const [dictationError, setDictationError] = useState("");
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const [fileError, setFileError] = useState("");
+  const [readingFiles, setReadingFiles] = useState(false);
   const [voiceConfig, setVoiceConfig] = useState<Partial<Experimental_RealtimeSessionConfig> | null>(null);
   const [voiceStarting, setVoiceStarting] = useState(false);
   const [voiceError, setVoiceError] = useState("");
@@ -122,6 +136,7 @@ export function AgentPanel({ configured }: { configured: boolean }) {
   const [voiceSocket, setVoiceSocket] = useState<{ token: string; url: string } | null>(null);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const voiceApi = useRef<VoiceApi | null>(null);
@@ -347,6 +362,8 @@ export function AgentPanel({ configured }: { configured: boolean }) {
 
   const resetComposer = () => {
     setInput("");
+    setFiles([]);
+    setFileError("");
     setEditingId(null);
     setMenuOpen(false);
     setAtBottom(true);
@@ -394,10 +411,39 @@ export function AgentPanel({ configured }: { configured: boolean }) {
 
   const submit = (text: string, replaceId: string | null = null) => {
     const trimmed = text.trim();
-    if (!trimmed || busy || dictation.recording || !configured) return;
+    // An edit keeps the files its message came with; the server has their text.
+    const edited = replaceId ? messages.find((m) => m.id === replaceId) : undefined;
+    const attached: AttachmentChip[] = replaceId ? (edited ? filesOf(edited) : []) : files;
+    if ((!trimmed && !attached.length) || busy || readingFiles || dictation.recording || !configured) return;
     fresh.current.delete(threadId);
     resetComposer();
-    void sendMessage({ text: trimmed, ...(replaceId ? { messageId: replaceId } : {}) });
+    void sendMessage({
+      text: trimmed || `Attached ${attached.map((f) => f.name).join(", ")}.`,
+      ...(attached.length ? { metadata: { files: attached } } : {}),
+      ...(replaceId ? { messageId: replaceId } : {}),
+    });
+  };
+
+  /** Reads the chosen files here in the browser: only their text goes to the agent. */
+  const attach = async (chosen: File[]) => {
+    if (!chosen.length || !configured) return;
+    setFileError("");
+    const room = MAX_ATTACHMENTS - files.length;
+    if (room <= 0) return setFileError(`Attach up to ${MAX_ATTACHMENTS} files per message.`);
+    setReadingFiles(true);
+    const read: Attachment[] = [];
+    let problem = chosen.length > room ? `Attach up to ${MAX_ATTACHMENTS} files per message.` : "";
+    for (const file of chosen.slice(0, room)) {
+      try {
+        read.push(await readAttachment(file));
+      } catch (err) {
+        problem = (err as Error)?.message || `${file.name} couldn't be read.`;
+      }
+    }
+    setReadingFiles(false);
+    if (read.length) setFiles((list) => [...list, ...read].slice(0, MAX_ATTACHMENTS));
+    setFileError(problem);
+    window.setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const onSubmit = (e?: FormEvent) => {
@@ -579,7 +625,23 @@ export function AgentPanel({ configured }: { configured: boolean }) {
               return (
                 <div key={m.id} className={clsx("flex max-w-full flex-col gap-0.5", isUser ? "items-end" : "items-start")}>
                   <div className={clsx("rounded-2xl px-3 py-2 break-words", isUser ? "max-w-[85%] bg-accent text-accent-foreground" : "w-full max-w-full bg-sunken text-secondary")}>
-                    {isUser ? <p className="text-[14px] whitespace-pre-wrap">{textOf(m)}</p> : <AssistantParts message={m} onApprove={approve} onNavigate={onNavigate} />}
+                    {isUser ? (
+                      <>
+                        {filesOf(m).length ? (
+                          <ul className="mb-1 flex flex-wrap gap-1" aria-label="Attached files">
+                            {filesOf(m).map((f, i) => (
+                              <li key={`${f.name}-${i}`} className="inline-flex max-w-full items-center gap-1 rounded-md bg-white/15 px-1.5 py-0.5 text-[12px]" title={fileNote(f) || undefined}>
+                                <PaperClipIcon className="size-3 shrink-0" aria-hidden />
+                                <span className="truncate">{f.name}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        <p className="text-[14px] whitespace-pre-wrap">{textOf(m)}</p>
+                      </>
+                    ) : (
+                      <AssistantParts message={m} onApprove={approve} onNavigate={onNavigate} />
+                    )}
                   </div>
                   {isUser ? (
                     <div className="flex items-center gap-1 px-1 text-muted">
@@ -653,7 +715,18 @@ export function AgentPanel({ configured }: { configured: boolean }) {
 
       {/* Composer */}
       {!voiceLive && !voiceStarting ? (
-        <form onSubmit={onSubmit} className="flex flex-col gap-1.5 border-t border-line px-3 pt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        <form
+          onSubmit={onSubmit}
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+          }}
+          onDrop={(e) => {
+            if (!e.dataTransfer.files.length) return;
+            e.preventDefault();
+            if (!editingId) void attach([...e.dataTransfer.files]);
+          }}
+          className="flex flex-col gap-1.5 border-t border-line px-3 pt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+        >
           {editingId ? (
             <div className="flex items-center justify-between gap-2 px-1 text-[12px] text-muted">
               <span className="inline-flex items-center gap-1">
@@ -666,8 +739,56 @@ export function AgentPanel({ configured }: { configured: boolean }) {
             </div>
           ) : null}
           {dictationError ? <p className="px-1 text-[12px] text-error">{dictationError}</p> : null}
+          {fileError ? (
+            <p className="px-1 text-[12px] text-error" role="alert">
+              {fileError}
+            </p>
+          ) : null}
+          {files.length || readingFiles ? (
+            <ul className="flex flex-wrap gap-1.5 px-1" aria-label="Files to send">
+              {files.map((f, i) => (
+                <li key={`${f.name}-${i}`} className="inline-flex max-w-full items-center gap-1 rounded-md border border-line bg-sunken py-0.5 pr-0.5 pl-1.5 text-[12px] text-primary">
+                  <PaperClipIcon className="size-3 shrink-0 text-muted" aria-hidden />
+                  <span className="truncate">{f.name}</span>
+                  {fileNote(f) ? <span className="shrink-0 text-muted">{fileNote(f)}</span> : null}
+                  <button type="button" onClick={() => setFiles((list) => list.filter((_, n) => n !== i))} className="rounded p-0.5 text-muted hover:bg-surface hover:text-primary" aria-label={`Remove ${f.name}`}>
+                    <XMarkIcon className="size-3" aria-hidden />
+                  </button>
+                </li>
+              ))}
+              {readingFiles ? <li className="text-shimmer text-[12px]">Reading…</li> : null}
+            </ul>
+          ) : null}
           <div className="flex items-end gap-2">
             <div className="flex min-h-10 min-w-0 flex-1 items-center gap-1 rounded-2xl border border-line bg-surface px-2 shadow-sm focus-within:border-ring">
+              {!editingId ? (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept={ATTACHMENT_ACCEPT}
+                    className="sr-only"
+                    tabIndex={-1}
+                    aria-hidden
+                    onChange={(e) => {
+                      const chosen = [...(e.target.files ?? [])];
+                      e.target.value = "";
+                      void attach(chosen);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={busy || readingFiles || dictation.recording || !configured || files.length >= MAX_ATTACHMENTS}
+                    className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted hover:bg-sunken hover:text-primary disabled:pointer-events-none disabled:opacity-40"
+                    aria-label="Attach a file"
+                    title="Attach a CSV, Excel, Word or text file"
+                  >
+                    <PaperClipIcon className="size-4" aria-hidden />
+                  </button>
+                </>
+              ) : null}
               <textarea
                 ref={inputRef}
                 value={input}
@@ -700,7 +821,7 @@ export function AgentPanel({ configured }: { configured: boolean }) {
                 <StopIcon className="size-4" aria-hidden />
               </button>
             ) : (
-              <button type="submit" disabled={!input.trim() || dictation.recording || dictation.transcribing || !configured} className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground hover:bg-accent-hover disabled:opacity-50" aria-label="Send">
+              <button type="submit" disabled={(!input.trim() && !files.length) || readingFiles || dictation.recording || dictation.transcribing || !configured} className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground hover:bg-accent-hover disabled:opacity-50" aria-label="Send">
                 <ArrowUpIcon className="size-5" strokeWidth={2.5} aria-hidden />
               </button>
             )}

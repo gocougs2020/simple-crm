@@ -20,6 +20,9 @@ import { markdownToHtml } from "./markdown";
 import { MAX_STORED_CHARS } from "./messages";
 import { budgetRefusal, budgetUsedUp, MAX_RUN_PROMPT, MAX_RUN_RESULT, monthStart, runFailure, runMessage, runTitle, usdToMicro, type RunRecord } from "./run-rules";
 import { signRunToken, type RunClaims } from "./run-token";
+import { cadenceLabel } from "./schedule-rules";
+import { skillsSection } from "./skill-rules";
+import { activeSkills } from "./skills";
 
 /**
  * The agent's background runs: long jobs it does for a teammate after
@@ -49,6 +52,8 @@ export type StartRunInput = {
   organizationId?: string | null;
   clientId?: string | null;
   batchId?: string | null;
+  /** The scheduled job that started it. */
+  scheduleId?: string | null;
 };
 
 /**
@@ -158,6 +163,7 @@ export async function startRuns(actor: Actor, inputs: StartRunInput[]): Promise<
           organizationId: input.organizationId ?? null,
           clientId: input.clientId ?? null,
           batchId: input.batchId ?? null,
+          scheduleId: input.scheduleId ?? null,
         };
       }),
     )
@@ -299,7 +305,7 @@ async function dispatch(run: Run, origin: string) {
     const user = await userOf(run.userId);
     if (!user) throw new Error("the teammate was deactivated");
     const actor = await assistantActor(user);
-    const [workspace, record, activity] = await Promise.all([
+    const [workspace, record, activity, skills, job] = await Promise.all([
       getWorkspace(),
       recordOf(run),
       run.activityId
@@ -307,6 +313,14 @@ async function dispatch(run: Run, origin: string) {
             .select({ id: schema.activities.id, type: schema.activities.type, subject: schema.activities.subject })
             .from(schema.activities)
             .where(eq(schema.activities.id, run.activityId))
+            .then((r) => r[0] ?? null)
+        : null,
+      activeSkills(user.id),
+      run.scheduleId
+        ? db
+            .select()
+            .from(schema.agentSchedules)
+            .where(eq(schema.agentSchedules.id, run.scheduleId))
             .then((r) => r[0] ?? null)
         : null,
     ]);
@@ -319,6 +333,8 @@ async function dispatch(run: Run, origin: string) {
       record,
       activity: activity && (activity.type === "note" || activity.type === "task") ? { id: activity.id, type: activity.type, subject: activity.subject } : null,
       knowledge: featureInstructions(),
+      skills: skillsSection(skills, { tool: "crm__get_skill", owner: user.name }),
+      schedule: job ? { name: job.name, cadence: cadenceLabel(job) } : null,
       prompt: run.prompt,
     });
     const client = await eveClient({ userId: user.id, runId: run.id, origin });

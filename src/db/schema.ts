@@ -6,6 +6,9 @@ import type {
   AgentDraftStatus,
   AgentRunSource,
   AgentRunStatus,
+  AgentScope,
+  AgentSkillMode,
+  ScheduleEvery,
   ApiKeyKind,
   BillingInterval,
   CalendarSharing,
@@ -1000,6 +1003,8 @@ export const agentRuns = pgTable(
     clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
     /** Runs started together by one bulk request share this. */
     batchId: uuid("batch_id"),
+    /** The scheduled job that started it, when one did. */
+    scheduleId: uuid("schedule_id").references((): AnyPgColumn => agentSchedules.id, { onDelete: "set null" }),
     /** The agent's answer (markdown), or what went wrong, in a sentence. */
     result: text("result"),
     error: text("error"),
@@ -1054,6 +1059,78 @@ export const agentDrafts = pgTable(
     decidedAt: timestamp("decided_at", { withTimezone: true }),
   },
   (t) => [index("agent_drafts_user_idx").on(t.userId, t.status, t.createdAt), index("agent_drafts_person_idx").on(t.personId, t.status)],
+);
+
+/**
+ * Skills: instructions a teammate or an admin saved for the agent, such as
+ * how to write up a call or what a good prospect looks like (docs/AGENT.md).
+ * A personal skill is used only by its teammate's agent. A workspace skill is
+ * shared by an admin and used by everyone's. `mode` says whether it's part of
+ * every conversation or read when the work calls for it.
+ */
+export const agentSkills = pgTable(
+  "agent_skills",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    scope: text("scope").$type<AgentScope>().notNull().default("personal"),
+    /** Whose it is (personal), or who wrote it (workspace). */
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** When to use it, in a sentence: what the agent matches a request against. */
+    description: text("description").notNull(),
+    /** What to do, in markdown. */
+    instructions: text("instructions").notNull(),
+    mode: text("mode").$type<AgentSkillMode>().notNull().default("on_demand"),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: updatedAt().$onUpdate(() => new Date()),
+  },
+  (t) => [index("agent_skills_scope_idx").on(t.scope, t.userId)],
+);
+
+/**
+ * Scheduled jobs: work the agent does on its own, on a cadence
+ * (docs/AGENT.md). A personal job runs as its teammate: the agent cron starts
+ * a background run for them when `nextRunAt` passes. A workspace job is an
+ * offer from an admin: it never runs itself, and a teammate who adds it gets
+ * their own copy (`fromId`), which runs as them.
+ */
+export const agentSchedules = pgTable(
+  "agent_schedules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    scope: text("scope").$type<AgentScope>().notNull().default("personal"),
+    /** Who it runs as (personal), or who offered it (workspace). */
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** What to do each time, in plain words: the run's request. */
+    prompt: text("prompt").notNull(),
+    every: text("every").$type<ScheduleEvery>().notNull(),
+    /** "HH:MM" in the workspace's time zone, on the quarter hour. */
+    time: text("time").notNull(),
+    /** 1 (Monday) to 7 (Sunday), for weekly jobs. */
+    weekday: integer("weekday"),
+    /** 1 to 28, for monthly jobs. */
+    monthDay: integer("month_day"),
+    /** YYYY-MM-DD, for a job that runs once. */
+    onDate: text("on_date"),
+    enabled: boolean("enabled").notNull().default(true),
+    /** When it runs next. Null for an offer, a paused job, or a one-time job that has run. */
+    nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    lastRunId: uuid("last_run_id").references((): AnyPgColumn => agentRuns.id, { onDelete: "set null" }),
+    /** Why the last run couldn't start (the month's budget is spent, say), in a sentence. */
+    lastError: text("last_error"),
+    /** The shared job this one was added from. */
+    fromId: uuid("from_id").references((): AnyPgColumn => agentSchedules.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt().$onUpdate(() => new Date()),
+  },
+  (t) => [index("agent_schedules_due_idx").on(t.nextRunAt), index("agent_schedules_user_idx").on(t.scope, t.userId)],
 );
 
 // ─── Push notifications ──────────────────────────────────────────────────

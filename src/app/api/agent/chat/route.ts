@@ -6,11 +6,14 @@ import type { AgentMessage } from "@/db/schema";
 import { assistantActor } from "@/lib/agent/actor";
 import { aiGateway } from "@/lib/agent/gateway";
 import { agentError, agentRequest, readJson } from "@/lib/agent/http";
+import { withAttachments } from "@/lib/agent/attachments";
 import { mergeIncoming } from "@/lib/agent/messages";
 import { agentInstructions } from "@/lib/agent/prompt";
+import { activeSkills } from "@/lib/agent/skills";
 import { featureInstructions } from "@/lib/api/features";
 import { aiFeatures, aiOffMessage } from "@/lib/agent/config";
 import { autoTitle, ensureThread, saveMessages } from "@/lib/agent/threads";
+import { confirmReason } from "@/lib/agent/policy";
 import { agentTools, needsConfirmation } from "@/lib/agent/tools";
 import { can } from "@/lib/crm/actor";
 import { siteOrigin } from "@/lib/origin";
@@ -37,7 +40,8 @@ export async function POST(request: Request) {
 
   let input: z.infer<typeof body>;
   try {
-    input = body.parse(await readJson(request));
+    // Room for the text of attached files (src/lib/agent/attachments.ts), which JSON escaping can double.
+    input = body.parse(await readJson(request, 400_000));
   } catch {
     return agentError(400, "That message couldn't be read. Try sending it again.");
   }
@@ -48,7 +52,7 @@ export async function POST(request: Request) {
   const merged = mergeIncoming(thread.messages, input.message);
   if (!merged.ok) return agentError(400, merged.error);
 
-  const [actor, workspace, origin] = await Promise.all([assistantActor(user), getWorkspace(), siteOrigin()]);
+  const [actor, workspace, origin, skills] = await Promise.all([assistantActor(user), getWorkspace(), siteOrigin(), activeSkills(user.id)]);
   const tools = agentTools(actor, { origin, agent: true, threadId: thread.id });
 
   let messages: UIMessage[];
@@ -71,12 +75,14 @@ export async function POST(request: Request) {
       now: new Date(),
       page: input.page,
       knowledge: featureInstructions(),
+      skills,
       background: aiFeatures().background && can(actor, "records:write"),
     }),
-    messages: await convertToModelMessages(messages, { tools, ignoreIncompleteToolCalls: true }),
+    // Attached files reach the model as text after the message they came with.
+    messages: await convertToModelMessages(withAttachments(messages as AgentMessage[]) as UIMessage[], { tools, ignoreIncompleteToolCalls: true }),
     tools,
     // Archive and delete wait for the teammate's button press.
-    toolApproval: ({ toolCall }) => (needsConfirmation(toolCall.toolName) ? { type: "user-approval", reason: "This archives or deletes something." } : undefined),
+    toolApproval: ({ toolCall }) => (needsConfirmation(toolCall.toolName) ? { type: "user-approval", reason: confirmReason(toolCall.toolName) } : undefined),
     stopWhen: isStepCount(12),
     // Reasoning tokens count toward this, so it leaves room for thinking as well as the answer.
     maxOutputTokens: 16_000,
@@ -95,6 +101,10 @@ export async function POST(request: Request) {
 
   return result.toUIMessageStreamResponse({
     originalMessages: messages,
+    // The answer's id is made here and sent with the stream, so the browser's copy and the stored copy carry the
+    // same one. Without it the SDK stores "" and the browser makes up its own, and a confirmation (archive, delete,
+    // merge) or a thumbs-up sent back for that message matches nothing.
+    generateMessageId: () => crypto.randomUUID(),
     // The model's reasoning stays on the server: it isn't shown, and threads don't store it.
     sendReasoning: false,
     headers: { "Cache-Control": "no-store" },

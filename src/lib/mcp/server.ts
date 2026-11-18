@@ -26,6 +26,10 @@ const MAX_BATCH = 20;
  * (and to the key) in history. Workspace keys are refused here on purpose.
  */
 
+/** For agents that relay what they read here to a person: the answer, not the record. */
+const CONCISE =
+  "When you report back to the person, answer what they asked in a few sentences. Give the facts that matter to their question (names, dates, amounts, the next step) instead of repeating whole timelines, summaries or every field you read, unless they ask for the full detail. Ask for only what you need: use limit and the list filters rather than reading everything.";
+
 const instructions = (name: string, actor: Actor & { kind: "user" }, readOnly: boolean) =>
   [
     `You're connected to ${name}, a CRM, acting as ${actor.user.name} (${actor.user.role}). Everything you change is recorded in history as them.`,
@@ -35,6 +39,8 @@ const instructions = (name: string, actor: Actor & { kind: "user" }, readOnly: b
     "Use search first to find ids. Money is in integer cents (12500 is 125.00). Dates are YYYY-MM-DD; times are ISO 8601 with an offset.",
     "Tasks and notes can stand alone or link to a person, organization or client. Logging on a client also shows on its contact and organization.",
     "Archiving hides a record but keeps its history. Lists return nextCursor; pass it back as cursor for the next page.",
+    "The team saves skills: instructions for how they want things done. list_skills shows them with when to use each; read one with get_skill before doing work it covers, and follow it.",
+    actor.runId ? "" : CONCISE,
     featureInstructions() ?? "",
   ]
     .filter(Boolean)

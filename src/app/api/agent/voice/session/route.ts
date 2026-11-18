@@ -6,6 +6,7 @@ import { assistantActor } from "@/lib/agent/actor";
 import { agentError, agentRequest, readJson } from "@/lib/agent/http";
 import { aiFeatures, aiOffMessage } from "@/lib/agent/config";
 import { agentInstructions } from "@/lib/agent/prompt";
+import { activeSkills } from "@/lib/agent/skills";
 import { agentTools } from "@/lib/agent/tools";
 import { featureInstructions } from "@/lib/api/features";
 import { can } from "@/lib/crm/actor";
@@ -37,11 +38,12 @@ export async function POST(request: Request) {
   if (!aiFeatures().voice) return agentError(503, aiOffMessage("voice"));
   const { page } = body.parse(await readJson(request, 4_000).catch(() => ({})));
   try {
-    const [token, actor, ws, origin] = await Promise.all([
+    const [token, actor, ws, origin, skills] = await Promise.all([
       aiGateway.experimental_realtime.getToken({ model: appConfig.agent.voiceModel, expiresAfterSeconds: TOKEN_SECONDS }),
       assistantActor(gate.user),
       getWorkspace(),
       siteOrigin(),
+      activeSkills(gate.user.id),
     ]);
     const tools = await realtimeTools({ tools: agentTools(actor, { origin, agent: true }, { voice: true }) });
     const instructions = agentInstructions({
@@ -52,6 +54,7 @@ export async function POST(request: Request) {
       page,
       voice: true,
       knowledge: featureInstructions(),
+      skills,
     });
     return Response.json({ ...token, tools, instructions }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {

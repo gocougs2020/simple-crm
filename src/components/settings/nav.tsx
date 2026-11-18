@@ -4,6 +4,7 @@ import clsx from "clsx";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { appConfig } from "@/app.config";
 import { useApp } from "@/components/app-context";
 
 const items = [
@@ -11,6 +12,7 @@ const items = [
   { href: "/settings/notifications", label: "Notifications", admin: false },
   { href: "/settings/accounts", label: "Email and calendar", admin: false },
   { href: "/settings/team", label: "Team", admin: false },
+  { href: "/settings/agent", label: appConfig.agent.name, admin: false },
   { href: "/settings/api", label: "API and MCP", admin: false },
   { href: "/settings/pipelines", label: "Pipelines", admin: true },
   { href: "/settings/services", label: "Services", admin: true },

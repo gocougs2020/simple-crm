@@ -25,8 +25,12 @@ export function runTitle(prompt: string, max = 80) {
  * The tools a background run gets out of the ones its teammate's role allows.
  * Nobody is watching a run, so it can't archive, delete or merge (those wait
  * for a confirm button in chat), and it can't start more runs of itself.
+ * It can read skills and scheduled jobs but not write them: what a run reads
+ * on the web or in a record must never become standing instructions or
+ * recurring work.
  */
-export const runMayUse = (op: Pick<Operation, "method" | "destructive" | "tag">) => !isDestructive(op) && op.tag !== "Agent";
+const READ_ONLY_TAGS = new Set(["Skills", "Scheduled jobs"]);
+export const runMayUse = (op: Pick<Operation, "method" | "destructive" | "tag">) => !isDestructive(op) && op.tag !== "Agent" && !(READ_ONLY_TAGS.has(op.tag) && op.method !== "GET");
 
 /**
  * Whether a note's text calls on the agent: "@Agent" (whatever the
@@ -97,6 +101,10 @@ export type RunMessageContext = {
   /** The note that mentioned the agent or the task given to it. */
   activity?: { id: string; type: "note" | "task"; subject: string | null } | null;
   knowledge?: string | null;
+  /** The skills section (skillsSection in skill-rules.ts), when the teammate has any. */
+  skills?: string | null;
+  /** The scheduled job this run is one occurrence of. */
+  schedule?: { name: string; cadence: string } | null;
   prompt: string;
 };
 
@@ -106,6 +114,7 @@ const answerGoes: Record<AgentRunSource, string> = {
   mention: "Your answer is saved as a note on the same record, in reply to theirs.",
   task: "Your answer is saved on the task, and the task is then marked done. Don't complete or edit the task yourself.",
   bulk: "Your answer is saved on this record's run and listed with the others. Keep it to a few lines.",
+  schedule: "Your answer is saved on the run, and they're notified that it's ready. Lead with what changed or needs them since last time. If there's nothing to report, say so in one line.",
 };
 
 const asked: Record<AgentRunSource, string> = {
@@ -114,6 +123,7 @@ const asked: Record<AgentRunSource, string> = {
   mention: "They mentioned you in a note.",
   task: "They assigned you a task.",
   bulk: "This is one record of a request that covers several. Work on this record only.",
+  schedule: "This is a scheduled job they set up. Nobody asked just now.",
 };
 
 /** The first message of a run: who it's for, the context a chat would have had, and the request. */
@@ -126,10 +136,12 @@ export function runMessage(c: RunMessageContext) {
     `It is ${text}. Today is ${date} in the workspace time zone (${c.workspace.timezone}). Money is in ${c.workspace.currency}.`,
     c.canWrite ? "" : "Their role is read-only, so you can look things up but not change records. If the request needs a change, say so in your answer.",
     asked[c.source],
+    c.schedule ? `The job is called "${c.schedule.name}" and runs on this schedule: ${c.schedule.cadence}.` : "",
     c.record ? `The request is about the ${c.record.entity} "${c.record.name}" (id ${c.record.id}).` : "",
     c.activity ? `The ${c.activity.type} has id ${c.activity.id}${c.activity.subject ? ` and is called "${c.activity.subject}"` : ""}.` : "",
     answerGoes[c.source],
     c.knowledge ? `\n## About ${c.workspace.name}\n${c.knowledge}` : "",
+    c.skills ? `\n${c.skills}` : "",
     "\n## The request",
     c.prompt.slice(0, MAX_RUN_PROMPT).trim(),
   ];

@@ -65,7 +65,7 @@ function ToolActivity({ part, onApprove }: { part: ToolPart; onApprove: (id: str
     return (
       <div className="rounded-lg border border-warning-border bg-warning-surface px-3 py-2.5 text-[13px] text-primary" role="group" aria-label={`Confirm: ${label}`}>
         <p className="font-medium">{label}?</p>
-        <p className="mt-0.5 text-[12.5px] text-secondary">{part.approval.requestReason ?? "This changes your CRM."} Archived records can be restored later.</p>
+        <p className="mt-0.5 text-[12.5px] text-secondary">{part.approval.requestReason ?? "This changes your CRM."}</p>
         <div className="mt-2 flex gap-2">
           <button type="button" onClick={() => onApprove(part.approval!.id, true)} className="inline-flex h-7 items-center rounded-md bg-accent px-2.5 text-[12.5px] font-medium text-accent-foreground hover:bg-accent-hover">
             {label}

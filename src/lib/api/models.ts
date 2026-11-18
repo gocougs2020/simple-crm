@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { activityTypes, agentDraftKinds, agentDraftStatuses, agentRunSources, agentRunStatuses, apiKeyKinds, billingIntervals, clientCategories, clientHealths, customFieldTypes, entityTypes, userRoles } from "@/lib/constants";
+import { activityTypes, agentDraftKinds, agentDraftStatuses, agentRunSources, agentRunStatuses, agentScopes, agentSkillModes, apiKeyKinds, billingIntervals, clientCategories, clientHealths, customFieldTypes, entityTypes, scheduleEvery, userRoles } from "@/lib/constants";
 import { permissions } from "@/lib/permissions";
 
 /**
@@ -206,7 +206,7 @@ export const AgentTask = z.object({
   id: uuid,
   title: z.string(),
   request: z.string().describe("What was asked for."),
-  source: z.enum(agentRunSources).describe("Where it was asked: the agent chat, a mention in a note, an assigned task, a bulk request, or the API."),
+  source: z.enum(agentRunSources).describe("Where it was asked: the agent chat, a mention in a note, an assigned task, a bulk request, the API, or a scheduled job."),
   status: z.enum(agentRunStatuses).describe("queued and running are still going; done, failed and cancelled are final."),
   result: z.string().nullable().describe("The agent's answer (markdown), once done."),
   error: z.string().nullable().describe("Why it didn't finish, in a sentence."),
@@ -226,6 +226,42 @@ export const AgentBulk = z.object({
   tasks: z.array(AgentTask),
 });
 
+export const Skill = z.object({
+  id: uuid,
+  name: z.string(),
+  description: z.string().describe("When to use it."),
+  instructions: z.string().nullable().describe("What to do, in markdown. Null in lists: read the skill for its instructions."),
+  mode: z.enum(agentSkillModes).describe("always: part of every conversation. on_demand: read when a request matches the description."),
+  scope: z.enum(agentScopes).describe("personal: one teammate's. workspace: shared with the whole team."),
+  enabled: z.boolean(),
+  ownerId: uuid.describe("Whose it is, or who shared it."),
+  ownerName: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const ScheduledJob = z.object({
+  id: uuid,
+  name: z.string(),
+  request: z.string().describe("What the agent does each time."),
+  every: z.enum(scheduleEvery),
+  time: z.string().describe('"HH:MM" in the workspace time zone.'),
+  weekday: z.number().int().nullable().describe("1 (Monday) to 7 (Sunday), for weekly jobs."),
+  monthDay: z.number().int().nullable().describe("1 to 28, for monthly jobs."),
+  onDate: z.string().nullable().describe("YYYY-MM-DD, for a job that runs once."),
+  schedule: z.string().describe('The cadence in words: "Every Monday at 8:00 AM".'),
+  scope: z.enum(agentScopes).describe("personal: runs as its teammate. workspace: offered to the team; it runs for whoever adds it."),
+  enabled: z.boolean(),
+  nextRunAt: z.string().nullable().describe("When it runs next. Null when paused, offered, or done."),
+  lastRunAt: z.string().nullable(),
+  lastTaskId: uuid.nullable().describe("The background task of its last run (GET /agent/tasks/{id})."),
+  lastError: z.string().nullable().describe("Why its last run couldn't start, in a sentence."),
+  ownerId: uuid,
+  ownerName: z.string(),
+  fromId: uuid.nullable().describe("The shared job it was added from."),
+  createdAt: z.string(),
+});
+
 export const Draft = z.object({
   id: uuid,
   kind: z.enum(agentDraftKinds),
@@ -240,5 +276,5 @@ export const Draft = z.object({
 });
 
 /** Named schemas, in the order the docs list them. */
-export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, ClientService, Metric, User, CustomField, Me, SearchResult, AgentTask, AgentBulk, Draft, Knowledge, Deleted } as const;
+export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, ClientService, Metric, User, CustomField, Me, SearchResult, AgentTask, AgentBulk, Skill, ScheduledJob, Draft, Knowledge, Deleted } as const;
 export type ModelName = keyof typeof models;
