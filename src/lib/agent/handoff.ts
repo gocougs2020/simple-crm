@@ -41,8 +41,8 @@ export async function handOff(actor: Actor, activity: Handed, source: "task" | "
 /**
  * A note, or a reply under one, mentioned the agent. It's already saved, so a
  * refusal (the budget is spent, say) becomes a short reply under the note
- * instead of an error. `thread` is the note with its replies, when the
- * mention came in a reply.
+ * instead of an error. `thread` is the request when the mention came in a
+ * reply: the reply itself, then the note and earlier replies as quoted context.
  */
 export async function handOffMention(actor: Actor, note: Handed, thread?: string) {
   try {
