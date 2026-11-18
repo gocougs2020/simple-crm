@@ -16,7 +16,7 @@ import { PageHeader } from "@/components/shell/app-shell";
 import { openCreate } from "@/components/shell/create-store";
 import { AgoCell, NextActivityCell, OwnerCell } from "@/components/table/cells";
 import { DataTable, type Column } from "@/components/table/data-table";
-import { OwnerFilter, SearchBox, Toolbar } from "@/components/table/toolbar";
+import { OwnerFilter, ParentFilter, SearchBox, Toolbar } from "@/components/table/toolbar";
 import { usePagedRows } from "@/components/table/use-paged-rows";
 import { useListParams } from "@/components/table/use-params";
 import { MergeDialog, type MergeCandidate } from "@/components/records/merge-dialog";
@@ -120,6 +120,7 @@ export function PeopleView({ rows: first, total, filter, pageSize, tags, filtere
       <Toolbar>
         <SearchBox placeholder="Search name, email, phone" />
         <OwnerFilter />
+        <ParentFilter />
         {tags.length ? (
           <Select value={get("tag") ?? ""} onChange={(e) => set({ tag: e.target.value || null })} aria-label="Tag" className="w-36 [&_select]:h-8 [&_select]:text-[13px]">
             <option value="">Any tag</option>

@@ -82,6 +82,11 @@ export const orgInput = z.object({
   phone: optionalText(40),
   address: optionalText(300),
   industry: optionalText(80),
+  isParent: z
+    .boolean()
+    .optional()
+    .describe("Mark it as a parent organization: one that others can be part of (a franchisor and its franchises, a group and its offices). Only parent organizations can be another's parentId."),
+  parentId: optionalId.describe("The parent organization this one is part of. Must be an organization with isParent true; a parent organization can't have a parent itself. null for none."),
   ownerId: optionalId.describe("The teammate who owns the relationship. Defaults to whoever creates it; null for none."),
   custom: customValues.optional(),
 });

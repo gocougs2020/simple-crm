@@ -377,7 +377,10 @@ function TagEditor({ value, onChange }: { value: string[]; onChange: (v: string[
 
 // ─── Organization ────────────────────────────────────────────────────────
 
-export function OrganizationDetails({ org }: { org: Organization }) {
+export function OrganizationDetails({ org, parent }: { org: Organization; parent: { id: string; name: string } | null }) {
+  const { parentOrganizations } = useApp();
+  // By name; the current one stays in the list even if it was archived or unmarked since.
+  const choices = [...parentOrganizations.filter((p) => p.id !== org.id), ...(parent && !parentOrganizations.some((p) => p.id === parent.id) ? [parent] : [])].sort((a, b) => a.name.localeCompare(b.name));
   const save = (patch: Parameters<typeof updateOrganization>[1]) => updateOrganization(org.id, patch).then(ok);
   return (
     <SideCard title="Details">
@@ -403,6 +406,43 @@ export function OrganizationDetails({ org }: { org: Organization }) {
           multiline
           editor={({ value, setValue }) => <Textarea value={value ?? ""} onChange={(e) => setValue(e.target.value)} autoFocus rows={2} className="text-[13.5px]" />}
           onSave={(address) => save({ address: address?.trim() || null })}
+        />
+        {/* A parent organization isn't part of another, so it has no parent to pick. */}
+        {org.isParent ? null : (
+          <InlineField<string | null>
+            label="Parent organization"
+            value={org.parentId}
+            empty="Add parent organization"
+            display={
+              parent ? (
+                <Link href={`/organizations/${parent.id}`} className="underline-offset-2 hover:underline" onClick={(e) => e.stopPropagation()}>
+                  {parent.name}
+                </Link>
+              ) : undefined
+            }
+            editor={({ value, commit, autoFocus }) =>
+              choices.length ? (
+                <Select value={value ?? ""} onChange={(e) => commit(e.target.value || null)} autoFocus={autoFocus} aria-label="Parent organization" className="[&_select]:h-8 [&_select]:text-[13.5px]">
+                  <option value="">None</option>
+                  {choices.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Select>
+              ) : (
+                <p className="py-1.5 text-[12.5px] text-muted">No parent organizations yet. Open the organization that should be the parent and mark it as one.</p>
+              )
+            }
+            onSave={(parentId) => save({ parentId })}
+          />
+        )}
+        <InlineField<boolean>
+          label="Is a parent"
+          value={org.isParent}
+          display={org.isParent ? "Yes, others can be part of it" : "No"}
+          editor={({ value, commit }) => <Checkbox checked={value} onChange={(e) => commit(e.target.checked)} label="Other organizations can be part of it" autoFocus />}
+          onSave={(isParent) => save({ isParent })}
         />
         <OwnerField value={org.ownerId} onSave={(ownerId) => save({ ownerId })} />
         <CustomFieldRows entity="organization" values={org.custom} onSave={(key, v) => save({ custom: { [key]: v } })} />
@@ -603,6 +643,56 @@ export function RelatedClients({ clients, create }: { clients: RelatedClient[]; 
         </ul>
       ) : (
         <p className="py-1 text-[12.5px] text-muted">Not a client yet.</p>
+      )}
+    </SideCard>
+  );
+}
+
+/** A parent organization's organizations, by name, with a way to add one and to see everyone across them. */
+export function RelatedOrganizations({ parent, organizations }: { parent: { id: string; name: string }; organizations: { id: string; name: string; peopleCount: number }[] }) {
+  const { canEdit } = useApp();
+  return (
+    <SideCard
+      title={
+        <>
+          Organizations <span className="font-medium text-muted tabular-nums">{organizations.length || ""}</span>
+        </>
+      }
+      action={
+        canEdit ? (
+          <Button size="sm" variant="ghost" className="-mr-2" onClick={() => openCreate({ kind: "organization", defaults: { parentId: parent.id } })}>
+            <PlusIcon />
+            Organization
+          </Button>
+        ) : undefined
+      }
+    >
+      {organizations.length ? (
+        <>
+          <ul className="-mx-2 max-h-80 overflow-y-auto">
+            {organizations.map((o) => (
+              <li key={o.id}>
+                <Link href={`/organizations/${o.id}`} className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-sunken">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-sunken">
+                    <BuildingOffice2Icon className="size-3.5 text-muted" />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-primary">{o.name}</span>
+                  <span className="shrink-0 text-[11.5px] text-muted tabular-nums">{o.peopleCount ? `${o.peopleCount} ${o.peopleCount === 1 ? "person" : "people"}` : ""}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-1 flex gap-1 text-[12px]">
+            <Link href={`/people?parent=${parent.id}`} className="rounded-md px-2 py-1 text-muted hover:bg-sunken hover:text-primary">
+              See all their people
+            </Link>
+            <Link href={`/organizations?parent=${parent.id}`} className="rounded-md px-2 py-1 text-muted hover:bg-sunken hover:text-primary">
+              Open as a list
+            </Link>
+          </div>
+        </>
+      ) : (
+        <p className="py-1 text-[12.5px] text-muted">None yet. Open an organization and pick {parent.name} as its parent organization.</p>
       )}
     </SideCard>
   );

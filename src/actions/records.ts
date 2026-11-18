@@ -116,6 +116,10 @@ const listFilter = z.object({
   q: z.string().max(200).optional(),
   ownerId: z.string().max(40).optional(),
   tag: z.string().max(40).optional(),
+  /** People: at this organization, or at one that is part of it. */
+  organizationId: z.uuid().optional(),
+  /** Organizations: part of this parent organization, or "parents" for the parents themselves. */
+  parentId: z.union([z.uuid(), z.literal("parents")]).optional(),
   sort: z.string().max(40).optional(),
   dir: z.enum(["asc", "desc"]).optional(),
 });

@@ -10,7 +10,7 @@ import type { ClientCategory } from "@/lib/constants";
  */
 export type CreateRequest =
   | { kind: "person"; defaults?: { organizationId?: string; organizationName?: string; firstName?: string; phone?: string; email?: string; openAfter?: boolean } }
-  | { kind: "organization"; defaults?: { name?: string } }
+  | { kind: "organization"; defaults?: { name?: string; parentId?: string } }
   | { kind: "client"; defaults?: { category?: ClientCategory; stageId?: string; personId?: string; personName?: string; organizationId?: string; organizationName?: string; name?: string } }
   | null;
 

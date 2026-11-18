@@ -9,7 +9,7 @@ import type { CampaignAudience } from "@/db/schema";
 import { appConfig } from "@/app.config";
 import { churnReasons, clientCategories, clientCategoryLabels } from "@/lib/constants";
 
-type ListKey = "tags" | "excludeTags" | "ownerIds" | "clientCategories" | "pipelineIds" | "stageIds" | "serviceIds" | "churnReasons" | "clientTags" | "organizationIndustries";
+type ListKey = "tags" | "excludeTags" | "ownerIds" | "clientCategories" | "pipelineIds" | "stageIds" | "serviceIds" | "churnReasons" | "clientTags" | "organizationIndustries" | "organizationIds";
 
 /** Whether any filter is set, so the summary can say "everyone" or "people who match all of these". */
 export function hasFilters(a: CampaignAudience) {
@@ -38,7 +38,7 @@ export function AudienceFilters({
   industries?: string[];
   readOnly?: boolean;
 }) {
-  const { team, pipelines, catalog, customFields } = useApp();
+  const { team, pipelines, catalog, customFields, parentOrganizations } = useApp();
   const toggle = (key: ListKey, value: string) =>
     onChange((a) => {
       const list = (a[key] ?? []) as string[];
@@ -104,6 +104,21 @@ export function AudienceFilters({
           onChange={(e) => onChange((a) => ({ ...a, decisionMakersOnly: e.target.checked || undefined }))}
           label={<span className="text-[13px]">Only {appConfig.records.keyContactLabel.toLowerCase()}s (people starred at their organization)</span>}
         />
+        {parentOrganizations.length || audience.organizationIds?.length ? (
+          <div>
+            <ChipGroup
+              label="Part of"
+              options={[
+                ...parentOrganizations.map((o) => ({ value: o.id, label: o.name })),
+                // Chosen before, and since archived or unmarked as a parent: still shown so it can be taken off.
+                ...(audience.organizationIds ?? []).filter((id) => !parentOrganizations.some((o) => o.id === id)).map((id) => ({ value: id, label: "Another organization" })),
+              ]}
+              selected={audience.organizationIds ?? []}
+              onToggle={(v) => toggle("organizationIds", v)}
+            />
+            <p className="mt-1.5 text-fine">People at the parent organization and at every organization that is part of it.</p>
+          </div>
+        ) : null}
         {industries.length || audience.organizationIndustries?.length ? (
           <ChipGroup
             label="At organizations in"

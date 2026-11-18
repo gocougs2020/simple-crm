@@ -278,6 +278,14 @@ export const organizations = pgTable(
     phone: text("phone"),
     address: text("address"),
     industry: text("industry"),
+    /**
+     * Parent organizations group others under them (a franchisor and its
+     * franchises). Only an organization marked `isParent` can be picked as
+     * another's `parentId`, and a parent has no parent of its own, so the
+     * grouping is one level deep (src/lib/crm/service/records.ts keeps it so).
+     */
+    isParent: boolean("is_parent").notNull().default(false),
+    parentId: uuid("parent_id").references((): AnyPgColumn => organizations.id, { onDelete: "set null" }),
     ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
     custom: jsonb("custom").$type<CustomValues>().notNull().default({}),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
@@ -289,6 +297,7 @@ export const organizations = pgTable(
   },
   (t) => [
     index("organizations_name_idx").on(t.name),
+    index("organizations_parent_idx").on(t.parentId),
     index("organizations_owner_idx").on(t.ownerId),
     index("organizations_phone_digits_idx").on(sql`right(regexp_replace(regexp_replace(${t.phone}, '\\s*(x|ext\\.?|extension|#)\\s*[0-9]+\\s*$', '', 'i'), '[^0-9]', '', 'g'), 10)`),
   ],
@@ -701,6 +710,7 @@ export type CampaignAudience = {
   /** People connected to a client in one of these pipelines. */
   pipelineIds?: string[];
   ownerIds?: string[];
+  /** People at one of these organizations, or at an organization that is part of one (its parent organization). */
   organizationIds?: string[];
   /** People connected to a client in one of these categories (the client's contact, or anyone at its organization). */
   clientCategories?: ClientCategory[];

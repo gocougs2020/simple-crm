@@ -8,7 +8,7 @@ import { getDb, schema } from "@/db";
 import type { ActivityType, EntityType } from "@/lib/constants";
 import { actorUserId, type Actor } from "@/lib/crm/actor";
 import { timeline } from "@/lib/crm/activities";
-import { likeTerm } from "@/lib/crm/records";
+import { inOrganizations, likeTerm } from "@/lib/crm/records";
 import { ActionError, NotFoundError } from "@/lib/errors";
 import { htmlToText } from "@/lib/safe-html";
 
@@ -129,7 +129,7 @@ export async function listPeople(a: Actor, ctx: Ctx, f: RecordFilter & { organiz
     const t = likeTerm(f.q);
     where.push(or(ilike(sql`${people.firstName} || ' ' || coalesce(${people.lastName}, '')`, t), ilike(people.email, t), ilike(people.phone, t), ilike(sql`${people.otherEmails}::text`, t), ilike(sql`${people.otherPhones}::text`, t), ilike(organizations.name, t)));
   }
-  if (f.organizationId) where.push(eq(people.organizationId, f.organizationId));
+  if (f.organizationId) where.push(inOrganizations(people.organizationId, [f.organizationId]));
   if (f.email) where.push(or(eq(people.email, f.email), sql`${people.otherEmails} ? ${f.email.toLowerCase()}`)!);
   if (f.tag) where.push(sql`${people.tags} ? ${f.tag}`);
   const rows = await db
@@ -153,9 +153,15 @@ export async function getPerson(ctx: Ctx, id: string) {
 
 // Qualified by hand: in a select with no joins Drizzle renders a column as a bare "id", which the subquery would read as its own.
 const peopleCount = sql<number>`(select count(*)::int from people p where p.organization_id = "organizations"."id" and p.archived_at is null)`;
-const orgSelect = { organization: organizations, peopleCount, key: exact(organizations.createdAt) };
+const orgSelect = {
+  organization: organizations,
+  peopleCount,
+  parentName: sql<string | null>`(select parent.name from organizations parent where parent.id = "organizations"."parent_id")`,
+  childCount: sql<number>`(select count(*)::int from organizations child where child.parent_id = "organizations"."id" and child.archived_at is null)`,
+  key: exact(organizations.createdAt),
+};
 
-function toOrganization(ctx: Ctx, r: { organization: typeof organizations.$inferSelect; peopleCount: number }) {
+function toOrganization(ctx: Ctx, r: { organization: typeof organizations.$inferSelect; peopleCount: number; parentName: string | null; childCount: number }) {
   const o = r.organization;
   return {
     id: o.id,
@@ -164,6 +170,10 @@ function toOrganization(ctx: Ctx, r: { organization: typeof organizations.$infer
     phone: o.phone,
     address: o.address,
     industry: o.industry,
+    isParent: o.isParent,
+    parentId: o.parentId,
+    parent: o.parentId && r.parentName ? { id: o.parentId, name: r.parentName } : null,
+    childCount: Number(r.childCount),
     ownerId: o.ownerId,
     peopleCount: Number(r.peopleCount),
     custom: o.custom,
@@ -175,7 +185,7 @@ function toOrganization(ctx: Ctx, r: { organization: typeof organizations.$infer
   };
 }
 
-export async function listOrganizations(a: Actor, ctx: Ctx, f: RecordFilter & { domain?: string }) {
+export async function listOrganizations(a: Actor, ctx: Ctx, f: RecordFilter & { domain?: string; parentId?: string; isParent?: boolean }) {
   const db = await getDb();
   const limit = f.limit ?? 50;
   const where = common(a, organizations, f);
@@ -184,6 +194,8 @@ export async function listOrganizations(a: Actor, ctx: Ctx, f: RecordFilter & { 
     where.push(or(ilike(organizations.name, t), ilike(organizations.domain, t), ilike(organizations.industry, t)));
   }
   if (f.domain) where.push(eq(organizations.domain, f.domain.replace(/^https?:\/\//, "").replace(/\/$/, "")));
+  if (f.parentId) where.push(eq(organizations.parentId, f.parentId));
+  if (f.isParent !== undefined) where.push(eq(organizations.isParent, f.isParent));
   const rows = await db
     .select(orgSelect)
     .from(organizations)

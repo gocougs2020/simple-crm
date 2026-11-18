@@ -9,7 +9,7 @@
  *
  * No "server-only": the script imports it too.
  */
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import * as schema from "@/db/schema";
 import type { CampaignAudience } from "@/db/schema";
@@ -101,6 +101,11 @@ export async function mergeOrganizationsInto(t: MergeDatabase, o: { keep: Org; d
   for (const table of [schema.clients, schema.activities, schema.files, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textMessages, schema.textThreads]) {
     await t.update(table).set({ organizationId: keep }).where(inArray(table.organizationId, ids));
   }
+  // Organizations that were part of a merged parent are part of the kept one (which the plan marks as a parent).
+  await t
+    .update(schema.organizations)
+    .set({ parentId: keep })
+    .where(and(inArray(schema.organizations.parentId, ids), ne(schema.organizations.id, keep)));
   await moveHistory(t, "organization", ids, keep);
   await repointAudiences(t, "organizationIds", ids, keep);
   await forgetInImports(t, "createdOrgIds", [...ids, keep]);

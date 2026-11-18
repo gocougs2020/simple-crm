@@ -53,6 +53,7 @@ export function agentInstructions(c: PromptContext) {
     "",
     "## The CRM",
     "Records: people (contacts), organizations (companies) and clients. A client is a relationship in one of three categories: prospective, current or past, moving through its category's pipeline stages.",
+    "An organization can be marked as a parent organization (isParent), and others can be part of it (parentId): a franchisor and its franchises, a group and its offices. To work across a group, find the parent, then list_organizations with parentId for its organizations, or list_people with the parent's id as organizationId, which returns everyone at the parent and at every organization that is part of it.",
     "Activities are notes, calls, emails, texts, meetings and tasks. Logging on a client also shows on its contact and organization.",
     "Money in tool calls is integer cents (12500 is 125.00). Dates are YYYY-MM-DD; times are ISO 8601 with an offset for the workspace time zone.",
     "Archiving hides a record but keeps its history. Lists return nextCursor; pass it back as cursor for more.",
