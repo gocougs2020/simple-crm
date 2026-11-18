@@ -4,7 +4,6 @@ import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
 import type { Actor } from "@/lib/crm/actor";
 import { ActionError } from "@/lib/errors";
-import { siteOrigin } from "@/lib/origin";
 import { htmlToText } from "@/lib/safe-html";
 import { assistantActor } from "./actor";
 import { assertCanStart, startRun } from "./runs";
@@ -26,7 +25,6 @@ export async function handOff(actor: Actor, activity: Handed, source: "task" | "
   const run = await startRun(
     actor,
     { prompt: text, title: activity.subject || text, source, activityId: activity.id, personId: activity.personId, organizationId: activity.organizationId, clientId: activity.clientId },
-    { origin: await siteOrigin() },
   );
   const db = await getDb();
   await db.update(schema.activities).set({ agentRunId: run.id }).where(eq(schema.activities.id, activity.id));

@@ -43,20 +43,20 @@ async function todayStart() {
 export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
   // Assistant
   async startAssistantTask(a, { body }, ctx) {
-    const run = await runs.startRun(a, { prompt: body.request, title: body.title, source: ctx.assistant ? "chat" : "api", threadId: ctx.threadId, personId: body.personId, organizationId: body.organizationId, clientId: body.clientId }, ctx);
+    const run = await runs.startRun(a, { prompt: body.request, title: body.title, source: ctx.assistant ? "chat" : "api", threadId: ctx.threadId, personId: body.personId, organizationId: body.organizationId, clientId: body.clientId });
     return q.toAssistantTask(run);
   },
   listAssistantTasks: async (a, { query }) => (await runs.listRuns(a, query)).map(q.toAssistantTask),
   getAssistantTask: async (a, { params }) => q.toAssistantTask(await runs.getRun(a, params.id)),
   async startAssistantBulk(a, { body }, ctx) {
-    const started = await runs.startBulk(a, { ...body, threadId: ctx.threadId }, ctx);
+    const started = await runs.startBulk(a, { ...body, threadId: ctx.threadId });
     return { batchId: started.batchId, count: started.runs.length, tasks: started.runs.map(q.toAssistantTask) };
   },
   async draftMessage(a, { body }, ctx) {
     return q.toDraft(await drafts.createDraft(a, body), ctx);
   },
   listDrafts: async (a, { query }, ctx) => (await drafts.listDrafts(a, query)).map((d) => q.toDraft(d, ctx)),
-  cancelAssistantTask: async (a, { params }, ctx) => q.toAssistantTask(await runs.cancelRun(a, params.id, ctx)),
+  cancelAssistantTask: async (a, { params }) => q.toAssistantTask(await runs.cancelRun(a, params.id)),
 
   async me(a) {
     const db = await getDb();

@@ -11,7 +11,6 @@ import { cancelBatch, cancelRun, listRuns, type Run } from "@/lib/agent/runs";
 import { ensureSummary, type Summary } from "@/lib/agent/summary";
 import { sessionActor } from "@/lib/crm/actor";
 import type { AgentRunSource, AgentRunStatus } from "@/lib/constants";
-import { siteOrigin } from "@/lib/origin";
 import { rateLimit } from "@/lib/rate-limit";
 
 /**
@@ -123,7 +122,7 @@ export async function listAgentTasks(): Promise<Result<AgentTask[]>> {
 export async function cancelAgentTask(id: string): Promise<Result<AgentTask>> {
   return run(async () => {
     const user = await actionUser();
-    return toTask(await cancelRun(sessionActor(user), z.uuid("That task doesn't exist.").parse(id), { origin: await siteOrigin() }));
+    return toTask(await cancelRun(sessionActor(user), z.uuid("That task doesn't exist.").parse(id)));
   });
 }
 
@@ -131,7 +130,7 @@ export async function cancelAgentTask(id: string): Promise<Result<AgentTask>> {
 export async function cancelAgentBatch(batchId: string): Promise<Result<{ stopped: number }>> {
   return run(async () => {
     const user = await actionUser();
-    return cancelBatch(sessionActor(user), z.uuid("That request doesn't exist.").parse(batchId), { origin: await siteOrigin() });
+    return cancelBatch(sessionActor(user), z.uuid("That request doesn't exist.").parse(batchId));
   });
 }
 

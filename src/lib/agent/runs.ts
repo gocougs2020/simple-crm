@@ -11,6 +11,7 @@ import { agentRunActive, type AgentRunSource } from "@/lib/constants";
 import { assertCan, can, type Actor } from "@/lib/crm/actor";
 import * as activities from "@/lib/crm/service/activities";
 import { ActionError, ForbiddenError, NotFoundError } from "@/lib/errors";
+import { internalOrigin } from "@/lib/origin";
 import { notify } from "@/lib/push/notify";
 import { getWorkspace } from "@/lib/workspace";
 import { assistantActor } from "./actor";
@@ -50,7 +51,10 @@ export type StartRunInput = {
   batchId?: string | null;
 };
 
-/** Where eve's routes are mounted: this deployment, unless a separately started agent is named (development). */
+/**
+ * Where eve's routes are mounted: this deployment, unless a separately started agent is named (development).
+ * `origin` always comes from internalOrigin(), never from a request's Host header.
+ */
 const eveBaseUrl = (origin: string) => process.env.EVE_BASE_URL?.trim().replace(/\/$/, "") || origin;
 
 /** Lets server-to-server calls reach a preview deployment behind Vercel's Deployment Protection. */
@@ -127,13 +131,13 @@ async function offerAlert(userId: string) {
  * Accepts work for the assistant and starts it if there's room; otherwise it
  * waits its turn. Returns the run as it stands.
  */
-export async function startRun(actor: Actor, input: StartRunInput, ctx: { origin: string }): Promise<Run> {
-  const [run] = await startRuns(actor, [input], ctx);
+export async function startRun(actor: Actor, input: StartRunInput): Promise<Run> {
+  const [run] = await startRuns(actor, [input]);
   return run;
 }
 
 /** Accepts several runs at once (a bulk request), all or none. */
-export async function startRuns(actor: Actor, inputs: StartRunInput[], ctx: { origin: string }): Promise<Run[]> {
+export async function startRuns(actor: Actor, inputs: StartRunInput[]): Promise<Run[]> {
   if (!inputs.length) return [];
   const user = await assertCanStart(actor, inputs.length);
   const db = await getDb();
@@ -158,7 +162,7 @@ export async function startRuns(actor: Actor, inputs: StartRunInput[], ctx: { or
       }),
     )
     .returning();
-  await pump(user.id, ctx.origin);
+  await pump(user.id);
   const fresh = await db
     .select()
     .from(runs)
@@ -180,7 +184,6 @@ export async function startRuns(actor: Actor, inputs: StartRunInput[], ctx: { or
 export async function startBulk(
   actor: Actor,
   input: { request: string; entity: "person" | "organization" | "client"; ids: string[]; title?: string | null; threadId?: string | null },
-  ctx: { origin: string },
 ) {
   const ids = [...new Set(input.ids)];
   if (ids.length > cfg().maxBulkRecords) {
@@ -204,7 +207,6 @@ export async function startBulk(
   const started = await startRuns(
     actor,
     ids.map((id) => ({ prompt: input.request, title: `${names.get(id)}: ${what}`, source: "bulk" as const, batchId, threadId: input.threadId ?? null, [key]: id })),
-    ctx,
   );
   return { batchId, runs: started };
 }
@@ -214,8 +216,9 @@ export async function startBulk(
  * budget. Called when a run is accepted, when one ends, and from the cron, so
  * a bulk request works through its list a few at a time.
  */
-export async function pump(userId: string, origin: string) {
+export async function pump(userId: string) {
   const db = await getDb();
+  const origin = await internalOrigin();
   for (;;) {
     const [[working], [next], state] = await Promise.all([
       db
@@ -373,7 +376,7 @@ export async function applyReport(claims: RunClaims, report: RunReport) {
   if (!updated) return;
   // A cancelled turn may still be followed by the session's failure; only say so once it's settled either way.
   if (updated.status !== "cancelled") await deliver(updated).catch((err) => console.error("[agent] deliver", err));
-  await pump(run.userId, claims.origin).catch((err) => console.error("[agent] pump", err));
+  await pump(run.userId).catch((err) => console.error("[agent] pump", err));
 }
 
 // ─── Putting the answer where it was asked for ───────────────────────────
@@ -500,10 +503,10 @@ export async function listRuns(actor: Actor, opts: { active?: boolean; batchId?:
     .limit(Math.min(opts.limit ?? 30, 100));
 }
 
-async function stopSession(run: Run, origin: string) {
+async function stopSession(run: Run) {
   if (!run.sessionId) return;
   try {
-    const client = await eveClient({ userId: run.userId, runId: run.id, origin });
+    const client = await eveClient({ userId: run.userId, runId: run.id, origin: await internalOrigin() });
     await client.sessions.attach(run.sessionId).cancel({ signal: AbortSignal.timeout(15_000) });
   } catch (err) {
     console.error("[agent] cancel", run.id, err);
@@ -511,7 +514,7 @@ async function stopSession(run: Run, origin: string) {
 }
 
 /** Stops a run. What it already changed stays, and is in history. */
-export async function cancelRun(actor: Actor, runId: string, ctx: { origin: string }) {
+export async function cancelRun(actor: Actor, runId: string) {
   assertCan(actor, "records:write");
   const run = await visibleRun(actor, runId);
   if (!agentRunActive(run.status)) return run;
@@ -522,13 +525,13 @@ export async function cancelRun(actor: Actor, runId: string, ctx: { origin: stri
     .where(and(eq(runs.id, run.id), inArray(runs.status, [...ACTIVE])))
     .returning();
   if (!cancelled) return visibleRun(actor, runId);
-  await stopSession(run, ctx.origin);
-  await pump(run.userId, ctx.origin).catch((err) => console.error("[agent] pump", err));
+  await stopSession(run);
+  await pump(run.userId).catch((err) => console.error("[agent] pump", err));
   return cancelled;
 }
 
 /** Stops everything still waiting or working in one bulk request. */
-export async function cancelBatch(actor: Actor, batchId: string, ctx: { origin: string }) {
+export async function cancelBatch(actor: Actor, batchId: string) {
   assertCan(actor, "records:write");
   if (actor.kind !== "user") throw new ForbiddenError("Background work belongs to a teammate. Use a personal key or a connected app.");
   const db = await getDb();
@@ -537,7 +540,7 @@ export async function cancelBatch(actor: Actor, batchId: string, ctx: { origin: 
     .set({ status: "cancelled", error: "Cancelled before it finished. What it changed so far is in the record's history.", finishedAt: new Date() })
     .where(and(eq(runs.batchId, z.uuid().parse(batchId)), eq(runs.userId, actor.user.id), inArray(runs.status, [...ACTIVE])))
     .returning();
-  await Promise.all(stopped.map((run) => stopSession(run, ctx.origin)));
+  await Promise.all(stopped.map((run) => stopSession(run)));
   return { stopped: stopped.length };
 }
 
@@ -545,7 +548,7 @@ export async function cancelBatch(actor: Actor, batchId: string, ctx: { origin: 
  * The safety net, from the cron: stops runs that have gone on too long, and
  * starts anything left waiting (a report that never arrived, say).
  */
-export async function sweepRuns(origin: string, now = new Date()) {
+export async function sweepRuns(now = new Date()) {
   if (!aiFeatures().background) return { stopped: 0 };
   const db = await getDb();
   const tooLong = new Date(now.getTime() - cfg().maxRunMinutes * 60_000);
@@ -560,10 +563,10 @@ export async function sweepRuns(origin: string, now = new Date()) {
       .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
       .returning();
     if (!failed) continue;
-    await stopSession(run, origin);
+    await stopSession(run);
     await deliver(failed).catch((err) => console.error("[agent] deliver", err));
   }
   const waiting = await db.selectDistinct({ userId: runs.userId }).from(runs).where(eq(runs.status, "queued"));
-  for (const { userId } of waiting) await pump(userId, origin).catch((err) => console.error("[agent] pump", err));
+  for (const { userId } of waiting) await pump(userId).catch((err) => console.error("[agent] pump", err));
   return { stopped: stale.length };
 }

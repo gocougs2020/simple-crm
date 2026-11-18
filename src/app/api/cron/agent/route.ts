@@ -1,7 +1,6 @@
 import { connection, NextResponse } from "next/server";
 import { sweepRuns } from "@/lib/agent/runs";
 import { cronAuthorized } from "@/lib/cron";
-import { siteOrigin } from "@/lib/origin";
 
 export const maxDuration = 300;
 
@@ -12,5 +11,5 @@ export const maxDuration = 300;
 export async function GET(request: Request) {
   await connection();
   if (!cronAuthorized(request)) return new NextResponse("Unauthorized", { status: 401 });
-  return NextResponse.json(await sweepRuns(await siteOrigin()));
+  return NextResponse.json(await sweepRuns());
 }
