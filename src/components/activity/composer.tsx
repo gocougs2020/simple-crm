@@ -1,6 +1,7 @@
 "use client";
 
 import clsx from "clsx";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { PaperClipIcon, XMarkIcon } from "@heroicons/react/20/solid";
 import {
@@ -53,14 +54,15 @@ export function Composer({ links, recipient, initialType = "note" }: { links: Li
   const [drafts, setDrafts] = useState<PersonDraft[]>([]);
   const [reviewing, setReviewing] = useState<PersonDraft | null>(null);
   const personId = recipient?.personId;
+  // A link from the agent or a notification (?draft=…) opens that draft in the composer. Read from the router,
+  // so following such a link while already on this person's page loads the new draft too.
+  const wanted = useSearchParams().get("draft");
   useEffect(() => {
     if (!personId || !canEdit) return;
     let current = true;
     listPersonDrafts(personId).then((r) => {
       if (!current || !r.ok) return;
       setDrafts(r.data);
-      // A link from the agent or a notification (?draft=…) opens that draft in the composer.
-      const wanted = new URLSearchParams(window.location.search).get("draft");
       const open = wanted ? r.data.find((d) => d.id === wanted) : null;
       if (open) {
         setReviewing(open);
@@ -70,7 +72,7 @@ export function Composer({ links, recipient, initialType = "note" }: { links: Li
     return () => {
       current = false;
     };
-  }, [personId, canEdit]);
+  }, [personId, canEdit, wanted]);
   // Viewers read the timeline but can't log to it.
   if (!canEdit) return null;
 
