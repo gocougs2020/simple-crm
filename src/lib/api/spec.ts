@@ -11,7 +11,7 @@ import type { ModelName } from "./models";
  */
 export type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
 /** Parts of the API a deployment turns on with its own configuration. Their MCP and assistant tools only appear where they're set up. */
-export type OptionalFeature = "knowledge";
+export type OptionalFeature = "knowledge" | "background";
 type Obj = z.ZodObject;
 
 export type Operation<P extends Obj | undefined = Obj | undefined, Q extends Obj | undefined = Obj | undefined, B extends Obj | undefined = Obj | undefined> = {

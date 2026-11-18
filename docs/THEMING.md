@@ -41,6 +41,10 @@ What [`app.config.ts`](../app.config.ts) controls:
 | `agent.chatModel`, `agent.titleModel`, `agent.voiceModel`, `agent.transcriptionModel` | GPT-6.1 Sol, Claude Haiku 5.5, Grok Voice 3.0, Grok STT | AI Gateway model ids (`creator/model`) for chat, thread titles, voice chat and dictation |
 | `agent.chatReasoning` | `"medium"` | Reasoning effort for chat: `"provider-default"`, `"none"`, `"minimal"`, `"low"`, `"medium"` or `"high"` |
 | `agent.summaryModel`, `agent.summaryReasoning` | GPT-6.1 Sol, `"low"` | The model and reasoning effort for the AI summary at the top of client, person and organization pages |
+| `agent.background.enabled` | `true` | The assistant's background work: jobs handed off from chat, mentions in notes and tasks assigned to it. See [AGENT.md](AGENT.md#background-work) |
+| `agent.background.model`, `agent.background.reasoning`, `agent.background.researchModel` | GPT-6.1 Sol, `"low"`, GPT-6 Luna | The model that plans and changes records, its reasoning effort, and the smaller model that reads the web |
+| `agent.background.maxRunUsd`, `agent.background.monthlyBudgetUsd` | `0.75`, `30` | Spending limits in US dollars: for one run, and for the workspace per month |
+| `agent.background.maxRunMinutes`, `agent.background.maxConcurrentPerUser`, `agent.background.maxBulkRecords` | `20`, `3`, `50` | How long one run may take, how many of a teammate's runs work at once, and the most records one bulk request covers |
 | `agent.suggestions`, `agent.viewerSuggestions` | 4 prompts each | Suggested actions on a new chat, for teammates who can edit and for viewers. A prompt ending in `…` fills the composer instead of sending |
 | `notifications.morningHour` | `7` | The hour (0–23, workspace time zone) the morning push summary and the agenda emails go out |
 | `live.pollSeconds` | `30` | How often an open page asks whether anything changed (calls, texts and email coming in, teammates' edits) and refreshes if so. Only while the tab is visible and in use. `0` turns it off; pages still catch up when the tab comes back into view and after the assistant changes something. See [ARCHITECTURE.md](ARCHITECTURE.md#live-updates) |

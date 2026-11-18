@@ -1,6 +1,6 @@
 # Architecture
 
-One Next.js app. Server components read the database directly; server actions change it through a shared service layer; a handful of route handlers cover files, cron and unsubscribe. The REST API (`/api/v1`), the MCP server (`/api/mcp`) and the in-app assistant (`/api/agent`) go through the same service layer, so the browser, integrations and agents follow the same rules and write the same history (see [API.md](API.md) and [AGENT.md](AGENT.md)).
+One Next.js app, plus a small background agent beside it (`agent/`, see [AGENT.md](AGENT.md#background-work)). Server components read the database directly; server actions change it through a shared service layer; a handful of route handlers cover files, cron and unsubscribe. The REST API (`/api/v1`), the MCP server (`/api/mcp`) and the in-app assistant (`/api/agent`) go through the same service layer, so the browser, integrations and agents follow the same rules and write the same history (see [API.md](API.md) and [AGENT.md](AGENT.md)).
 
 ## Layout
 
@@ -30,6 +30,7 @@ src/
                      and the optional knowledge source (lib/knowledge)
   styles/theme.css   every color the app uses
 public/sw.js         the service worker: shows push notifications, opens the page they point to
+agent/               the assistant's background worker: an eve agent, its own service at /eve/v1 (docs/AGENT.md)
 drizzle/             SQL migrations generated from schema.ts
 app.config.ts        product defaults (name, theme, layout), overridable per deployment
                      with NEXT_PUBLIC_APP_CONFIG (src/lib/config-overrides.ts)
@@ -42,6 +43,8 @@ app.config.ts        product defaults (name, theme, layout), overridable per dep
 | `users`, `sessions`, `auth_tokens`, `rate_limits` | Team, signed-in browsers, invite/reset links, sign-in and API throttling |
 | `api_keys` | Workspace keys (full access, REST only), personal keys and connected apps (act as one teammate; REST and MCP). Only a hash is stored. Each teammate's assistant has an `assistant` row too, with no usable token, so history can say "via Assistant" |
 | `agent_threads` | A teammate's conversations with the assistant: title and messages (AI SDK UI messages, as JSON). Private to them |
+| `agent_runs` | Work the assistant does in the background for a teammate: who asked, how (chat, a mention, an assigned task, a bulk request, the API), the request, its status, its answer and what it cost. An activity it was handed points at its run (`activities.agent_run_id`) |
+| `agent_drafts` | Emails and texts the assistant wrote for a teammate to review and send. Private to that teammate; sending happens in the composer, never here |
 | `push_subscriptions`, `notifications` | Devices that get push notifications (one per browser or installed app, each with its own alert types), and every notification sent, deduplicated by key |
 | `workspace` | One row: name, currency, time zone, email brand kit |
 | `organizations`, `people`, `clients` | The records. Each has an owner, `custom` JSON for custom fields, `last_activity_at`, `archived_at` (soft delete), and an AI summary (`summary`, `summary_at`, `summary_started_at`) refreshed daily ([AGENT.md](AGENT.md#record-summaries)) |
@@ -136,7 +139,7 @@ Twilio numbers, managed in Settings → Phone numbers. Calls are placed from the
 
 ## The assistant
 
-Record pages open with an AI summary of the record, shared by the team and rewritten once a day. A chat panel in the bottom right corner that reads and changes records as the signed-in teammate, with their role, through the same operations as MCP. Threads are saved per teammate; it can talk (speech to speech) and take dictation. Everything runs through Vercel AI Gateway. See [AGENT.md](AGENT.md).
+Record pages open with an AI summary of the record, shared by the team and rewritten once a day. A chat panel in the bottom right corner that reads and changes records as the signed-in teammate, with their role, through the same operations as MCP. Threads are saved per teammate; it can talk (speech to speech) and take dictation. Longer jobs (web research, adding an organization's people, cleanups across a list) run in the background on an eve agent in `agent/`, started from chat, by mentioning the assistant in a note or by assigning it a task. A run acts as the teammate who asked, through the same MCP tools and role checks, and its changes read "Sam via Assistant". It never sends email or texts: it writes drafts the teammate reviews and sends. Everything runs through Vercel AI Gateway. See [AGENT.md](AGENT.md).
 
 ## Phone app and notifications
 

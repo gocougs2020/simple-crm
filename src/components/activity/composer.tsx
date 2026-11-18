@@ -11,11 +11,14 @@ import {
   DocumentTextIcon,
   EnvelopeIcon,
   PhoneIcon,
+  SparklesIcon,
   UsersIcon,
 } from "@heroicons/react/24/outline";
 import { logActivity, type ActivityInput } from "@/actions/activities";
+import { listPersonDrafts, resolveDraft, type PersonDraft } from "@/actions/drafts";
 import { useApp } from "@/components/app-context";
-import { OwnerSelect } from "@/components/records/owner-select";
+import { ASSISTANT_ASSIGNEE, OwnerSelect } from "@/components/records/owner-select";
+import { appConfig } from "@/app.config";
 import { Button } from "@/components/ui/button";
 import { Input, Kbd } from "@/components/ui/field";
 import { RichText, type RichTextHandle } from "@/components/ui/rich-text";
@@ -45,11 +48,74 @@ export type Links = { personId?: string | null; organizationId?: string | null; 
  */
 export function Composer({ links, recipient, initialType = "note" }: { links: Links; recipient?: (EmailRecipient & { phone?: string | null; textOptedOut?: boolean }) | null; initialType?: ActivityType }) {
   const [type, setType] = useState<ActivityType>(initialType);
-  const { canEdit } = useApp();
+  const { canEdit, services } = useApp();
+  // Emails and texts the assistant drafted to this person, waiting for this teammate to review and send (docs/AGENT.md).
+  const [drafts, setDrafts] = useState<PersonDraft[]>([]);
+  const [reviewing, setReviewing] = useState<PersonDraft | null>(null);
+  const personId = recipient?.personId;
+  const assistantOn = services.ai.chat || services.ai.background;
+  useEffect(() => {
+    if (!personId || !canEdit || !assistantOn) return;
+    let current = true;
+    listPersonDrafts(personId).then((r) => {
+      if (!current || !r.ok) return;
+      setDrafts(r.data);
+      // A link from the assistant or a notification (?draft=…) opens that draft in the composer.
+      const wanted = new URLSearchParams(window.location.search).get("draft");
+      const open = wanted ? r.data.find((d) => d.id === wanted) : null;
+      if (open) {
+        setReviewing(open);
+        setType(open.kind);
+      }
+    });
+    return () => {
+      current = false;
+    };
+  }, [personId, canEdit, assistantOn]);
   // Viewers read the timeline but can't log to it.
   if (!canEdit) return null;
+
+  const review = (d: PersonDraft) => {
+    setReviewing(d);
+    setType(d.kind);
+  };
+  const settle = (d: PersonDraft, outcome: "sent" | "discarded") => {
+    setDrafts((list) => list.filter((x) => x.id !== d.id));
+    setReviewing((r) => (r?.id === d.id ? null : r));
+    void resolveDraft(d.id, outcome).then((r) => {
+      if (!r.ok) toast.error(r.error);
+    });
+  };
+  const emailDraft = reviewing?.kind === "email" ? reviewing : null;
+  const textDraft = reviewing?.kind === "text" ? reviewing : null;
+
   return (
     <div className="rounded-xl border border-line bg-surface shadow-sm">
+      {drafts.length ? (
+        <ul className="border-b border-line bg-info-surface text-[13px] text-primary" aria-label={`Drafts from ${appConfig.agent.name}`}>
+          {drafts.map((d) => (
+            <li key={d.id} className="flex flex-wrap items-center gap-2 border-b border-info-border px-3 py-2 last:border-b-0">
+              <SparklesIcon className="size-4 shrink-0 text-info" aria-hidden />
+              <span className="min-w-0 flex-1">
+                <span className="font-medium">
+                  {appConfig.agent.name} drafted {d.kind === "email" ? "an email" : "a text"}
+                  {recipient ? ` to ${recipient.name}` : ""}
+                </span>
+                {d.subject ? <span className="text-secondary">: {d.subject}</span> : null}
+                {reviewing?.id === d.id ? <span className="text-secondary"> · open below. Change what you like, then send.</span> : null}
+              </span>
+              {reviewing?.id === d.id ? null : (
+                <Button size="sm" variant="outline" className="h-7" onClick={() => review(d)}>
+                  Review and send
+                </Button>
+              )}
+              <Button size="sm" variant="ghost" className="h-7" onClick={() => settle(d, "discarded")}>
+                Discard
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <div role="tablist" aria-label="Add activity" className="flex gap-0.5 overflow-x-auto border-b border-line px-2 pt-1.5 [scrollbar-width:none]">
         {(["note", "call", "email", "text", "meeting", "task"] as const).map((t) => {
           const Icon = activityIcons[t];
@@ -74,9 +140,9 @@ export function Composer({ links, recipient, initialType = "note" }: { links: Li
       </div>
       <div className="p-3">
         {type === "email" ? (
-          <EmailTab links={links} recipient={recipient} />
+          <EmailTab key={emailDraft?.id ?? "email"} links={links} recipient={recipient} draft={emailDraft} onDraftSent={emailDraft ? () => settle(emailDraft, "sent") : undefined} />
         ) : type === "text" ? (
-          <TextTab links={links} recipient={recipient} />
+          <TextTab key={textDraft?.id ?? "text"} links={links} recipient={recipient} draft={textDraft} onDraftSent={textDraft ? () => settle(textDraft, "sent") : undefined} />
         ) : (
           <>
             {type === "call" && recipient?.phone ? <CallNow links={links} recipient={recipient} /> : null}
@@ -88,7 +154,9 @@ export function Composer({ links, recipient, initialType = "note" }: { links: Li
   );
 }
 
-function EmailTab({ links, recipient }: { links: Links; recipient?: EmailRecipient | null }) {
+type DraftProps = { draft?: PersonDraft | null; onDraftSent?: () => void };
+
+function EmailTab({ links, recipient, draft, onDraftSent }: { links: Links; recipient?: EmailRecipient | null } & DraftProps) {
   const [mode, setMode] = useState<"send" | "log">(recipient?.email ? "send" : "log");
   return (
     <div>
@@ -103,13 +171,13 @@ function EmailTab({ links, recipient }: { links: Links; recipient?: EmailRecipie
         />
         {mode === "send" && !recipient?.email ? <span className="ml-2 text-[12px] text-muted">Add an email address to this person first.</span> : null}
       </div>
-      {mode === "send" && recipient?.email ? <EmailComposer links={links} recipient={recipient} /> : mode === "log" ? <ActivityForm type="email" links={links} /> : null}
+      {mode === "send" && recipient?.email ? <EmailComposer links={links} recipient={recipient} draft={draft} onDraftSent={onDraftSent} /> : mode === "log" ? <ActivityForm type="email" links={links} /> : null}
     </div>
   );
 }
 
 /** Texting through the team's numbers when it's set up and the person has a phone; logging a text sent some other way otherwise. */
-function TextTab({ links, recipient }: { links: Links; recipient?: (EmailRecipient & { phone?: string | null; textOptedOut?: boolean }) | null }) {
+function TextTab({ links, recipient, draft, onDraftSent }: { links: Links; recipient?: (EmailRecipient & { phone?: string | null; textOptedOut?: boolean }) | null } & DraftProps) {
   const { comms } = useApp();
   const canSend = comms.texting && !!recipient?.phone;
   const [mode, setMode] = useState<"send" | "log">(canSend ? "send" : "log");
@@ -128,7 +196,7 @@ function TextTab({ links, recipient }: { links: Links; recipient?: (EmailRecipie
         {mode === "send" && !recipient?.phone ? <span className="ml-2 text-[12px] text-muted">{recipient ? "Add a phone number to this person first." : "Text a person from their page."}</span> : null}
       </div>
       {mode === "send" && recipient?.phone ? (
-        <TextComposer recipient={{ personId: recipient.personId, name: recipient.name, phone: recipient.phone, optedOut: recipient.textOptedOut }} clientId={links.clientId} />
+        <TextComposer recipient={{ personId: recipient.personId, name: recipient.name, phone: recipient.phone, optedOut: recipient.textOptedOut }} clientId={links.clientId} draft={draft} onDraftSent={onDraftSent} />
       ) : mode === "log" ? (
         <ActivityForm type="text" links={links} />
       ) : null}
@@ -151,8 +219,10 @@ function CallNow({ links, recipient }: { links: Links; recipient: EmailRecipient
 }
 
 function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
-  const { workspace, viewer } = useApp();
+  const { workspace, viewer, services, canEdit } = useApp();
   const tz = workspace.timezone;
+  // Background work (docs/AGENT.md): tasks can go to the assistant, and a note can call on it with @Assistant.
+  const assistantWorks = services.ai.background && canEdit;
   const editor = useRef<RichTextHandle>(null);
   const [body, setBody] = useState("");
   const [subject, setSubject] = useState("");
@@ -175,7 +245,8 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
   const at = zonedTime(day || dayFromToday(tz), time || "00:00", tz);
   // A meeting in the future is being scheduled, not logged.
   const planned = isTask || ((type === "meeting" || type === "call") && at.getTime() > now + 60_000);
-  const label = isTask ? "Add task" : planned ? `Schedule ${type}` : `Log ${activityLabels[type].toLowerCase()}`;
+  const forAssistant = isTask && assigneeId === ASSISTANT_ASSIGNEE;
+  const label = forAssistant ? `Give to ${appConfig.agent.name}` : isTask ? "Add task" : planned ? `Schedule ${type}` : `Log ${activityLabels[type].toLowerCase()}`;
 
   const reset = () => {
     editor.current?.clear();
@@ -203,7 +274,7 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
         ...(type === "call" || type === "email" || type === "text" ? { direction } : {}),
         ...(type === "call" ? { outcome: planned ? null : outcome } : {}),
         ...(type === "meeting" ? { outcome: planned ? null : outcome, durationMinutes: duration ? Number(duration) : null } : {}),
-        ...(planned ? { dueAt: at.toISOString(), dueHasTime: !!time, assigneeId, done: false } : { occurredAt: at.toISOString(), done: true }),
+        ...(planned ? { dueAt: at.toISOString(), dueHasTime: !!time, ...(forAssistant ? { assigneeId: viewer.id, assistant: true } : { assigneeId }), done: false } : { occurredAt: at.toISOString(), done: true }),
       };
       const r = await logActivity(input);
       if (!r.ok) return void toast.error(r.error);
@@ -212,7 +283,7 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
         const f = await logActivity({ type: "task", subject: `Follow up${subject ? `: ${subject}` : ""}`, ...links, dueAt: zonedTime(dayFromToday(tz, followUp), "00:00", tz).toISOString(), dueHasTime: false, assigneeId: viewer.id });
         if (!f.ok) toast.error(f.error);
       }
-      toast.success(isTask ? "Task added" : planned ? `${activityLabels[type]} scheduled` : `${activityLabels[type]} logged`);
+      toast.success(forAssistant ? `${appConfig.agent.name} is on it. The answer lands on the task.` : isTask ? "Task added" : planned ? `${activityLabels[type]} scheduled` : `${activityLabels[type]} logged`);
       reset();
     });
 
@@ -268,7 +339,7 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
           ) : null}
           {planned ? (
             <div className="w-40">
-              <OwnerSelect value={assigneeId} onChange={setAssigneeId} allowNone={false} className="[&_select]:h-8 [&_select]:text-[13px]" />
+              <OwnerSelect value={assigneeId} onChange={setAssigneeId} allowNone={false} assistant={isTask && assistantWorks} className="[&_select]:h-8 [&_select]:text-[13px]" />
             </div>
           ) : null}
           {!planned ? <FollowUp value={followUp} onChange={setFollowUp} /> : null}
@@ -289,12 +360,12 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
         }
         placeholder={
           {
-            note: "Write a note. Only your team sees it.",
+            note: assistantWorks ? `Write a note. Only your team sees it. Type @${appConfig.agent.name} to hand it something.` : "Write a note. Only your team sees it.",
             call: "What did you talk about?",
             email: "Paste or summarize the email",
             text: "Paste the text message",
             meeting: "Agenda or notes",
-            task: "Details (optional)",
+            task: forAssistant ? "What should it do? Say what to find or change." : "Details (optional)",
           }[type]
         }
       />

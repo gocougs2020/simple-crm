@@ -74,6 +74,15 @@ src/app/oauth/authorize/  the consent page (src/actions/oauth.ts decides)
 
 Setup for Claude Code, Cursor, VS Code and Claude Desktop is on `/developers#mcp`, and in the dialog shown when a key is created.
 
+## The assistant's background work and drafts
+
+Two optional groups of operations let an agent work with the CRM's own assistant (see [AGENT.md](AGENT.md#background-work)):
+
+- **Assistant** (`/assistant/tasks`, tools `start_background_task`, `start_bulk_background_task`, `list_background_tasks`, `get_background_task`, `cancel_background_task`): hand a longer job to the background worker, which does it as the key's teammate. Starting and stopping need edit access, so read-only keys and connected apps can't. Workspace keys can't either: a run always belongs to a teammate. These appear only where background work is set up.
+- **Drafts** (`/drafts`, tools `draft_message`, `list_drafts`): write an email or text for the key's teammate to review and send. There is no operation that sends a message or a draft: the teammate does that in the CRM.
+
+Tasks take `assistant: true` on create and update to hand that task to the assistant.
+
 ## Knowledge source
 
 A deployment can connect a read-only JSON API about its own organization (usually its website's content) with `KNOWLEDGE_API_URL`. `GET /knowledge?path=…` then reads one path under it, and MCP gets a `get_knowledge` tool. Without one, the endpoint answers 404 `not_configured` and the tool isn't listed. See [KNOWLEDGE.md](KNOWLEDGE.md).

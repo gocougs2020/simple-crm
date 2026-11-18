@@ -11,10 +11,11 @@ import { formatPhone, smsSegments } from "@/lib/phone/numbers";
 export type TextRecipient = { personId: string; name: string; phone: string | null; optedOut?: boolean };
 
 /** Texts the record's person from one of the team's numbers. It's saved to the timeline, and replies land there too. */
-export function TextComposer({ recipient, clientId }: { recipient: TextRecipient; clientId?: string | null }) {
+export function TextComposer({ recipient, clientId, draft, onDraftSent }: { recipient: TextRecipient; clientId?: string | null; draft?: { body: string } | null; onDraftSent?: () => void }) {
   const { comms } = useApp();
   const [numberId, setNumberId] = useState(comms.defaultNumberId ?? comms.numbers[0]?.id ?? "");
-  const [body, setBody] = useState("");
+  // A draft the assistant wrote starts the text off.
+  const [body, setBody] = useState(draft?.body ?? "");
   const [pending, start] = useTransition();
   const segments = smsSegments(body);
 
@@ -23,6 +24,7 @@ export function TextComposer({ recipient, clientId }: { recipient: TextRecipient
       const r = await sendTextMessage({ phoneNumberId: numberId, personId: recipient.personId, clientId: clientId ?? null, body });
       if (!r.ok) return void toast.error(r.error);
       toast.success(`Text sent to ${recipient.name}`);
+      onDraftSent?.();
       setBody("");
     });
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { activityTypes, billingIntervals, clientCategories, clientHealths } from "@/lib/constants";
+import { agentDraftKinds, activityTypes, billingIntervals, clientCategories, clientHealths } from "@/lib/constants";
 
 /**
  * Validation for record changes, shared by the server actions, the REST API
@@ -169,8 +169,24 @@ export const activityInput = z.object({
   personId: z.uuid().nullable().optional(),
   organizationId: z.uuid().nullable().optional(),
   clientId: z.uuid().nullable().optional().describe("Linking a client also links its contact and organization; linking a person also links their organization."),
+  assistant: z
+    .boolean()
+    .optional()
+    .describe("Tasks: true hands the task to the CRM's assistant, which does the work in the background as you, adds its answer to the task and marks it done. Needs background work set up on the deployment."),
   /** Logging something that already happened (a call you just made) vs planning it. */
   done: z.boolean().optional().describe("true logs something that already happened; false plans it. Defaults to false for tasks and anything with a dueAt, true otherwise."),
 });
 
 export type ActivityInput = z.input<typeof activityInput>;
+
+// ─── Drafts ──────────────────────────────────────────────────────────────
+
+/** An email or text written for a teammate to review and send (src/lib/crm/service/drafts.ts). */
+export const draftInput = z.object({
+  kind: z.enum(agentDraftKinds).describe("email or text."),
+  personId: z.uuid().describe("Who it's to. They need an email address (for an email) or a phone number (for a text) on their record."),
+  clientId: z.uuid().nullable().optional().describe("The client it's about, if one, so the sent message lands on its timeline too."),
+  subject: z.string().trim().max(200).nullable().optional().describe("Emails: the subject line."),
+  body: z.string().trim().min(1, "Write the message first.").max(50_000).describe("The message. Emails: plain text or simple HTML (p, strong, em, a, ul, ol, li). Texts: plain text, up to 1,600 characters. Merge tags like {{first_name}} work in emails."),
+});
+export type DraftInput = z.input<typeof draftInput>;

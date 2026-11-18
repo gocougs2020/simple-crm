@@ -2,6 +2,10 @@ import { sql } from "drizzle-orm";
 import { bigint, boolean, date, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import type {
   ActivityType,
+  AgentDraftKind,
+  AgentDraftStatus,
+  AgentRunSource,
+  AgentRunStatus,
   ApiKeyKind,
   BillingInterval,
   CalendarSharing,
@@ -568,6 +572,8 @@ export const activities = pgTable(
     callId: uuid("call_id").references((): AnyPgColumn => phoneCalls.id, { onDelete: "set null" }),
     /** Set when the activity is a text sent or received through the CRM's phone numbers. */
     textMessageId: uuid("text_message_id").references((): AnyPgColumn => textMessages.id, { onDelete: "set null" }),
+    /** The assistant's latest background run for this note (it was mentioned) or task (it was assigned). */
+    agentRunId: uuid("agent_run_id").references((): AnyPgColumn => agentRuns.id, { onDelete: "set null" }),
     /** A planned meeting copied to the assignee's Outlook calendar: the event there, and the account it's in. */
     calendarEventId: text("calendar_event_id"),
     calendarAccountId: uuid("calendar_account_id").references((): AnyPgColumn => connectedAccounts.id, { onDelete: "set null" }),
@@ -961,6 +967,93 @@ export const agentThreads = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [index("agent_threads_user_idx").on(t.userId, t.lastMessageAt)],
+);
+
+/**
+ * Work the assistant does in the background for a teammate (docs/AGENT.md):
+ * started from chat, by mentioning it in a note, by assigning it a task, or as
+ * one record of a bulk request. Each run is one eve session (agent/) acting as
+ * `userId`, with their role, and every change it makes is theirs "via Assistant".
+ */
+export const agentRuns = pgTable(
+  "agent_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Who asked. The run has their access and its changes are attributed to them. */
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    source: text("source").$type<AgentRunSource>().notNull(),
+    title: text("title").notNull(),
+    /** What the teammate asked for, in their words. */
+    prompt: text("prompt").notNull(),
+    status: text("status").$type<AgentRunStatus>().notNull().default("queued"),
+    /** The eve session doing the work, once it has started. */
+    sessionId: text("session_id"),
+    /** The chat the request came from; the answer is posted back into it. */
+    threadId: uuid("thread_id").references(() => agentThreads.id, { onDelete: "set null" }),
+    /** The note that mentioned the assistant, or the task assigned to it. */
+    activityId: uuid("activity_id").references((): AnyPgColumn => activities.id, { onDelete: "set null" }),
+    /** The record the request is about, when there is one. */
+    personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
+    organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "set null" }),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+    /** Runs started together by one bulk request share this. */
+    batchId: uuid("batch_id"),
+    /** The assistant's answer (markdown), or what went wrong, in a sentence. */
+    result: text("result"),
+    error: text("error"),
+    /** Model spend so far, in millionths of a US dollar, as AI Gateway reported it. */
+    costMicroUsd: bigint("cost_micro_usd", { mode: "number" }).notNull().default(0),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt().$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index("agent_runs_user_idx").on(t.userId, t.createdAt),
+    index("agent_runs_status_idx").on(t.status, t.createdAt),
+    index("agent_runs_batch_idx").on(t.batchId),
+    index("agent_runs_activity_idx").on(t.activityId),
+    // The month's spend, for the budget check.
+    index("agent_runs_created_idx").on(t.createdAt),
+  ],
+);
+
+/**
+ * An email or text the assistant wrote for a teammate to review and send
+ * (docs/AGENT.md). The assistant never sends anything itself: a draft waits
+ * on the person's page until `userId` opens it in the composer and sends it,
+ * or discards it.
+ */
+export const agentDrafts = pgTable(
+  "agent_drafts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Whose draft it is: the teammate the assistant was working for. Only they see it and can send it. */
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** The background run that wrote it, when one did (a chat can draft too). */
+    runId: uuid("run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+    kind: text("kind").$type<AgentDraftKind>().notNull(),
+    /** Who it's to. */
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => people.id, { onDelete: "cascade" }),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+    /** Emails only. */
+    subject: text("subject"),
+    /** Sanitized HTML for an email; plain text for a text message. */
+    body: text("body").notNull(),
+    status: text("status").$type<AgentDraftStatus>().notNull().default("pending"),
+    createdAt: createdAt(),
+    /** When it was sent or discarded. */
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+  },
+  (t) => [index("agent_drafts_user_idx").on(t.userId, t.status, t.createdAt), index("agent_drafts_person_idx").on(t.personId, t.status)],
 );
 
 // ─── Push notifications ──────────────────────────────────────────────────

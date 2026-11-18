@@ -49,7 +49,7 @@ export async function POST(request: Request) {
   if (!merged.ok) return agentError(400, merged.error);
 
   const [actor, workspace, origin] = await Promise.all([assistantActor(user), getWorkspace(), siteOrigin()]);
-  const tools = agentTools(actor, { origin });
+  const tools = agentTools(actor, { origin, assistant: true, threadId: thread.id });
 
   let messages: UIMessage[];
   try {
@@ -71,6 +71,7 @@ export async function POST(request: Request) {
       now: new Date(),
       page: input.page,
       knowledge: featureInstructions(),
+      background: aiFeatures().background && can(actor, "records:write"),
     }),
     messages: await convertToModelMessages(messages, { tools, ignoreIncompleteToolCalls: true }),
     tools,

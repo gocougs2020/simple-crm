@@ -1,10 +1,12 @@
 import "server-only";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
+import * as runs from "@/lib/agent/runs";
 import { can, type Actor } from "@/lib/crm/actor";
 import { dayBounds } from "@/lib/crm/activities";
 import * as activities from "@/lib/crm/service/activities";
 import * as clients from "@/lib/crm/service/clients";
+import * as drafts from "@/lib/crm/service/drafts";
 import * as merging from "@/lib/crm/service/merge";
 import * as records from "@/lib/crm/service/records";
 import { NotFoundError } from "@/lib/errors";
@@ -21,7 +23,8 @@ import type { InputOf } from "./spec";
  * in its API shape.
  */
 
-export type HandlerContext = { origin: string };
+/** `assistant` marks a call from the in-app assistant; `threadId` is the chat it came from, so work it starts can answer there. */
+export type HandlerContext = { origin: string; assistant?: boolean; threadId?: string };
 type Handler<O> = (a: Actor, input: InputOf<O>, ctx: HandlerContext) => Promise<unknown>;
 
 const deleted = (id: string) => ({ id, deleted: true as const });
@@ -38,6 +41,23 @@ async function todayStart() {
 }
 
 export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
+  // Assistant
+  async startAssistantTask(a, { body }, ctx) {
+    const run = await runs.startRun(a, { prompt: body.request, title: body.title, source: ctx.assistant ? "chat" : "api", threadId: ctx.threadId, personId: body.personId, organizationId: body.organizationId, clientId: body.clientId }, ctx);
+    return q.toAssistantTask(run);
+  },
+  listAssistantTasks: async (a, { query }) => (await runs.listRuns(a, query)).map(q.toAssistantTask),
+  getAssistantTask: async (a, { params }) => q.toAssistantTask(await runs.getRun(a, params.id)),
+  async startAssistantBulk(a, { body }, ctx) {
+    const started = await runs.startBulk(a, { ...body, threadId: ctx.threadId }, ctx);
+    return { batchId: started.batchId, count: started.runs.length, tasks: started.runs.map(q.toAssistantTask) };
+  },
+  async draftMessage(a, { body }, ctx) {
+    return q.toDraft(await drafts.createDraft(a, body), ctx);
+  },
+  listDrafts: async (a, { query }, ctx) => (await drafts.listDrafts(a, query)).map((d) => q.toDraft(d, ctx)),
+  cancelAssistantTask: async (a, { params }, ctx) => q.toAssistantTask(await runs.cancelRun(a, params.id, ctx)),
+
   async me(a) {
     const db = await getDb();
     const [key] = await db.select().from(schema.apiKeys).where(eq(schema.apiKeys.id, a.keyId!));

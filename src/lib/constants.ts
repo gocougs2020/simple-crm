@@ -125,7 +125,7 @@ export const MAX_EMAIL_ATTACHMENTS = 10;
  * Notifications). Each one is about the teammate's own work, so nobody is
  * notified about something they did themselves.
  */
-export const notificationKinds = ["task_assigned", "task_due", "task_digest", "meeting_soon", "record_assigned", "inbound_email", "inbound_text"] as const;
+export const notificationKinds = ["task_assigned", "task_due", "task_digest", "meeting_soon", "record_assigned", "inbound_email", "inbound_text", "assistant_done"] as const;
 export type NotificationKind = (typeof notificationKinds)[number];
 export const notificationLabels: Record<NotificationKind, { label: string; hint: string }> = {
   task_assigned: { label: "Tasks assigned to me", hint: "When a teammate (or their agent) gives you a task, call or meeting." },
@@ -135,7 +135,22 @@ export const notificationLabels: Record<NotificationKind, { label: string; hint:
   record_assigned: { label: "Records assigned to me", hint: "When a teammate makes you the owner of a client, person or organization." },
   inbound_email: { label: "Replies from my contacts", hint: "When email arrives in a connected inbox from a client, person or organization you own." },
   inbound_text: { label: "Texts from my contacts", hint: "When someone you own texts one of the team's phone numbers, or texts a number you look after." },
+  assistant_done: { label: "The assistant finished", hint: "When background work you gave the assistant is done, has a draft for you to approve, or couldn't finish." },
 };
+
+/** Where a background run of the assistant came from (docs/AGENT.md). */
+export const agentRunSources = ["chat", "mention", "task", "bulk", "api"] as const;
+export type AgentRunSource = (typeof agentRunSources)[number];
+/** queued: accepted, not started. running: the assistant is working. The rest are final. */
+export const agentRunStatuses = ["queued", "running", "done", "failed", "cancelled"] as const;
+export type AgentRunStatus = (typeof agentRunStatuses)[number];
+export const agentRunStatusLabels: Record<AgentRunStatus, string> = { queued: "Starting", running: "Working", done: "Done", failed: "Couldn't finish", cancelled: "Cancelled" };
+/** Messages the assistant writes for a teammate to review and send. */
+export const agentDraftKinds = ["email", "text"] as const;
+export type AgentDraftKind = (typeof agentDraftKinds)[number];
+export const agentDraftStatuses = ["pending", "sent", "discarded"] as const;
+export type AgentDraftStatus = (typeof agentDraftStatuses)[number];
+export const agentRunActive = (status: AgentRunStatus) => status === "queued" || status === "running";
 
 /** Agenda emails a teammate can get (Settings → Notifications), sent in the morning in the workspace's time zone. */
 export const emailDigestKinds = ["daily", "weekly"] as const;

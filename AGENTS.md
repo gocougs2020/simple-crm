@@ -15,6 +15,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   - Record changes write an `events` row in the same action (`recordEvent`), so history stays complete.
   - Record changes (people, organizations, clients, activities) live in `src/lib/crm/service/*` and take an `Actor`; server actions, the REST API and MCP all call them. Check permissions with `assertCan` (`src/lib/permissions.ts` is the role table). Mutating actions elsewhere use `actionEditor()` so viewers are refused.
   - API endpoints and MCP tools come from one list: add an entry to `src/lib/api/operations.ts` and its handler in `src/lib/api/handlers.ts` (see `docs/API.md`).
+  - The assistant's background worker is an eve agent in `agent/` (docs/AGENT.md). It changes the CRM only through MCP, as the teammate a run works for, so new abilities are new operations, not new agent tools. eve's docs are in `node_modules/eve/docs/`; read them before changing `agent/`. A run never sends, archives, deletes or merges (`runMayUse` in `src/lib/agent/run-rules.ts`).
   - Colors come only from `src/styles/theme.css` tokens; never hard-code hex in components.
   - Deployment-specific product defaults (name, theme, layout defaults) live in `app.config.ts`, overridable per deployment with `NEXT_PUBLIC_APP_CONFIG` / `NEXT_PUBLIC_APP_NAME` / `NEXT_PUBLIC_BRAND_COLOR` (`src/lib/config-overrides.ts`). Add new knobs there, not in components, and document them in `docs/THEMING.md`.
   - Copy is sentence case, says what happened and what to do next, no exclamation marks.

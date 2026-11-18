@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { activityTypes, clientCategories, clientHealths, entityTypes } from "@/lib/constants";
-import { activityInput, categoryInput, datetime, clientCreateInput, clientInput, metricInput, moveInput, orgInput, personInput, subscriptionInput } from "@/lib/crm/schemas";
-import { idParam, op, pageQuery, queryBool, recordQuery, type Operation } from "./spec";
+import { activityInput, categoryInput, draftInput, datetime, clientCreateInput, clientInput, metricInput, moveInput, orgInput, personInput, subscriptionInput } from "@/lib/crm/schemas";
+import { idParam, op, pageQuery, queryBool, queryInt, recordQuery, type Operation } from "./spec";
 
 /**
  * Every endpoint of the REST API (under /api/v1) and every MCP tool. Adding an
@@ -28,6 +28,7 @@ const taskBody = z.object({
   dueAt: activityInput.shape.dueAt.describe("When it's due (ISO 8601 with offset). Defaults to today."),
   dueHasTime: activityInput.shape.dueHasTime,
   assigneeId: activityInput.shape.assigneeId,
+  assistant: activityInput.shape.assistant,
   ...linkFields,
 });
 const noteBody = z.object({
@@ -530,6 +531,113 @@ export const operations = {
     tool: "list_custom_fields",
   }),
 
+  // ─── Assistant ─────────────────────────────────────────────────────────
+  startAssistantTask: op({
+    method: "POST",
+    path: "/assistant/tasks",
+    tag: "Assistant",
+    summary: "Give the assistant background work",
+    description:
+      "Hands a longer job to the CRM's assistant, which works on it in the background as the key's teammate: with their role, and with every change recorded as theirs, made through the assistant. It can research companies and people on the web, add and update records, log notes and tasks, and clean up data. It can't archive, delete, merge, or send email or texts. Returns at once; read the task again for its answer. Spend is capped per task and per month (docs/AGENT.md).",
+    permission: "records:write",
+    body: z.object({
+      request: z.string().trim().min(1).max(8000).describe("What to do, in plain words, with everything the assistant needs: which records, what to find, what to change."),
+      title: z.string().trim().max(120).optional().describe("A short name for the task list. Defaults to the start of the request."),
+      personId: z.uuid().optional().describe("The person the request is about, if one."),
+      organizationId: z.uuid().optional().describe("The organization the request is about, if one."),
+      clientId: z.uuid().optional().describe("The client the request is about, if one."),
+    }),
+    response: "AssistantTask",
+    status: 201,
+    tool: "start_background_task",
+    toolDescription:
+      "Hand a longer job to the CRM's background assistant and return at once. Use it for work that takes many steps or web research: researching a company and adding its people with titles and contact details, working out who the decision maker is, cleaning up a set of records, preparing a follow-up. It works as the same teammate, with their access, and reports back when it's done. Put everything it needs in request; it can't see this conversation. It can't archive, delete, merge or send messages.",
+    example: { request: "Research Acme Inc on the web. Add the people who lead it with their titles and any public contact details, and star whoever is the decision maker.", organizationId: "0d9c5f0e-6d7c-4e7a-9b1d-2f3a4b5c6d7e" },
+    feature: "background",
+  }),
+  listAssistantTasks: op({
+    method: "GET",
+    path: "/assistant/tasks",
+    tag: "Assistant",
+    summary: "List the assistant's background work",
+    description: "The key's own teammate's tasks, newest first.",
+    permission: "records:read",
+    query: z.object({
+      active: queryBool.optional().describe("Only tasks still waiting or working."),
+      limit: queryInt(1, 100).optional().describe("How many to return, 1–100. Defaults to 30."),
+    }),
+    response: "AssistantTask",
+    list: true,
+    tool: "list_background_tasks",
+    feature: "background",
+  }),
+  getAssistantTask: op({ method: "GET", path: "/assistant/tasks/{id}", tag: "Assistant", summary: "Read one background task", description: "Its status and, once it's done, the assistant's answer.", permission: "records:read", params: idParam, response: "AssistantTask", tool: "get_background_task", feature: "background" }),
+  cancelAssistantTask: op({
+    method: "POST",
+    path: "/assistant/tasks/{id}/cancel",
+    tag: "Assistant",
+    summary: "Stop a background task",
+    description: "What it already changed stays, and is in each record's history.",
+    permission: "records:write",
+    params: idParam,
+    response: "AssistantTask",
+    tool: "cancel_background_task",
+    feature: "background",
+  }),
+
+  startAssistantBulk: op({
+    method: "POST",
+    path: "/assistant/tasks/bulk",
+    tag: "Assistant",
+    summary: "Give the assistant the same job on several records",
+    description:
+      "Starts one background task per record, each working on that record alone, a few at a time. All the tasks share a batchId. The number of records one request can cover is capped (agent.background.maxBulkRecords), and each task and the month have spending limits, so a large job is run in parts.",
+    permission: "records:write",
+    body: z.object({
+      request: z.string().trim().min(1).max(8000).describe("What to do for each record, in plain words. It's given to every task along with that task's record."),
+      entity: z.enum(entityTypes).describe("What kind of record the ids are: person, organization or client."),
+      ids: z.array(z.uuid()).min(1).max(200).describe("The records, one task each. Find them with the list tools first."),
+      title: z.string().trim().max(120).optional().describe("A short name for the request."),
+    }),
+    response: "AssistantBulk",
+    status: 201,
+    tool: "start_bulk_background_task",
+    toolDescription:
+      "Run the same job on each of several records in the background: one task per record, a few at a time, each as the same teammate with their access. Use it when the teammate wants something done across a list (every organization in a view, every person missing a title). Get the ids with the list tools first. For more than five records, run it on three first, show the teammate what came back, and start the rest only when they say to. It refuses more records than one request may cover; run large lists in parts.",
+    example: { request: "Research this organization on the web, add the people who lead it with their titles, and star the decision maker.", entity: "organization", ids: ["0d9c5f0e-6d7c-4e7a-9b1d-2f3a4b5c6d7e", "5b2f3c1a-8e4d-4f6a-b7c9-1d2e3f4a5b6c"] },
+    feature: "background",
+  }),
+
+  // ─── Drafts ────────────────────────────────────────────────────────────
+  draftMessage: op({
+    method: "POST",
+    path: "/drafts",
+    tag: "Drafts",
+    summary: "Draft an email or text for the teammate to send",
+    description:
+      "Writes an email or a text to a person and leaves it for the key's teammate to review. Nothing is sent: the draft waits on the person's page, where the teammate opens it in the composer, changes what they like, and sends it the usual way (or discards it). The API has no way to send a draft.",
+    permission: "records:write",
+    body: draftInput,
+    response: "Draft",
+    status: 201,
+    tool: "draft_message",
+    toolDescription:
+      "Write an email or text to a person and leave it for the teammate to review and send. This is the only way to send a message: you can't send one yourself. The draft waits on the person's page; give the teammate its url. Write it the way they would, ready to send as is.",
+    example: { kind: "email", personId: "7c1e…", subject: "Following up on our call", body: "Hi {{first_name}},\n\nThanks for the time on Tuesday. Here's the proposal we talked about." },
+  }),
+  listDrafts: op({
+    method: "GET",
+    path: "/drafts",
+    tag: "Drafts",
+    summary: "List drafts waiting to be sent",
+    description: "The key's own teammate's drafts that haven't been sent or discarded, newest first.",
+    permission: "records:read",
+    query: z.object({ personId: z.uuid().optional().describe("Only drafts to this person."), limit: queryInt(1, 100).optional().describe("How many to return, 1–100. Defaults to 50.") }),
+    response: "Draft",
+    list: true,
+    tool: "list_drafts",
+  }),
+
   // ─── Knowledge ─────────────────────────────────────────────────────────
   getKnowledge: op({
     method: "GET",
@@ -570,5 +678,7 @@ export const tags = [
   { name: "Notes", description: "Notes on a record, or on their own." },
   { name: "Activities", description: "Everything logged or planned: notes, calls, emails, texts, meetings and tasks, in one list." },
   { name: "Workspace", description: "Pipelines, services, the team and custom fields: what ids in other requests refer to." },
+  { name: "Assistant", description: "Background work for the CRM's own assistant: research, cleanups and follow-ups it does as the key's teammate, with their access. Optional: needs AI Gateway access and the eve agent (docs/AGENT.md)." },
+  { name: "Drafts", description: "Emails and texts written for a teammate to review and send. Agents can write them; only the teammate, in the CRM, can send one." },
   { name: "Knowledge", description: "The organization's own published material (its website's pages, articles and resources), from the knowledge source a deployment connects. Optional." },
 ] as const;

@@ -19,6 +19,10 @@
       "schedule": "0,15,30,45 * * * *"
     },
     {
+      "path": "/api/cron/agent",
+      "schedule": "0,15,30,45 * * * *"
+    },
+    {
       "path": "/api/cron/microsoft",
       "schedule": "0,15,30,45 * * * *"
     }

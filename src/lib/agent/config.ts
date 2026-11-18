@@ -16,15 +16,15 @@ export const aiGatewayAvailable = () => !!process.env.AI_GATEWAY_API_KEY?.trim()
  */
 export function aiFeatures() {
   const ok = aiGatewayAvailable();
-  const { enabled, voice, dictation, summaries } = appConfig.agent;
-  return { chat: ok && enabled, voice: ok && enabled && voice, dictation: ok && dictation, summaries: ok && summaries };
+  const { enabled, voice, dictation, summaries, background } = appConfig.agent;
+  return { chat: ok && enabled, voice: ok && enabled && voice, dictation: ok && dictation, summaries: ok && summaries, background: ok && enabled && background.enabled };
 }
 
 export type AiFeatures = ReturnType<typeof aiFeatures>;
 
 /** The sentence for a feature that's off, saying why and where to change it. */
 export function aiOffMessage(feature: keyof AiFeatures) {
-  const name = { chat: "The assistant", voice: "Voice chat", dictation: "Dictation", summaries: "Summaries" }[feature];
+  const name = { chat: "The assistant", voice: "Voice chat", dictation: "Dictation", summaries: "Summaries", background: "Background work" }[feature];
   return aiGatewayAvailable()
     ? `${name} is turned off on this deployment (agent settings in app.config.ts or NEXT_PUBLIC_APP_CONFIG).`
     : `${name} isn't set up on this deployment yet. An admin can add an AI Gateway API key (AI_GATEWAY_API_KEY; see docs/AGENT.md).`;

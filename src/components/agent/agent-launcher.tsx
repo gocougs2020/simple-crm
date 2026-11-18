@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SparklesIcon } from "@heroicons/react/24/outline";
 import { appConfig } from "@/app.config";
 import { openAssistant, useAssistantState } from "./agent-store";
@@ -14,6 +14,10 @@ export function AgentLauncher({ configured }: { configured: boolean }) {
   const { open } = useAssistantState();
   const [loaded, setLoaded] = useState(false);
   if (open && !loaded) setLoaded(true);
+  // A notification that background work finished links here with ?assistant=tasks: open the panel on its task list.
+  useEffect(() => {
+    if (appConfig.agent.enabled && new URLSearchParams(window.location.search).get("assistant") === "tasks") openAssistant();
+  }, []);
   if (!appConfig.agent.enabled) return null;
   return (
     <>

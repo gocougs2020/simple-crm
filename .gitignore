@@ -44,3 +44,7 @@ next-env.d.ts
 # local
 .data
 .env*.local
+
+# eve (the assistant's background agent): build and development output
+.eve/
+.output/

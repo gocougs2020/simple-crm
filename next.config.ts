@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withEve } from "eve/next";
 import { appConfig } from "./app.config";
 
 const isDev = process.env.NODE_ENV === "development";
@@ -93,4 +94,19 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+/**
+ * The assistant's background worker is an eve agent (agent/, docs/AGENT.md) that
+ * runs beside the app as its own service, reached at /eve/v1. `withEve` builds it
+ * with the app and, in development, starts it with `next dev`.
+ *
+ * It's left out where it can't run or isn't wanted: background work turned off in
+ * app.config.ts, Node.js older than 24 (eve's minimum), or local development
+ * without an AI Gateway key (so `pnpm dev` still starts with no setup).
+ */
+const backgroundAgent =
+  appConfig.agent.enabled &&
+  appConfig.agent.background.enabled &&
+  Number(process.versions.node.split(".")[0]) >= 24 &&
+  (!isDev || !!process.env.AI_GATEWAY_API_KEY?.trim() || !!process.env.EVE_BASE_URL?.trim());
+
+export default backgroundAgent ? withEve(nextConfig) : nextConfig;

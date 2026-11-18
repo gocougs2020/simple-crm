@@ -27,6 +27,7 @@ import { useApp } from "@/components/app-context";
 import { endMessage, isGreetingCue, primeAudio, VOICE_MIC_CONSTRAINTS, voiceSessionConfig, type VoiceEndReason } from "@/lib/agent/voice";
 import { closeAssistant, useAssistantState } from "./agent-store";
 import { AssistantParts, awaitingApproval, hasVisibleContent, textOf } from "./agent-message";
+import { AgentTasks } from "./agent-tasks";
 import { DictationButton, type DictationState } from "./dictation-button";
 import { VoicePresence } from "./voice-presence";
 import VoiceSession, { type VoiceApi, type VoiceStatus } from "./voice-session";
@@ -103,6 +104,7 @@ export function AgentPanel({ configured }: { configured: boolean }) {
 
   const [threadId, setThreadId] = useState(() => readLastThread() ?? crypto.randomUUID());
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [tasksKey, setTasksKey] = useState(0);
   const [loadingThread, setLoadingThread] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -148,10 +150,18 @@ export function AgentPanel({ configured }: { configured: boolean }) {
     transport,
     // After the teammate confirms or cancels an archive, the assistant carries on.
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-    onFinish: () => void refreshThreads(),
+    onFinish: () => {
+      void refreshThreads();
+      // The answer may have handed a job to the background worker: the task list reads again.
+      setTasksKey((k) => k + 1);
+    },
     onError: (err) => console.error("[agent]", err),
   });
   const busy = status === "submitted" || status === "streaming";
+  const busyRef = useRef(busy);
+  useEffect(() => {
+    busyRef.current = busy;
+  });
   const voiceLive = !!voiceConfig;
 
   // A tool finished while the assistant is answering: the page behind the panel catches up right away,
@@ -191,6 +201,14 @@ export function AgentPanel({ configured }: { configured: boolean }) {
     return () => {
       current = false;
     };
+  }, [threadId, setMessages]);
+
+  // A background task started from this chat finished: its answer was saved into the thread, so show it.
+  const showBackgroundAnswer = useCallback(() => {
+    if (busyRef.current) return;
+    void loadAgentThread(threadId).then((res) => {
+      if (res.ok && !busyRef.current) setMessages(res.data.messages as UIMessage[]);
+    });
   }, [threadId, setMessages]);
 
   // Something asked the assistant a question ("Ask about this client"): put it in the composer.
@@ -497,6 +515,8 @@ export function AgentPanel({ configured }: { configured: boolean }) {
           </button>
         </div>
       </div>
+
+      {services.ai.background ? <AgentTasks open={open} threadId={threadId} refreshKey={tasksKey} onAnswer={showBackgroundAnswer} onNavigate={onNavigate} /> : null}
 
       {/* Conversation */}
       <div className="relative flex min-h-0 flex-1">

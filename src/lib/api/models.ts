@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { activityTypes, apiKeyKinds, billingIntervals, clientCategories, clientHealths, customFieldTypes, entityTypes, userRoles } from "@/lib/constants";
+import { activityTypes, agentDraftKinds, agentDraftStatuses, agentRunSources, agentRunStatuses, apiKeyKinds, billingIntervals, clientCategories, clientHealths, customFieldTypes, entityTypes, userRoles } from "@/lib/constants";
 import { permissions } from "@/lib/permissions";
 
 /**
@@ -202,6 +202,43 @@ export const Knowledge = z.object({
   content: z.unknown().describe("What the source returned: its JSON as is, or text."),
 });
 
+export const AssistantTask = z.object({
+  id: uuid,
+  title: z.string(),
+  request: z.string().describe("What was asked for."),
+  source: z.enum(agentRunSources).describe("Where it was asked: the assistant chat, a mention in a note, an assigned task, a bulk request, or the API."),
+  status: z.enum(agentRunStatuses).describe("queued and running are still going; done, failed and cancelled are final."),
+  result: z.string().nullable().describe("The assistant's answer (markdown), once done."),
+  error: z.string().nullable().describe("Why it didn't finish, in a sentence."),
+  costUsd: z.number().describe("Model spend so far, in US dollars."),
+  personId: uuid.nullable(),
+  organizationId: uuid.nullable(),
+  clientId: uuid.nullable(),
+  batchId: uuid.nullable().describe("Shared by the tasks of one bulk request."),
+  createdAt: z.string(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+});
+
+export const AssistantBulk = z.object({
+  batchId: uuid.describe("Shared by every task of this request. List them with GET /assistant/tasks."),
+  count: z.number().int().describe("How many tasks were started, one per record."),
+  tasks: z.array(AssistantTask),
+});
+
+export const Draft = z.object({
+  id: uuid,
+  kind: z.enum(agentDraftKinds),
+  personId: uuid,
+  personName: z.string(),
+  clientId: uuid.nullable(),
+  subject: z.string().nullable().describe("Emails only."),
+  body: z.string().describe("HTML for an email, plain text for a text."),
+  status: z.enum(agentDraftStatuses).describe("pending until the teammate sends or discards it."),
+  url: z.string().describe("Where the teammate reviews and sends it."),
+  createdAt: z.string(),
+});
+
 /** Named schemas, in the order the docs list them. */
-export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, ClientService, Metric, User, CustomField, Me, SearchResult, Knowledge, Deleted } as const;
+export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, ClientService, Metric, User, CustomField, Me, SearchResult, AssistantTask, AssistantBulk, Draft, Knowledge, Deleted } as const;
 export type ModelName = keyof typeof models;

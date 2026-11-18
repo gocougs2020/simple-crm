@@ -479,6 +479,39 @@ export async function listServices() {
 
 export const toUser = (u: typeof users.$inferSelect) => ({ id: u.id, name: u.name, email: u.email, role: u.role, title: u.title, active: !u.deactivatedAt && !!u.passwordHash });
 
+/** A background run of the assistant, in its API shape. */
+export const toAssistantTask = (r: typeof schema.agentRuns.$inferSelect) => ({
+  id: r.id,
+  title: r.title,
+  request: r.prompt,
+  source: r.source,
+  status: r.status,
+  result: r.result,
+  error: r.error,
+  costUsd: r.costMicroUsd / 1_000_000,
+  personId: r.personId,
+  organizationId: r.organizationId,
+  clientId: r.clientId,
+  batchId: r.batchId,
+  createdAt: r.createdAt.toISOString(),
+  startedAt: r.startedAt?.toISOString() ?? null,
+  finishedAt: r.finishedAt?.toISOString() ?? null,
+});
+
+/** A draft the assistant wrote, in its API shape. */
+export const toDraft = (d: typeof schema.agentDrafts.$inferSelect & { personName: string }, ctx: { origin: string }) => ({
+  id: d.id,
+  kind: d.kind,
+  personId: d.personId,
+  personName: d.personName,
+  clientId: d.clientId,
+  subject: d.subject,
+  body: d.body,
+  status: d.status,
+  url: `${ctx.origin}/people/${d.personId}?draft=${d.id}`,
+  createdAt: d.createdAt.toISOString(),
+});
+
 export async function listUsers() {
   const db = await getDb();
   return (await db.select().from(users).orderBy(asc(users.name))).map(toUser);

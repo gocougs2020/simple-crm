@@ -9,9 +9,11 @@ import { forbiddenMessage, roleCan, type Permission } from "@/lib/permissions";
  * - A teammate in the browser, or through a personal key or connected app
  *   (`keyId` set). `readOnly` narrows a key or app to reading, whatever the
  *   teammate's role allows.
+ *   `runId` is set while the assistant works in the background for them
+ *   (src/lib/agent/runs.ts): the same access, minus what needs a person watching.
  * - A workspace key: full access, no teammate behind it.
  */
-export type Actor = { kind: "user"; user: User; keyId: string | null; readOnly?: boolean } | { kind: "workspace"; keyId: string; keyName: string };
+export type Actor = { kind: "user"; user: User; keyId: string | null; readOnly?: boolean; runId?: string } | { kind: "workspace"; keyId: string; keyName: string };
 
 export const sessionActor = (user: User): Actor => ({ kind: "user", user, keyId: null });
 

@@ -1,4 +1,5 @@
 import "server-only";
+import { aiFeatures } from "@/lib/agent/config";
 import { KNOWLEDGE_TOOL, knowledgeInstructions, knowledgeToolDescription } from "@/lib/knowledge/core";
 import { knowledgeSource } from "@/lib/knowledge/source";
 import type { OptionalFeature } from "./spec";
@@ -9,7 +10,11 @@ import type { OptionalFeature } from "./spec";
  * name what this deployment connected.
  */
 export function enabledFeatures(): OptionalFeature[] {
-  return knowledgeSource() ? ["knowledge"] : [];
+  const features: OptionalFeature[] = [];
+  if (knowledgeSource()) features.push("knowledge");
+  // The assistant's background work (docs/AGENT.md): its tools appear only where it can run.
+  if (aiFeatures().background) features.push("background");
+  return features;
 }
 
 /** A tool's description for this deployment: the knowledge tool names and describes the connected source. */

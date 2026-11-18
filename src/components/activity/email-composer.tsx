@@ -20,11 +20,12 @@ type Template = Awaited<ReturnType<typeof listTemplates>>[number];
 type SendingInbox = Awaited<ReturnType<typeof listSendingInboxes>>[number];
 
 /** Write and send an email to this record's person, optionally from a template. Merge tags fill in at send time. */
-export function EmailComposer({ links, recipient }: { links: Links; recipient: EmailRecipient }) {
+export function EmailComposer({ links, recipient, draft, onDraftSent }: { links: Links; recipient: EmailRecipient; draft?: { subject: string | null; body: string } | null; onDraftSent?: () => void }) {
   const editor = useRef<RichTextHandle>(null);
   const subjectRef = useRef<HTMLInputElement>(null);
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
+  // A draft the assistant wrote starts the email off; the teammate edits it like any other before sending.
+  const [subject, setSubject] = useState(draft?.subject ?? "");
+  const [body, setBody] = useState(draft?.body ?? "");
   const [cc, setCc] = useState("");
   const [showCc, setShowCc] = useState(false);
   const [copyMe, setCopyMe] = useState(false);
@@ -86,6 +87,7 @@ export function EmailComposer({ links, recipient }: { links: Links; recipient: E
       });
       if (!r.ok) return void toast.error(r.error);
       toast.success(`Email sent to ${recipient.name}`);
+      onDraftSent?.();
       editor.current?.clear();
       setBody("");
       setSubject("");
