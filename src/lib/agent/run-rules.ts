@@ -113,7 +113,7 @@ export type RunMessageContext = {
 const answerGoes: Record<AgentRunSource, string> = {
   chat: "Your answer is posted back into their chat with you.",
   api: "Your answer is saved on the run for whoever started it.",
-  mention: "Your answer is saved as a note on the same record, in reply to theirs.",
+  mention: "Your answer is added as a reply under their note, so don't add a note of your own to report back.",
   task: "Your answer is saved on the task, and the task is then marked done. Don't complete or edit the task yourself.",
   bulk: "Your answer is saved on this record's run and listed with the others. Keep it to a few lines.",
   schedule: "Your answer is saved on the run, and they're notified that it's ready. Lead with what changed or needs them since last time. If there's nothing to report, say so in one line.",

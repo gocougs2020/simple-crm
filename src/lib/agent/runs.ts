@@ -456,7 +456,7 @@ async function postToThread(run: Run, opts: { batchDone?: boolean } = {}) {
     );
 }
 
-/** A note with the answer on the record a mention came from, or the answer added to the task that was assigned. */
+/** The answer as a reply under the note a mention came from, or added to the task that was assigned. */
 async function postToActivity(run: Run) {
   if (!run.activityId || (run.source !== "mention" && run.source !== "task")) return;
   const user = await userOf(run.userId);
@@ -476,11 +476,7 @@ async function postToActivity(run: Run) {
     return;
   }
   // The answer is the agent's own writing: it never hands work back to itself, whatever the text says.
-  await activities.logActivity(
-    actor,
-    { type: "note", subject: run.status === "done" ? null : `${appConfig.agent.name} couldn't finish`, body: answer, personId: source.personId, organizationId: source.organizationId, clientId: source.clientId },
-    { handOff: false },
-  );
+  await activities.replyToNote(actor, source.id, { body: run.status === "done" ? answer : `<p><strong>${appConfig.agent.name} couldn't finish.</strong></p>${answer}` }, { handOff: false });
 }
 
 /** Saves a final run's answer where the teammate asked for it and tells them it's ready. */

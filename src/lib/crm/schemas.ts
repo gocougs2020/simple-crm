@@ -184,6 +184,11 @@ export const activityInput = z.object({
 
 export type ActivityInput = z.input<typeof activityInput>;
 
+/** A reply under a note (src/lib/crm/service/activities.ts). */
+export const replyInput = z.object({
+  body: z.string().max(100_000).describe("The reply. Rich text as HTML (p, strong, em, a, ul, ol, li, blockquote, code), or plain text. Mention a teammate with @ and their name to notify them."),
+});
+
 // ─── Drafts ──────────────────────────────────────────────────────────────
 
 /** An email or text written for a teammate to review and send (src/lib/crm/service/drafts.ts). */

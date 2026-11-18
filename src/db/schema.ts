@@ -606,6 +606,30 @@ export const activities = pgTable(
 );
 
 /**
+ * Replies under a note, oldest first: a teammate answering a note they were
+ * mentioned in, or the agent answering one that called on it. They live on
+ * the note rather than as activities of their own, so a thread is one entry
+ * on the timeline and in every list (src/lib/crm/service/activities.ts).
+ */
+export const noteReplies = pgTable(
+  "note_replies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    activityId: uuid("activity_id")
+      .notNull()
+      .references(() => activities.id, { onDelete: "cascade" }),
+    /** Sanitized rich-text HTML, like a note's body. */
+    body: text("body").notNull(),
+    /** Who wrote it, and the key it came through (the agent's, for its answers). */
+    userId: uuid("user_id").references(() => users.id),
+    apiKeyId: uuid("api_key_id").references(() => apiKeys.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("note_replies_activity_idx").on(t.activityId, t.createdAt)],
+);
+
+/**
  * The record's change history: created, stage moved, won, owner changed, field
  * edited. Written by the server alongside each change, never by hand, so the
  * timeline can answer "who changed this and when".

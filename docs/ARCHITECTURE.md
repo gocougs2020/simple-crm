@@ -54,6 +54,7 @@ app.config.ts        product defaults (name, theme, layout), overridable per dep
 | `services`, `client_services` | What the workspace sells (Settings → Services), and which ones each client uses or used, at what price, from when to when |
 | `client_metrics` | Performance numbers logged over time per client ("Leads", "Days to fill") |
 | `activities` | Notes, calls, emails, texts, meetings and tasks in one table. Links to a person, organization and/or client |
+| `note_replies` | Replies under a note, oldest first: teammates answering each other, and the agent answering a note that called on it |
 | `events` | Change history: who changed what, from what, to what, and through which API key |
 | `files` | Metadata; the bytes live in private Vercel Blob. A file added to a note, call or other activity keeps its `activity_id` and takes that activity's links |
 | `custom_fields` | Field definitions per record type. Values live on the record, keyed by a stable `key` |
@@ -72,6 +73,7 @@ Choices worth knowing:
 - **Clients are one table, in three categories.** A client is prospective, current or past. The category decides which pipelines it moves through (each pipeline has a `category`) and what its page shows: potential value and expected close for prospects; health, services and Stripe billing (one card), performance and time since last contact for current clients; what they had, why they left and whether they'd come back for past clients. Moving between categories (`changeClientCategory`) records dates, the reason and a history entry, and ends or starts services in the same step. Deals were renamed to clients in place (migration `0001`), so ids, links and history carried over; won deals became current clients, lost ones prospects in a "Not now" stage.
 - **Monthly revenue is derived, never stored.** It's the sum of a client's open `client_services`, normalized to a month, so changing a price or ending a service is the only thing to keep up to date.
 - **Activities are one table.** "Log a call" and "add a task" are the same gesture with different fields, and a record's timeline is one query. An open activity with a `due_at` is planned; one with `completed_at` or no `due_at` is history.
+- **Notes are threads.** A reply (`note_replies`) stays under the note it answers instead of becoming another note, so a conversation is one entry on the timeline, in the Activities page and in the API (`replies` on the note). Replying bumps the note's `updated_at` (so open pages pick it up) and counts as contact on its records. `@` and a teammate's name in a note or reply sends them the "Mentions and replies" push (`mentionedTeammates` in `src/lib/crm/mentions.ts`: the full name, or a first name nobody shares); a reply also tells the note's author and everyone who already replied. The agent's answer to a mention is a reply too, and a reply can call on it again.
 - **Links roll up.** Logging on a client fills in its contact and organization; logging on a person fills in their organization. The organization page is the whole story without joins across clients.
 - **Messages land on people.** Mail (Resend inboxes and synced Microsoft 365 mailboxes), calls and texts are matched to a person by address or phone number (`src/lib/crm/match.ts`), else to an organization by website domain or main line, and roll up from there like anything logged by hand.
 - **Decision makers are a star.** `people.decision_maker` marks the people at an organization who make or sign off on the decision; they sort first in the organization's people and are an audience filter. What the star is called is a setting (`records.keyContactLabel`).
@@ -158,6 +160,7 @@ Record pages open with an AI summary of the record, shared by the team and rewri
   | Today's tasks, in the morning | One summary of today's tasks with no time, from `notifications.morningHour` (7 AM) workspace time |
   | Meetings | 15 minutes before each of your meetings |
   | Records assigned to me | Someone else makes you the owner of a client, person or organization |
+  | Mentions and replies | A teammate mentions you in a note or a reply, or replies to a note you wrote or replied to |
   | Replies from my contacts | Mail arrives in a connected inbox from a record you own (received in the last day, so a first sync doesn't flood you) |
 
   The scheduled ones run on the quarter-hour notifications cron (`src/lib/push/due.ts`, rules in `src/lib/notifications/schedule.ts`), so a reminder lands 0–15 minutes before its time: exactly 15 for meetings on the quarter hour.

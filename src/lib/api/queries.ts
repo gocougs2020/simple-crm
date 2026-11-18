@@ -7,7 +7,7 @@ import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { getDb, schema } from "@/db";
 import type { ActivityType, EntityType } from "@/lib/constants";
 import { actorUserId, type Actor } from "@/lib/crm/actor";
-import { timeline } from "@/lib/crm/activities";
+import { timeline, type NoteReply } from "@/lib/crm/activities";
 import { inOrganizations, likeTerm } from "@/lib/crm/records";
 import { ActionError, NotFoundError } from "@/lib/errors";
 import { htmlToText } from "@/lib/safe-html";
@@ -352,8 +352,9 @@ const activitySelect = {
   personName: sql<string | null>`case when ${people.id} is null then null else ${people.firstName} || coalesce(' ' || ${people.lastName}, '') end`,
   organizationName: organizations.name,
   clientName: clients.name,
+  replies: sql<NoteReply[]>`(select coalesce(json_agg(json_build_object('id', r.id, 'body', r.body, 'userId', r.user_id, 'apiKeyId', r.api_key_id, 'createdAt', r.created_at) order by r.created_at, r.id), '[]'::json) from note_replies r where r.activity_id = ${activities.id})`,
 };
-type ActivityRowLike = { activity: typeof activities.$inferSelect; personName: string | null; organizationName: string | null; clientName: string | null };
+type ActivityRowLike = { activity: typeof activities.$inferSelect; personName: string | null; organizationName: string | null; clientName: string | null; replies?: NoteReply[] };
 
 export function toActivity(r: ActivityRowLike) {
   const x = r.activity;
@@ -382,6 +383,7 @@ export function toActivity(r: ActivityRowLike) {
     userId: x.userId,
     assigneeId: x.assigneeId,
     apiKeyId: x.apiKeyId,
+    replies: (r.replies ?? []).map((y) => ({ id: y.id, body: y.body, bodyText: htmlToText(y.body), userId: y.userId, apiKeyId: y.apiKeyId, createdAt: iso(new Date(y.createdAt))! })),
     createdAt: iso(x.createdAt)!,
     updatedAt: iso(x.updatedAt)!,
   };

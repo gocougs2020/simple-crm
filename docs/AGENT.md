@@ -115,7 +115,7 @@ Some jobs take too long for a chat answer: researching a company on the web and 
 | How | What happens | Where the answer goes |
 | --- | --- | --- |
 | **Ask in chat** | The chat agent does quick things itself and hands long ones off with `start_background_task`. | Posted back into that chat, and listed under "Background tasks" at the top of the panel |
-| **Mention it in a note** | A note that says `@Agent` (or `@` and whatever `agent.name` is) on a person, organization or client starts a run with the note as the request. | A note in reply on the same record |
+| **Mention it in a note** | A note that says `@Agent` (or `@` and whatever `agent.name` is) on a person, organization or client starts a run with the note as the request. So does a reply under a note: the run gets the note and its replies, so a follow-up ("@Agent do the same for their Denver office") makes sense. | A reply under that note |
 | **Assign it a task** | In the task form, pick the agent under "Assigned to" (or pass `agent: true` to `create_task` / `update_task`). The task stays yours. | Added to the task, which is then marked done |
 | **Schedule it** | A [scheduled job](#scheduled-jobs) starts a run each time it's due. | Saved on the run, under "Background tasks", with a notification |
 
@@ -131,7 +131,7 @@ A run works for one teammate: whoever asked in chat, wrote the note or assigned 
 - **It needs edit access to start.** Viewers, read-only keys and read-only connected apps can't start background work, since a run changes records.
 - **Everything it does is theirs, via the agent.** Notes, tasks, field changes and drafts show as "Sam via Agent" in history, exactly like the chat agent's changes.
 - **Less than chat in one way.** Nobody is watching a run, so it can't archive, delete or merge (those wait for a confirm button in chat), can't send anything, can't start more runs, and can't create or change skills or scheduled jobs.
-- **Only a person can call on it from a note.** A mention counts only in a note a teammate wrote in the browser. Text written by an agent or a script never starts work, whatever it says.
+- **Only a person can call on it from a note.** A mention counts only in a note or a reply a teammate wrote in the browser. Text written by an agent or a script never starts work, whatever it says.
 
 ### Research can't change anything
 

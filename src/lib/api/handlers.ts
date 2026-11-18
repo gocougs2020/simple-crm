@@ -255,6 +255,17 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
     await activities.deleteActivity(a, params.id, "note");
     return deleted(params.id);
   },
+  async replyToNote(a, { params, body }) {
+    await q.getActivity(params.id, "note");
+    await activities.replyToNote(a, params.id, body);
+    return q.getActivity(params.id);
+  },
+  async deleteNoteReply(a, { params }) {
+    const note = await q.getActivity(params.id, "note");
+    if (!note.replies.some((r) => r.id === params.replyId)) throw new NotFoundError("There's no reply with that id on this note.");
+    await activities.deleteReply(a, params.replyId);
+    return q.getActivity(params.id);
+  },
 
   // Activities
   listActivities: (a, { query }) => {

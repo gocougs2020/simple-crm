@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { activityTypes, clientCategories, clientHealths, entityTypes } from "@/lib/constants";
-import { activityInput, categoryInput, draftInput, datetime, clientCreateInput, clientInput, metricInput, moveInput, orgInput, personInput, subscriptionInput } from "@/lib/crm/schemas";
+import { activityInput, categoryInput, draftInput, datetime, clientCreateInput, clientInput, metricInput, moveInput, orgInput, personInput, replyInput, subscriptionInput } from "@/lib/crm/schemas";
 import { jobInput, jobPatch } from "@/lib/agent/schedule-rules";
 import { skillInput, skillPatch } from "@/lib/agent/skill-rules";
 import { idParam, op, pageQuery, queryBool, queryInt, recordQuery, type Operation } from "./spec";
@@ -456,6 +456,32 @@ export const operations = {
     tool: "update_note",
   }),
   deleteNote: op({ method: "DELETE", path: "/notes/{id}", tag: "Notes", summary: "Delete a note", description: "Only its author or an admin can delete it.", permission: "records:write", params: idParam, response: "Deleted", tool: "delete_note" }),
+  replyToNote: op({
+    method: "POST",
+    path: "/notes/{id}/replies",
+    tag: "Notes",
+    summary: "Reply to a note",
+    description: "Adds a reply under the note, so the conversation stays in one place on the timeline instead of becoming another note. The note's author, everyone who already replied and anyone the reply mentions (@ and their name) are told.",
+    permission: "records:write",
+    params: idParam,
+    body: replyInput,
+    example: { body: "Called them back. They want the proposal by Friday." },
+    response: "Activity",
+    status: 201,
+    tool: "reply_to_note",
+    toolDescription: "Reply under an existing note instead of adding a new one, when what you're adding answers or follows up on that note. Returns the note with its replies.",
+  }),
+  deleteNoteReply: op({
+    method: "DELETE",
+    path: "/notes/{id}/replies/{replyId}",
+    tag: "Notes",
+    summary: "Delete a reply",
+    description: "Only its author or an admin can delete it.",
+    permission: "records:write",
+    params: ids("id", "replyId"),
+    response: "Activity",
+    tool: null,
+  }),
 
   // ─── Activities ────────────────────────────────────────────────────────
   listActivities: op({

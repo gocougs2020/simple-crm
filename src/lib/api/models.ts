@@ -119,6 +119,9 @@ export const Activity = z.object({
   userId: uuid.nullable().describe("Who logged it. Null for inbox mail and workspace API keys."),
   assigneeId: uuid.nullable(),
   apiKeyId: uuid.nullable().describe("The API key it was logged through, if any."),
+  replies: z
+    .array(z.object({ id: uuid, body: z.string().describe("Sanitized HTML."), bodyText: z.string(), userId: uuid.nullable().describe("Who replied."), apiKeyId: uuid.nullable().describe("The key it came through: the agent's, for its answers."), createdAt: ts }))
+    .describe("Notes: the replies under it, oldest first. Add one with POST /notes/{id}/replies."),
   createdAt: ts,
   updatedAt: ts,
 });
