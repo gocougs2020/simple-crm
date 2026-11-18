@@ -326,7 +326,7 @@
     background-position: -100% 0;
   }
 }
-/* "Thinking…" while the assistant works. */
+/* "Thinking…" while the agent works. */
 @utility text-shimmer {
   background-image: linear-gradient(90deg, var(--text-muted) 0%, var(--text-muted) 40%, var(--text-primary) 50%, var(--text-muted) 60%, var(--text-muted) 100%);
   background-size: 200% 100%;

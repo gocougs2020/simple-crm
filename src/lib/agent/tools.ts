@@ -12,10 +12,10 @@ import { allowedOperations, capResult } from "./policy";
 export { needsConfirmation } from "./policy";
 
 /**
- * The assistant's tools are the MCP tools: one per API operation, generated
+ * The agent's tools are the MCP tools: one per API operation, generated
  * from src/lib/api/operations.ts, filtered by the teammate's role and run
  * through executeOperation (permission check, validation, history). Adding an
- * operation with a `tool` name gives the assistant that tool too.
+ * operation with a `tool` name gives the agent that tool too.
  */
 
 /** The tools this actor may use. */

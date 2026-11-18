@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // eve's build and development output (the assistant's background agent, agent/).
+    ".eve/**",
+    ".output/**",
   ]),
 ]);
 

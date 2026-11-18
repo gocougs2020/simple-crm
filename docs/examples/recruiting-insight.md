@@ -35,7 +35,7 @@ From the website's own API guide. Every request is `GET`, authenticated with `Au
 
 Lists return `total`, `page` and `pages`. Content may be a few minutes old, page text a few hours. Search by meaning allows 5,000 searches a day (`429` after that: use `q` on `/posts` instead) and can briefly fail with `502`. The whole API can be turned off from the website's admin, which answers `503`: the CRM reports that as "turned off or not ready", and the key doesn't need changing.
 
-The website's guide suggests the same order the CRM's assistant follows: `/` to learn the endpoints and `/site` for company facts; `/pages` for services, team and philosophy; `/search` for the firm's view on a topic, quoting and linking the posts it returns; and resources by their `url`.
+The website's guide suggests the same order the CRM's agent follows: `/` to learn the endpoints and `/site` for company facts; `/pages` for services, team and philosophy; `/search` for the firm's view on a topic, quoting and linking the posts it returns; and resources by their `url`.
 
 ## Not used
 

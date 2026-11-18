@@ -20,13 +20,13 @@ export const maxDuration = 300;
 
 const body = z.object({
   threadId: z.uuid(),
-  /** The one new message: the teammate's (new or edited), or the assistant's last one carrying their confirmation answers. */
+  /** The one new message: the teammate's (new or edited), or the agent's last one carrying their confirmation answers. */
   message: z.unknown(),
   page: z.string().max(300).optional(),
 });
 
 /**
- * The assistant's text chat (useChat with DefaultChatTransport). Loads the
+ * The agent's text chat (useChat with DefaultChatTransport). Loads the
  * thread from the database, merges in the message the browser sent, answers
  * with the teammate's tools, and saves the result.
  */
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
   if (!merged.ok) return agentError(400, merged.error);
 
   const [actor, workspace, origin] = await Promise.all([assistantActor(user), getWorkspace(), siteOrigin()]);
-  const tools = agentTools(actor, { origin });
+  const tools = agentTools(actor, { origin, agent: true, threadId: thread.id });
 
   let messages: UIMessage[];
   try {
@@ -71,6 +71,7 @@ export async function POST(request: Request) {
       now: new Date(),
       page: input.page,
       knowledge: featureInstructions(),
+      background: aiFeatures().background && can(actor, "records:write"),
     }),
     messages: await convertToModelMessages(messages, { tools, ignoreIncompleteToolCalls: true }),
     tools,
@@ -106,7 +107,7 @@ export async function POST(request: Request) {
     },
     onError: (error) => {
       console.error("[agent] stream", error);
-      return "The assistant couldn't finish that answer. Try again in a moment.";
+      return "The agent couldn't finish that answer. Try again in a moment.";
     },
   });
 }

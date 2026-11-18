@@ -6,11 +6,11 @@ import type { User } from "@/lib/auth";
 import type { Actor } from "@/lib/crm/actor";
 
 /**
- * The in-app assistant acts as the signed-in teammate, on their session: no
+ * The in-app agent acts as the signed-in teammate, on their session: no
  * API key to create, and their role decides what it can read and change, the
  * same way it does for them in the browser. Its changes are attributed to
  * them, through their "assistant" row in api_keys, so history reads
- * "Sam via Assistant".
+ * "Sam via Agent".
  */
 export async function assistantActor(user: User): Promise<Actor & { kind: "user" }> {
   return { kind: "user", user, keyId: await assistantKeyId(user.id) };

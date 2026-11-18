@@ -3,8 +3,8 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * Whether the assistant panel is open, from anywhere: its button, the command
- * palette, or a page that wants to ask something ("Ask the assistant about
+ * Whether the agent panel is open, from anywhere: its button, the command
+ * palette, or a page that wants to ask something ("Ask the agent about
  * this client"). `prompt` fills the composer without sending.
  */
 type State = { open: boolean; prompt: string | null; seq: number };

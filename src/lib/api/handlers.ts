@@ -1,10 +1,12 @@
 import "server-only";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
+import * as runs from "@/lib/agent/runs";
 import { can, type Actor } from "@/lib/crm/actor";
 import { dayBounds } from "@/lib/crm/activities";
 import * as activities from "@/lib/crm/service/activities";
 import * as clients from "@/lib/crm/service/clients";
+import * as drafts from "@/lib/crm/service/drafts";
 import * as merging from "@/lib/crm/service/merge";
 import * as records from "@/lib/crm/service/records";
 import { NotFoundError } from "@/lib/errors";
@@ -21,7 +23,8 @@ import type { InputOf } from "./spec";
  * in its API shape.
  */
 
-export type HandlerContext = { origin: string };
+/** `agent` marks a call from the in-app agent; `threadId` is the chat it came from, so work it starts can answer there. */
+export type HandlerContext = { origin: string; agent?: boolean; threadId?: string };
 type Handler<O> = (a: Actor, input: InputOf<O>, ctx: HandlerContext) => Promise<unknown>;
 
 const deleted = (id: string) => ({ id, deleted: true as const });
@@ -38,6 +41,23 @@ async function todayStart() {
 }
 
 export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
+  // Agent
+  async startAgentTask(a, { body }, ctx) {
+    const run = await runs.startRun(a, { prompt: body.request, title: body.title, source: ctx.agent ? "chat" : "api", threadId: ctx.threadId, personId: body.personId, organizationId: body.organizationId, clientId: body.clientId });
+    return q.toAgentTask(run);
+  },
+  listAgentTasks: async (a, { query }) => (await runs.listRuns(a, query)).map(q.toAgentTask),
+  getAgentTask: async (a, { params }) => q.toAgentTask(await runs.getRun(a, params.id)),
+  async startAgentBulk(a, { body }, ctx) {
+    const started = await runs.startBulk(a, { ...body, threadId: ctx.threadId });
+    return { batchId: started.batchId, count: started.runs.length, tasks: started.runs.map(q.toAgentTask) };
+  },
+  async draftMessage(a, { body }, ctx) {
+    return q.toDraft(await drafts.createDraft(a, body), ctx);
+  },
+  listDrafts: async (a, { query }, ctx) => (await drafts.listDrafts(a, query)).map((d) => q.toDraft(d, ctx)),
+  cancelAgentTask: async (a, { params }) => q.toAgentTask(await runs.cancelRun(a, params.id)),
+
   async me(a) {
     const db = await getDb();
     const [key] = await db.select().from(schema.apiKeys).where(eq(schema.apiKeys.id, a.keyId!));

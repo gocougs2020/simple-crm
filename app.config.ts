@@ -89,15 +89,15 @@ export type AppConfig = {
      * also need AI Gateway access (docs/AGENT.md); without it they hide
      * themselves. Turning one off also refuses it on the server.
      */
-    /** The assistant: its button in the bottom right corner and the chat panel. */
+    /** The agent: its button in the bottom right corner and the chat panel. */
     enabled: boolean;
-    /** Live voice chat in the assistant panel (speech to speech). */
+    /** Live voice chat in the agent panel (speech to speech). */
     voice: boolean;
-    /** Microphones that dictate into the assistant's composer and the CRM's text boxes. */
+    /** Microphones that dictate into the agent's composer and the CRM's text boxes. */
     dictation: boolean;
     /** The AI summary at the top of client, person and organization pages. */
     summaries: boolean;
-    /** What the assistant is called in its panel and its own replies. */
+    /** What the agent is called in its panel and its own replies. */
     name: string;
     /** AI Gateway model ids (creator/model). Change them to try another model; nothing else needs to change. */
     chatModel: string;
@@ -115,6 +115,29 @@ export type AppConfig = {
     /** Suggested actions on a new chat, one tap away. Read-only teammates see only `viewerSuggestions`. */
     suggestions: readonly string[];
     viewerSuggestions: readonly string[];
+    /**
+     * Background work: long jobs the agent does on its own (research, cleanups, follow-ups),
+     * started from chat, by mentioning it in a note or by assigning it a task. Runs on eve
+     * (the `agent/` directory), as the teammate who asked. See docs/AGENT.md.
+     */
+    background: {
+      enabled: boolean;
+      /** The model that plans the work and changes records. AI Gateway model id. */
+      model: string;
+      reasoning: "provider-default" | "none" | "minimal" | "low" | "medium" | "high";
+      /** The model for the research helper, which reads the web and can't change anything. Small and fast keeps long runs cheap. */
+      researchModel: string;
+      /** One run stops once its model spend reaches this many US dollars. */
+      maxRunUsd: number;
+      /** New runs are refused once this month's spend reaches this many US dollars, across the workspace. */
+      monthlyBudgetUsd: number;
+      /** A run still going after this many minutes is cancelled. */
+      maxRunMinutes: number;
+      /** How many runs one teammate can have going at once. */
+      maxConcurrentPerUser: number;
+      /** The most records one bulk request can cover. */
+      maxBulkRecords: number;
+    };
   };
   notifications: {
     /** The hour (0–23, workspace time zone) the morning push summary and agenda emails go out. */
@@ -126,7 +149,7 @@ export type AppConfig = {
      * refresh when it did: calls, texts and email coming in, teammates'
      * edits. Only while the tab is visible and someone used it lately. 0 turns
      * the check off (pages still catch up when the tab comes back into view,
-     * and right after the assistant changes something).
+     * and right after the agent changes something).
      */
     pollSeconds: number;
     /** After this many minutes without a click or key press, open pages stop asking until someone's back, so the database can sleep. */
@@ -239,7 +262,7 @@ const defaults = {
     voice: true,
     dictation: true,
     summaries: true,
-    name: "Assistant",
+    name: "Agent",
     chatModel: "openai/gpt-6.1-sol",
     chatReasoning: "medium",
     summaryModel: "openai/gpt-6.1-sol",
@@ -249,6 +272,17 @@ const defaults = {
     transcriptionModel: "spacexai/grok-stt",
     suggestions: ["What's on my plate today?", "Which clients need attention?", "Add a task to follow up with…", "Log a call with…"],
     viewerSuggestions: ["What's due today across the team?", "Which clients need attention?", "Summarize a client for me", "Who are our newest contacts?"],
+    background: {
+      enabled: true,
+      model: "openai/gpt-6.1-sol",
+      reasoning: "low",
+      researchModel: "openai/gpt-6-luna",
+      maxRunUsd: 0.75,
+      monthlyBudgetUsd: 30,
+      maxRunMinutes: 20,
+      maxConcurrentPerUser: 3,
+      maxBulkRecords: 50,
+    },
   },
   notifications: {
     morningHour: 7,

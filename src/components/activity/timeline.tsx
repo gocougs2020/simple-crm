@@ -29,7 +29,7 @@ import { MapPinIcon } from "@heroicons/react/24/outline";
 import { deleteActivity, setCompleted, setPinned, updateActivity } from "@/actions/activities";
 import { deleteFile } from "@/actions/files";
 import { useApp } from "@/components/app-context";
-import { OwnerSelect } from "@/components/records/owner-select";
+import { AGENT_ASSIGNEE, OwnerSelect } from "@/components/records/owner-select";
 import { Avatar } from "@/components/ui/avatar";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,7 +44,7 @@ import { toast } from "@/components/ui/toast";
 import type { ActivityRow, RecordFile, TimelineItem } from "@/lib/crm/activities";
 import { appConfig } from "@/app.config";
 import { deliveryLabels, deliveryTone } from "@/lib/email/delivery-status";
-import { activityLabels, clientCategoryLabels, clientHealthLabels, interactionTypes, type ActivityType, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
+import { activityLabels, agentRunStatusLabels, clientCategoryLabels, clientHealthLabels, interactionTypes, type ActivityType, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
 import { dayKey, dueTone, formatBytes, formatDateTime, formatDay, formatFull, formatTime, senderName, timeKey, zonedTime } from "@/lib/format";
 import { formatPhone } from "@/lib/phone/numbers";
 import { formatCallDuration, textStatusLabels } from "@/lib/phone/rules";
@@ -222,6 +222,17 @@ export function Timeline({
   );
 }
 
+/** A note or task the agent was handed: how its background work is going. */
+function AssistantStatus({ status }: { status: ActivityRow["assistantStatus"] }) {
+  if (!status) return null;
+  const tone = status === "done" ? "success" : status === "failed" ? "error" : status === "cancelled" ? "neutral" : "info";
+  return (
+    <StatusBadge tone={tone} icon={<SparklesIcon aria-hidden />}>
+      {appConfig.agent.name}: {agentRunStatusLabels[status].toLowerCase()}
+    </StatusBadge>
+  );
+}
+
 /** Who did something: a teammate, a teammate through one of their API or MCP keys, or a workspace key. */
 function Who({ id, apiKeyId }: { id: string | null; apiKeyId?: string | null }) {
   const { member, viewer, apiKey } = useApp();
@@ -301,6 +312,7 @@ export function PlannedItem({ row, context, attachments }: { row: ActivityRow; c
               </StatusBadge>
             </span>
           </Tooltip>
+          <AssistantStatus status={row.assistantStatus} />
         </div>
         {a.body ? <div className="prose-crm mt-1 line-clamp-3 text-[13px]" dangerouslySetInnerHTML={{ __html: a.body }} /> : null}
         <Attachments files={attachments} />
@@ -408,6 +420,11 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
               </time>
             </Tooltip>
             {a.pinned ? <span className="ml-1.5 text-[11.5px] font-medium text-secondary">· Pinned</span> : null}
+            {row.assistantStatus ? (
+              <span className="ml-1.5 inline-flex align-middle">
+                <AssistantStatus status={row.assistantStatus} />
+              </span>
+            ) : null}
           </div>
           <ItemMenu row={row} onEdit={() => setEditing(true)} />
         </header>
@@ -589,7 +606,7 @@ function ItemMenu({ row, onEdit }: { row: ActivityRow; onEdit: () => void }) {
 }
 
 function EditActivity({ row, onClose }: { row: ActivityRow; onClose: () => void }) {
-  const { workspace } = useApp();
+  const { workspace, services, canEdit } = useApp();
   const tz = workspace.timezone;
   const a = row.activity;
   const open = !a.completedAt && !!a.dueAt;
@@ -600,16 +617,18 @@ function EditActivity({ row, onClose }: { row: ActivityRow; onClose: () => void 
   const [time, setTime] = useState(open && !a.dueHasTime ? "" : timeKey(when, tz));
   const [assigneeId, setAssigneeId] = useState(a.assigneeId);
   const [pending, start] = useTransition();
+  // An open task can be handed to the agent: it stays this teammate's, and the agent does the work for them.
+  const forAssistant = assigneeId === AGENT_ASSIGNEE;
   const save = () =>
     start(async () => {
       const at = zonedTime(day, time || "00:00", tz).toISOString();
       const r = await updateActivity(a.id, {
         subject: subject || null,
         body,
-        ...(open ? { dueAt: at, dueHasTime: !!time, assigneeId } : a.type !== "note" ? { occurredAt: at } : {}),
+        ...(open ? { dueAt: at, dueHasTime: !!time, ...(forAssistant ? { agent: true } : { assigneeId }) } : a.type !== "note" ? { occurredAt: at } : {}),
       });
       if (!r.ok) return void toast.error(r.error);
-      toast.success("Saved");
+      toast.success(forAssistant ? `${appConfig.agent.name} is on it. The answer lands on the task.` : "Saved");
       onClose();
     });
   return (
@@ -637,7 +656,7 @@ function EditActivity({ row, onClose }: { row: ActivityRow; onClose: () => void 
             <Field label="Time" optional={open}>
               {(p) => <Input {...p} type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-32" step={900} />}
             </Field>
-            {open ? <Field label="Assigned to">{(p) => <OwnerSelect id={p.id} value={assigneeId} onChange={setAssigneeId} allowNone={false} />}</Field> : null}
+            {open ? <Field label="Assigned to">{(p) => <OwnerSelect id={p.id} value={assigneeId} onChange={setAssigneeId} allowNone={false} agent={a.type === "task" && services.ai.background && canEdit} />}</Field> : null}
           </div>
         ) : null}
         <RichText value={body} onChange={setBody} onSubmit={save} minHeight={120} autoFocus={a.type === "note"} dictation />

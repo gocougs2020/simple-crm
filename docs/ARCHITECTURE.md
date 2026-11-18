@@ -1,6 +1,6 @@
 # Architecture
 
-One Next.js app. Server components read the database directly; server actions change it through a shared service layer; a handful of route handlers cover files, cron and unsubscribe. The REST API (`/api/v1`), the MCP server (`/api/mcp`) and the in-app assistant (`/api/agent`) go through the same service layer, so the browser, integrations and agents follow the same rules and write the same history (see [API.md](API.md) and [AGENT.md](AGENT.md)).
+One Next.js app, plus a small background agent beside it (`agent/`, see [AGENT.md](AGENT.md#background-work)). Server components read the database directly; server actions change it through a shared service layer; a handful of route handlers cover files, cron and unsubscribe. The REST API (`/api/v1`), the MCP server (`/api/mcp`) and the in-app agent (`/api/agent`) go through the same service layer, so the browser, integrations and agents follow the same rules and write the same history (see [API.md](API.md) and [AGENT.md](AGENT.md)).
 
 ## Layout
 
@@ -14,22 +14,23 @@ src/
     api/             files (upload token, local upload, download), brand logo, cron
                      (campaigns, inbox, email-status, notifications, microsoft), the Resend and Twilio
                      webhooks, Microsoft sign-in (integrations/microsoft), the REST API
-                     (v1/[...path]), MCP (mcp) and the assistant (agent: chat, transcribe, voice)
+                     (v1/[...path]), MCP (mcp) and the agent (agent: chat, transcribe, voice)
     manifest.ts, icon.tsx, apple-icon.tsx   the installable app: manifest and generated icons
     developers/      the public API and MCP docs, generated from the operation list
     unsubscribe/     the campaign unsubscribe page and RFC 8058 one-click endpoint
   actions/           server actions, one file per area ("use server")
-  components/        UI, grouped by feature; ui/ holds the primitives; agent/ is the assistant panel;
+  components/        UI, grouped by feature; ui/ holds the primitives; agent/ is the agent panel;
                      phone/ is the call panel, call buttons and the text composer
   db/                schema.ts (every table) and the connection
   emails/            React Email templates (layout, invite, reset, direct, campaign)
   lib/               server logic: auth, permissions, email (and the inbox sync), Stripe,
                      files, formatting, queries (lib/crm), record changes (lib/crm/service),
-                     the REST API (lib/api), MCP (lib/mcp), the assistant (lib/agent), push (lib/push),
+                     the REST API (lib/api), MCP (lib/mcp), the agent (lib/agent), push (lib/push),
                      Microsoft 365 (lib/microsoft), Twilio (lib/twilio), phone-number rules (lib/phone)
                      and the optional knowledge source (lib/knowledge)
   styles/theme.css   every color the app uses
 public/sw.js         the service worker: shows push notifications, opens the page they point to
+agent/               the agent's background worker: an eve agent, its own service at /eve/v1 (docs/AGENT.md)
 drizzle/             SQL migrations generated from schema.ts
 app.config.ts        product defaults (name, theme, layout), overridable per deployment
                      with NEXT_PUBLIC_APP_CONFIG (src/lib/config-overrides.ts)
@@ -40,8 +41,10 @@ app.config.ts        product defaults (name, theme, layout), overridable per dep
 | Table | Holds |
 | --- | --- |
 | `users`, `sessions`, `auth_tokens`, `rate_limits` | Team, signed-in browsers, invite/reset links, sign-in and API throttling |
-| `api_keys` | Workspace keys (full access, REST only), personal keys and connected apps (act as one teammate; REST and MCP). Only a hash is stored. Each teammate's assistant has an `assistant` row too, with no usable token, so history can say "via Assistant" |
-| `agent_threads` | A teammate's conversations with the assistant: title and messages (AI SDK UI messages, as JSON). Private to them |
+| `api_keys` | Workspace keys (full access, REST only), personal keys and connected apps (act as one teammate; REST and MCP). Only a hash is stored. Each teammate's agent has an `assistant` row too, with no usable token, so history can say "via Agent" |
+| `agent_threads` | A teammate's conversations with the agent: title and messages (AI SDK UI messages, as JSON). Private to them |
+| `agent_runs` | Work the agent does in the background for a teammate: who asked, how (chat, a mention, an assigned task, a bulk request, the API), the request, its status, its answer and what it cost. An activity it was handed points at its run (`activities.agent_run_id`) |
+| `agent_drafts` | Emails and texts the agent wrote for a teammate to review and send. Private to that teammate; sending happens in the composer, never here |
 | `push_subscriptions`, `notifications` | Devices that get push notifications (one per browser or installed app, each with its own alert types), and every notification sent, deduplicated by key |
 | `workspace` | One row: name, currency, time zone, email brand kit |
 | `organizations`, `people`, `clients` | The records. Each has an owner, `custom` JSON for custom fields, `last_activity_at`, `archived_at` (soft delete), and an AI summary (`summary`, `summary_at`, `summary_started_at`) refreshed daily ([AGENT.md](AGENT.md#record-summaries)) |
@@ -134,16 +137,16 @@ Each teammate connects their own mailbox and calendar (Settings → Email and ca
 
 Twilio numbers, managed in Settings → Phone numbers. Calls are placed from the browser with the Twilio Voice SDK through a TwiML app whose webhook only dials calls the teammate prepared; incoming calls are forwarded to a cell phone, logged on the caller, and leave a write-up task. Texts both ways are activities, and every text joins a conversation on the Messages page; STOP opts a person out. Text campaigns share the email campaigns' audiences and claim-and-resume sending. Every Twilio webhook is signature-checked and idempotent. See [PHONE.md](PHONE.md).
 
-## The assistant
+## The agent
 
-Record pages open with an AI summary of the record, shared by the team and rewritten once a day. A chat panel in the bottom right corner that reads and changes records as the signed-in teammate, with their role, through the same operations as MCP. Threads are saved per teammate; it can talk (speech to speech) and take dictation. Everything runs through Vercel AI Gateway. See [AGENT.md](AGENT.md).
+Record pages open with an AI summary of the record, shared by the team and rewritten once a day. A chat panel in the bottom right corner that reads and changes records as the signed-in teammate, with their role, through the same operations as MCP. Threads are saved per teammate; it can talk (speech to speech) and take dictation. Longer jobs (web research, adding an organization's people, cleanups across a list) run in the background on an eve agent in `agent/`, started from chat, by mentioning the agent in a note or by assigning it a task. A run acts as the teammate who asked, through the same MCP tools and role checks, and its changes read "Sam via Agent". It never sends email or texts: it writes drafts the teammate reviews and sends. Everything runs through Vercel AI Gateway. See [AGENT.md](AGENT.md).
 
 ## Phone app and notifications
 
-- **Installable.** `src/app/manifest.ts` and the generated icons (`icon.tsx`, `apple-icon.tsx`, from `app.config.ts`'s `pwa` settings and brand color) make the CRM installable from the browser: Add to Home Screen on iPhone and iPad, Install app on Android and desktop. It opens full screen and respects the notch (`viewport-fit=cover`, safe-area padding in the shell and the assistant). The proxy lets the manifest, icons and service worker through without a session, since phones fetch them before anyone signs in.
+- **Installable.** `src/app/manifest.ts` and the generated icons (`icon.tsx`, `apple-icon.tsx`, from `app.config.ts`'s `pwa` settings and brand color) make the CRM installable from the browser: Add to Home Screen on iPhone and iPad, Install app on Android and desktop. It opens full screen and respects the notch (`viewport-fit=cover`, safe-area padding in the shell and the agent). The proxy lets the manifest, icons and service worker through without a session, since phones fetch them before anyone signs in.
 - **The service worker** (`public/sw.js`, always served fresh) shows notifications and, when one is tapped, focuses an open CRM window and navigates it, or opens one. It doesn't cache pages: everything is behind a login and changes constantly.
 - **Push** is Web Push with VAPID keys (`src/lib/push/vapid.ts`; locally a pair is made in `.data/vapid.json`, deployed it needs `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`). Settings → Notifications turns it on per device and picks that device's alerts. iPhones and iPads need the app installed to the Home Screen first; the page says so.
-- **What notifies** (`src/lib/push/triggers.ts`, called from the service layer, so the browser, API, MCP and the assistant all notify the same way, and nobody hears about their own change). Each device picks its own:
+- **What notifies** (`src/lib/push/triggers.ts`, called from the service layer, so the browser, API, MCP and the agent all notify the same way, and nobody hears about their own change). Each device picks its own:
 
   | Push alert | When |
   | --- | --- |
@@ -167,16 +170,16 @@ Vercel Cron, all on the same quarter-hour blocks so the database can scale to ze
 
 ## Live updates
 
-Open pages show changes without a reload: a task the assistant just added, a call that came in, a teammate's edit.
+Open pages show changes without a reload: a task the agent just added, a call that came in, a teammate's edit.
 
 - **How:** `LiveUpdates` (`src/components/live-updates.tsx`, in the `(app)` layout) asks `/api/live` for the newest change's version: the latest `events.created_at` or `activities.updated_at` (`src/lib/live.ts`, two index lookups). When it moved, `router.refresh()` re-renders the page and the sidebar counts on the server. What's typed, open or scrolled in the browser stays as it was.
-- **When it asks:** right away after each assistant tool call (chat and voice, `checkForChanges()`), when the tab comes back into view or the window regains focus, and every `live.pollSeconds` (30) while the tab is visible and someone clicked or typed in the last `live.idleMinutes` (10). Hidden or idle tabs don't ask, so a CRM left open overnight lets Neon suspend.
-- **Cost:** a check is one small function call and one indexed query. A dozen people working 8 hours a day is about 250,000 checks a month, well within Vercel Pro's included invocations, and the database is awake during working hours anyway. Raise `live.pollSeconds` to ask less often, or set it to `0` to rely on focus and assistant checks alone.
+- **When it asks:** right away after each agent tool call (chat and voice, `checkForChanges()`), when the tab comes back into view or the window regains focus, and every `live.pollSeconds` (30) while the tab is visible and someone clicked or typed in the last `live.idleMinutes` (10). Hidden or idle tabs don't ask, so a CRM left open overnight lets Neon suspend.
+- **Cost:** a check is one small function call and one indexed query. A dozen people working 8 hours a day is about 250,000 checks a month, well within Vercel Pro's included invocations, and the database is awake during working hours anyway. Raise `live.pollSeconds` to ask less often, or set it to `0` to rely on focus and agent checks alone.
 - **Why not sockets:** a push service (Pusher, Ably) or Neon's logical replication would add a vendor or keep the database from sleeping, for a difference of a few seconds. `activities.updated_at`, set by Drizzle on every update (`$onUpdate` in `schema.ts`), keeps the check honest for edits that don't set it by hand.
 
 ## Knowledge source
 
-- `src/lib/knowledge/` reads one deployment-configured JSON API about the organization (usually its website's content) with `KNOWLEDGE_API_URL` / `KNOWLEDGE_API_KEY`, for the REST API, MCP and the assistant (`get_knowledge`). Read-only, confined to the base URL, no redirects, 10 seconds and 2 MB at most. See [KNOWLEDGE.md](KNOWLEDGE.md).
+- `src/lib/knowledge/` reads one deployment-configured JSON API about the organization (usually its website's content) with `KNOWLEDGE_API_URL` / `KNOWLEDGE_API_KEY`, for the REST API, MCP and the agent (`get_knowledge`). Read-only, confined to the base URL, no redirects, 10 seconds and 2 MB at most. See [KNOWLEDGE.md](KNOWLEDGE.md).
 
 ## Stripe
 

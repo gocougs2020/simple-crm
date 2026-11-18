@@ -27,6 +27,7 @@ import { useApp } from "@/components/app-context";
 import { endMessage, isGreetingCue, primeAudio, VOICE_MIC_CONSTRAINTS, voiceSessionConfig, type VoiceEndReason } from "@/lib/agent/voice";
 import { closeAssistant, useAssistantState } from "./agent-store";
 import { AssistantParts, awaitingApproval, hasVisibleContent, textOf } from "./agent-message";
+import { AgentTasks } from "./agent-tasks";
 import { DictationButton, type DictationState } from "./dictation-button";
 import { VoicePresence } from "./voice-presence";
 import VoiceSession, { type VoiceApi, type VoiceStatus } from "./voice-session";
@@ -89,7 +90,7 @@ function rememberThread(id: string) {
 }
 
 /**
- * The assistant: a chat panel in the bottom right corner (the whole screen on
+ * The agent: a chat panel in the bottom right corner (the whole screen on
  * a phone). It answers with the teammate's own access: it reads and changes
  * records through the same operations as the API and MCP, as them. Threads
  * are saved per teammate; voice chat talks to a speech-to-speech model.
@@ -103,6 +104,7 @@ export function AgentPanel({ configured }: { configured: boolean }) {
 
   const [threadId, setThreadId] = useState(() => readLastThread() ?? crypto.randomUUID());
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [tasksKey, setTasksKey] = useState(0);
   const [loadingThread, setLoadingThread] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -146,15 +148,23 @@ export function AgentPanel({ configured }: { configured: boolean }) {
   const { messages, sendMessage, setMessages, status, stop, error, clearError, addToolApprovalResponse } = useChat({
     id: threadId,
     transport,
-    // After the teammate confirms or cancels an archive, the assistant carries on.
+    // After the teammate confirms or cancels an archive, the agent carries on.
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-    onFinish: () => void refreshThreads(),
+    onFinish: () => {
+      void refreshThreads();
+      // The answer may have handed a job to the background worker: the task list reads again.
+      setTasksKey((k) => k + 1);
+    },
     onError: (err) => console.error("[agent]", err),
   });
   const busy = status === "submitted" || status === "streaming";
+  const busyRef = useRef(busy);
+  useEffect(() => {
+    busyRef.current = busy;
+  });
   const voiceLive = !!voiceConfig;
 
-  // A tool finished while the assistant is answering: the page behind the panel catches up right away,
+  // A tool finished while the agent is answering: the page behind the panel catches up right away,
   // so a task it just added shows on the record without a reload. Read-only tools change nothing, so nothing refreshes.
   const settledTools = useRef(new Set<string>());
   useEffect(() => {
@@ -193,7 +203,15 @@ export function AgentPanel({ configured }: { configured: boolean }) {
     };
   }, [threadId, setMessages]);
 
-  // Something asked the assistant a question ("Ask about this client"): put it in the composer.
+  // A background task started from this chat finished: its answer was saved into the thread, so show it.
+  const showBackgroundAnswer = useCallback(() => {
+    if (busyRef.current) return;
+    void loadAgentThread(threadId).then((res) => {
+      if (res.ok && !busyRef.current) setMessages(res.data.messages as UIMessage[]);
+    });
+  }, [threadId, setMessages]);
+
+  // Something asked the agent a question ("Ask about this client"): put it in the composer.
   const [seenSeq, setSeenSeq] = useState(0);
   if (seq !== seenSeq) {
     setSeenSeq(seq);
@@ -394,7 +412,7 @@ export function AgentPanel({ configured }: { configured: boolean }) {
   };
 
   const pickSuggestion = (s: string) => {
-    // "Log a call with…" needs a name: it goes to the composer instead of straight to the assistant.
+    // "Log a call with…" needs a name: it goes to the composer instead of straight to the agent.
     if (s.endsWith("…")) {
       setInput(s.slice(0, -1) + " ");
       window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -498,6 +516,8 @@ export function AgentPanel({ configured }: { configured: boolean }) {
         </div>
       </div>
 
+      {services.ai.background ? <AgentTasks open={open} threadId={threadId} refreshKey={tasksKey} onAnswer={showBackgroundAnswer} onNavigate={onNavigate} /> : null}
+
       {/* Conversation */}
       <div className="relative flex min-h-0 flex-1">
         <div ref={viewportRef} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto p-3" aria-label="Conversation">
@@ -517,7 +537,7 @@ export function AgentPanel({ configured }: { configured: boolean }) {
                 </div>
                 {!configured ? (
                   <p className="rounded-lg border border-warning-border bg-warning-surface px-3 py-2 text-left text-[12.5px] text-primary">
-                    The assistant isn&apos;t connected to AI Gateway on this deployment yet. An admin can set it up; docs/AGENT.md has the steps.
+                    The agent isn&apos;t connected to AI Gateway on this deployment yet. An admin can set it up; docs/AGENT.md has the steps.
                   </p>
                 ) : loadingThread ? (
                   <p className="text-shimmer text-[13px]">Loading…</p>

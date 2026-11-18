@@ -12,7 +12,7 @@ Select two or more people or organizations in the table and choose **Merge**. Th
 - **The others are deleted** and the kept record's history says what was merged into it. Old links to a merged record open the kept one.
 - Members, admins and owners can merge (it needs the same access as archiving); viewers can't. It's one transaction: if anything fails, nothing changes.
 
-The REST API and MCP have it too: `POST /people/{id}/merge` and `POST /organizations/{id}/merge` with `{ "mergeIds": [...] }` keep the record in the path (MCP: `merge_people`, `merge_organizations`; the assistant asks you to confirm first).
+The REST API and MCP have it too: `POST /people/{id}/merge` and `POST /organizations/{id}/merge` with `{ "mergeIds": [...] }` keep the record in the path (MCP: `merge_people`, `merge_organizations`; the agent asks you to confirm first).
 
 ## The cleanup script
 

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SparklesIcon } from "@heroicons/react/24/outline";
 import { appConfig } from "@/app.config";
 import { openAssistant, useAssistantState } from "./agent-store";
@@ -9,11 +9,15 @@ import { openAssistant, useAssistantState } from "./agent-store";
 // The panel (chat, markdown, voice) loads the first time someone opens it, so pages don't pay for it.
 const AgentPanel = dynamic(() => import("./agent-panel").then((m) => m.AgentPanel), { ssr: false });
 
-/** The assistant's button in the bottom right corner, and its panel once opened. */
+/** The agent's button in the bottom right corner, and its panel once opened. */
 export function AgentLauncher({ configured }: { configured: boolean }) {
   const { open } = useAssistantState();
   const [loaded, setLoaded] = useState(false);
   if (open && !loaded) setLoaded(true);
+  // A notification that background work finished links here with ?agent=tasks: open the panel on its task list.
+  useEffect(() => {
+    if (appConfig.agent.enabled && new URLSearchParams(window.location.search).get("agent") === "tasks") openAssistant();
+  }, []);
   if (!appConfig.agent.enabled) return null;
   return (
     <>

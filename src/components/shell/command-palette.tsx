@@ -85,7 +85,7 @@ export function CommandPalette() {
         { id: "new-client", group: "Create", label: "New client", icon: PlusIcon, run: () => (setOpen(false), openCreate({ kind: "client" })) },
         { id: "new-person", group: "Create", label: "New person", icon: PlusIcon, run: () => (setOpen(false), openCreate({ kind: "person" })) },
         { id: "new-org", group: "Create", label: "New organization", icon: PlusIcon, run: () => (setOpen(false), openCreate({ kind: "organization" })) },
-        ...(appConfig.agent.enabled ? [{ id: "ask", group: "Assistant", label: `Ask ${appConfig.agent.name}`, icon: SparklesIcon, run: () => (setOpen(false), openAssistant()) }] : []),
+        ...(appConfig.agent.enabled ? [{ id: "ask", group: "Agent", label: `Ask ${appConfig.agent.name}`, icon: SparklesIcon, run: () => (setOpen(false), openAssistant()) }] : []),
         { id: "go-home", group: "Go to", label: "Home", icon: HomeIcon, run: go("/") },
         { id: "go-clients", group: "Go to", label: "Clients", icon: BriefcaseIcon, run: go("/clients") },
         { id: "go-current", group: "Go to", label: "Current clients", icon: BriefcaseIcon, run: go("/clients?category=current") },
@@ -104,7 +104,7 @@ export function CommandPalette() {
       ...results.clients.map((r): Item => ({ id: `c${r.id}`, group: "Clients", label: r.label, detail: r.detail, icon: BriefcaseIcon, run: go(`/clients/${r.id}`) })),
       ...results.people.map((r): Item => ({ id: `p${r.id}`, group: "People", label: r.label, detail: r.detail, icon: UserIcon, run: go(`/people/${r.id}`) })),
       ...results.organizations.map((r): Item => ({ id: `o${r.id}`, group: "Organizations", label: r.label, detail: r.detail, icon: BuildingOffice2Icon, run: go(`/organizations/${r.id}`) })),
-      ...(appConfig.agent.enabled ? [{ id: "ask-term", group: "Assistant", label: `Ask ${appConfig.agent.name} “${term}”`, icon: SparklesIcon, run: () => (setOpen(false), openAssistant(term)) }] : []),
+      ...(appConfig.agent.enabled ? [{ id: "ask-term", group: "Agent", label: `Ask ${appConfig.agent.name} “${term}”`, icon: SparklesIcon, run: () => (setOpen(false), openAssistant(term)) }] : []),
       { id: "create-person", group: "Create", label: `New person “${term}”`, icon: PlusIcon, run: () => (setOpen(false), openCreate({ kind: "person", defaults: { firstName: term } })) },
       { id: "create-org", group: "Create", label: `New organization “${term}”`, icon: PlusIcon, run: () => (setOpen(false), openCreate({ kind: "organization", defaults: { name: term } })) },
     ];

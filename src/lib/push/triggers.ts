@@ -6,7 +6,7 @@ import { notify } from "./notify";
 
 /**
  * What notifies whom. Each function is called from the service that made the
- * change, so the browser, the API, MCP and the assistant all notify the same
+ * change, so the browser, the API, MCP and the agent all notify the same
  * way. Nobody hears about a change they made themselves.
  */
 

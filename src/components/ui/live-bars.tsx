@@ -5,7 +5,7 @@ import { useEffect, useRef, type RefObject } from "react";
 
 const BAR_COUNT = 5;
 
-/** Five bars that follow the mic (or pulse while the assistant talks). Drawn straight to the DOM, so nothing re-renders per frame. */
+/** Five bars that follow the mic (or pulse while the agent talks). Drawn straight to the DOM, so nothing re-renders per frame. */
 export function LiveBars({ active, energetic, levelRef, tone }: { active: boolean; energetic: boolean; levelRef: RefObject<number> | null; tone: "user" | "assistant" | "dictation" }) {
   const bars = useRef<(HTMLSpanElement | null)[]>([]);
   useEffect(() => {

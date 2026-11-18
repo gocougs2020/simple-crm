@@ -1,6 +1,6 @@
 # Knowledge source
 
-A deployment can connect one **knowledge source**: a read-only JSON API about the organization that runs the CRM, usually its own website's content (pages, blog posts, resources, company facts). Once it's connected, the assistant, every teammate's MCP agent and the REST API can look things up there, so answers about "what we offer", "who's on the team" or "what we've written about onboarding" come from the organization's own published material rather than the model's memory.
+A deployment can connect one **knowledge source**: a read-only JSON API about the organization that runs the CRM, usually its own website's content (pages, blog posts, resources, company facts). Once it's connected, the agent, every teammate's MCP agent and the REST API can look things up there, so answers about "what we offer", "who's on the team" or "what we've written about onboarding" come from the organization's own published material rather than the model's memory.
 
 It's optional and off by default. Nothing in the code is specific to one website: a deployment points it at its own API with environment variables.
 
@@ -33,7 +33,7 @@ These are server-only variables: the key never reaches the browser and is never 
 | --- | --- |
 | REST API | `GET /api/v1/knowledge?path=<path>` with any API key, the path URL-encoded (`?path=%2Fposts%3Fq%3Donboarding`). Without a source it answers 404 with code `not_configured` |
 | MCP | A read-only `get_knowledge` tool, for every role. Its description and the server's instructions name the source and include `KNOWLEDGE_DESCRIPTION`. Not listed when no source is connected |
-| The assistant | The same tool, in text and voice chat, and a section in its instructions telling it to look the organization's own facts up there and link what it finds |
+| The agent | The same tool, in text and voice chat, and a section in its instructions telling it to look the organization's own facts up there and link what it finds |
 
 The tool takes one argument, `path`: a path under the base with its query string, such as `/`, `/posts?q=onboarding&limit=5` or `/pages?path=/about`. It also accepts the base path repeated (`/api/content/posts`) or a full URL under the base, since APIs often list their own endpoints that way. The result is what the source answered:
 
@@ -46,7 +46,7 @@ The tool takes one argument, `path`: a path under the base with its query string
 Any HTTPS API that answers `GET` with JSON (or plain text) works. To work well with agents:
 
 - **Answer `GET <base>` with a list of what it offers** (paths, what each returns, the query parameters). Agents ask for `/` when they don't know where to look.
-- **Offer search** (`?q=`), and a way to ask for less (`limit`, a summary view without full text). Answers over 2 MB are refused, and the assistant trims anything over about 40,000 characters.
+- **Offer search** (`?q=`), and a way to ask for less (`limit`, a summary view without full text). Answers over 2 MB are refused, and the agent trims anything over about 40,000 characters.
 - **Include a public `url` for each page, post or resource**, so agents can link people to it.
 - **Return errors as `{"error": "…"}`** with a 4xx status. The message is passed on (on 400 and 404) so the agent can correct its request.
 - **Keep it read-only and public-facing.** Point the base at the content part of the API only. If the same API also has personal data (contacts, leads), give the CRM a key that can't read it, or a base path that excludes it.
@@ -74,8 +74,8 @@ The description is how an agent decides when to call the tool and which path to 
 
 - `KNOWLEDGE_FIXED_QUERY` and `KNOWLEDGE_BLOCKED_PATHS` narrow what the key is used for; see [keeping unpublished content out](#keeping-unpublished-content-out).
 - The key is sent only to `KNOWLEDGE_API_URL`'s origin, for paths under its base. Paths with `..`, `;`, encoded slashes, dots or semicolons, backslashes or a different host are refused before anything is fetched.
-- Content from the source is published material, but it's still text an agent reads: the assistant's and MCP's instructions say it's data, not instructions.
-- Every call counts against the caller's usual limits (300 a minute per API key; the assistant's own limits).
+- Content from the source is published material, but it's still text an agent reads: the agent's and MCP's instructions say it's data, not instructions.
+- Every call counts against the caller's usual limits (300 a minute per API key; the agent's own limits).
 
 ## How it's built
 
@@ -86,7 +86,7 @@ src/lib/api/features.ts       which optional features are on; tool descriptions 
 src/lib/api/operations.ts     getKnowledge (GET /knowledge, tool get_knowledge, feature "knowledge")
 ```
 
-Operations with a `feature` are documented everywhere but only offered as MCP and assistant tools where the feature is set up (`offered` in `src/lib/mcp/protocol.ts`).
+Operations with a `feature` are documented everywhere but only offered as MCP and agent tools where the feature is set up (`offered` in `src/lib/mcp/protocol.ts`).
 
 ## Examples
 

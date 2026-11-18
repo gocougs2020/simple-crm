@@ -50,7 +50,7 @@ function MarkdownLink({ href, children, onNavigate, ...props }: AnchorHTMLAttrib
 export function Markdown({ text, onNavigate }: { text: string; onNavigate?: () => void }) {
   return (
     <div className="prose-crm prose-agent">
-      {/* No images: a loaded image URL could carry CRM data to another site if text the assistant read told it to write one. */}
+      {/* No images: a loaded image URL could carry CRM data to another site if text the agent read told it to write one. */}
       <ReactMarkdown remarkPlugins={[remarkGfm]} disallowedElements={["img"]} unwrapDisallowed components={{ a: (props) => <MarkdownLink {...props} onNavigate={onNavigate} /> }}>
         {text}
       </ReactMarkdown>
@@ -99,7 +99,7 @@ function ToolActivity({ part, onApprove }: { part: ToolPart; onApprove: (id: str
   );
 }
 
-/** An assistant turn: its text, with each tool it used shown where it used it. */
+/** An agent turn: its text, with each tool it used shown where it used it. */
 export function AssistantParts({ message, onApprove, onNavigate }: { message: UIMessage; onApprove: (id: string, approved: boolean) => void; onNavigate?: () => void }) {
   const blocks = message.parts.map((p, i) => {
     if (p.type === "text") return p.text.trim() ? <Markdown key={i} text={p.text} onNavigate={onNavigate} /> : null;

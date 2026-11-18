@@ -3,7 +3,7 @@ import type { Permission } from "@/lib/permissions";
 import { offered, toolOperations } from "@/lib/mcp/protocol";
 
 /**
- * Which tools the assistant gets, and which wait for a button press. Pure
+ * Which tools the agent gets, and which wait for a button press. Pure
  * (tested): the role check is passed in.
  */
 
