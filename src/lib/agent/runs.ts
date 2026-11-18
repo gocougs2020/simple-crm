@@ -251,6 +251,20 @@ export async function pump(userId: string) {
       .where(and(eq(runs.id, next.id), eq(runs.status, "queued")))
       .returning();
     if (!claimed) continue;
+    // Two pumps can each count room for one more and claim different runs. Whoever started later steps back:
+    // the runs that keep going are the first `maxConcurrentPerUser` by start time, so the limit holds.
+    const going = await db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(and(eq(runs.userId, userId), eq(runs.status, "running")))
+      .orderBy(asc(runs.startedAt), asc(runs.id));
+    if (going.findIndex((r) => r.id === claimed.id) >= cfg().maxConcurrentPerUser) {
+      await db
+        .update(runs)
+        .set({ status: "queued", startedAt: null })
+        .where(and(eq(runs.id, claimed.id), eq(runs.status, "running")));
+      return;
+    }
     await dispatch(claimed, origin);
   }
 }
@@ -436,6 +450,8 @@ async function postToActivity(run: Run) {
   const db = await getDb();
   const [source] = await db.select().from(schema.activities).where(eq(schema.activities.id, run.activityId));
   if (!source) return;
+  // The task was handed over again since this run started: the newer run answers it, not this one.
+  if (source.agentRunId && source.agentRunId !== run.id) return;
   const answer = run.status === "done" ? markdownToHtml(run.result ?? "") : `<p>${run.error ?? ""}</p>`;
   if (source.type === "task") {
     const heading = `<p><strong>${appConfig.agent.name}${run.status === "done" ? "" : " couldn't finish"}:</strong></p>`;
@@ -528,6 +544,20 @@ export async function cancelRun(actor: Actor, runId: string) {
   await stopSession(run);
   await pump(run.userId).catch((err) => console.error("[agent] pump", err));
   return cancelled;
+}
+
+/**
+ * Stops an earlier run for the same note or task when it's handed over again
+ * (a task edited and given back, say), so only the newest run works on it.
+ */
+export async function supersedeRuns(activityId: string) {
+  const db = await getDb();
+  const stopped = await db
+    .update(runs)
+    .set({ status: "cancelled", error: "Stopped because the task was handed over again. The newer run answers it.", finishedAt: new Date() })
+    .where(and(eq(runs.activityId, activityId), inArray(runs.status, [...ACTIVE])))
+    .returning();
+  await Promise.all(stopped.map((run) => stopSession(run)));
 }
 
 /** Stops everything still waiting or working in one bulk request. */

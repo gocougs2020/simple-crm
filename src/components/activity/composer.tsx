@@ -48,14 +48,13 @@ export type Links = { personId?: string | null; organizationId?: string | null; 
  */
 export function Composer({ links, recipient, initialType = "note" }: { links: Links; recipient?: (EmailRecipient & { phone?: string | null; textOptedOut?: boolean }) | null; initialType?: ActivityType }) {
   const [type, setType] = useState<ActivityType>(initialType);
-  const { canEdit, services } = useApp();
+  const { canEdit } = useApp();
   // Emails and texts the agent drafted to this person, waiting for this teammate to review and send (docs/AGENT.md).
   const [drafts, setDrafts] = useState<PersonDraft[]>([]);
   const [reviewing, setReviewing] = useState<PersonDraft | null>(null);
   const personId = recipient?.personId;
-  const assistantOn = services.ai.chat || services.ai.background;
   useEffect(() => {
-    if (!personId || !canEdit || !assistantOn) return;
+    if (!personId || !canEdit) return;
     let current = true;
     listPersonDrafts(personId).then((r) => {
       if (!current || !r.ok) return;
@@ -71,7 +70,7 @@ export function Composer({ links, recipient, initialType = "note" }: { links: Li
     return () => {
       current = false;
     };
-  }, [personId, canEdit, assistantOn]);
+  }, [personId, canEdit]);
   // Viewers read the timeline but can't log to it.
   if (!canEdit) return null;
 
@@ -86,6 +85,8 @@ export function Composer({ links, recipient, initialType = "note" }: { links: Li
       if (!r.ok) toast.error(r.error);
     });
   };
+  // A draft written about a client is sent on that client, so the message lands on its timeline too, even from the person's page.
+  const draftLinks = reviewing?.clientId ? { ...links, clientId: reviewing.clientId } : links;
   const emailDraft = reviewing?.kind === "email" ? reviewing : null;
   const textDraft = reviewing?.kind === "text" ? reviewing : null;
 
@@ -140,9 +141,9 @@ export function Composer({ links, recipient, initialType = "note" }: { links: Li
       </div>
       <div className="p-3">
         {type === "email" ? (
-          <EmailTab key={emailDraft?.id ?? "email"} links={links} recipient={recipient} draft={emailDraft} onDraftSent={emailDraft ? () => settle(emailDraft, "sent") : undefined} />
+          <EmailTab key={emailDraft?.id ?? "email"} links={emailDraft ? draftLinks : links} recipient={recipient} draft={emailDraft} onDraftSent={emailDraft ? () => settle(emailDraft, "sent") : undefined} />
         ) : type === "text" ? (
-          <TextTab key={textDraft?.id ?? "text"} links={links} recipient={recipient} draft={textDraft} onDraftSent={textDraft ? () => settle(textDraft, "sent") : undefined} />
+          <TextTab key={textDraft?.id ?? "text"} links={textDraft ? draftLinks : links} recipient={recipient} draft={textDraft} onDraftSent={textDraft ? () => settle(textDraft, "sent") : undefined} />
         ) : (
           <>
             {type === "call" && recipient?.phone ? <CallNow links={links} recipient={recipient} /> : null}

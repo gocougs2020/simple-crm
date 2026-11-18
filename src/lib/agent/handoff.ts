@@ -6,7 +6,7 @@ import type { Actor } from "@/lib/crm/actor";
 import { ActionError } from "@/lib/errors";
 import { htmlToText } from "@/lib/safe-html";
 import { assistantActor } from "./actor";
-import { assertCanStart, startRun } from "./runs";
+import { assertCanStart, startRun, supersedeRuns } from "./runs";
 
 /**
  * Handing work to the agent from a record: a task given to it, or a note
@@ -22,6 +22,8 @@ export const assertCanHandOff = (actor: Actor) => assertCanStart(actor);
 /** Starts a run for a task or note and links it, so the timeline can show how it's going. */
 export async function handOff(actor: Actor, activity: Handed, source: "task" | "mention") {
   const text = [activity.subject, htmlToText(activity.body)].filter(Boolean).join("\n\n").trim();
+  await assertCanStart(actor);
+  await supersedeRuns(activity.id);
   const run = await startRun(
     actor,
     { prompt: text, title: activity.subject || text, source, activityId: activity.id, personId: activity.personId, organizationId: activity.organizationId, clientId: activity.clientId },
