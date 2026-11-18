@@ -103,6 +103,8 @@ export type RunMessageContext = {
   /** The note that mentioned the agent or the task given to it. */
   activity?: { id: string; type: "note" | "task"; subject: string | null } | null;
   knowledge?: string | null;
+  /** The labels and what they mean (labelsSection in src/lib/crm/label-rules.ts), when there are any. */
+  labels?: string | null;
   /** The skills section (skillsSection in skill-rules.ts), when the teammate has any. */
   skills?: string | null;
   /** The scheduled job this run is one occurrence of. */
@@ -143,6 +145,7 @@ export function runMessage(c: RunMessageContext) {
     c.activity ? `The ${c.activity.type} has id ${c.activity.id}${c.activity.subject ? ` and is called "${c.activity.subject}"` : ""}.` : "",
     answerGoes[c.source],
     c.knowledge ? `\n## About ${c.workspace.name}\n${c.knowledge}` : "",
+    c.labels ? `\n${c.labels}` : "",
     c.skills ? `\n${c.skills}` : "",
     "\n## The request",
     c.prompt.slice(0, MAX_RUN_PROMPT).trim(),

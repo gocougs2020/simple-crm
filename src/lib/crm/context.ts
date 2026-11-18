@@ -7,6 +7,7 @@ import { aiFeatures } from "@/lib/agent/config";
 import { emailConfigured } from "@/lib/email";
 import { blobConfigured } from "@/lib/files";
 import { stripeConfigured } from "@/lib/stripe";
+import { listLabels } from "@/lib/crm/labels";
 import { parentOrganizations } from "@/lib/crm/records";
 import { getWorkspace } from "@/lib/workspace";
 
@@ -24,7 +25,7 @@ export type Service = typeof schema.services.$inferSelect;
  */
 export const getAppData = cache(async () => {
   const db = await getDb();
-  const [ws, users, pipelines, stages, fields, services, keys, parents] = await Promise.all([
+  const [ws, users, pipelines, stages, fields, services, keys, parents, labels] = await Promise.all([
     getWorkspace(),
     db.select().from(schema.users).orderBy(asc(schema.users.name)),
     db.select().from(schema.pipelines).orderBy(asc(schema.pipelines.position), asc(schema.pipelines.createdAt)),
@@ -34,6 +35,7 @@ export const getAppData = cache(async () => {
     // Names only (revoked ones too), so history can say which key made a change.
     db.select({ id: schema.apiKeys.id, name: schema.apiKeys.name, kind: schema.apiKeys.kind }).from(schema.apiKeys),
     parentOrganizations(),
+    listLabels(),
   ]);
   return {
     workspace: { name: ws.name, currency: ws.currency, timezone: ws.timezone },
@@ -44,6 +46,8 @@ export const getAppData = cache(async () => {
     catalog: services,
     /** Organizations marked as a parent, by name: the choices for an organization's parent, and for list and audience filters. */
     parentOrganizations: parents,
+    /** What each label means and whether the app shows it (Settings → Labels). */
+    labels,
     // The agent's own key rows carry whatever it was called when they were made; history shows its current name.
     apiKeys: keys.map((k) => (k.kind === "assistant" ? { ...k, name: appConfig.agent.name } : k)),
     services: { blob: blobConfigured(), email: emailConfigured(), emailFrom: process.env.RESEND_FROM ?? null, stripe: stripeConfigured(), ai: aiFeatures() },

@@ -25,9 +25,9 @@ async function Organizations({ searchParams }: Pick<PageProps<"/organizations">,
   const dir = one(sp.dir);
   // As the URL has it ("me" stays "me"), so loading more rows asks for the same list.
   const parent = one(sp.parent);
-  const view = { q: one(sp.q), ownerId: owner, parentId: parent === "parents" || z.uuid().safeParse(parent).success ? parent : undefined, sort: one(sp.sort), dir: dir === "asc" || dir === "desc" ? (dir as "asc" | "desc") : undefined };
+  const view = { q: one(sp.q), tag: one(sp.tag), ownerId: owner, parentId: parent === "parents" || z.uuid().safeParse(parent).success ? parent : undefined, sort: one(sp.sort), dir: dir === "asc" || dir === "desc" ? (dir as "asc" | "desc") : undefined };
   const filter = { ...view, ownerId: owner === "me" ? user.id : owner };
   // The first rows and the total together; the table loads the rest as it's scrolled.
   const [rows, total] = await Promise.all([listOrganizations(filter), countOrganizations(filter)]);
-  return <OrganizationsView rows={rows} total={total} filter={view} pageSize={pageSize} filtered={!!(filter.q || filter.ownerId || filter.parentId)} />;
+  return <OrganizationsView rows={rows} total={total} filter={view} pageSize={pageSize} filtered={!!(filter.q || filter.ownerId || filter.parentId || filter.tag)} />;
 }

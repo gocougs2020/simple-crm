@@ -21,6 +21,8 @@ export type PromptContext = {
   skills?: SkillBrief[];
   /** What the deployment's knowledge source is (featureInstructions in src/lib/api/features.ts), when one is connected. */
   knowledge?: string | null;
+  /** The labels and what they mean (labelsSection in src/lib/crm/label-rules.ts), when there are any. */
+  labels?: string | null;
 };
 
 const recordPage = /^\/(clients|people|organizations)\/([0-9a-f-]{36})(?:[/?#]|$)/i;
@@ -54,6 +56,7 @@ export function agentInstructions(c: PromptContext) {
     "## The CRM",
     "Records: people (contacts), organizations (companies) and clients. A client is a relationship in one of three categories: prospective, current or past, moving through its category's pipeline stages.",
     "An organization can be marked as a parent organization (isParent), and others can be part of it (parentId): a franchisor and its franchises, a group and its offices. To work across a group, find the parent, then list_organizations with parentId for its organizations, or list_people with the parent's id as organizationId, which returns everyone at the parent and at every organization that is part of it.",
+    "Labels are the tags on people, organizations and clients. An organization's labels carry to everyone at it, so filtering people by a label finds them too.",
     "Activities are notes, calls, emails, texts, meetings and tasks. Logging on a client also shows on its contact and organization.",
     "Money in tool calls is integer cents (12500 is 125.00). Dates are YYYY-MM-DD; times are ISO 8601 with an offset for the workspace time zone.",
     "Archiving hides a record but keeps its history. Lists return nextCursor; pass it back as cursor for more.",
@@ -100,6 +103,7 @@ export function agentInstructions(c: PromptContext) {
     c.voice ? "" : "- Markdown, lightly: bold for names, a short list when there are several items, a table only to compare several records. No headings in a short answer.",
     c.voice ? "" : "- Link records with relative links: [Acme](/clients/<id>), [Sam Lee](/people/<id>), [Acme Inc](/organizations/<id>). Tasks and activity: [Activities](/activities).",
     "- Sentence case, plain words, no exclamation marks. Say what happened and what to do next.",
+    c.labels ? `\n${c.labels}` : "",
     pageNote(c.page) ? `\n## Context\n${pageNote(c.page)}` : "",
   ];
   return lines.filter((l, i, all) => !(l === "" && all[i - 1] === "")).join("\n").trim();

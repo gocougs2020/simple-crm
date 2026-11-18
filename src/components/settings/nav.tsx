@@ -16,6 +16,7 @@ const items = [
   { href: "/settings/api", label: "API and MCP", admin: false },
   { href: "/settings/pipelines", label: "Pipelines", admin: true },
   { href: "/settings/services", label: "Services", admin: true },
+  { href: "/settings/labels", label: "Labels", admin: true },
   { href: "/settings/fields", label: "Custom fields", admin: true },
   { href: "/settings/email", label: "Email domains", admin: true },
   { href: "/settings/brand", label: "Email and brand", admin: true },

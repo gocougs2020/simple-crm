@@ -21,6 +21,8 @@ import { MAX_STORED_CHARS } from "./messages";
 import { budgetRefusal, budgetUsedUp, MAX_RUN_PROMPT, MAX_RUN_RESULT, monthStart, runFailure, runMessage, runTitle, usdToMicro, type RunRecord } from "./run-rules";
 import { signRunToken, type RunClaims } from "./run-token";
 import { cadenceLabel } from "./schedule-rules";
+import { labelsSection } from "@/lib/crm/label-rules";
+import { listLabels } from "@/lib/crm/labels";
 import { skillsSection } from "./skill-rules";
 import { activeSkills } from "./skills";
 
@@ -333,6 +335,7 @@ async function dispatch(run: Run, origin: string) {
       record,
       activity: activity && (activity.type === "note" || activity.type === "task") ? { id: activity.id, type: activity.type, subject: activity.subject } : null,
       knowledge: featureInstructions(),
+      labels: labelsSection(await listLabels()),
       skills: skillsSection(skills, { tool: "crm__get_skill", owner: user.name }),
       schedule: job ? { name: job.name, cadence: cadenceLabel(job) } : null,
       prompt: run.prompt,

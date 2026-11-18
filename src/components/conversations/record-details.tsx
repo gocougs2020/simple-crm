@@ -6,7 +6,8 @@ import { useApp } from "@/components/app-context";
 import { CategoryBadge, HealthBadge } from "@/components/clients/client-controls";
 import { openCreate } from "@/components/shell/create-store";
 import { Avatar } from "@/components/ui/avatar";
-import { StatusBadge, Tag } from "@/components/ui/badge";
+import { LabelChips } from "@/components/records/labels";
+import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { RecordContext } from "@/lib/conversations/record-context";
 import { formatAgo, formatDateOnly, formatDateTime, formatDay } from "@/lib/format";
@@ -95,10 +96,8 @@ function PersonCard({ person, organizationName }: { person: NonNullable<RecordCo
         </Row>
       </dl>
       {person.tags.length ? (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {person.tags.map((t) => (
-            <Tag key={t}>{t}</Tag>
-          ))}
+        <div className="mt-2">
+          <LabelChips names={person.tags} />
         </div>
       ) : null}
       {person.summary ? <p className="mt-2.5 line-clamp-6 border-t border-line pt-2.5 text-[12.5px] leading-relaxed text-secondary">{person.summary}</p> : null}

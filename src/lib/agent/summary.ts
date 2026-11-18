@@ -113,6 +113,14 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
       .filter(([, v]) => v !== null && v !== "" && !(Array.isArray(v) && !v.length))
       .map(([k, v]) => `${fieldLabel(k)}: ${Array.isArray(v) ? v.join(", ") : String(v)}`)
       .join("; ");
+  /** Labels with what the team means by each, so the summary can use the meaning and not just the word. */
+  const labeled = (names: string[]) =>
+    names
+      .map((n) => {
+        const meaning = app.labels.find((l) => l.name === n)?.description?.replace(/\s+/g, " ").trim();
+        return meaning ? `${n} (${meaning})` : n;
+      })
+      .join("; ");
   const line = (label: string, value: unknown) => (value === null || value === undefined || value === "" ? null : `${label}: ${value}`);
   const sections: string[] = [];
   let scope: SQL | undefined;
@@ -137,7 +145,8 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
         line("Open to coming back", client.category === "past" ? (client.openToReturn ? "yes" : "no") : null),
         line("Health", client.health),
         line("Owner", member(client.ownerId)),
-        line("Tags", client.tags.join(", ")),
+        line("Labels", labeled(client.tags)),
+        line("Labels carried from the organization", labeled((organization?.tags ?? []).filter((t) => !client.tags.includes(t)))),
         line("Other fields", custom(client.custom)),
         line("Main contact", person ? `${personName(person)}${person.title ? `, ${person.title}` : ""}${person.email ? ` <${person.email}>` : ""}` : null),
         line("Organization", organization?.name),
@@ -164,7 +173,7 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
       ? (await db.select({ id: schema.clients.stripeCustomerId }).from(schema.clients).where(inArray(schema.clients.id, clients.map((c) => c.id)))).map((r) => r.id).filter((x): x is string => !!x)
       : [];
     sections.push(
-      ["## Organization", line("Name", org.name), line("Website", org.domain), line("Industry", org.industry), line("Owner", member(org.ownerId)), line("Other fields", custom(org.custom))].filter(Boolean).join("\n"),
+      ["## Organization", line("Name", org.name), line("Website", org.domain), line("Industry", org.industry), line("Labels", labeled(org.tags)), line("Owner", member(org.ownerId)), line("Other fields", custom(org.custom))].filter(Boolean).join("\n"),
     );
     if (clients.length) sections.push(["## Clients", ...clients.map((c) => `${c.name}: ${c.category}, ${c.stageName}${c.mrr ? `, ${money(Number(c.mrr))}/mo` : c.value && c.category === "prospective" ? `, potential ${money(c.value)}` : ""}`)].join("\n"));
     if (people.length) sections.push(["## People", ...people.slice(0, MAX_PEOPLE).map((p) => `${personName(p)}${p.title ? `, ${p.title}` : ""}`)].join("\n"));
@@ -185,7 +194,8 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
         line("Organization", org?.name),
         line("Email", p.email),
         line("Owner", member(p.ownerId)),
-        line("Tags", p.tags.join(", ")),
+        line("Labels", labeled(p.tags)),
+        line("Labels carried from the organization", labeled((org?.tags ?? []).filter((t) => !p.tags.includes(t)))),
         line("Other fields", custom(p.custom)),
         line("Main contact for", theirClients.map((c) => `${c.name} (${c.category})`).join(", ")),
         p.unsubscribedAt ? "Unsubscribed from campaigns" : null,

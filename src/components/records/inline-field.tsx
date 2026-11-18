@@ -23,6 +23,7 @@ export function InlineField<T>({
   copy,
   multiline,
   readOnly,
+  filled,
 }: {
   label: string;
   value: T;
@@ -34,6 +35,8 @@ export function InlineField<T>({
   copy?: string | null;
   multiline?: boolean;
   readOnly?: boolean;
+  /** Says whether there's something to show, when that isn't simply "the value isn't empty" (labels carried from an organization). */
+  filled?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -68,7 +71,7 @@ export function InlineField<T>({
     return () => document.removeEventListener("mousedown", onDown);
   });
 
-  const isEmpty = value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0);
+  const isEmpty = filled !== undefined ? !filled : value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0);
 
   return (
     <div ref={wrap} className="group grid grid-cols-[7.5rem_minmax(0,1fr)] items-start gap-2 py-1.5">

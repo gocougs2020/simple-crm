@@ -163,6 +163,7 @@ export type OrgFields = {
   /** Whether others can be part of it, and the parent organization it is part of. */
   isParent?: boolean;
   parentId?: string | null;
+  tags?: string[];
   ownerId: string | null;
   custom: CustomValues;
   lastActivityAt: Date | null;
@@ -177,6 +178,8 @@ export function planOrganizationMerge(survivor: OrgFields, others: Partial<OrgFi
   const last = latest([survivor.lastActivityAt, ...others.map((o) => o.lastActivityAt)]);
   if (!sameTime(last, survivor.lastActivityAt)) patch.lastActivityAt = last;
   if (survivor.archivedAt && others.some((o) => o.id && !o.archivedAt)) patch.archivedAt = null;
+  const tags = [...new Set([...(survivor.tags ?? []), ...others.flatMap((o) => o.tags ?? [])])];
+  if (tags.length !== (survivor.tags ?? []).length) patch.tags = tags;
   // It's a parent organization when any of them was (their organizations move to it), and a parent has no parent of its own.
   const isParent = !!survivor.isParent || others.some((o) => o.isParent);
   if (isParent && !survivor.isParent) patch.isParent = true;

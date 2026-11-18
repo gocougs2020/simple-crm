@@ -2,6 +2,7 @@ import "server-only";
 import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { clientCategoryLabels, type ClientCategory } from "@/lib/constants";
+import { effectiveTags } from "@/lib/crm/labels";
 
 const { people, organizations, clients, stages, personOrganizations } = schema;
 
@@ -53,7 +54,8 @@ function peopleQuery(f: PeopleFilter) {
   }
   if (f.ownerId) where.push(f.ownerId === "none" ? isNull(people.ownerId) : eq(people.ownerId, f.ownerId));
   if (f.organizationId) where.push(inOrganizations(people.organizationId, [f.organizationId]));
-  if (f.tag) where.push(sql`${people.tags} ? ${f.tag}`);
+  // Their own label, or one their organization carries.
+  if (f.tag) where.push(sql`${effectiveTags} ? ${f.tag}`);
   const order = peopleSorts[f.sort ?? ""] ?? peopleSorts.name;
   const dir = f.dir ?? (f.sort === "lastActivity" || f.sort === "lastCampaign" || f.sort === "created" ? "desc" : "asc");
   return { where: and(...where), sort: ordered(order as SQL, dir) };
@@ -81,6 +83,8 @@ export async function listPeople(f: PeopleFilter = {}, { offset = 0, limit = pag
     .select({
       person: people,
       organizationName: organizations.name,
+      /** Labels they carry from their organization. */
+      organizationTags: organizations.tags,
       clientCategories: sql<string[]>`(select coalesce(json_agg(distinct c.category), '[]') from clients c where c.person_id = ${people.id} and c.archived_at is null)`,
       next: nextActivity("person_id", sql`${people.id}`),
     })
@@ -124,14 +128,17 @@ export async function otherOrganizationsOf(personId: string) {
 
 export async function allTags() {
   const db = await getDb();
-  const rows = await db.execute<{ tag: string }>(sql`select distinct jsonb_array_elements_text(tags) as tag from people where archived_at is null order by 1`);
+  // People's own labels and their organizations', which they carry too.
+  const rows = await db.execute<{ tag: string }>(
+    sql`select distinct jsonb_array_elements_text(tags) as tag from people where archived_at is null union select jsonb_array_elements_text(tags) from organizations where archived_at is null order by 1`,
+  );
   return ((rows as unknown as { rows?: { tag: string }[] }).rows ?? (rows as unknown as { tag: string }[])).map((r) => r.tag);
 }
 
 // ─── Organizations ───────────────────────────────────────────────────────
 
 /** `parentId` is a parent organization's id (the organizations that are part of it), or "parents" for the parent organizations themselves. */
-export type OrgFilter = { q?: string; ownerId?: string; parentId?: string; sort?: string; dir?: "asc" | "desc" };
+export type OrgFilter = { q?: string; ownerId?: string; parentId?: string; tag?: string; sort?: string; dir?: "asc" | "desc" };
 
 // Qualified by hand: in a select with no joins Drizzle renders a column as a bare "id", which the subquery would read as its own.
 const peopleCount = sql<number>`(select count(*)::int from people p where p.organization_id = "organizations"."id" and p.archived_at is null)`;
@@ -143,6 +150,7 @@ function organizationsQuery(f: OrgFilter) {
     where.push(or(ilike(organizations.name, t), ilike(organizations.domain, t), ilike(organizations.industry, t))!);
   }
   if (f.ownerId) where.push(f.ownerId === "none" ? isNull(organizations.ownerId) : eq(organizations.ownerId, f.ownerId));
+  if (f.tag) where.push(sql`${organizations.tags} ? ${f.tag}`);
   if (f.parentId) where.push(f.parentId === "parents" ? eq(organizations.isParent, true) : eq(organizations.parentId, f.parentId));
   const sorts: Record<string, SQL> = {
     name: sql`lower(${organizations.name})`,

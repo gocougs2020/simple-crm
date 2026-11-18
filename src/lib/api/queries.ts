@@ -8,6 +8,7 @@ import { getDb, schema } from "@/db";
 import type { ActivityType, EntityType } from "@/lib/constants";
 import { actorUserId, type Actor } from "@/lib/crm/actor";
 import { timeline, type NoteReply } from "@/lib/crm/activities";
+import { effectiveTags, listLabels } from "@/lib/crm/labels";
 import { inOrganizations, likeTerm } from "@/lib/crm/records";
 import { ActionError, NotFoundError } from "@/lib/errors";
 import { htmlToText } from "@/lib/safe-html";
@@ -86,8 +87,8 @@ function common(a: Actor, t: typeof people | typeof organizations | typeof clien
 
 // ─── People ──────────────────────────────────────────────────────────────
 
-const personSelect = { person: people, organizationName: organizations.name, key: exact(people.createdAt) };
-type PersonRow = { person: typeof people.$inferSelect; organizationName: string | null };
+const personSelect = { person: people, organizationName: organizations.name, organizationTags: organizations.tags, key: exact(people.createdAt) };
+type PersonRow = { person: typeof people.$inferSelect; organizationName: string | null; organizationTags: string[] | null };
 
 function toPerson(ctx: Ctx, r: PersonRow) {
   const p = r.person;
@@ -105,6 +106,7 @@ function toPerson(ctx: Ctx, r: PersonRow) {
     organization: p.organizationId && r.organizationName ? { id: p.organizationId, name: r.organizationName } : null,
     ownerId: p.ownerId,
     tags: p.tags,
+    organizationTags: (r.organizationTags ?? []).filter((t) => !p.tags.includes(t)),
     marketingOptIn: p.marketingOptIn,
     unsubscribedAt: iso(p.unsubscribedAt),
     emailBouncedAt: iso(p.emailBouncedAt),
@@ -131,7 +133,7 @@ export async function listPeople(a: Actor, ctx: Ctx, f: RecordFilter & { organiz
   }
   if (f.organizationId) where.push(inOrganizations(people.organizationId, [f.organizationId]));
   if (f.email) where.push(or(eq(people.email, f.email), sql`${people.otherEmails} ? ${f.email.toLowerCase()}`)!);
-  if (f.tag) where.push(sql`${people.tags} ? ${f.tag}`);
+  if (f.tag) where.push(sql`${effectiveTags} ? ${f.tag}`);
   const rows = await db
     .select(personSelect)
     .from(people)
@@ -170,6 +172,7 @@ function toOrganization(ctx: Ctx, r: { organization: typeof organizations.$infer
     phone: o.phone,
     address: o.address,
     industry: o.industry,
+    tags: o.tags,
     isParent: o.isParent,
     parentId: o.parentId,
     parent: o.parentId && r.parentName ? { id: o.parentId, name: r.parentName } : null,
@@ -185,7 +188,7 @@ function toOrganization(ctx: Ctx, r: { organization: typeof organizations.$infer
   };
 }
 
-export async function listOrganizations(a: Actor, ctx: Ctx, f: RecordFilter & { domain?: string; parentId?: string; isParent?: boolean }) {
+export async function listOrganizations(a: Actor, ctx: Ctx, f: RecordFilter & { domain?: string; parentId?: string; isParent?: boolean; tag?: string }) {
   const db = await getDb();
   const limit = f.limit ?? 50;
   const where = common(a, organizations, f);
@@ -194,6 +197,7 @@ export async function listOrganizations(a: Actor, ctx: Ctx, f: RecordFilter & { 
     where.push(or(ilike(organizations.name, t), ilike(organizations.domain, t), ilike(organizations.industry, t)));
   }
   if (f.domain) where.push(eq(organizations.domain, f.domain.replace(/^https?:\/\//, "").replace(/\/$/, "")));
+  if (f.tag) where.push(sql`${organizations.tags} ? ${f.tag}`);
   if (f.parentId) where.push(eq(organizations.parentId, f.parentId));
   if (f.isParent !== undefined) where.push(eq(organizations.isParent, f.isParent));
   const rows = await db
@@ -486,6 +490,11 @@ export async function listPipelines() {
     position: p.position,
     stages: ss.filter((s) => s.pipelineId === p.id).map((s) => ({ id: s.id, name: s.name, position: s.position, probability: s.probability, rottingDays: s.rottingDays })),
   }));
+}
+
+/** What each label means. Hidden ones are included, marked, so a reader knows what a label on a record stands for. */
+export async function listLabelDefinitions() {
+  return (await listLabels()).map((l) => ({ name: l.name, description: l.description, hidden: l.hidden }));
 }
 
 export async function listServices() {

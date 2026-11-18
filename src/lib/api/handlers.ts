@@ -297,6 +297,7 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
   // Workspace
   listPipelines: async () => ({ data: await q.listPipelines(), nextCursor: null }),
   listServices: async () => ({ data: await q.listServices(), nextCursor: null }),
+  listLabels: async () => ({ data: await q.listLabelDefinitions(), nextCursor: null }),
   listUsers: async () => ({ data: await q.listUsers(), nextCursor: null }),
   listCustomFields: async (_a, { query }) => ({ data: await q.listCustomFields(query.entityType), nextCursor: null }),
 

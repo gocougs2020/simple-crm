@@ -140,7 +140,7 @@ export const operations = {
       ...recordQuery,
       organizationId: z.uuid().optional().describe("Only people at this organization. For a parent organization, that includes the people at every organization that is part of it."),
       email: z.string().trim().toLowerCase().max(200).optional().describe("Exact email address."),
-      tag: z.string().trim().toLowerCase().max(40).optional(),
+      tag: z.string().trim().toLowerCase().max(40).optional().describe("Only people with this label, their own or one their organization carries."),
     }),
     response: "Person",
     list: true,
@@ -176,6 +176,7 @@ export const operations = {
     query: z.object({
       ...recordQuery,
       domain: z.string().trim().toLowerCase().max(200).optional().describe("Exact website domain, like acme.com."),
+      tag: z.string().trim().toLowerCase().max(40).optional().describe("Only organizations with this label."),
       parentId: z.uuid().optional().describe("Only organizations that are part of this parent organization."),
       isParent: queryBool.optional().describe("true for parent organizations only, false for the rest."),
     }),
@@ -550,6 +551,18 @@ export const operations = {
   // ─── Workspace ─────────────────────────────────────────────────────────
   listPipelines: op({ method: "GET", path: "/pipelines", tag: "Workspace", summary: "Pipelines and their stages", description: "Each pipeline belongs to one client category.", permission: "records:read", response: "Pipeline", list: true, tool: "list_pipelines" }),
   listServices: op({ method: "GET", path: "/services", tag: "Workspace", summary: "What the workspace sells", permission: "records:read", response: "Service", list: true, tool: "list_services" }),
+  listLabels: op({
+    method: "GET",
+    path: "/labels",
+    tag: "Workspace",
+    summary: "Labels and what they mean",
+    description: "Labels are the strings in a person's, organization's or client's tags. Each has a description the team wrote. An organization's labels carry to its people.",
+    permission: "records:read",
+    response: "Label",
+    list: true,
+    tool: "list_labels",
+    toolDescription: "The team's labels (the tags on people, organizations and clients) with what each one means. Read it before choosing a label for a record or explaining one. Use only labels from this list unless the teammate asks for a new one.",
+  }),
   listUsers: op({ method: "GET", path: "/users", tag: "Workspace", summary: "The team", description: "For ownerId and assigneeId.", permission: "records:read", response: "User", list: true, tool: "list_users" }),
   listCustomFields: op({
     method: "GET",

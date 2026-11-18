@@ -12,7 +12,7 @@ import { useApp } from "@/components/app-context";
 import { openCreate } from "@/components/shell/create-store";
 import { Avatar } from "@/components/ui/avatar";
 import { toast } from "@/components/ui/toast";
-import { StatusBadge, Tag } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/badge";
 import { Button, Spinner } from "@/components/ui/button";
 import { Checkbox, Input, Select, Textarea } from "@/components/ui/field";
 import type { schema } from "@/db";
@@ -20,6 +20,7 @@ import { churnReasons, clientHealthLabels, clientHealths, type ClientCategory, t
 import { formatDateOnly, formatDay, formatPhoneInput, parseMoney, personName } from "@/lib/format";
 import { CustomFieldInput, formatCustomValue } from "./custom-field-input";
 import { InlineField, SideCard } from "./inline-field";
+import { LabelChips, LabelPicker, useLabels } from "./labels";
 import { OwnerSelect } from "./owner-select";
 import { RecordPicker, type PickerValue } from "./record-picker";
 
@@ -278,20 +279,7 @@ export function PersonDetails({ person, organization }: { person: Person; organi
           onSave={(v) => save({ organizationId: v && "record" in v ? v.record.id : null })}
         />
         <OwnerField value={person.ownerId} onSave={(ownerId) => save({ ownerId })} />
-        <InlineField<string[]>
-          label="Tags"
-          value={person.tags}
-          empty="Add tags"
-          display={
-            <span className="flex flex-wrap gap-1">
-              {person.tags.map((t) => (
-                <Tag key={t}>{t}</Tag>
-              ))}
-            </span>
-          }
-          editor={({ value, setValue }) => <TagEditor value={value} onChange={setValue} />}
-          onSave={(tags) => save({ tags })}
-        />
+        <LabelsField value={person.tags} carried={organization?.tags.length ? { names: organization.tags, from: organization.name } : null} onSave={(tags) => save({ tags })} />
         <InlineField<boolean>
           label="Email opt-in"
           value={person.marketingOptIn && !person.unsubscribedAt}
@@ -340,38 +328,25 @@ export function PersonDetails({ person, organization }: { person: Person; organi
   );
 }
 
-function TagEditor({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
-  const [draft, setDraft] = useState("");
-  const add = () => {
-    const t = draft.trim().toLowerCase();
-    if (t && !value.includes(t)) onChange([...value, t]);
-    setDraft("");
-  };
+/**
+ * A record's labels: chips that explain themselves on hover, and a dropdown
+ * of the workspace's labels to change them. `carried` are the labels a person
+ * gets from their organization: shown, but changed on the organization.
+ */
+function LabelsField({ value, carried, onSave }: { value: string[]; carried?: { names: string[]; from: string } | null; onSave: (tags: string[]) => Promise<{ ok: true } | { ok: false; error: string }> }) {
+  const { shown } = useLabels();
+  // "Add labels" when nothing shows: a record with only hidden labels, or none of its own and none carried.
+  const anything = shown(value).length || (carried ? shown(carried.names).length : 0);
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-md border border-ring bg-surface px-1.5 py-1 ring-1 ring-ring">
-      {value.map((t) => (
-        <Tag key={t} onRemove={() => onChange(value.filter((x) => x !== t))}>
-          {t}
-        </Tag>
-      ))}
-      <input
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if ((e.key === "Enter" || e.key === ",") && draft.trim()) {
-            e.preventDefault();
-            e.stopPropagation();
-            add();
-          }
-          if (e.key === "Backspace" && !draft && value.length) onChange(value.slice(0, -1));
-        }}
-        onBlur={add}
-        placeholder={value.length ? "" : "Type and press Enter"}
-        className="h-6 min-w-24 flex-1 bg-transparent text-[13px] outline-none"
-        aria-label="Add tag"
-      />
-    </div>
+    <InlineField<string[]>
+      label="Labels"
+      value={value}
+      filled={!!anything}
+      empty="Add labels"
+      display={<LabelChips names={value} carried={carried} />}
+      editor={({ commit }) => <LabelPicker value={value} onDone={(next) => commit(next)} />}
+      onSave={onSave}
+    />
   );
 }
 
@@ -437,6 +412,7 @@ export function OrganizationDetails({ org, parent }: { org: Organization; parent
             onSave={(parentId) => save({ parentId })}
           />
         )}
+        <LabelsField value={org.tags} onSave={(tags) => save({ tags })} />
         <InlineField<boolean>
           label="Is a parent"
           value={org.isParent}
@@ -579,20 +555,7 @@ export function ClientDetails({ client, person, organization }: { client: Client
           onSave={(v) => save({ organizationId: v && "record" in v ? v.record.id : null })}
         />
         <OwnerField value={client.ownerId} onSave={(ownerId) => save({ ownerId })} />
-        <InlineField<string[]>
-          label="Tags"
-          value={client.tags}
-          empty="Add tags"
-          display={
-            <span className="flex flex-wrap gap-1">
-              {client.tags.map((t) => (
-                <Tag key={t}>{t}</Tag>
-              ))}
-            </span>
-          }
-          editor={({ value, setValue }) => <TagEditor value={value} onChange={setValue} />}
-          onSave={(tags) => save({ tags })}
-        />
+        <LabelsField value={client.tags} onSave={(tags) => save({ tags })} />
         <CustomFieldRows entity="client" values={client.custom} onSave={(key, v) => save({ custom: { [key]: v } })} />
       </dl>
     </SideCard>

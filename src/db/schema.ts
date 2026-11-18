@@ -269,6 +269,23 @@ export type BrandKit = {
 
 // ─── Records ─────────────────────────────────────────────────────────────
 
+/**
+ * What each label means. A label is the lowercase string in a record's
+ * `tags` (people, organizations, clients); this row gives it a description,
+ * shown on hover and given to the agent, and says whether it shows in the
+ * app. A label in use with no row here still works: it just has no
+ * description yet (Settings → Labels lists those too).
+ */
+export const labels = pgTable("labels", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  /** Hidden labels stay on their records and in the API, but the app doesn't show or offer them. */
+  hidden: boolean("hidden").notNull().default(false),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
 export const organizations = pgTable(
   "organizations",
   {
@@ -284,6 +301,8 @@ export const organizations = pgTable(
      * another's `parentId`, and a parent has no parent of its own, so the
      * grouping is one level deep (src/lib/crm/service/records.ts keeps it so).
      */
+    /** Labels, like people's and clients' `tags`. Everyone at the organization carries them too (src/lib/crm/labels.ts). */
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
     isParent: boolean("is_parent").notNull().default(false),
     parentId: uuid("parent_id").references((): AnyPgColumn => organizations.id, { onDelete: "set null" }),
     ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),

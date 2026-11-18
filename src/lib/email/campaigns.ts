@@ -5,6 +5,7 @@ import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
 import type { CampaignAudience } from "@/db/schema";
 import type { CampaignChannel } from "@/lib/constants";
+import { effectiveTags } from "@/lib/crm/labels";
 import { inOrganizations } from "@/lib/crm/records";
 import { toE164 } from "@/lib/phone/numbers";
 import { phoneConfigured } from "@/lib/twilio/config";
@@ -63,8 +64,9 @@ function audienceWhere(a: CampaignAudience, channel: CampaignChannel = "email"):
   const where: SQL[] = reachable(channel);
   if (a.personIds?.length) return [...where, inArray(people.id, a.personIds)];
   if (channel === "email") where.push(eq(people.marketingOptIn, true));
-  if (a.tags?.length) where.push(a.tagMatch === "all" ? sql`${people.tags} ?& array[${list(a.tags)}]` : sql`${people.tags} ?| array[${list(a.tags)}]`);
-  if (a.excludeTags?.length) where.push(sql`not (${people.tags} ?| array[${list(a.excludeTags)}])`);
+  // Labels: the person's own, or their organization's, which everyone there carries.
+  if (a.tags?.length) where.push(a.tagMatch === "all" ? sql`${effectiveTags} ?& array[${list(a.tags)}]` : sql`${effectiveTags} ?| array[${list(a.tags)}]`);
+  if (a.excludeTags?.length) where.push(sql`not (${effectiveTags} ?| array[${list(a.excludeTags)}])`);
   if (a.ownerIds?.length) where.push(inArray(people.ownerId, a.ownerIds));
   // A parent organization stands for everyone at the organizations that are part of it, too.
   if (a.organizationIds?.length) where.push(inOrganizations(people.organizationId, a.organizationIds));

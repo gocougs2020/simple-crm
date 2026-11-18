@@ -1,5 +1,6 @@
 "use server";
 
+import { labelUsage, rewriteLabel } from "@/lib/crm/labels";
 import { refresh } from "next/cache";
 import { and, asc, count, eq, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -422,4 +423,72 @@ export async function previewBrand(input: z.input<typeof brandInput>): Promise<s
       signature,
     }),
   );
+}
+
+// ─── Labels ──────────────────────────────────────────────────────────────
+
+const labelInput = z.object({
+  name: z.string().trim().toLowerCase().min(1, "Name the label.").max(40, "Keep the name to 40 characters."),
+  description: z
+    .string()
+    .trim()
+    .max(500, "Keep the description to 500 characters.")
+    .nullable()
+    .optional()
+    .transform((v) => v || null),
+  hidden: z.boolean().optional(),
+});
+
+/**
+ * Adds a label, or changes one: its name, what it means and whether the app
+ * shows it. `current` is the name it has now (null for a new one); a label
+ * in use that has no definition yet gets one. Renaming changes it on every
+ * record, audience and unsent campaign that uses it.
+ */
+export async function saveLabel(current: string | null, input: z.input<typeof labelInput>): Promise<Result<{ name: string }>> {
+  return run(async () => {
+    await actionAdmin();
+    const data = labelInput.parse(input);
+    const from = current === null ? null : z.string().trim().toLowerCase().min(1).max(40).parse(current);
+    const db = await getDb();
+    const { labels } = schema;
+    if (data.name !== from) {
+      const [taken] = await db.select({ id: labels.id }).from(labels).where(eq(labels.name, data.name));
+      const inUse = from === null ? false : !!(await labelUsage())[data.name];
+      if (taken || inUse) throw new ActionError(`There's already a label called ${data.name}. Pick another name, or put that label on the records instead.`);
+    }
+    if (from && data.name !== from) await rewriteLabel(from, data.name);
+    const values = { name: data.name, description: data.description, ...(data.hidden !== undefined ? { hidden: data.hidden } : {}), updatedAt: new Date() };
+    const [existing] = from ? await db.select({ id: labels.id }).from(labels).where(eq(labels.name, from)) : [];
+    if (existing) await db.update(labels).set(values).where(eq(labels.id, existing.id));
+    else await db.insert(labels).values(values);
+    refresh();
+    return { name: data.name };
+  });
+}
+
+/** Shows a label in the app again, or hides it. Hidden labels stay on their records. */
+export async function setLabelHidden(name: string, hidden: boolean): Promise<Result> {
+  return run(async () => {
+    await actionAdmin();
+    const n = z.string().trim().toLowerCase().min(1).max(40).parse(name);
+    const db = await getDb();
+    await db
+      .insert(schema.labels)
+      .values({ name: n, hidden })
+      .onConflictDoUpdate({ target: schema.labels.name, set: { hidden, updatedAt: new Date() } });
+    refresh();
+  });
+}
+
+/** Deletes a label and takes it off every record, audience and unsent campaign. Can't be undone. */
+export async function deleteLabel(name: string): Promise<Result> {
+  return run(async () => {
+    await actionAdmin();
+    const n = z.string().trim().toLowerCase().min(1).max(40).parse(name);
+    const db = await getDb();
+    await rewriteLabel(n, null);
+    await db.delete(schema.labels).where(eq(schema.labels.name, n));
+    refresh();
+  });
 }
