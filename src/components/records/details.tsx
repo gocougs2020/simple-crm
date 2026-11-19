@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { StarToggle } from "@/components/phone/contact-actions";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { BriefcaseIcon, BuildingOffice2Icon, PlusIcon, XMarkIcon } from "@heroicons/react/20/solid";
 import { updateClient } from "@/actions/clients";
 import { updateOrganization, updatePerson } from "@/actions/records";
@@ -335,6 +335,13 @@ export function PersonDetails({ person, organization }: { person: Person; organi
  */
 function LabelsField({ value, carried, onSave }: { value: string[]; carried?: { names: string[]; from: string } | null; onSave: (tags: string[]) => Promise<{ ok: true } | { ok: false; error: string }> }) {
   const { shown } = useLabels();
+  // The dropdown closing and a click elsewhere on the page can both ask to save in the same moment: one request serves both.
+  type Saved = { ok: true } | { ok: false; error: string };
+  const saving = useRef<Promise<Saved> | null>(null);
+  const saveOnce = (tags: string[]) =>
+    (saving.current ??= onSave(tags).finally(() => {
+      saving.current = null;
+    }));
   // "Add labels" when nothing shows: a record with only hidden labels, or none of its own and none carried.
   const anything = shown(value).length || (carried ? shown(carried.names).length : 0);
   return (
@@ -344,8 +351,8 @@ function LabelsField({ value, carried, onSave }: { value: string[]; carried?: { 
       filled={!!anything}
       empty="Add labels"
       display={<LabelChips names={value} carried={carried} />}
-      editor={({ commit }) => <LabelPicker value={value} onDone={(next) => commit(next)} />}
-      onSave={onSave}
+      editor={({ setValue, commit }) => <LabelPicker value={value} onChange={setValue} onDone={(next) => commit(next)} />}
+      onSave={saveOnce}
     />
   );
 }

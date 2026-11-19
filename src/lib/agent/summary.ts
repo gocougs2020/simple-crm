@@ -220,6 +220,8 @@ async function activitySection(scope: SQL | undefined, d: (x: Date | null) => st
     type: a.type,
     subject: a.subject,
     body: a.body,
+    /** Replies under a note, oldest first: teammates' answers and the agent's. */
+    replies: sql<{ body: string; userId: string | null }[]>`(select coalesce(json_agg(json_build_object('body', r.body, 'userId', r.user_id) order by r.created_at, r.id), '[]'::json) from note_replies r where r.activity_id = ${a.id})`,
     direction: a.direction,
     outcome: a.outcome,
     occurredAt: a.occurredAt,
@@ -256,7 +258,7 @@ async function activitySection(scope: SQL | undefined, d: (x: Date | null) => st
       outcome: r.outcome,
       by: member(r.userId) ?? (r.direction === "inbound" ? "them" : null),
       subject: r.subject,
-      text: htmlToText(r.body),
+      text: [htmlToText(r.body), ...(r.replies ?? []).map((y) => `Reply from ${member(y.userId) ?? "someone"}: ${htmlToText(y.body)}`)].filter(Boolean).join(" "),
       about: about(r),
     }),
   );

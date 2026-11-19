@@ -2,7 +2,7 @@
 
 import clsx from "clsx";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { CheckIcon, ChevronUpDownIcon } from "@heroicons/react/20/solid";
 import { useApp } from "@/components/app-context";
 import { Tag } from "@/components/ui/badge";
@@ -66,10 +66,10 @@ export function LabelChips({ names, carried, max }: { names: readonly string[]; 
 /**
  * The dropdown for a record's labels: the workspace's labels with what each
  * means, the record's own checked. It opens as soon as the field is edited
- * and saves when it closes. Hidden labels the record already has aren't
+ * and saves when it closes (Escape closes it without saving). Hidden labels the record already has aren't
  * listed, and stay on it.
  */
-export function LabelPicker({ value, onDone }: { value: string[]; onDone: (next: string[]) => void }) {
+export function LabelPicker({ value, onChange, onDone }: { value: string[]; onChange: (next: string[]) => void; onDone: (next: string[]) => void }) {
   const { all, get } = useLabels();
   const { isAdmin } = useApp();
   const [open, setOpen] = useState(true);
@@ -84,19 +84,31 @@ export function LabelPicker({ value, onDone }: { value: string[]; onDone: (next:
   const term = q.trim().toLowerCase();
   const matches = term ? options.filter((o) => o.name.includes(term) || o.description?.toLowerCase().includes(term)) : options;
   const visible = selected.filter((n) => !get(n)?.hidden);
-  const toggle = (name: string) => setSelected((s) => (s.includes(name) ? s.filter((x) => x !== name) : [...s, name]));
+  // Escape closes without saving, like the other fields.
+  const discard = useRef(false);
+  // The field around this saves on Enter. Here Enter (and Space) pick an option or open the list, so they stay inside the picker.
+  const keepKeys = (e: KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+  };
+  // Each pick is reported as it's made, so the field has the current choice however it ends up closing (a click elsewhere on the page included).
+  const toggle = (name: string) => {
+    const next = selected.includes(name) ? selected.filter((x) => x !== name) : [...selected, name];
+    setSelected(next);
+    onChange(next);
+  };
   return (
     <Popover
       open={open}
       onOpenChange={(o) => {
         setOpen(o);
-        if (!o) onDone(selected);
+        if (!o) onDone(discard.current ? value : selected);
       }}
     >
       <PopoverTrigger asChild>
         <button
           type="button"
           aria-label="Labels"
+          onKeyDown={keepKeys}
           className="flex min-h-8 w-full items-center gap-1.5 rounded-md border border-ring bg-surface py-1 pr-1.5 pl-2 text-left text-[13.5px] ring-1 ring-ring"
         >
           <span className="flex min-w-0 flex-1 flex-wrap gap-1">
@@ -105,7 +117,14 @@ export function LabelPicker({ value, onDone }: { value: string[]; onDone: (next:
           <ChevronUpDownIcon className="size-4 shrink-0 text-faint" aria-hidden />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-[max(var(--radix-popover-trigger-width),17rem)] p-1">
+      <PopoverContent
+        className="w-[max(var(--radix-popover-trigger-width),17rem)] p-1"
+        onKeyDown={keepKeys}
+        onEscapeKeyDown={() => {
+          discard.current = true;
+          onChange(value);
+        }}
+      >
         {options.length > 8 ? (
           <input
             value={q}
