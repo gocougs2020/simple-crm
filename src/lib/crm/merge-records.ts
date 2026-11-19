@@ -137,6 +137,12 @@ export async function mergePeopleInto(t: MergeDatabase, o: { keep: Person; donor
   for (const table of [schema.clients, schema.activities, schema.files, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textThreads]) {
     await t.update(table).set({ personId: keep }).where(inArray(table.personId, ids));
   }
+  // Clients they were added to and activities they were on besides the main person: the kept record takes their place, once.
+  await t.execute(sql`insert into client_people (client_id, person_id, created_at) select cp.client_id, ${keep}, min(cp.created_at) from client_people cp where cp.person_id = any(${uuids(ids)}) group by cp.client_id on conflict do nothing`);
+  await t.execute(sql`insert into activity_people (activity_id, person_id, created_at) select ap.activity_id, ${keep}, min(ap.created_at) from activity_people ap where ap.person_id = any(${uuids(ids)}) group by ap.activity_id on conflict do nothing`);
+  // Being a client's contact, or an activity's own person, already says it.
+  await t.execute(sql`delete from client_people cp using clients c where cp.client_id = c.id and cp.person_id = ${keep} and c.person_id = ${keep}`);
+  await t.execute(sql`delete from activity_people ap using activities a where ap.activity_id = a.id and ap.person_id = ${keep} and a.person_id = ${keep}`);
   // A campaign sends each person one email or text. When two of them got the same campaign, the kept record keeps its own; the other's copy stays without a person.
   for (const id of ids) {
     for (const table of [schema.outboundEmails, schema.textMessages]) {
@@ -181,6 +187,11 @@ export async function mergeClientsInto(t: MergeDatabase, o: { keep: ClientFields
   for (const table of [schema.clientServices, schema.clientMetrics, schema.activities, schema.files, schema.outboundEmails, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textMessages, schema.textThreads]) {
     await t.update(table).set({ clientId: keep }).where(inArray(table.clientId, ids));
   }
+  // People added to the merged clients are on the kept one, unless they're already its contact.
+  await t.execute(sql`insert into client_people (client_id, person_id, created_at) select ${keep}, cp.person_id, min(cp.created_at) from client_people cp where cp.client_id = any(${uuids(ids)}) group by cp.person_id on conflict do nothing`);
+  // So are their contacts.
+  await t.execute(sql`insert into client_people (client_id, person_id) select ${keep}, c.person_id from clients c where c.id = any(${uuids(ids)}) and c.person_id is not null on conflict do nothing`);
+  await t.execute(sql`delete from client_people cp using clients c where cp.client_id = c.id and c.id = ${keep} and cp.person_id = c.person_id`);
   await moveHistory(t, "client", ids, keep);
   await t
     .update(schema.clients)

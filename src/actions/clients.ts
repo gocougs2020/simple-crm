@@ -54,6 +54,22 @@ export async function changeClientCategory(clientId: string, input: z.input<type
   });
 }
 
+// ─── People on a client ──────────────────────────────────────────────────
+
+export async function addClientPerson(clientId: string, personId: string): Promise<Result> {
+  return run(async () => {
+    await svc.addClientPerson(await actor(), clientId, personId);
+    refresh();
+  });
+}
+
+export async function removeClientPerson(clientId: string, personId: string): Promise<Result> {
+  return run(async () => {
+    await svc.removeClientPerson(await actor(), clientId, personId);
+    refresh();
+  });
+}
+
 // ─── Services on a client ────────────────────────────────────────────────
 
 export async function addClientService(clientId: string, serviceId: string, input: z.input<typeof subscriptionInput> = {}): Promise<Result> {

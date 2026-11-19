@@ -114,6 +114,7 @@ export const Activity = z.object({
   pinned: z.boolean(),
   personId: uuid.nullable(),
   person: ref.nullable(),
+  people: z.array(ref).describe("Everyone on it: its person first, then a meeting's other attendees or an email's other recipients."),
   organizationId: uuid.nullable(),
   organization: ref.nullable(),
   clientId: uuid.nullable(),
@@ -179,6 +180,10 @@ export const ClientService = z.object({
   endedOn: day.nullable(),
   active: z.boolean(),
   note: z.string().nullable(),
+});
+
+export const ClientPerson = Person.extend({
+  source: z.enum(["contact", "added", "organization"]).describe("How they come to be on the client: its contact, added to it by hand, or at its organization."),
 });
 
 export const Metric = z.object({ id: uuid, label: z.string(), value: z.number(), period: day, note: z.string().nullable(), userId: uuid.nullable(), createdAt: ts });
@@ -291,5 +296,5 @@ export const Draft = z.object({
 });
 
 /** Named schemas, in the order the docs list them. */
-export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, Label, ClientService, Metric, User, CustomField, Me, SearchResult, AgentTask, AgentBulk, Skill, ScheduledJob, Draft, Knowledge, Deleted } as const;
+export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, Label, ClientService, ClientPerson, Metric, User, CustomField, Me, SearchResult, AgentTask, AgentBulk, Skill, ScheduledJob, Draft, Knowledge, Deleted } as const;
 export type ModelName = keyof typeof models;

@@ -57,6 +57,8 @@ function activityRows(where: SQL | undefined, opts: { order: SQL[]; limit: numbe
         inboxAddress: schema.inboxThreads.inboxAddress,
         /** The agent's background run for this note or task, when it was handed one: how it's going. */
         assistantStatus: schema.agentRuns.status,
+        /** Everyone else on it besides its own person: a meeting's other attendees, an email's other recipients. */
+        alsoPeople: sql<{ id: string; name: string }[]>`(select coalesce(json_agg(json_build_object('id', ap_p.id, 'name', ap_p.first_name || coalesce(' ' || ap_p.last_name, '')) order by ap_p.first_name, ap_p.id), '[]'::json) from activity_people ap join people ap_p on ap_p.id = ap.person_id where ap.activity_id = ${activities.id})`,
         /** Replies under a note, oldest first. */
         replies: sql<NoteReply[]>`(select coalesce(json_agg(json_build_object('id', r.id, 'body', r.body, 'userId', r.user_id, 'apiKeyId', r.api_key_id, 'createdAt', r.created_at) order by r.created_at, r.id), '[]'::json) from note_replies r where r.activity_id = ${activities.id})`,
       })
@@ -102,10 +104,14 @@ export type TimelineItem =
  */
 export async function timeline(entity: EntityType, id: string) {
   const db = await getDb();
-  const link = linkColumn[entity];
+  // A person's timeline also holds what they were on with others: a meeting they attended, an email they were copied on.
+  const on =
+    entity === "person"
+      ? or(eq(activities.personId, id), sql`exists (select 1 from activity_people ap where ap.activity_id = ${activities.id} and ap.person_id = ${id})`)!
+      : eq(linkColumn[entity], id);
   const [planned, done, history, attached, mail, [contact]] = await Promise.all([
-    activityRows(and(eq(link, id), isNull(activities.completedAt), isNotNull(activities.dueAt)), { order: [asc(activities.dueAt)], limit: 100 }),
-    activityRows(and(eq(link, id), or(isNotNull(activities.completedAt), isNull(activities.dueAt))), {
+    activityRows(and(on, isNull(activities.completedAt), isNotNull(activities.dueAt)), { order: [asc(activities.dueAt)], limit: 100 }),
+    activityRows(and(on, or(isNotNull(activities.completedAt), isNull(activities.dueAt))), {
       order: [desc(activities.pinned), desc(sql`coalesce(${activities.occurredAt}, ${activities.completedAt}, ${activities.createdAt})`)],
       limit: 300,
     }),
@@ -135,14 +141,14 @@ export async function timeline(entity: EntityType, id: string) {
       .select({ id: schema.inboxMessages.id, threadId: schema.inboxMessages.threadId, from: schema.inboxMessages.from, sentAt: schema.inboxMessages.sentAt, attachments: schema.inboxMessages.attachments })
       .from(schema.inboxMessages)
       .innerJoin(activities, eq(activities.id, schema.inboxMessages.activityId))
-      .where(and(eq(link, id), sql`jsonb_array_length(${schema.inboxMessages.attachments}) > 0`))
+      .where(and(on, sql`jsonb_array_length(${schema.inboxMessages.attachments}) > 0`))
       .orderBy(desc(schema.inboxMessages.sentAt))
       .limit(200),
     // Its own query, so it's right however long the history is.
     db
       .select({ at: sql<Date | null>`max(coalesce(${activities.occurredAt}, ${activities.completedAt}, ${activities.createdAt}))` })
       .from(activities)
-      .where(and(eq(link, id), inArray(activities.type, interactionTypes), or(isNotNull(activities.completedAt), isNull(activities.dueAt)), notCampaignEmail)),
+      .where(and(on, inArray(activities.type, interactionTypes), or(isNotNull(activities.completedAt), isNull(activities.dueAt)), notCampaignEmail)),
   ]);
   const past: TimelineItem[] = [
     ...done.map((row): TimelineItem => ({ kind: "activity", at: (row.activity.occurredAt ?? row.activity.completedAt ?? row.activity.createdAt).toISOString(), row })),

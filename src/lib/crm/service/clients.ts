@@ -16,7 +16,7 @@ import { rankBetween } from "@/lib/rank";
 
 /** Clients: creating, editing, moving through stages and categories, services and performance numbers. Shared by the browser, the API and MCP. */
 
-const { clients, stages, pipelines, people, services, clientServices, clientMetrics } = schema;
+const { clients, stages, pipelines, people, services, clientServices, clientMetrics, clientPeople } = schema;
 
 const clientLabels = {
   name: "Name",
@@ -139,6 +139,11 @@ export async function updateClient(a: Actor, clientId: string, patch: Partial<z.
     .update(clients)
     .set({ ...data, custom, updatedAt: new Date() })
     .where(eq(clients.id, before.id));
+  if (data.personId !== undefined && data.personId !== before.personId) {
+    // A new contact doesn't take the old one off the client: they stay on its People card. The new one no longer needs a row of their own.
+    if (before.personId) await db.insert(clientPeople).values({ clientId: before.id, personId: before.personId }).onConflictDoNothing();
+    if (data.personId) await db.delete(clientPeople).where(and(eq(clientPeople.clientId, before.id), eq(clientPeople.personId, data.personId)));
+  }
   await ensureLabels(data.tags);
   const changes = [...(await labelRelations(diff(before, { ...data, custom: undefined }, clientLabels))), ...(await withCustomChanges("client", before.custom, custom))];
   if (changes.length) await recordEvent({ entityType: "client", entityId: before.id, action: "updated", data: { changes }, ...stamp(a) });
@@ -217,6 +222,43 @@ export async function changeClientCategory(a: Actor, clientId: string, input: z.
     ...stamp(a),
   });
   return { id: client.id };
+}
+
+// ─── People on a client ──────────────────────────────────────────────────
+
+const nameOf = (p: { firstName: string; lastName: string | null }) => [p.firstName, p.lastName].filter(Boolean).join(" ");
+
+/**
+ * Adds a person to a client, besides its contact. They show on the client's
+ * People card and can be called, emailed, texted or put on a meeting from it.
+ * A client with no contact yet takes them as its contact.
+ */
+export async function addClientPerson(a: Actor, clientId: string, personId: string) {
+  assertCan(a, "records:write");
+  const db = await getDb();
+  const client = await getClientRow(clientId);
+  const [person] = await db.select().from(people).where(eq(people.id, id.parse(personId)));
+  if (!person) throw new NotFoundError("That person doesn't exist.");
+  if (client.personId === person.id) return { id: person.id };
+  if (!client.personId) {
+    await updateClient(a, client.id, { personId: person.id });
+    return { id: person.id };
+  }
+  const added = await db.insert(clientPeople).values({ clientId: client.id, personId: person.id }).onConflictDoNothing().returning({ personId: clientPeople.personId });
+  if (added.length) await recordEvent({ entityType: "client", entityId: client.id, action: "person_added", data: { personId: person.id, name: nameOf(person) }, ...stamp(a) });
+  return { id: person.id };
+}
+
+/** Takes a person added by hand off a client. The contact is changed on the client itself, and people at its organization show for as long as they're there. */
+export async function removeClientPerson(a: Actor, clientId: string, personId: string) {
+  assertCan(a, "records:write");
+  const db = await getDb();
+  const client = await getClientRow(clientId);
+  if (client.personId === id.parse(personId)) throw new ActionError("They're this client's contact. Pick another contact first, then remove them.");
+  const removed = await db.delete(clientPeople).where(and(eq(clientPeople.clientId, client.id), eq(clientPeople.personId, personId))).returning({ personId: clientPeople.personId });
+  if (!removed.length) return;
+  const [person] = await db.select().from(people).where(eq(people.id, personId));
+  await recordEvent({ entityType: "client", entityId: client.id, action: "person_removed", data: { personId, name: person ? nameOf(person) : null }, ...stamp(a) });
 }
 
 // ─── Services on a client ────────────────────────────────────────────────

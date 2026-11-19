@@ -404,6 +404,25 @@ export const personOrganizations = pgTable(
   (t) => [primaryKey({ columns: [t.personId, t.organizationId] }), index("person_organizations_org_idx").on(t.organizationId)],
 );
 
+/**
+ * People on a client besides its contact (`clients.person_id`): added by hand
+ * on the client's page. The client's People card shows the contact, these,
+ * and everyone at its organization (`clientPeople` in src/lib/crm/records.ts).
+ */
+export const clientPeople = pgTable(
+  "client_people",
+  {
+    clientId: uuid("client_id")
+      .notNull()
+      .references((): AnyPgColumn => clients.id, { onDelete: "cascade" }),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => people.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.clientId, t.personId] }), index("client_people_person_idx").on(t.personId)],
+);
+
 /** Each client category has one or more pipelines of its own stages (prospects: Lead → Proposal; current: Onboarding → Renewal). */
 export const pipelines = pgTable("pipelines", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -622,6 +641,25 @@ export const activities = pgTable(
     // The newest activity change, for the open-page refresh check (src/lib/live.ts).
     index("activities_updated_idx").on(t.updatedAt),
   ],
+);
+
+/**
+ * Everyone else on an activity besides `activities.person_id`: the other
+ * attendees of a meeting, the other recipients (To and Cc) of an email. The
+ * activity shows on each of their timelines too.
+ */
+export const activityPeople = pgTable(
+  "activity_people",
+  {
+    activityId: uuid("activity_id")
+      .notNull()
+      .references(() => activities.id, { onDelete: "cascade" }),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => people.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.activityId, t.personId] }), index("activity_people_person_idx").on(t.personId)],
 );
 
 /**

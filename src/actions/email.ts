@@ -9,6 +9,9 @@ import { run, type Result } from "@/lib/action";
 import { ActionError, actionEditor, actionUser, isAdmin } from "@/lib/auth";
 import { emailBrand } from "@/lib/brand";
 import { touch } from "@/lib/crm/events";
+import { MAX_EMAIL_RECIPIENTS } from "@/lib/crm/schemas";
+import { setActivityPeople } from "@/lib/crm/service/activities";
+import { planRecipients } from "@/lib/email/recipients";
 import { fromAs, getResend, sendEmail } from "@/lib/email";
 import { loadAttachments, resolveAttachments } from "@/lib/email/attachments";
 import { assertInboxInScope, InboxError } from "@/lib/email/inbox";
@@ -22,15 +25,21 @@ import DirectEmail from "@/emails/direct";
 const { people, organizations, activities, outboundEmails, emailTemplates } = schema;
 
 const sendInput = z.object({
+  /** The first person on the To line. Merge tags fill in for them. */
   personId: z.uuid(),
+  /** More people on the To line (a client's other people). */
+  toPersonIds: z.array(z.uuid()).max(MAX_EMAIL_RECIPIENTS).optional(),
+  /** People on the Cc line. */
+  ccPersonIds: z.array(z.uuid()).max(MAX_EMAIL_RECIPIENTS).optional(),
   clientId: z.uuid().nullable().optional(),
   /** Send from one of the workspace's Resend inboxes, so replies come back into the CRM. Otherwise from RESEND_FROM, with replies to the teammate. */
   inboxId: z.string().max(100).nullable().optional(),
   /** Send from the teammate's own connected Microsoft 365 mailbox instead. Takes precedence over `inboxId`. */
   via: z.enum(["crm", "microsoft"]).optional(),
+  /** Cc addresses typed by hand. */
   cc: z
     .array(z.email("One of the CC addresses isn't valid."))
-    .max(10)
+    .max(MAX_EMAIL_RECIPIENTS)
     .optional(),
   /** Where replies go. Blank means the sender's own address. Ignored when sending from an inbox, whose replies come back to it. */
   replyTo: z.union([z.email("The reply-to address isn't valid."), z.literal("")]).nullable().optional(),
@@ -45,7 +54,9 @@ const sendInput = z.object({
 
 /**
  * Sends a one-off email to a person from their record (or a client's), as the
- * signed-in teammate. From an inbox, the teammate's name goes in front of the
+ * signed-in teammate. From a client it can go to several of the client's
+ * people at once, on To and Cc: one email everyone can reply-all to, 10
+ * addresses at most between the two lines (`planRecipients`). From an inbox, the teammate's name goes in front of the
  * inbox address and replies thread back into the CRM. Without one, From is
  * RESEND_FROM and Reply-To is the teammate's own address unless they changed
  * it for this email. Either way the email is logged on the timeline.
@@ -76,6 +87,23 @@ export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise
       .where(eq(people.id, data.personId));
     if (!row) throw new ActionError("This person was deleted.");
     if (!row.person.email) throw new ActionError("Add an email address to this person first.");
+    // Everyone else on the To and Cc lines.
+    const otherIds = [...new Set([...(data.toPersonIds ?? []), ...(data.ccPersonIds ?? [])])].filter((id) => id !== row.person.id);
+    const others = otherIds.length ? await db.select({ id: people.id, firstName: people.firstName, lastName: people.lastName, email: people.email }).from(people).where(inArray(people.id, otherIds)) : [];
+    const entry = (id: string) => {
+      const p = others.find((o) => o.id === id);
+      if (!p) throw new ActionError("One of the people on this email was deleted. Take them off and send again.");
+      if (!p.email) throw new ActionError(`${[p.firstName, p.lastName].filter(Boolean).join(" ")} has no email address. Add one to their record, or take them off this email.`);
+      return { personId: p.id, email: p.email };
+    };
+    const plan = planRecipients({
+      to: [{ personId: row.person.id, email: row.person.email }, ...(data.toPersonIds ?? []).filter((id) => id !== row.person.id).map(entry)],
+      cc: [...(data.ccPersonIds ?? []).filter((id) => id !== row.person.id).map(entry), ...(data.cc ?? []).map((email) => ({ personId: null, email }))],
+    });
+    if (plan.total > MAX_EMAIL_RECIPIENTS) {
+      throw new ActionError(`An email can go to ${MAX_EMAIL_RECIPIENTS} addresses at most, counting To and Cc. This one has ${plan.total}: take ${plan.total - MAX_EMAIL_RECIPIENTS} off and send again.`);
+    }
+    const cc = plan.cc.length ? plan.cc : undefined;
     let client: { name: string; organizationId: string | null } | undefined;
     if (data.clientId) {
       [client] = await db.select({ name: schema.clients.name, organizationId: schema.clients.organizationId }).from(schema.clients).where(eq(schema.clients.id, data.clientId));
@@ -97,7 +125,7 @@ export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise
 
     const [outbound] = await db
       .insert(outboundEmails)
-      .values({ personId: row.person.id, clientId: data.clientId ?? null, userId: user.id, to: row.person.email, cc: data.cc?.join(", ") || null, replyTo, subject, attachments, provider: mailbox ? "microsoft" : "resend" })
+      .values({ personId: row.person.id, clientId: data.clientId ?? null, userId: user.id, to: plan.to.join(", "), cc: plan.cc.join(", ") || null, replyTo, subject, attachments, provider: mailbox ? "microsoft" : "resend" })
       .returning({ id: outboundEmails.id });
     const fromName = brand.senderName ? `${user.name} · ${brand.senderName}` : user.name;
     const preview = htmlToText(html).split("\n").find(Boolean)?.slice(0, 120) ?? "";
@@ -105,7 +133,7 @@ export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise
     let resendId: string | null = null;
     if (mailbox) {
       try {
-        const sent = await sendFromMailbox(mailbox, { to: row.person.email, cc: data.cc, bcc: data.copyMe ? [user.email] : undefined, replyTo, subject, html: await render(email), attachments: files });
+        const sent = await sendFromMailbox(mailbox, { to: plan.to, cc, bcc: data.copyMe ? [user.email] : undefined, replyTo, subject, html: await render(email), attachments: files });
         await db.update(outboundEmails).set({ messageId: sent.messageId }).where(eq(outboundEmails.id, outbound.id));
       } catch (err) {
         await db.delete(outboundEmails).where(eq(outboundEmails.id, outbound.id));
@@ -116,7 +144,7 @@ export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise
       const resend = getResend();
       if (!resend) throw new ActionError("Email isn't connected yet, so inboxes can't send. Send without an inbox, or add RESEND_API_KEY.");
       const draft = await resend.inboxes.drafts.create(
-        { inboxId: data.inboxId, to: row.person.email, cc: data.cc?.length ? data.cc : undefined, bcc: data.copyMe ? user.email : undefined, subject, html: await render(email), attachments: files.length ? files : undefined },
+        { inboxId: data.inboxId, to: plan.to, cc, bcc: data.copyMe ? user.email : undefined, subject, html: await render(email), attachments: files.length ? files : undefined },
         { idempotencyKey: `draft-${outbound.id}` },
       );
       if (draft.error || !draft.data) throw new ActionError(`Resend couldn't prepare the email: ${draft.error?.message ?? "no response"}.`);
@@ -127,8 +155,8 @@ export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise
       resendId = (
         await sendEmail({
           from: fromAs(fromName),
-          to: row.person.email,
-          cc: data.cc?.length ? data.cc : undefined,
+          to: plan.to,
+          cc,
           bcc: data.copyMe ? user.email : undefined,
           replyTo: replyTo ?? undefined,
           subject,
@@ -165,6 +193,11 @@ export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise
         );
     }
     await touch(links, now);
+    // It's on the timeline of everyone it went to, and counts as contact with each of them.
+    if (plan.otherPersonIds.length) {
+      await setActivityPeople(activity.id, plan.otherPersonIds);
+      for (const personId of plan.otherPersonIds) await touch({ personId }, now);
+    }
     refresh();
     return { activityId: activity.id };
   });

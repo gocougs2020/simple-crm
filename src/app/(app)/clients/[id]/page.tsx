@@ -10,6 +10,7 @@ import { Timeline } from "@/components/activity/timeline";
 import { BillingCard } from "@/components/clients/billing-card";
 import { CategoryActions, CategoryBadge, CategoryDate, HealthBadge } from "@/components/clients/client-controls";
 import { PerformanceCard, ServicesCard } from "@/components/clients/client-panels";
+import { ClientPeopleCard } from "@/components/clients/client-people";
 import { StageBar } from "@/components/clients/client-controls";
 import { DynamicMarker } from "@/components/dynamic-marker";
 import { CallButton } from "@/components/phone/contact-actions";
@@ -20,7 +21,7 @@ import { PageSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { monthlyFactor } from "@/lib/constants";
 import { timeline } from "@/lib/crm/activities";
 import { getAppData } from "@/lib/crm/context";
-import { getClient, metricsOf, servicesOf } from "@/lib/crm/records";
+import { clientPeople, getClient, metricsOf, servicesOf } from "@/lib/crm/records";
 import { dayKey, formatMoney, personName } from "@/lib/format";
 
 export async function generateMetadata({ params }: PageProps<"/clients/[id]">): Promise<Metadata> {
@@ -52,12 +53,22 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
   }
   const { client, person, organization } = row;
   const c = client.category;
-  const [tl, app, services, metrics] = await Promise.all([
+  const [tl, app, services, metrics, associated] = await Promise.all([
     timeline("client", id),
     getAppData(),
     servicesOf(id),
     metricsOf(id),
+    clientPeople(client),
   ]);
+  // Everyone a call, email, text or meeting from this page can be with: the contact first.
+  const contacts = associated.map(({ person: p, source }) => ({
+    personId: p.id,
+    name: personName(p),
+    email: p.email,
+    phone: p.phone,
+    textOptedOut: !!p.textOptOutAt,
+    detail: source === "contact" ? ["Contact", p.title].filter(Boolean).join(", ") : p.title,
+  }));
   const stage = app.pipelines.flatMap((p) => p.stages).find((s) => s.id === client.stageId);
   const today = dayKey(new Date(), app.workspace.timezone);
   // A past client's subscription is what ended on their latest end date (a client won back and lost again has two periods).
@@ -106,6 +117,11 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
         side={
           <>
             <ClientDetails client={client} person={person} organization={organization} />
+            <ClientPeopleCard
+              clientId={id}
+              organizationName={organization?.name ?? null}
+              people={associated.map(({ person: p, source }) => ({ id: p.id, name: personName(p), title: p.title, email: p.email, decisionMaker: p.decisionMaker, source }))}
+            />
             {c !== "prospective" ? (
               <ServicesCard clientId={id} category={c} rows={services}>
                 <Suspense fallback={<Skeleton className="mt-3 h-16 rounded-lg" />}>
@@ -120,7 +136,7 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
       >
         <RecordSummary entity="client" id={id} summary={client.summary} summaryAt={client.summaryAt} />
         <FocusLine planned={tl.planned} lastContactAt={tl.lastContactAt} context={{ type: "client", id, category: c }} />
-        <Composer links={{ clientId: id }} recipient={person ? { personId: person.id, name: personName(person), email: person.email, phone: person.phone, textOptedOut: !!person.textOptOutAt } : null} />
+        <Composer links={{ clientId: id }} recipient={contacts.find((c) => c.personId === client.personId) ?? contacts[0] ?? null} contacts={contacts} />
         <Timeline
           planned={tl.planned}
           pinned={tl.pinned}
