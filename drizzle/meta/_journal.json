@@ -211,6 +211,13 @@
       "when": 1795115763427,
       "tag": "0029_file-embeddings",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1795124211164,
+      "tag": "0030_private-mail-block-list-folders",
+      "breakpoints": true
     }
   ]
 }

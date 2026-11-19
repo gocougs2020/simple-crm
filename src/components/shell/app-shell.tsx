@@ -58,6 +58,13 @@ export function AppShell({
   const nav: NavItem[] = [
     { href: "/", label: "Home", icon: HomeIcon },
     { href: "/clients", label: "Clients", icon: BriefcaseIcon },
+    ...(comms.phone ? [{ href: "/messages", label: "Messages", icon: ChatBubbleLeftRightIcon, badge: unreadTexts || undefined, badgeLabel: "unread" }] : []),
+    { href: "/email", label: "Email", icon: EnvelopeIcon, badge: unread || undefined, badgeLabel: "unread" },
+    { href: "/activities", label: "Activities", icon: CheckCircleIcon, badge: due.overdue + due.today || undefined, badgeLabel: "due", tone: due.overdue ? "error" : undefined },
+    { href: "/people", label: "People", icon: UserIcon },
+    { href: "/organizations", label: "Organizations", icon: BuildingOffice2Icon },
+    { href: "/calendar", label: "Calendar", icon: CalendarDaysIcon },
+    { href: "/files", label: "Files", icon: FolderIcon },
     {
       href: "/chat",
       label: "Team chat",
@@ -66,13 +73,6 @@ export function AppShell({
       badgeLabel: chat.mentions ? (chat.mentions === 1 ? "mention" : "mentions") : "unread",
       tone: chat.mentions ? "error" : undefined,
     },
-    ...(comms.phone ? [{ href: "/messages", label: "Messages", icon: ChatBubbleLeftRightIcon, badge: unreadTexts || undefined, badgeLabel: "unread" }] : []),
-    { href: "/email", label: "Email", icon: EnvelopeIcon, badge: unread || undefined, badgeLabel: "unread" },
-    { href: "/activities", label: "Activities", icon: CheckCircleIcon, badge: due.overdue + due.today || undefined, badgeLabel: "due", tone: due.overdue ? "error" : undefined },
-    { href: "/people", label: "People", icon: UserIcon },
-    { href: "/organizations", label: "Organizations", icon: BuildingOffice2Icon },
-    { href: "/calendar", label: "Calendar", icon: CalendarDaysIcon },
-    { href: "/files", label: "Files", icon: FolderIcon },
   ];
 
   const sidebar = (

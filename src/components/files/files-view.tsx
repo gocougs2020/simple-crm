@@ -144,12 +144,10 @@ export function FilesView({ view, folderId, q, rows, folders, counts }: { view: 
         {(general || view === "all") && canEdit ? (
           <>
             <input ref={input} type="file" multiple hidden onChange={(e) => e.target.files && run(e.target.files).then(() => (e.target.value = ""))} />
-            {general ? (
-              <Button onClick={() => setFolderDialog({ mode: "new" })}>
-                <FolderPlusIcon />
-                New folder
-              </Button>
-            ) : null}
+            <Button onClick={() => setFolderDialog({ mode: "new" })}>
+              <FolderPlusIcon />
+              New folder
+            </Button>
             <Button variant="primary" onClick={() => input.current?.click()} loading={uploads.length > 0}>
               <ArrowUpTrayIcon />
               Upload{folder ? " here" : ""}
@@ -444,6 +442,8 @@ export function FilesView({ view, folderId, q, rows, folders, counts }: { view: 
               const r = await createFolder({ name, parentId: folder?.id ?? null });
               if (!r.ok) return void toast.error(r.error);
               toast.success(`${name} created`);
+              // Made from All files, where folders don't show: open it, so it's there to fill.
+              if (!general) router.push(viewHref("general", r.data.id));
             }
             setFolderDialog(null);
           }}

@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { currentRecordId } from "@/lib/crm/merged";
 import { Suspense } from "react";
 import { z } from "zod";
+import { requireUser } from "@/lib/auth";
 import { Composer } from "@/components/activity/composer";
 import { FocusLine } from "@/components/activity/focus-line";
 import { RecordSummary } from "@/components/records/record-summary";
@@ -54,8 +55,10 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
   }
   const { client, person, organization } = row;
   const c = client.category;
+  // Their own private mail with this record is on the timeline, for them alone.
+  const viewer = await requireUser();
   const [tl, app, services, metrics, associated] = await Promise.all([
-    timeline("client", id),
+    timeline("client", id, viewer.id),
     getAppData(),
     servicesOf(id),
     metricsOf(id),

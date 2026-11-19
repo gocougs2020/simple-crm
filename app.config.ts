@@ -207,8 +207,21 @@ export type AppConfig = {
     screenModel: string;
     /** What counts as sensitive, in plain words. */
     screenInstructions: string;
-    /** Keep an email out when the model is at least this sure (0–1) it's sensitive. Lower keeps more out. */
+    /**
+     * Below this probability (0–1) of being sensitive, an email goes on the
+     * record for the whole team. From here up to `screenThreshold` it's kept
+     * private: only the teammate whose mailbox it came from sees it, and they
+     * can share it. Lower keeps more private.
+     */
+    privateThreshold: number;
+    /** Don't store an email at all when the model is at least this sure (0–1) it's sensitive. Lower keeps more out. */
     screenThreshold: number;
+    /**
+     * Extra email domains that are your own organization ("acme.com"), besides
+     * the domains of the connected mailboxes. Mail is only synced when someone
+     * outside these domains, who is a person in the CRM, is on it.
+     */
+    internalDomains: readonly string[];
     /**
      * Mark kept-out emails in Outlook with this category, so the teammate can
      * see which ones didn't go into the CRM. `null` names it after the app
@@ -323,7 +336,9 @@ const defaults = {
     screenModel: "typesafe-ai/jev",
     screenInstructions:
       "Anything not about recruiting, broadly speaking. Above all: compensation, pay, salary, bonuses, commissions, benefits or other money matters about a person; and conversations between members of our own team (listed in ourTeam), even when a teammate also happens to be in the CRM as a person. Also personal matters (health, family), HR issues, legal disputes, and passwords or security codes.",
-    screenThreshold: 0.6,
+    privateThreshold: 0.5,
+    screenThreshold: 0.85,
+    internalDomains: [],
     withheldCategory: null,
     calendarTypes: ["meeting"],
     calendarDefaultMinutes: 30,

@@ -5,7 +5,7 @@ import { PageSkeleton } from "@/components/ui/skeleton";
 import { requireUser } from "@/lib/auth";
 import { microsoftConfigured, syncEveryMinutes, withheldCategory } from "@/lib/microsoft/config";
 import { accountOf } from "@/lib/microsoft/graph";
-import { mailboxStats } from "@/lib/microsoft/mail";
+import { mailboxStats, teamConnections } from "@/lib/microsoft/mail";
 import { screeningOn } from "@/lib/microsoft/screen";
 import { aiGatewayAvailable } from "@/lib/agent/config";
 
@@ -25,6 +25,8 @@ async function Accounts({ searchParams }: Pick<PageProps<"/settings/accounts">, 
   const configured = microsoftConfigured();
   const account = configured ? await accountOf(user.id) : null;
   const stats = account ? await mailboxStats(account.id) : null;
+  // Owners see who's connected and can cut a connection; nothing of anyone's mail.
+  const team = configured && user.role === "owner" ? await teamConnections() : null;
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? null;
   return (
     <AccountSettings
@@ -39,6 +41,8 @@ async function Accounts({ searchParams }: Pick<PageProps<"/settings/accounts">, 
               syncMail: account.syncMail,
               syncCalendar: account.syncCalendar,
               calendarSharing: account.calendarSharing,
+              blocked: account.blocked,
+              mailFolders: account.mailFolders,
               status: account.status,
               lastSyncAt: account.lastSyncAt?.toISOString() ?? null,
               lastError: account.lastError,
@@ -46,6 +50,7 @@ async function Accounts({ searchParams }: Pick<PageProps<"/settings/accounts">, 
           : null
       }
       stats={stats}
+      team={team ? team.filter((c) => c.userId !== user.id).map((c) => ({ ...c, lastSyncAt: c.lastSyncAt?.toISOString() ?? null })) : null}
       sync={{ everyMinutes: syncEveryMinutes(), screening: screeningOn(), screenReady: aiGatewayAvailable(), category: withheldCategory() }}
       notice={{ connected: one(params.connected), error: one(params.error) }}
     />

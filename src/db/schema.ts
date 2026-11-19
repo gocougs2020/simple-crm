@@ -1448,7 +1448,16 @@ export const connectedAccounts = pgTable(
     /** What teammates see of this calendar in Calendar. */
     calendarSharing: text("calendar_sharing").$type<CalendarSharing>().notNull().default("busy"),
     /** The newest message already looked at, per folder, so each sync only reads what's new. */
-    mailCursor: jsonb("mail_cursor").$type<{ inbox?: string; sent?: string }>().notNull().default({}),
+    /**
+     * Where each synced folder was read up to, by folder: the newest message's
+     * time for Inbox and Sent Items (`inbox`, `sent`), Graph's delta link for a
+     * folder the teammate picked (by its id).
+     */
+    mailCursor: jsonb("mail_cursor").$type<Record<string, string>>().notNull().default({}),
+    /** The folders to sync instead of Inbox and Sent Items, when the teammate picked their own. Null: the default two. */
+    mailFolders: jsonb("mail_folders").$type<{ id: string; name: string }[]>(),
+    /** Addresses and domains whose mail is never synced from this mailbox, lowercased ("jo@acme.com", "acme.com"). */
+    blocked: jsonb("blocked").$type<string[]>().notNull().default([]),
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
     /** The last thing that went wrong, in words, cleared by the next good sync. */
     lastError: text("last_error"),
@@ -1481,7 +1490,15 @@ export const syncedEmails = pgTable(
     from: text("from"),
     to: jsonb("to").$type<string[]>().notNull().default([]),
     sentAt: timestamp("sent_at", { withTimezone: true }).notNull(),
-    status: text("status").$type<"imported" | "withheld">().notNull(),
+    /**
+     * `imported`: on the records for the team (its activity points here).
+     * `private`: kept here, shown only to the mailbox's teammate, with its
+     * subject and body below. `withheld`: looked at and kept out; no content.
+     */
+    status: text("status").$type<"imported" | "private" | "withheld">().notNull(),
+    /** Only while `private`: the email itself, since it has no activity. Cleared when it's shared, removed or the mailbox disconnects. */
+    subject: text("subject"),
+    body: text("body"),
     /** Why it was kept out, or that it went in unscreened, in words. */
     reason: text("reason"),
     /** The screen's probability that it's sensitive (0–1), for tuning `microsoft.screenThreshold`. Null when it wasn't screened. */

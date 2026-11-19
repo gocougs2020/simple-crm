@@ -5,6 +5,7 @@ import { interactionTypes, monthlyPriceSql, type ActivityType, type EntityType }
 import { ActionError } from "@/lib/auth";
 import { zonedTime } from "@/lib/format";
 import { inRecordView, onRecord } from "@/lib/crm/files";
+import { privateMailOn, type PrivateMail } from "@/lib/microsoft/mail";
 
 const zonedMidnight = (ymd: string, tz: string) => zonedTime(ymd, "00:00", tz);
 
@@ -119,7 +120,9 @@ const recordFile = (f: RecordFile & { own: boolean }): RecordFile => ({
 export type TimelineItem =
   | { kind: "activity"; at: string; row: ActivityRow }
   | { kind: "event"; at: string; event: typeof events.$inferSelect }
-  | { kind: "file"; at: string; file: RecordFile };
+  | { kind: "file"; at: string; file: RecordFile }
+  /** An email kept private to the viewer: synced from their own mailbox, not on the record. Only ever in their own timeline. */
+  | { kind: "privateMail"; at: string; mail: Omit<PrivateMail, "sentAt"> };
 
 /**
  * A record's whole story, newest first: logged activities (by when they
@@ -129,14 +132,14 @@ export type TimelineItem =
  * file on the record (added on its own or attached to an activity) and
  * `emailFiles` every attachment on its inbox mail, for the Files card.
  */
-export async function timeline(entity: EntityType, id: string) {
+export async function timeline(entity: EntityType, id: string, viewerId?: string) {
   const db = await getDb();
   // A person's timeline also holds what they were on with others: a meeting they attended, an email they were copied on.
   const on =
     entity === "person"
       ? or(eq(activities.personId, id), sql`exists (select 1 from activity_people ap where ap.activity_id = ${activities.id} and ap.person_id = ${id})`)!
       : eq(linkColumn[entity], id);
-  const [planned, done, history, attached, mail, [contact]] = await Promise.all([
+  const [planned, done, history, attached, mail, [contact], privateMail] = await Promise.all([
     activityRows(and(on, isNull(activities.completedAt), isNotNull(activities.dueAt)), { order: [asc(activities.dueAt)], limit: 100 }),
     activityRows(and(on, or(isNotNull(activities.completedAt), isNull(activities.dueAt))), {
       order: [desc(activities.pinned), desc(sql`coalesce(${activities.occurredAt}, ${activities.completedAt}, ${activities.createdAt})`)],
@@ -181,6 +184,7 @@ export async function timeline(entity: EntityType, id: string) {
       .select({ at: sql<Date | null>`max(coalesce(${activities.occurredAt}, ${activities.completedAt}, ${activities.createdAt}))` })
       .from(activities)
       .where(and(on, inArray(activities.type, interactionTypes), or(isNotNull(activities.completedAt), isNull(activities.dueAt)), notCampaignEmail)),
+    viewerId ? privateMailOn(entity, id, viewerId) : [],
   ]);
   const past: TimelineItem[] = [
     ...done.map((row): TimelineItem => ({ kind: "activity", at: (row.activity.occurredAt ?? row.activity.completedAt ?? row.activity.createdAt).toISOString(), row })),
@@ -188,6 +192,7 @@ export async function timeline(entity: EntityType, id: string) {
     // A file attached to an activity shows on that activity, not as its own line.
     // One attached to the record later shows on its own, whatever activity it came from.
     ...attached.filter((f) => !f.activityId || !f.own).map((f): TimelineItem => ({ kind: "file", at: f.createdAt.toISOString(), file: recordFile(f) })),
+    ...privateMail.map(({ sentAt, ...m }): TimelineItem => ({ kind: "privateMail", at: sentAt.toISOString(), mail: m })),
   ];
   const pinned = past.filter((i) => i.kind === "activity" && i.row.activity.pinned);
   const rest = past.filter((i) => !(i.kind === "activity" && i.row.activity.pinned)).sort((a, b) => b.at.localeCompare(a.at));

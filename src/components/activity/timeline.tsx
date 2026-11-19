@@ -30,6 +30,7 @@ import {
 type Context = { type: EntityType; id: string; category?: ClientCategory };
 import { MapPinIcon, UserPlusIcon } from "@heroicons/react/24/outline";
 import { deleteActivity, deleteReply, replyToNote, setCompleted, setPinned, updateActivity } from "@/actions/activities";
+import { deletePrivateEmail, setSyncedEmailVisibility } from "@/actions/accounts";
 import { deleteFile } from "@/actions/files";
 import { useApp } from "@/components/app-context";
 import { AGENT_ASSIGNEE, OwnerSelect } from "@/components/records/owner-select";
@@ -67,6 +68,7 @@ const conversationTypes: ActivityType[] = [...interactionTypes, "note"];
 
 function matches(item: TimelineItem, f: Filter) {
   if (f === "all") return true;
+  if (item.kind === "privateMail") return f !== "tasks";
   if (item.kind !== "activity") return false;
   if (f === "tasks") return item.row.activity.type === "task";
   return conversationTypes.includes(item.row.activity.type);
@@ -216,6 +218,8 @@ export function Timeline({
                 <EventItem key={i.event.id} event={i.event} />
               ) : i.kind === "group" ? (
                 <ChangeGroup key={i.events[0].event.id} events={i.events} />
+              ) : i.kind === "privateMail" ? (
+                <PrivateMailItem key={i.mail.id} mail={i.mail} at={i.at} />
               ) : (
                 <FileItem key={i.file.id} file={i.file} />
               ),
@@ -658,11 +662,13 @@ function Replies({ noteId, replies }: { noteId: string; replies: NoteReply[] }) 
 }
 
 function ItemMenu({ row, onEdit }: { row: ActivityRow; onEdit: () => void }) {
-  const { viewer, isAdmin } = useApp();
+  const { viewer, isAdmin, canEdit: canWrite } = useApp();
   const a = row.activity;
   const canEdit = a.userId === viewer.id || isAdmin || a.type === "task" || !a.completedAt || (!!a.callId && (a.assigneeId === viewer.id || !a.userId));
   // Admins can delete anything; everyone else what they sent or logged, and mail copied from their own mailbox. The server checks the same.
   const canDelete = a.userId === viewer.id || isAdmin || (!!a.syncedEmailId && row.synced?.mailboxUserId === viewer.id);
+  // Mail copied from the viewer's own mailbox can go back to being theirs alone.
+  const canMakePrivate = !!a.syncedEmailId && row.synced?.mailboxUserId === viewer.id && canWrite;
   return (
     <Menu>
       <MenuTrigger asChild>
@@ -684,6 +690,18 @@ function ItemMenu({ row, onEdit }: { row: ActivityRow; onEdit: () => void }) {
         {a.completedAt && a.dueAt ? (
           <MenuItem icon={<ArrowsRightLeftIcon />} onSelect={async () => void (await setCompleted(a.id, false))}>
             Mark not done
+          </MenuItem>
+        ) : null}
+        {canMakePrivate ? (
+          <MenuItem
+            icon={<LockClosedIcon />}
+            onSelect={async () => {
+              const r = await setSyncedEmailVisibility({ id: a.syncedEmailId!, visibility: "private" });
+              if (!r.ok) toast.error(r.error);
+              else toast.success("Only you see this email now");
+            }}
+          >
+            Make private
           </MenuItem>
         ) : null}
         {canDelete ? (
@@ -1002,6 +1020,80 @@ function ChangeGroup({ events }: { events: EventEntry[] }) {
       </li>
       {open ? events.map((e) => <EventItem key={e.event.id} event={e.event} />) : null}
     </>
+  );
+}
+
+/**
+ * An email the sync kept private: it came from the viewer's own mailbox and
+ * isn't on the record. The server only ever puts it in their own timeline.
+ */
+function PrivateMailItem({ mail, at }: { mail: Extract<TimelineItem, { kind: "privateMail" }>["mail"]; at: string }) {
+  const { workspace, canEdit } = useApp();
+  const tz = workspace.timezone;
+  const Icon = activityIcons.email;
+  return (
+    <li className="relative flex gap-3">
+      <span className="relative z-10 mt-2.5 flex size-8 shrink-0 items-center justify-center rounded-full border border-dashed border-line-strong bg-surface">
+        <Icon className="size-4 text-secondary" aria-hidden />
+      </span>
+      <article className="group min-w-0 flex-1 rounded-xl border border-dashed border-line-strong bg-surface px-3.5 py-3">
+        <header className="flex items-start gap-2">
+          <div className="min-w-0 flex-1 text-[13px] text-muted">
+            <span className="font-medium text-primary">{mail.direction === "inbound" ? (mail.from ?? "Email") : "You"}</span> {mail.direction === "inbound" ? "emailed" : "sent an email from Outlook"}
+            <Tooltip content={formatFull(at, tz)}>
+              <time dateTime={at} className="ml-1.5 text-[12px] whitespace-nowrap text-faint" suppressHydrationWarning>
+                · {formatDateTime(at, tz)}
+              </time>
+            </Tooltip>
+            <span className="ml-2 inline-flex items-center gap-1 align-middle text-[11.5px] font-medium text-secondary">
+              <LockClosedIcon className="size-3" aria-hidden />
+              Private: only you see this
+            </span>
+          </div>
+          {canEdit ? (
+            <Menu>
+              <MenuTrigger asChild>
+                <button type="button" className="-mt-0.5 -mr-1 rounded-md p-1 text-faint opacity-60 transition-opacity group-hover:opacity-100 hover:bg-sunken hover:text-primary focus:opacity-100" aria-label="More actions">
+                  <EllipsisHorizontalIcon className="size-4" />
+                </button>
+              </MenuTrigger>
+              <MenuContent className="w-48">
+                <MenuItem
+                  icon={<UserPlusIcon />}
+                  onSelect={async () => {
+                    const r = await setSyncedEmailVisibility({ id: mail.id, visibility: "public" });
+                    if (!r.ok) toast.error(r.error);
+                    else toast.success("Shared with the team");
+                  }}
+                >
+                  Share with the team
+                </MenuItem>
+                <MenuSeparator />
+                <MenuItem
+                  destructive
+                  icon={<TrashIcon />}
+                  onSelect={async () => {
+                    if (!confirm("Delete this email from the CRM? It stays in your Outlook and isn't synced again.")) return;
+                    const r = await deletePrivateEmail(mail.id);
+                    if (!r.ok) toast.error(r.error);
+                    else toast.success("Email deleted");
+                  }}
+                >
+                  Delete
+                </MenuItem>
+              </MenuContent>
+            </Menu>
+          ) : null}
+        </header>
+        {mail.subject ? <p className="mt-1 text-[14px] font-medium text-primary">{mail.subject}</p> : null}
+        {mail.to.length ? (
+          <p className="mt-1 truncate text-[12px] text-muted">
+            {mail.direction === "inbound" && mail.from ? `From ${mail.from} · ` : ""}To {mail.to.join(", ")}
+          </p>
+        ) : null}
+        {mail.body ? <CollapsibleBody html={mail.body} /> : null}
+      </article>
+    </li>
   );
 }
 

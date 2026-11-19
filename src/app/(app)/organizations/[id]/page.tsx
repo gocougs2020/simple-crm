@@ -4,6 +4,7 @@ import { currentRecordId } from "@/lib/crm/merged";
 import { Suspense } from "react";
 import { DynamicMarker } from "@/components/dynamic-marker";
 import { z } from "zod";
+import { requireUser } from "@/lib/auth";
 import { BuildingOffice2Icon } from "@heroicons/react/24/outline";
 import { Composer } from "@/components/activity/composer";
 import { FocusLine } from "@/components/activity/focus-line";
@@ -46,8 +47,10 @@ async function Organization({ params }: Pick<PageProps<"/organizations/[id]">, "
     if (current !== id) redirect(`/organizations/${current}`);
     notFound();
   }
+  // Their own private mail with this record is on the timeline, for them alone.
+  const viewer = await requireUser();
   const [tl, clients, people, parent, children] = await Promise.all([
-    timeline("organization", id),
+    timeline("organization", id, viewer.id),
     clientsOfOrganization(id),
     peopleOf(id),
     org.parentId ? getOrganization(org.parentId) : null,

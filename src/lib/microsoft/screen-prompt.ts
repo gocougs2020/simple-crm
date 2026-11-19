@@ -35,9 +35,3 @@ export function screenQuestion(sensitive: string, workspaceName: string) {
     },
   };
 }
-
-/** Whether a probability of "sensitive" keeps the email out, at the deployment's threshold (clamped to 0–1). */
-export function keepsOut(probability: number, threshold: number) {
-  const t = Number.isFinite(threshold) ? Math.min(Math.max(threshold, 0), 1) : 0.5;
-  return probability >= t;
-}
