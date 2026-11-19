@@ -15,7 +15,7 @@ import { AgoCell, NextActivityCell, OwnerCell } from "@/components/table/cells";
 import { DataTable, type Column } from "@/components/table/data-table";
 import { OwnerFilter, SearchBox, Toolbar } from "@/components/table/toolbar";
 import { useListParams } from "@/components/table/use-params";
-import { LabelChips, useLabels } from "@/components/records/labels";
+import { BulkAddLabels, LabelChips, useLabels } from "@/components/records/labels";
 import { Tag } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -273,6 +273,7 @@ export function ClientsView({
                     No owner
                   </option>
                 </select>
+                <BulkAddLabels entity="client" ids={ids} onDone={clear} />
                 <BulkButton
                   onClick={async () => {
                     const r = await setArchived("client", ids, true);

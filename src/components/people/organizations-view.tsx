@@ -16,7 +16,7 @@ import { OwnerFilter, ParentFilter, SearchBox, Toolbar } from "@/components/tabl
 import { usePagedRows } from "@/components/table/use-paged-rows";
 import { MergeDialog, type MergeCandidate } from "@/components/records/merge-dialog";
 import { Button } from "@/components/ui/button";
-import { LabelChips, useLabels } from "@/components/records/labels";
+import { BulkAddLabels, LabelChips, useLabels } from "@/components/records/labels";
 import { useListParams } from "@/components/table/use-params";
 import { Tag } from "@/components/ui/badge";
 import { Select } from "@/components/ui/field";
@@ -164,6 +164,7 @@ export function OrganizationsView({ rows: first, total, filter, pageSize, filter
                 No owner
               </option>
             </select>
+            <BulkAddLabels entity="organization" ids={ids} onDone={clear} />
             <BulkButton
               onClick={async () => {
                 const r = await setArchived("organization", ids, true);
