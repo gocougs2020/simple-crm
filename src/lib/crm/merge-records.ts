@@ -77,6 +77,16 @@ async function moveHistory(db: MergeDatabase, entity: "organization" | "person" 
 
 // ─── Organizations ───────────────────────────────────────────────────────
 
+/** Files attached to the duplicates later are on the kept record, once. The rest go with the duplicates (the links cascade). */
+async function moveFileLinks(t: MergeDatabase, column: "person_id" | "organization_id" | "client_id", ids: string[], keep: string) {
+  const col = sql.raw(column);
+  await t.execute(sql`insert into file_links (file_id, ${col}, created_by, created_at)
+    select fl.file_id, ${keep}, min(fl.created_by::text)::uuid, min(fl.created_at) from file_links fl where fl.${col} = any(${uuids(ids)}) group by fl.file_id
+    on conflict do nothing`);
+  // A file uploaded on the kept record doesn't need a link to it as well.
+  await t.execute(sql`delete from file_links fl using files f where fl.file_id = f.id and fl.${col} = ${keep} and f.${col} = ${keep}`);
+}
+
 type Org = OrgFields;
 
 /**
@@ -101,6 +111,7 @@ export async function mergeOrganizationsInto(t: MergeDatabase, o: { keep: Org; d
   for (const table of [schema.clients, schema.activities, schema.files, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textMessages, schema.textThreads]) {
     await t.update(table).set({ organizationId: keep }).where(inArray(table.organizationId, ids));
   }
+  await moveFileLinks(t, "organization_id", ids, keep);
   // Organizations that were part of a merged parent are part of the kept one (which the plan marks as a parent).
   await t
     .update(schema.organizations)
@@ -137,6 +148,7 @@ export async function mergePeopleInto(t: MergeDatabase, o: { keep: Person; donor
   for (const table of [schema.clients, schema.activities, schema.files, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textThreads]) {
     await t.update(table).set({ personId: keep }).where(inArray(table.personId, ids));
   }
+  await moveFileLinks(t, "person_id", ids, keep);
   // Clients they were added to and activities they were on besides the main person: the kept record takes their place, once.
   await t.execute(sql`insert into client_people (client_id, person_id, created_at) select cp.client_id, ${keep}, min(cp.created_at) from client_people cp where cp.person_id = any(${uuids(ids)}) group by cp.client_id on conflict do nothing`);
   await t.execute(sql`insert into activity_people (activity_id, person_id, created_at) select ap.activity_id, ${keep}, min(ap.created_at) from activity_people ap where ap.person_id = any(${uuids(ids)}) group by ap.activity_id on conflict do nothing`);
@@ -187,6 +199,7 @@ export async function mergeClientsInto(t: MergeDatabase, o: { keep: ClientFields
   for (const table of [schema.clientServices, schema.clientMetrics, schema.activities, schema.files, schema.outboundEmails, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textMessages, schema.textThreads]) {
     await t.update(table).set({ clientId: keep }).where(inArray(table.clientId, ids));
   }
+  await moveFileLinks(t, "client_id", ids, keep);
   // People added to the merged clients are on the kept one, unless they're already its contact.
   await t.execute(sql`insert into client_people (client_id, person_id, created_at) select ${keep}, cp.person_id, min(cp.created_at) from client_people cp where cp.client_id = any(${uuids(ids)}) group by cp.person_id on conflict do nothing`);
   // So are their contacts.

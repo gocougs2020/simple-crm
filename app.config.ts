@@ -154,6 +154,8 @@ export type AppConfig = {
     pollSeconds: number;
     /** After this many minutes without a click or key press, open pages stop asking until someone's back, so the database can sleep. */
     idleMinutes: number;
+    /** How often (seconds) the team chat page asks while it's open, visible and in use, so messages show up quickly. 0 uses `pollSeconds`. */
+    chatPollSeconds: number;
   };
   records: {
     /**
@@ -290,6 +292,7 @@ const defaults = {
   live: {
     pollSeconds: 30,
     idleMinutes: 10,
+    chatPollSeconds: 5,
   },
   records: {
     keyContactLabel: "Decision maker",

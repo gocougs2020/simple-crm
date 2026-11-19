@@ -16,6 +16,8 @@ import {
   CreditCardIcon,
   EnvelopeOpenIcon,
   EllipsisHorizontalIcon,
+  LinkIcon,
+  LockClosedIcon,
   PaperClipIcon,
   PencilSquareIcon,
   SparklesIcon,
@@ -519,7 +521,7 @@ function withEmailAttachments(files: RecordFile[] | undefined, row: ActivityRow)
   const have = new Set((files ?? []).map((f) => f.id));
   const extra = sent
     .filter((a) => !have.has(a.fileId))
-    .map((a): RecordFile => ({ id: a.fileId, name: a.name, size: a.size, contentType: a.contentType, uploadedBy: "", createdAt: row.activity.createdAt, activityId: row.activity.id, activityType: "email" }));
+    .map((a): RecordFile => ({ id: a.fileId, name: a.name, size: a.size, contentType: a.contentType, uploadedBy: "", createdAt: row.activity.createdAt, activityId: row.activity.id, activityType: "email", publicToken: null }));
   return [...(files ?? []), ...extra];
 }
 
@@ -920,6 +922,22 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
     case "file_deleted":
       text = <>removed the file {d.name}</>;
       icon = <PaperClipIcon className="size-3.5" />;
+      break;
+    case "file_attached":
+      text = <>attached the file {d.name}</>;
+      icon = <PaperClipIcon className="size-3.5" />;
+      break;
+    case "file_detached":
+      text = <>took the file {d.name} off this</>;
+      icon = <PaperClipIcon className="size-3.5" />;
+      break;
+    case "file_shared":
+      text = <>made the file {d.name} public: anyone with its link can open it</>;
+      icon = <LinkIcon className="size-3.5" />;
+      break;
+    case "file_unshared":
+      text = <>made the file {d.name} internal: its public link stopped working</>;
+      icon = <LockClosedIcon className="size-3.5" />;
       break;
     case "updated":
       text = (

@@ -497,25 +497,3 @@ export async function globalSearch(q: string) {
 
 // ─── Files ───────────────────────────────────────────────────────────────
 
-/** Every file, newest first, with the records it belongs to. */
-export async function listFiles(f: { q?: string; uploadedBy?: string }) {
-  const db = await getDb();
-  const { files } = schema;
-  const where: SQL[] = [isNull(files.deletedAt)];
-  if (f.q?.trim()) where.push(ilike(files.name, likeTerm(f.q)));
-  if (f.uploadedBy) where.push(eq(files.uploadedBy, f.uploadedBy));
-  return db
-    .select({
-      file: files,
-      personName: sql<string | null>`case when ${people.id} is null then null else ${people.firstName} || coalesce(' ' || ${people.lastName}, '') end`,
-      organizationName: organizations.name,
-      clientName: clients.name,
-    })
-    .from(files)
-    .leftJoin(people, eq(people.id, files.personId))
-    .leftJoin(organizations, eq(organizations.id, files.organizationId))
-    .leftJoin(clients, eq(clients.id, files.clientId))
-    .where(and(...where))
-    .orderBy(desc(files.createdAt))
-    .limit(500);
-}

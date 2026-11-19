@@ -20,6 +20,7 @@ import {
   XMarkIcon,
   CalendarDaysIcon,
   ChatBubbleLeftRightIcon,
+  ChatBubbleOvalLeftEllipsisIcon,
 } from "@heroicons/react/24/outline";
 import { signOut } from "@/actions/auth";
 import { useApp } from "@/components/app-context";
@@ -34,7 +35,20 @@ import { openCreate } from "./create-store";
 
 type NavItem = { href: string; label: string; icon: ComponentType<{ className?: string }>; badge?: number; badgeLabel?: string; tone?: "error" };
 
-export function AppShell({ due, unread = 0, unreadTexts = 0, children }: { due: { overdue: number; today: number }; unread?: number; unreadTexts?: number; children: ReactNode }) {
+export function AppShell({
+  due,
+  unread = 0,
+  unreadTexts = 0,
+  chat = { unread: 0, mentions: 0 },
+  children,
+}: {
+  due: { overdue: number; today: number };
+  unread?: number;
+  unreadTexts?: number;
+  /** Team chat messages since the viewer last had it open, and how many mention them. */
+  chat?: { unread: number; mentions: number };
+  children: ReactNode;
+}) {
   const { viewer, workspace, canEdit, services, comms } = useApp();
   const pathname = usePathname();
   const [drawer, setDrawer] = useState(false);
@@ -44,6 +58,14 @@ export function AppShell({ due, unread = 0, unreadTexts = 0, children }: { due: 
   const nav: NavItem[] = [
     { href: "/", label: "Home", icon: HomeIcon },
     { href: "/clients", label: "Clients", icon: BriefcaseIcon },
+    {
+      href: "/chat",
+      label: "Team chat",
+      icon: ChatBubbleOvalLeftEllipsisIcon,
+      badge: (chat.mentions ? chat.mentions : chat.unread) || undefined,
+      badgeLabel: chat.mentions ? (chat.mentions === 1 ? "mention" : "mentions") : "unread",
+      tone: chat.mentions ? "error" : undefined,
+    },
     ...(comms.phone ? [{ href: "/messages", label: "Messages", icon: ChatBubbleLeftRightIcon, badge: unreadTexts || undefined, badgeLabel: "unread" }] : []),
     { href: "/email", label: "Email", icon: EnvelopeIcon, badge: unread || undefined, badgeLabel: "unread" },
     { href: "/activities", label: "Activities", icon: CheckCircleIcon, badge: due.overdue + due.today || undefined, badgeLabel: "due", tone: due.overdue ? "error" : undefined },

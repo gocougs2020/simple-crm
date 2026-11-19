@@ -169,6 +169,13 @@
       "when": 1795065481767,
       "tag": "0023_client-and-activity-people",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1795113271142,
+      "tag": "0024_files-folders-sharing-and-team-chat",
+      "breakpoints": true
     }
   ]
 }

@@ -10,7 +10,7 @@ src/
     (auth)/          sign-in, setup, forgot, reset/[token], invite/[token]
     (app)/           everything behind the login: home, clients, people, organizations,
                      activities, calendar, files, email (inbox, campaigns, audiences, templates),
-                     messages (text conversations), settings
+                     messages (text conversations), chat (the team chat), settings
     api/             files (upload token, local upload, download), brand logo, cron
                      (campaigns, inbox, email-status, notifications, microsoft), the Resend and Twilio
                      webhooks, Microsoft sign-in (integrations/microsoft), the REST API
@@ -18,6 +18,7 @@ src/
     manifest.ts, icon.tsx, apple-icon.tsx   the installable app: manifest and generated icons
     developers/      the public API and MCP docs, generated from the operation list
     unsubscribe/     the campaign unsubscribe page and RFC 8058 one-click endpoint
+    share/           public file links: the page and the file, no sign-in
   actions/           server actions, one file per area ("use server")
   components/        UI, grouped by feature; ui/ holds the primitives; agent/ is the agent panel;
                      phone/ is the call panel, call buttons and the text composer
@@ -59,7 +60,10 @@ app.config.ts        product defaults (name, theme, layout), overridable per dep
 | `activities` | Notes, calls, emails, texts, meetings and tasks in one table. Links to a person, organization and/or client |
 | `note_replies` | Replies under a note, oldest first: teammates answering each other, and the agent answering a note that called on it |
 | `events` | Change history: who changed what, from what, to what, and through which API key |
-| `files` | Metadata; the bytes live in private Vercel Blob. A file added to a note, call or other activity keeps its `activity_id` and takes that activity's links |
+| `files` | Metadata; the bytes live in private Vercel Blob. A file added to a note, call or other activity keeps its `activity_id` and takes that activity's links. `folder_id` is its folder on the Files page, `public_token` is set while it's public, and `origin`/`chat_message_id` mark a team chat attachment |
+| `file_links` | Records a file was attached to after it was uploaded, one per row, besides the ones it was uploaded on (`files.person_id` and the rest) |
+| `file_folders` | Folders on the Files page, nested by `parent_id` |
+| `chat_messages` | The team chat: one thread for everyone. Plain text, who it mentions, edited and deleted times. `users.chat_read_at` is how far each teammate has read |
 | `custom_fields` | Field definitions per record type. Values live on the record, keyed by a stable `key` |
 | `email_templates`, `campaigns`, `audiences`, `outbound_emails` | Email. `audiences` are saved campaign filters. `outbound_emails` records every message sent, with its reply-to, attachments and Resend delivery status |
 | `inbox_threads`, `inbox_messages` | A mirror of the workspace's Resend inboxes, linked to people, organizations and clients |
@@ -91,6 +95,10 @@ Choices worth knowing:
 - **Board order uses fractional ranks** (`src/lib/rank.ts`): moving a card writes only that card.
 - **Custom field keys never change.** Renaming a field keeps its data; archiving hides it without deleting values.
 - **History is written by the server**, next to each change, in the same action. Nothing in the UI can forge it.
+- **Files are on any number of records.** A file is on the records it was uploaded on (the `files` columns, rolled up like an activity's) and any it was attached to later (`file_links`); `onRecord` and `recordsFor` in `src/lib/crm/files.ts` read both, so the Files card, the timeline and the Files page agree. The file dialog sets the whole list at once (`setFileRecords` in `src/lib/crm/service/files.ts`): a record it was uploaded on is cleared from the file, one attached later loses its link row, and each record that gained or lost the file gets a history entry. Links added by hand don't roll up: attaching a file to a client puts it on that client only. Merging records moves their links.
+- **The Files page is three lists.** General files are a lightweight shared drive: folders nest, a folder holds whatever is put in it, and the top level shows files on no record and not from chat. "On records" lists every file on a client, person or organization; "From chat" lists team chat attachments. Search in General looks through every folder. Files and folders move by drag and drop (onto a folder or a breadcrumb) or with Move; deleting a folder moves what's in it up a level, so nothing is lost. Two folders in one place can't share a name.
+- **Files are internal or public.** Internal files open only for signed-in teammates (`/api/files/[id]`). Making one public gives it a random token and `/share/<token>` opens it for anyone, with a page that shows its name, a preview for pictures and a download; making it internal again clears the token, so links already sent stop working. See [SECURITY.md](SECURITY.md#files).
+- **The team chat is one thread.** Everyone who can sign in reads and posts, viewers included (`src/lib/chat/service.ts`). Messages are plain text with links picked out; `@` and a teammate's name mentions them (the same rule as notes) and sends the "Mentions and replies" push, linking to the message. Attachments are files uploaded with `origin: "chat"` and claimed by the message they're posted with; deleting a message removes its files unless someone has since filed, attached or shared them. The sidebar counts messages since the teammate last had the chat open, and mentions in red. It isn't in the API or MCP yet.
 - **Anything on a timeline can be deleted**, for everyone: notes, tasks, meetings, and calls, texts and emails sent or received through the CRM (a sensitive email that got through, say). Admins can delete anything; everyone else what they sent or logged themselves, plus mail copied from their own mailbox (`deleteActivity` in `src/lib/crm/service/activities.ts`). What was behind it stays as a tombstone, emptied of content, so a later sync or webhook never brings it back; the history says something was deleted, without an email's or text's subject.
 
 ## Requests
@@ -170,7 +178,7 @@ Record pages open with an AI summary of the record, shared by the team and rewri
   | Today's tasks, in the morning | One summary of today's tasks with no time, from `notifications.morningHour` (7 AM) workspace time |
   | Meetings | 15 minutes before each of your meetings |
   | Records assigned to me | Someone else makes you the owner of a client, person or organization |
-  | Mentions and replies | A teammate mentions you in a note or a reply, or replies to a note you wrote or replied to |
+  | Mentions and replies | A teammate mentions you in a note, a reply or the team chat, or replies to a note you wrote or replied to |
   | Replies from my contacts | Mail arrives in a connected inbox from a record you own (received in the last day, so a first sync doesn't flood you) |
 
   The scheduled ones run on the quarter-hour notifications cron (`src/lib/push/due.ts`, rules in `src/lib/notifications/schedule.ts`), so a reminder lands 0–15 minutes before its time: exactly 15 for meetings on the quarter hour.
@@ -188,8 +196,8 @@ Vercel Cron, all on the same quarter-hour blocks so the database can scale to ze
 
 Open pages show changes without a reload: a task the agent just added, a call that came in, a teammate's edit.
 
-- **How:** `LiveUpdates` (`src/components/live-updates.tsx`, in the `(app)` layout) asks `/api/live` for the newest change's version: the latest `events.created_at` or `activities.updated_at` (`src/lib/live.ts`, two index lookups). When it moved, `router.refresh()` re-renders the page and the sidebar counts on the server. What's typed, open or scrolled in the browser stays as it was.
-- **When it asks:** right away after each agent tool call (chat and voice, `checkForChanges()`), when the tab comes back into view or the window regains focus, and every `live.pollSeconds` (30) while the tab is visible and someone clicked or typed in the last `live.idleMinutes` (10). Hidden or idle tabs don't ask, so a CRM left open overnight lets Neon suspend.
+- **How:** `LiveUpdates` (`src/components/live-updates.tsx`, in the `(app)` layout) asks `/api/live` for the newest change's version: the latest `events.created_at`, `activities.updated_at` or `chat_messages.updated_at` (`src/lib/live.ts`, three index lookups). When it moved, `router.refresh()` re-renders the page and the sidebar counts on the server. What's typed, open or scrolled in the browser stays as it was.
+- **When it asks:** right away after each agent tool call (chat and voice, `checkForChanges()`), when the tab comes back into view or the window regains focus, and every `live.pollSeconds` (30) while the tab is visible and someone clicked or typed in the last `live.idleMinutes` (10). The team chat page asks every `live.chatPollSeconds` (5) instead, under the same idle rule, so messages show up within seconds. Hidden or idle tabs don't ask, so a CRM left open overnight lets Neon suspend.
 - **Cost:** a check is one small function call and one indexed query. A dozen people working 8 hours a day is about 250,000 checks a month, well within Vercel Pro's included invocations, and the database is awake during working hours anyway. Raise `live.pollSeconds` to ask less often, or set it to `0` to rely on focus and agent checks alone.
 - **Why not sockets:** a push service (Pusher, Ably) or Neon's logical replication would add a vendor or keep the database from sleeping, for a difference of a few seconds. `activities.updated_at`, set by Drizzle on every update (`$onUpdate` in `schema.ts`), keeps the check honest for edits that don't set it by hand.
 

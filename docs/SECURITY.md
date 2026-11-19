@@ -37,7 +37,9 @@ The code is public; the data and secrets never are. This page is how that holds.
 
 - Stored in a **private** Vercel Blob store. Browsers upload straight to Blob with a short-lived token issued only to signed-in teammates; downloads stream through `/api/files/[id]`, which checks the session.
 - Web pages, SVG, scripts and executables are refused. Downloads are sent with `nosniff` and a `sandbox` CSP, so no uploaded file can run script on the CRM's origin.
-- The brand kit logo is the one public file (email clients must load it). It's stored privately and served from `/brand/logo/[name]`, which only reads files under `brand/`: admins only, raster images only, 2 MB.
+- **Internal or public.** Every file starts internal: only signed-in teammates can open it. Making one public (editors, from its menu or dialog) gives it a random 24-byte token, and `/share/<token>` then opens it for anyone with the link, no sign-in. Making it internal again or removing it clears the token, so links already sent stop working at once (the bytes are cached for a minute at most). Share pages are `noindex` and send no referrer, and sharing or unsharing a file that's on a record writes that record's history.
+- Team chat attachments can be uploaded by anyone who can sign in, viewers included (the upload token's payload says it's for chat); every other upload needs edit access.
+- The brand kit logo is the other public file (email clients must load it). It's stored privately and served from `/brand/logo/[name]`, which only reads files under `brand/`: admins only, raster images only, 2 MB.
 
 ## Email
 

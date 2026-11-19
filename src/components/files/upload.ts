@@ -5,9 +5,11 @@ import { attachUploadedFile } from "@/actions/files";
 import { MAX_FILE_BYTES } from "@/lib/constants";
 
 export type FileLinks = { personId?: string | null; organizationId?: string | null; clientId?: string | null; activityId?: string | null };
+/** Where an upload goes besides its records: a folder on the Files page, or the team chat. */
+export type UploadPlace = FileLinks & { folderId?: string | null; origin?: "chat" | null };
 
 /** Uploads one file: straight to private Vercel Blob in production, to the dev server's disk locally. Throws a readable message on failure. */
-export async function uploadFile(file: File, links: FileLinks, blob: boolean, onProgress?: (pct: number) => void) {
+export async function uploadFile(file: File, links: UploadPlace, blob: boolean, onProgress?: (pct: number) => void) {
   if (file.size > MAX_FILE_BYTES) throw new Error(`${file.name} is over ${MAX_FILE_BYTES / 1024 / 1024} MB.`);
   if (!blob) {
     const form = new FormData();
@@ -23,7 +25,7 @@ export async function uploadFile(file: File, links: FileLinks, blob: boolean, on
   const result = await upload(`files/${safe}`, file, {
     access: "private",
     handleUploadUrl: "/api/files/upload",
-    clientPayload: JSON.stringify({ size: file.size, type: file.type }),
+    clientPayload: JSON.stringify({ size: file.size, type: file.type, origin: links.origin ?? undefined }),
     multipart: file.size > 8 * 1024 * 1024,
     onUploadProgress: (e) => onProgress?.(Math.round(e.percentage)),
   });
