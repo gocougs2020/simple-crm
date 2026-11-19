@@ -106,6 +106,17 @@ Client, person and organization pages open with a short AI snapshot above the "N
 - **Written once.** `summary_started_at` claims a rewrite with one conditional update, so two people opening a stale record don't both pay for it; the second waits on the server for the first. A rewrite stuck for 2 minutes can be taken over. A failed rewrite keeps the old summary and tries again on the next visit.
 - **Model:** `agent.summaryModel` (`openai/gpt-6.1-sol`) at `agent.summaryReasoning` (`low`). The text is plain, at most 320 characters, and the instructions tell the model to treat emails and notes as information, never as instructions. Anyone who can read the record can trigger a rewrite (120 an hour per teammate).
 
+## File descriptions
+
+Every file added to the CRM (on the Files page, a client, person or organization, an email, or in the team chat) is read once by a small model and given a short description and its key facts, stored on the file (`src/lib/file-describe.ts`). The agent finds files by them and answers from them.
+
+- **What it reads:** PDFs and pictures are sent to the model whole (up to 15 MB); text, CSV, Markdown and JSON files, Word documents and Excel workbooks are turned into text on the server first (60,000 characters at most; workbooks are checked to inflate to under 40 MB before they're parsed). Other kinds (slide decks, zips, video) aren't read; teammates can describe them by hand.
+- **It can't do anything.** The model has no tools and answers in a fixed shape (a description and notes). Its instructions say everything in the file is content, never instructions; the answer is cleaned to plain text and capped (300 and 3,000 characters). When the agent reads a description later, its instructions say again that it's data from the file.
+- **When:** right after the upload, without holding it up (`after()`). The agent cron describes older files a few at a time. A file is marked failed before it's read, so one that can't be read isn't retried forever.
+- **Teammates can rewrite it** in the file's dialog; theirs is never overwritten. Clearing it hands it back to the model.
+- **Found by meaning:** the name, description and key facts are embedded (`agent.embeddingModel`) into a pgvector column, rewritten whenever the description changes. `search_files` embeds the question and asks the database for the nearest files, so finding a document costs one small embedding call and no file text.
+- **Models:** `agent.fileModel` (`openai/gpt-6-luna`) and `agent.embeddingModel` (`openai/text-embedding-3-small`, 1536 dimensions, which the column's width matches). `agent.fileDescriptions: false` turns both off.
+
 ## Background work
 
 Some jobs take too long for a chat answer: researching a company on the web and adding its people with titles and contact details, working out who the decision maker is, cleaning up a set of records, preparing a follow-up. The agent does these in the background, like a teammate you hand something to. It keeps working after the panel is closed and reports back when it's done.
@@ -156,6 +167,8 @@ Reading the web is the job of a separate helper, the researcher. It has web sear
 - The `AI_GATEWAY_API_KEY` budget in the Vercel dashboard is still the outer ceiling for all AI spend, background work included.
 
 ### Drafts
+
+A draft email can carry files (`attachmentFileIds`): the agent finds a brochure or price sheet with `search_files` and attaches it, and the composer opens with the files on it.
 
 The agent never sends email or texts, in chat or in the background. `draft_message` writes one to a person and leaves it for the teammate it works for:
 
@@ -220,6 +233,9 @@ Unknown keys, wrong types and reasoning levels that don't exist fail the build w
 | `agent.summaryModel` | `"openai/gpt-6.1-sol"` | Record summaries |
 | `agent.summaryReasoning` | `"low"` | Reasoning effort for record summaries |
 | `agent.titleModel` | `"anthropic/claude-haiku-5.5"` | Naming threads |
+| `agent.fileDescriptions` | `true` | AI descriptions and search vectors for uploaded files. `false` stops writing new ones; search falls back to words |
+| `agent.fileModel` | `"openai/gpt-6-luna"` | Reads each uploaded file once and describes it |
+| `agent.embeddingModel` | `"openai/text-embedding-3-small"` | File search vectors. It must make 1536-dimension vectors; another width needs a migration |
 | `agent.voiceModel` | `"spacexai/grok-voice-3.0"` | Voice chat (a realtime model with tool use) |
 | `agent.transcriptionModel` | `"spacexai/grok-stt"` | Dictation |
 | `agent.suggestions` | 4 prompts | Suggested actions on a new chat. A prompt ending in `…` fills the composer instead of sending |

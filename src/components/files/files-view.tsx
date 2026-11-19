@@ -271,7 +271,8 @@ export function FilesView({ view, folderId, q, rows, folders, counts }: { view: 
                     draggable={canEdit}
                     onDragStart={(e) => dragStart(e, { files: [], folder: f.id })}
                     {...dropTarget(f.id)}
-                    onClick={(e) => !(e.target as HTMLElement).closest("a,button,input,label") && router.push(viewHref("general", f.id))}
+                    // Clicks from the row's menu (rendered elsewhere, but still bubbling through React) don't open the folder.
+                    onClick={(e) => e.currentTarget.contains(e.target as Node) && !(e.target as HTMLElement).closest("a,button,input,label") && router.push(viewHref("general", f.id))}
                     className={clsx("table-row-link border-t border-line first:border-t-0", dropOn === f.id && "bg-accent-soft outline-2 -outline-offset-2 outline-accent")}
                   >
                     {canEdit ? <td className="w-11 p-0" /> : null}
@@ -328,7 +329,7 @@ export function FilesView({ view, folderId, q, rows, folders, counts }: { view: 
                     draggable={canEdit}
                     onDragStart={(e) => dragStart(e, dragFiles(r.id))}
                     onClick={(e) => {
-                      if ((e.target as HTMLElement).closest("a,button,input,label,[role=menu]")) return;
+                      if (!e.currentTarget.contains(e.target as Node) || (e.target as HTMLElement).closest("a,button,input,label")) return;
                       window.open(`/api/files/${r.id}`, "_blank", "noopener");
                     }}
                     className={clsx("table-row-link border-t border-line first:border-t-0", selected.has(r.id) && "bg-accent-soft")}

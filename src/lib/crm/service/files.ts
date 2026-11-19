@@ -3,14 +3,18 @@ import { randomBytes } from "node:crypto";
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
-import { entityTypes, type EntityType } from "@/lib/constants";
+import type { EntityType } from "@/lib/constants";
 import { actorUserId, assertCan, can, stamp, type Actor } from "@/lib/crm/actor";
 import { uploadLinks } from "@/lib/crm/activities";
 import { recordEvent, touch } from "@/lib/crm/events";
 import { onAnyRecord, recordsFor } from "@/lib/crm/files";
 import { ActionError, ForbiddenError, NotFoundError } from "@/lib/errors";
 import { cleanFileName, fileProblem } from "@/lib/files";
+import { bytesUploadInput, fileRecordInput, type FileRecordInput } from "@/lib/crm/schemas";
+export { bytesUploadInput, fileRecordInput, type FileRecordInput };
+import { MAX_API_FILE_BYTES } from "@/lib/api/body";
 import { describeSoon } from "@/lib/file-describe";
+import { storeBytes } from "@/lib/file-store";
 import { embedSoon } from "@/lib/file-search";
 import { cleanModelText, DESCRIPTION_MAX } from "@/lib/file-describe-rules";
 
@@ -26,8 +30,6 @@ const { files, fileLinks, fileFolders } = schema;
 const MAX_RECORDS = 50;
 const MAX_FOLDER_DEPTH = 8;
 
-export const fileRecordInput = z.object({ entity: z.enum(entityTypes), id: z.uuid() });
-export type FileRecordInput = z.infer<typeof fileRecordInput>;
 
 async function loadFile(id: string) {
   const db = await getDb();
@@ -246,6 +248,45 @@ export async function saveUpload(a: Actor, input: UploadInput) {
   if (!row) throw new ActionError("That upload was already added. Upload the file again.");
   await touch(linked);
   describeSoon(row.id);
+  return row;
+}
+
+const typesByExtension: Record<string, string> = {
+  pdf: "application/pdf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  txt: "text/plain",
+  md: "text/markdown",
+  csv: "text/csv",
+  json: "application/json",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+};
+
+
+/**
+ * A file sent to the server as base64 (the REST API and MCP): stored, then
+ * recorded like any upload. Viewers can't upload, and the same type and size
+ * rules apply as in the browser.
+ */
+export async function uploadFileBytes(a: Actor, input: z.input<typeof bytesUploadInput>) {
+  assertCan(a, "records:write");
+  const data = bytesUploadInput.parse(input);
+  if ([data.personId, data.organizationId, data.clientId].filter(Boolean).length > 1) throw new ActionError("Add a file to one record: give at most one of personId, organizationId and clientId. Attach it to more with update_file.");
+  if (!/^[A-Za-z0-9+/\r\n]*={0,2}\s*$/.test(data.contentBase64)) throw new ActionError("contentBase64 isn't base64.");
+  const bytes = Buffer.from(data.contentBase64, "base64");
+  if (bytes.length > MAX_API_FILE_BYTES) throw new ActionError(`The file is over ${MAX_API_FILE_BYTES / 1024 / 1024} MB. Upload bigger files on the Files page.`);
+  const ext = (/\.([a-z0-9]+)$/i.exec(data.name)?.[1] ?? "").toLowerCase();
+  const contentType = data.contentType?.trim() || typesByExtension[ext] || "application/octet-stream";
+  const problem = fileProblem(data.name, bytes.length, contentType);
+  if (problem) throw new ActionError(problem);
+  const stored = await storeBytes(data.name, bytes, contentType);
+  const row = await saveUpload(a, { ...stored, name: data.name, size: bytes.length, contentType, personId: data.personId, organizationId: data.organizationId, clientId: data.clientId, folderId: data.folderId });
+  if (data.description) await updateFile(a, row.id, { description: data.description });
   return row;
 }
 

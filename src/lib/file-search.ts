@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, cosineDistance, desc, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, cosineDistance, desc, eq, ilike, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { after } from "next/server";
 import { embed } from "ai";
 import { appConfig } from "@/app.config";
@@ -130,8 +130,17 @@ export async function searchFiles(f: FileSearch): Promise<FoundFile[]> {
   const q = f.q?.trim().slice(0, 500);
 
   let rows: (Omit<FoundFile, "records" | "score"> & { distance?: number })[] = [];
-  if (q && aiFeatures().files) {
-    const { embedding } = await embed({ model: model(), value: q, maxRetries: 1, abortSignal: AbortSignal.timeout(15_000) });
+  // The question as a vector; when the gateway can't answer, search falls back to words rather than failing.
+  const embedding =
+    q && aiFeatures().files
+      ? await embed({ model: model(), value: q, maxRetries: 1, abortSignal: AbortSignal.timeout(15_000) })
+          .then((r) => r.embedding)
+          .catch((err) => {
+            console.error("[files] search embed", err);
+            return null;
+          })
+      : null;
+  if (q && embedding) {
     const distance = cosineDistance(files.embedding, embedding);
     const [near, named] = await Promise.all([
       db
@@ -168,15 +177,4 @@ export async function searchFiles(f: FileSearch): Promise<FoundFile[]> {
   }
   const records = await recordsFor(rows.map((r) => r.id));
   return rows.map(({ distance, ...r }) => ({ ...r, records: records.get(r.id) ?? [], score: distance === undefined ? null : Math.round((1 - distance) * 1000) / 1000 }));
-}
-
-/** The files with these ids that still exist, in that order. */
-export async function filesByIds(ids: string[]) {
-  if (!ids.length) return [];
-  const db = await getDb();
-  const rows = await db
-    .select(columns)
-    .from(files)
-    .where(and(inArray(files.id, ids), isNull(files.deletedAt)));
-  return ids.map((id) => rows.find((r) => r.id === id)).filter((r): r is NonNullable<typeof r> => !!r);
 }

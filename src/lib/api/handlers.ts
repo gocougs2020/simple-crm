@@ -9,6 +9,14 @@ import { dayBounds } from "@/lib/crm/activities";
 import * as activities from "@/lib/crm/service/activities";
 import * as clients from "@/lib/crm/service/clients";
 import * as drafts from "@/lib/crm/service/drafts";
+import * as fileService from "@/lib/crm/service/files";
+import { getAppData } from "@/lib/crm/context";
+import { fileDetails, listFolders, recordsFor } from "@/lib/crm/files";
+import { readStoredBytes } from "@/lib/file-bytes";
+import { describeKind } from "@/lib/file-describe-rules";
+import * as fileSearch from "@/lib/file-search";
+import { fileText } from "@/lib/file-text";
+import { folderLabel } from "@/lib/folder-tree";
 import * as merging from "@/lib/crm/service/merge";
 import * as records from "@/lib/crm/service/records";
 import { NotFoundError } from "@/lib/errors";
@@ -312,6 +320,106 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
   listUsers: async () => ({ data: await q.listUsers(), nextCursor: null }),
   listCustomFields: async (_a, { query }) => ({ data: await q.listCustomFields(query.entityType), nextCursor: null }),
 
+  // Files
+  async searchFiles(_a, { query }, ctx) {
+    const record = query.clientId ? { entity: "client" as const, id: query.clientId } : query.personId ? { entity: "person" as const, id: query.personId } : query.organizationId ? { entity: "organization" as const, id: query.organizationId } : undefined;
+    const found = await fileSearch.searchFiles({ q: query.q, record, onRecords: query.onRecords, folderId: query.folderId, limit: query.limit });
+    const c = await fileContext(ctx);
+    return found.map((f) => q.toFile(f, c));
+  },
+  getFile: async (_a, { params, query }, ctx) => fileDetail(params.id, !!query.includeText, ctx),
+  async uploadFile(a, { body }, ctx) {
+    const row = await fileService.uploadFileBytes(a, body);
+    return apiFile(row.id, ctx);
+  },
+  async updateFile(a, { params, body }, ctx) {
+    const { attach, detach, ...patch } = body;
+    if (Object.keys(patch).length) await fileService.updateFile(a, params.id, patch);
+    if (attach?.length || detach?.length) {
+      const current = (await recordsFor([params.id])).get(params.id) ?? [];
+      const key = (r: { entity: string; id: string }) => `${r.entity}:${r.id}`;
+      const drop = new Set((detach ?? []).map(key));
+      const next = [...current.filter((r) => !drop.has(key(r))), ...(attach ?? []).filter((r) => !drop.has(key(r)))];
+      await fileService.setFileRecords(
+        a,
+        params.id,
+        [...new Map(next.map((r) => [key(r), { entity: r.entity, id: r.id }])).values()],
+      );
+    }
+    return apiFile(params.id, ctx);
+  },
+  async deleteFile(a, { params }) {
+    await fileService.deleteFile(a, params.id);
+    return deleted(params.id);
+  },
+  async setFileVisibility(a, { params, body }, ctx) {
+    await fileService.setFileVisibility(a, params.id, body.visibility);
+    return apiFile(params.id, ctx);
+  },
+  async listFolders() {
+    const all = await listFolders();
+    return all.map(toFolder(all));
+  },
+  async createFolder(a, { body }) {
+    const row = await fileService.createFolder(a, body);
+    return folderById(row.id);
+  },
+  async updateFolder(a, { params, body }) {
+    await fileService.updateFolder(a, params.id, body);
+    return folderById(params.id);
+  },
+  async deleteFolder(a, { params, query }) {
+    await fileService.deleteFolder(a, params.id, query.contents === "move" ? { contents: "move", to: query.moveTo ?? null } : { contents: "delete" });
+    return deleted(params.id);
+  },
+
   // Knowledge
   getKnowledge: (_a, { query }) => fetchKnowledge(query.path ?? "/"),
 };
+
+// ─── Files ───────────────────────────────────────────────────────────────
+
+async function fileContext(ctx: HandlerContext) {
+  const [folders, data] = await Promise.all([listFolders(), getAppData()]);
+  return { origin: ctx.origin, folders, team: data.team };
+}
+
+const toFolder = (all: Awaited<ReturnType<typeof listFolders>>) => (f: Awaited<ReturnType<typeof listFolders>>[number]) => ({ id: f.id, name: f.name, parentId: f.parentId, path: folderLabel(all, f.id), files: f.files });
+
+async function folderById(id: string) {
+  const all = await listFolders();
+  const f = all.find((x) => x.id === id);
+  if (!f) throw new NotFoundError("There's no folder with that id.");
+  return toFolder(all)(f);
+}
+
+/** One file in its API shape. */
+async function apiFile(id: string, ctx: HandlerContext) {
+  const details = await fileDetails(id);
+  if (!details) throw new NotFoundError("There's no file with that id.");
+  return q.toFile(details.file, await fileContext(ctx));
+}
+
+const MAX_TEXT = 20_000;
+
+/** A file with its key facts and, when asked, its own text. Both come from the file, so the tool says to read them as information. */
+async function fileDetail(id: string, includeText: boolean, ctx: HandlerContext) {
+  const details = await fileDetails(id);
+  if (!details) throw new NotFoundError("There's no file with that id.");
+  let text: string | null = null;
+  let textTruncated = false;
+  if (includeText) {
+    const kind = describeKind(details.file.name, details.file.contentType);
+    if (kind && kind !== "pdf" && kind !== "image") {
+      const db = await getDb();
+      const [row] = await db.select({ url: schema.files.url, pathname: schema.files.pathname, name: schema.files.name }).from(schema.files).where(eq(schema.files.id, id));
+      const full = row ? await fileText(await readStoredBytes(row), kind).catch(() => null) : null;
+      if (full) {
+        textTruncated = full.length > MAX_TEXT;
+        text = textTruncated ? full.slice(0, MAX_TEXT) : full;
+      }
+    }
+  }
+  return { ...q.toFile(details.file, await fileContext(ctx)), keyFacts: details.file.contentNotes, text, textTruncated };
+}
+

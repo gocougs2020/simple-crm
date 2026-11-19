@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { agentDraftKinds, activityTypes, billingIntervals, clientCategories, clientHealths } from "@/lib/constants";
+import { agentDraftKinds, activityTypes, billingIntervals, clientCategories, clientHealths, entityTypes } from "@/lib/constants";
+
+/** Files sent through the REST API or MCP: the file itself, before base64 (which adds a third). */
+export const MAX_API_FILE_MB = 3;
 
 /**
  * Validation for record changes, shared by the server actions, the REST API
@@ -217,3 +220,20 @@ export const draftInput = z.object({
     .describe("Emails only: ids of CRM files to attach (a brochure, a price sheet). Find them with search_files. Up to 10 files and 20 MB in all; the teammate can remove any before sending."),
 });
 export type DraftInput = z.input<typeof draftInput>;
+
+// ─── Files ───────────────────────────────────────────────────────────────
+
+/** A record a file is on. */
+export const fileRecordInput = z.object({ entity: z.enum(entityTypes), id: z.uuid() });
+export type FileRecordInput = z.infer<typeof fileRecordInput>;
+
+export const bytesUploadInput = z.object({
+  name: z.string().trim().min(1, "Give the file a name, with its extension (price-sheet.pdf).").max(180).describe("The file's name, with its extension: price-sheet.pdf."),
+  contentBase64: z.string().min(1).describe(`The file's bytes, base64-encoded. Up to ${MAX_API_FILE_MB} MB before encoding; upload bigger files on the Files page.`),
+  contentType: z.string().max(200).optional().describe("Its media type (application/pdf). Worked out from the name when left out."),
+  personId: z.uuid().nullable().optional().describe("Add it to this person. Give at most one of personId, organizationId and clientId; with none it's a general file."),
+  organizationId: z.uuid().nullable().optional().describe("Add it to this organization."),
+  clientId: z.uuid().nullable().optional().describe("Add it to this client."),
+  folderId: z.uuid().nullable().optional().describe("Put it in this folder on the Files page."),
+  description: z.string().trim().max(300).optional().describe("What's in it. Left out, one is written from the file a moment after it's uploaded."),
+});
