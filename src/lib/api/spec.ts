@@ -39,6 +39,8 @@ export type Operation<P extends Obj | undefined = Obj | undefined, Q extends Obj
   feature?: OptionalFeature;
   /** Deletes or can't be undone, without being a DELETE (a merge). */
   destructive?: boolean;
+  /** A bigger request body than the usual 1 MB (an upload). */
+  maxBodyBytes?: number;
 };
 
 /** Archives, deletes and merges: MCP marks them destructive and the agent asks before running them. */

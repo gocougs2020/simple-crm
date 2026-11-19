@@ -41,6 +41,7 @@ What [`app.config.ts`](../app.config.ts) controls:
 | `agent.chatModel`, `agent.titleModel`, `agent.voiceModel`, `agent.transcriptionModel` | GPT-6.1 Sol, Claude Haiku 5.5, Grok Voice 3.0, Grok STT | AI Gateway model ids (`creator/model`) for chat, thread titles, voice chat and dictation |
 | `agent.chatReasoning` | `"medium"` | Reasoning effort for chat: `"provider-default"`, `"none"`, `"minimal"`, `"low"`, `"medium"` or `"high"` |
 | `agent.summaryModel`, `agent.summaryReasoning` | GPT-6.1 Sol, `"low"` | The model and reasoning effort for the AI summary at the top of client, person and organization pages |
+| `agent.fileDescriptions`, `agent.fileModel`, `agent.embeddingModel` | `true`, GPT-6 Luna, text-embedding-3-small | AI descriptions of uploaded files, the model that writes them, and the one that turns them into search vectors (1536 dimensions). See [AGENT.md](AGENT.md#file-descriptions) |
 | `agent.background.enabled` | `true` | The agent's background work: jobs handed off from chat, mentions in notes and tasks assigned to it. See [AGENT.md](AGENT.md#background-work) |
 | `agent.background.model`, `agent.background.reasoning`, `agent.background.researchModel` | GPT-6.1 Sol, `"low"`, GPT-6 Luna | The model that plans and changes records, its reasoning effort, and the smaller model that reads the web |
 | `agent.background.maxRunUsd`, `agent.background.monthlyBudgetUsd` | `0.75`, `30` | Spending limits in US dollars: for one run, and for the workspace per month |
@@ -49,6 +50,7 @@ What [`app.config.ts`](../app.config.ts) controls:
 | `notifications.morningHour` | `7` | The hour (0–23, workspace time zone) the morning push summary and the agenda emails go out |
 | `live.pollSeconds` | `30` | How often an open page asks whether anything changed (calls, texts and email coming in, teammates' edits) and refreshes if so. Only while the tab is visible and in use. `0` turns it off; pages still catch up when the tab comes back into view and after the agent changes something. See [ARCHITECTURE.md](ARCHITECTURE.md#live-updates) |
 | `live.idleMinutes` | `10` | Minutes without a click or key press after which open pages stop asking, so the database can sleep overnight |
+| `live.chatPollSeconds` | `5` | How often the team chat page asks for new messages while it's open, visible and in use (the same idle rule applies). `0` falls back to `live.pollSeconds` |
 | `records.keyContactLabel` | `"Decision maker"` | What a starred person at an organization is called (the star's tooltip, their page and the audience filter) |
 | `microsoft.*` | | Microsoft 365: sync frequency, the mail screen (decision model, what counts as sensitive, threshold), the Outlook category for kept-out mail, which activities go on calendars. See [MICROSOFT.md](MICROSOFT.md#settings-per-deployment) |
 | `phone.*` | | Calling and texting: default country code, forwarded caller ID, ring time, missed-call message, text campaign consent and footer. See [PHONE.md](PHONE.md#settings-per-deployment) |

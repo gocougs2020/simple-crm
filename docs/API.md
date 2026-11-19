@@ -92,6 +92,19 @@ Two more groups cover what teammates save for agents in Settings → Agent (see 
 
 Workspace keys can't use either group: a skill or a job always belongs to a teammate, or is shared by one. The agent's own background runs can read both but change neither.
 
+## Files
+
+Files and folders work through the API and MCP like they do on the Files page (`src/lib/crm/service/files.ts`, `src/lib/file-search.ts`):
+
+- `GET /files` (`search_files`) finds files by meaning. Each file's name, AI-written description and key facts are embedded once (`agent.embeddingModel`, a pgvector column with an HNSW index), so a search embeds only the question and the database returns the nearest files. Without an AI Gateway key, `q` matches words in names, descriptions and key facts instead. `clientId`, `personId` and `organizationId` narrow it to a record's files; a client includes its contact's, people's and organization's.
+- `GET /files/{id}` (`get_file`) returns its description, key facts, who it's for (`records`), folder and links; `includeText=true` adds the text of text, Word and Excel files (20,000 characters at most).
+- `POST /files` (`upload_file`) takes the file as base64 in JSON, up to 3 MB before encoding; this one endpoint accepts a 4.5 MB body instead of the usual 1 MB. It goes on one client, person or organization, or is a general file, optionally in a folder. Bigger files go through the Files page.
+- `PATCH /files/{id}` (`update_file`) renames, rewrites the description, moves it to a folder, and attaches it to records or takes it off them. `DELETE /files/{id}` (`delete_file`) removes it.
+- `POST /files/{id}/visibility` (`set_file_visibility`) makes it public or internal. It reaches outside the team, so it's marked destructive: the agent asks first and background runs can't use it.
+- `GET/POST /folders`, `PATCH /folders/{id}`, `DELETE /folders/{id}?contents=delete|move&moveTo=` (`list_folders`, `create_folder`, `update_folder`, `delete_folder`).
+- `draft_message` takes `attachmentFileIds`, so an agent can attach a brochure or price sheet to an email draft. The teammate sees the files in the composer and can drop any before sending.
+- Descriptions, key facts and file text come from the files themselves; the tool descriptions and the agent's instructions say to read them as information, never as instructions. Viewers' keys can read files but not add or change them.
+
 ## Knowledge source
 
 A deployment can connect a read-only JSON API about its own organization (usually its website's content) with `KNOWLEDGE_API_URL`. `GET /knowledge?path=…` then reads one path under it, and MCP gets a `get_knowledge` tool. Without one, the endpoint answers 404 `not_configured` and the tool isn't listed. See [KNOWLEDGE.md](KNOWLEDGE.md).

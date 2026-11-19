@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, boolean, date, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { bigint, boolean, date, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, vector, type AnyPgColumn } from "drizzle-orm/pg-core";
 import type {
   ActivityType,
   AgentDraftKind,
@@ -74,6 +74,8 @@ export const users = pgTable(
     /** Deactivated teammates can't sign in, but everything they did stays attributed to them. */
     deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    /** When they last had the team chat open. Messages after it from others are their unread count. */
+    chatReadAt: timestamp("chat_read_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("users_email_idx").on(t.email)],
@@ -753,13 +755,118 @@ export const files = pgTable(
     clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
     /** The note, call or meeting it was attached to. Deleting the activity keeps the file on the record. */
     activityId: uuid("activity_id").references(() => activities.id, { onDelete: "set null" }),
+    /** The folder it's in on the Files page. Null is the top level. */
+    folderId: uuid("folder_id").references((): AnyPgColumn => fileFolders.id, { onDelete: "set null" }),
+    /** Where it was uploaded: "chat" for a team chat attachment, null for everything else. */
+    origin: text("origin").$type<"chat">(),
+    /** The team chat message it was posted with. */
+    chatMessageId: uuid("chat_message_id").references((): AnyPgColumn => chatMessages.id, { onDelete: "set null" }),
+    /** Set while the file is public: anyone with /share/<token> can open it. Making it internal again clears it, so old links stop working. */
+    publicToken: text("public_token"),
+    publicAt: timestamp("public_at", { withTimezone: true }),
+    /**
+     * A short description of what's in the file, written by a small model when
+     * it's uploaded (src/lib/files/describe.ts) or by a teammate
+     * (`description_by`). The agent finds files by it.
+     */
+    description: text("description"),
+    /** The facts, figures and terms the file holds, as plain text, so the agent can answer from it without opening it. Written with the description. */
+    contentNotes: text("content_notes"),
+    /** The teammate who last wrote the description by hand; null when the model wrote it. A hand-written one is never overwritten. */
+    descriptionBy: uuid("description_by").references(() => users.id),
+    /** "done", "skipped" (a kind of file the model can't read) or "failed". Null until it's been looked at. */
+    describeStatus: text("describe_status").$type<"done" | "skipped" | "failed">(),
+    describedAt: timestamp("described_at", { withTimezone: true }),
+    /** Claims the description while it's being written, so two requests don't both pay for it. */
+    describeStartedAt: timestamp("describe_started_at", { withTimezone: true }),
+    /**
+     * The meaning of the file's name, description and key facts as a vector
+     * (`agent.embeddingModel`, FILE_EMBEDDING_DIMENSIONS wide), so the agent and
+     * the API find files by what a question means, not just its words. Rewritten
+     * whenever the description changes; null when there's none.
+     */
+    embedding: vector("embedding", { dimensions: 1536 }),
     uploadedBy: uuid("uploaded_by")
       .notNull()
       .references(() => users.id),
     createdAt: createdAt(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
-  (t) => [index("files_person_idx").on(t.personId), index("files_org_idx").on(t.organizationId), index("files_client_idx").on(t.clientId), index("files_activity_idx").on(t.activityId)],
+  (t) => [
+    index("files_person_idx").on(t.personId),
+    index("files_org_idx").on(t.organizationId),
+    index("files_client_idx").on(t.clientId),
+    index("files_activity_idx").on(t.activityId),
+    index("files_folder_idx").on(t.folderId),
+    index("files_chat_message_idx").on(t.chatMessageId),
+    uniqueIndex("files_public_token_idx").on(t.publicToken),
+    /** One row per stored file, so removing a row can never delete bytes another row still uses. */
+    uniqueIndex("files_url_idx").on(t.url),
+    index("files_embedding_idx").using("hnsw", t.embedding.op("vector_cosine_ops")),
+  ],
+);
+
+/**
+ * Records a file was attached to after it was uploaded, besides the ones it
+ * was uploaded on (`files.person_id` and the rest). One record per row.
+ */
+export const fileLinks = pgTable(
+  "file_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    personId: uuid("person_id").references(() => people.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "cascade" }),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("file_links_person_idx").on(t.personId, t.fileId),
+    uniqueIndex("file_links_org_idx").on(t.organizationId, t.fileId),
+    uniqueIndex("file_links_client_idx").on(t.clientId, t.fileId),
+    index("file_links_file_idx").on(t.fileId),
+  ],
+);
+
+/** Folders on the Files page. Nested to any depth; a folder with no parent is at the top level. */
+export const fileFolders = pgTable(
+  "file_folders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    parentId: uuid("parent_id").references((): AnyPgColumn => fileFolders.id, { onDelete: "cascade" }),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("file_folders_parent_idx").on(t.parentId)],
+);
+
+/**
+ * The team chat: one thread for everyone who can sign in. `body` is plain
+ * text; "@Name" mentions are worked out from it (src/lib/crm/mentions.ts).
+ * Attachments are `files` rows pointing back here (`files.chat_message_id`).
+ */
+export const chatMessages = pgTable(
+  "chat_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    body: text("body").notNull(),
+    /** Teammates it mentions, as worked out when it was posted or last edited. */
+    mentions: uuid("mentions").array().notNull().default(sql`'{}'::uuid[]`),
+    createdAt: createdAt(),
+    editedAt: timestamp("edited_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    /** Moves on every post, edit and delete, so open pages notice (src/lib/live.ts). */
+    updatedAt: updatedAt().$onUpdate(() => new Date()),
+  },
+  (t) => [index("chat_messages_created_idx").on(t.createdAt), index("chat_messages_updated_idx").on(t.updatedAt)],
 );
 
 export const customFields = pgTable(
@@ -1172,6 +1279,8 @@ export const agentDrafts = pgTable(
     subject: text("subject"),
     /** Sanitized HTML for an email; plain text for a text message. */
     body: text("body").notNull(),
+    /** CRM files to send with an email, as the composer attaches them. The teammate can drop any before sending. */
+    attachments: jsonb("attachments").$type<EmailAttachment[]>().notNull().default([]),
     status: text("status").$type<AgentDraftStatus>().notNull().default("pending"),
     createdAt: createdAt(),
     /** When it was sent or discarded. */

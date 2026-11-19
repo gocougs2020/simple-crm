@@ -4,7 +4,7 @@ import { authenticate } from "@/lib/api/auth";
 import { internalError, toApiError } from "@/lib/api/errors";
 import { executeOperation } from "@/lib/api/execute";
 import { deploymentToolDescription, enabledFeatures, featureInstructions } from "@/lib/api/features";
-import { readBodyLimited } from "@/lib/api/body";
+import { MAX_UPLOAD_BODY_BYTES, readBodyLimited } from "@/lib/api/body";
 import { API_RATE_LIMIT, errorResponse, tooLarge } from "@/lib/api/http";
 import { operations } from "@/lib/api/operations";
 import { can, type Actor } from "@/lib/crm/actor";
@@ -112,8 +112,9 @@ export async function handleMcpRequest(request: Request) {
   }
   const actor = auth.actor;
 
-  const read = await readBodyLimited(request);
-  if (!read.ok) return errorResponse(tooLarge);
+  // Signed in by now, so a tool call may carry a file to upload (upload_file); everything else stays small in practice.
+  const read = await readBodyLimited(request, MAX_UPLOAD_BODY_BYTES);
+  if (!read.ok) return errorResponse({ ...tooLarge, message: "The request body is over 4.5 MB. Send a smaller file." });
   let payload: unknown;
   try {
     payload = JSON.parse(read.text);

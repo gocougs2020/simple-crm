@@ -1,4 +1,5 @@
 import "server-only";
+import { folderLabel } from "@/lib/folder-tree";
 import { cadenceLabel } from "@/lib/agent/schedule-rules";
 import type { JobRow } from "@/lib/agent/schedules";
 import type { SkillRow } from "@/lib/agent/skills";
@@ -601,6 +602,7 @@ export const toDraft = (d: typeof schema.agentDrafts.$inferSelect & { personName
   clientId: d.clientId,
   subject: d.subject,
   body: d.body,
+  attachments: d.attachments ?? [],
   status: d.status,
   url: `${ctx.origin}/people/${d.personId}?draft=${d.id}`,
   createdAt: d.createdAt.toISOString(),
@@ -620,4 +622,42 @@ export async function listCustomFields(entityType?: EntityType) {
     .where(and(isNull(f.archivedAt), entityType ? eq(f.entityType, entityType) : undefined))
     .orderBy(asc(f.entityType), asc(f.position), asc(f.createdAt));
   return rows.map((r) => ({ id: r.id, entityType: r.entityType, key: r.key, label: r.label, type: r.type, options: r.options }));
+}
+
+// ─── Files ─────────────────────────────────────────────────────────────
+
+type ApiFileRow = {
+  id: string;
+  name: string;
+  contentType: string;
+  size: number;
+  description: string | null;
+  folderId: string | null;
+  publicToken: string | null;
+  uploadedBy: string;
+  createdAt: Date;
+  chatMessageId: string | null;
+  records: { entity: "person" | "organization" | "client"; id: string; name: string }[];
+  score?: number | null;
+};
+
+/** A file in its API shape. `folders` is every folder (for its path); `team` names the uploader. */
+export function toFile(f: ApiFileRow, ctx: { origin: string; folders: { id: string; name: string; parentId: string | null }[]; team: { id: string; name: string }[] }) {
+  const uploader = ctx.team.find((m) => m.id === f.uploadedBy);
+  return {
+    id: f.id,
+    name: f.name,
+    contentType: f.contentType,
+    size: f.size,
+    description: f.description,
+    records: f.records.map((r) => ({ type: r.entity, id: r.id, name: r.name })),
+    folder: f.folderId ? { id: f.folderId, path: folderLabel(ctx.folders, f.folderId) } : null,
+    visibility: f.publicToken ? ("public" as const) : ("internal" as const),
+    publicUrl: f.publicToken ? `${ctx.origin}/share/${f.publicToken}` : null,
+    url: `${ctx.origin}/api/files/${f.id}`,
+    uploadedBy: uploader ? { id: uploader.id, name: uploader.name } : null,
+    fromChat: !!f.chatMessageId,
+    score: f.score ?? null,
+    createdAt: f.createdAt.toISOString(),
+  };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { appConfig } from "@/app.config";
 import { liveCheckDue } from "@/lib/live-rules";
@@ -25,15 +25,22 @@ export function checkForChanges() {
  * - when the tab comes back into view or the window regains focus,
  * - every `live.pollSeconds` while the tab is visible and someone clicked or
  *   typed in the last `live.idleMinutes`; a tab left open overnight stops,
- *   so the database can sleep.
+ *   so the database can sleep. The team chat asks every `live.chatPollSeconds`
+ *   instead, so messages show up quickly.
  */
 export function LiveUpdates() {
   const router = useRouter();
+  const pathname = usePathname();
   const state = useRef({ version: null as string | null, lastCheck: 0, lastActive: 0, inFlight: false, again: false });
+  const { pollSeconds: everyPage, chatPollSeconds } = appConfig.live;
+  const pollRef = useRef(everyPage);
+  useEffect(() => {
+    pollRef.current = pathname.startsWith("/chat") && chatPollSeconds > 0 ? chatPollSeconds : everyPage;
+  }, [pathname, chatPollSeconds, everyPage]);
 
   useEffect(() => {
     const s = state.current;
-    const { pollSeconds, idleMinutes } = appConfig.live;
+    const { idleMinutes } = appConfig.live;
     s.lastActive = Date.now();
 
     const check = async () => {
@@ -75,10 +82,11 @@ export function LiveUpdates() {
 
     void check();
     const timer =
-      pollSeconds > 0
+      everyPage > 0 || chatPollSeconds > 0
         ? window.setInterval(() => {
-            if (liveCheckDue({ now: Date.now(), lastCheck: s.lastCheck, lastActive: s.lastActive, visible: document.visibilityState === "visible", pollSeconds, idleMinutes })) void check();
-          }, 5_000)
+            const pollSeconds = pollRef.current;
+            if (pollSeconds > 0 && liveCheckDue({ now: Date.now(), lastCheck: s.lastCheck, lastActive: s.lastActive, visible: document.visibilityState === "visible", pollSeconds, idleMinutes })) void check();
+          }, Math.min(5_000, Math.max(1_000, (chatPollSeconds || 5) * 1000)))
         : 0;
 
     document.addEventListener("visibilitychange", soon);
@@ -94,7 +102,7 @@ export function LiveUpdates() {
       window.removeEventListener("pointerdown", active);
       window.removeEventListener("keydown", active);
     };
-  }, [router]);
+  }, [router, everyPage, chatPollSeconds]);
 
   return null;
 }

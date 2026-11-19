@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { z } from "zod";
 import { FilesView } from "@/components/files/files-view";
 import { PageSkeleton } from "@/components/ui/skeleton";
-import { listFiles } from "@/lib/crm/records";
+import { fileViewCounts, fileViews, listFiles, listFolders, type FileView } from "@/lib/crm/files";
 
 export const metadata: Metadata = { title: "Files" };
 
@@ -15,6 +16,14 @@ export default function FilesPage({ searchParams }: PageProps<"/files">) {
 }
 
 async function Files({ searchParams }: Pick<PageProps<"/files">, "searchParams">) {
-  const { q } = await searchParams;
-  return <FilesView rows={await listFiles({ q: typeof q === "string" ? q : undefined })} />;
+  const sp = await searchParams;
+  // Every file by default; a folder link opens General files.
+  const view: FileView = fileViews.find((v) => v === sp.view) ?? (sp.folder ? "general" : "all");
+  const q = typeof sp.q === "string" ? sp.q.slice(0, 100) : "";
+  const folders = await listFolders();
+  const asked = z.uuid().safeParse(sp.folder);
+  // A folder that was deleted (or a bad link) opens the top level.
+  const folderId = view === "general" && asked.success && folders.some((f) => f.id === asked.data) ? asked.data : null;
+  const [rows, counts] = await Promise.all([listFiles({ view, folderId, q }), fileViewCounts()]);
+  return <FilesView key={`${view}:${folderId ?? ""}`} view={view} folderId={folderId} q={q} rows={rows} folders={folders} counts={counts} />;
 }

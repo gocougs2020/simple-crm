@@ -1,5 +1,11 @@
+import { MAX_API_FILE_MB } from "@/lib/crm/schemas";
+
 /** Request bodies the API and MCP accept: 1 MB. */
 export const MAX_BODY_BYTES = 1024 * 1024;
+/** Uploading a file (base64 in JSON) may send more, up to what a Vercel function accepts. */
+export const MAX_UPLOAD_BODY_BYTES = 4.5 * 1024 * 1024;
+/** The file itself, before base64 (which adds a third). */
+export const MAX_API_FILE_BYTES = MAX_API_FILE_MB * 1024 * 1024;
 
 /**
  * Reads a request (or response) body as text, counting bytes as they stream in and giving

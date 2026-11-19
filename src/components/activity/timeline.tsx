@@ -16,6 +16,8 @@ import {
   CreditCardIcon,
   EnvelopeOpenIcon,
   EllipsisHorizontalIcon,
+  LinkIcon,
+  LockClosedIcon,
   PaperClipIcon,
   PencilSquareIcon,
   SparklesIcon,
@@ -119,6 +121,8 @@ export function Timeline({
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const { uploads, run } = useUploader(fileLinks);
+  // Viewers can't add files.
+  const canAttach = useApp().canEdit;
   const counts = Object.fromEntries(filters.map((f) => [f.value, [...pinned, ...past].filter((i) => matches(i, f.value)).length]));
 
   return (
@@ -149,13 +153,13 @@ export function Timeline({
       <section
         aria-labelledby="history-heading"
         onDragOver={(e) => {
-          if (!e.dataTransfer.types.includes("Files")) return;
+          if (!canAttach || !e.dataTransfer.types.includes("Files")) return;
           e.preventDefault();
           setOver(true);
         }}
         onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setOver(false)}
         onDrop={(e) => {
-          if (!e.dataTransfer.files.length) return;
+          if (!canAttach || !e.dataTransfer.files.length) return;
           e.preventDefault();
           setOver(false);
           run(e.dataTransfer.files);
@@ -187,10 +191,12 @@ export function Timeline({
                 </button>
               ))}
           </div>
-          <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={() => input.current?.click()}>
-            <ArrowUpTrayIcon />
-            Attach file
-          </Button>
+          {canAttach ? (
+            <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={() => input.current?.click()}>
+              <ArrowUpTrayIcon />
+              Attach file
+            </Button>
+          ) : null}
         </div>
         {uploads.map((u) => (
           <div key={u.name} className="mb-2 flex items-center gap-2 pl-[9px] text-[12.5px]">
@@ -519,7 +525,7 @@ function withEmailAttachments(files: RecordFile[] | undefined, row: ActivityRow)
   const have = new Set((files ?? []).map((f) => f.id));
   const extra = sent
     .filter((a) => !have.has(a.fileId))
-    .map((a): RecordFile => ({ id: a.fileId, name: a.name, size: a.size, contentType: a.contentType, uploadedBy: "", createdAt: row.activity.createdAt, activityId: row.activity.id, activityType: "email" }));
+    .map((a): RecordFile => ({ id: a.fileId, name: a.name, size: a.size, contentType: a.contentType, uploadedBy: "", createdAt: row.activity.createdAt, activityId: row.activity.id, activityType: "email", publicToken: null }));
   return [...(files ?? []), ...extra];
 }
 
@@ -920,6 +926,22 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
     case "file_deleted":
       text = <>removed the file {d.name}</>;
       icon = <PaperClipIcon className="size-3.5" />;
+      break;
+    case "file_attached":
+      text = <>attached the file {d.name}</>;
+      icon = <PaperClipIcon className="size-3.5" />;
+      break;
+    case "file_detached":
+      text = <>took the file {d.name} off this</>;
+      icon = <PaperClipIcon className="size-3.5" />;
+      break;
+    case "file_shared":
+      text = <>made the file {d.name} public: anyone with its link can open it</>;
+      icon = <LinkIcon className="size-3.5" />;
+      break;
+    case "file_unshared":
+      text = <>made the file {d.name} internal: its public link stopped working</>;
+      icon = <LockClosedIcon className="size-3.5" />;
       break;
     case "updated":
       text = (

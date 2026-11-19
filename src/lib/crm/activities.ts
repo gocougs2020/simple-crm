@@ -4,6 +4,7 @@ import { getDb, schema } from "@/db";
 import { interactionTypes, monthlyPriceSql, type ActivityType, type EntityType } from "@/lib/constants";
 import { ActionError } from "@/lib/auth";
 import { zonedTime } from "@/lib/format";
+import { inRecordView, onRecord } from "@/lib/crm/files";
 
 const zonedMidnight = (ymd: string, tz: string) => zonedTime(ymd, "00:00", tz);
 
@@ -83,10 +84,36 @@ function activityRows(where: SQL | undefined, opts: { order: SQL[]; limit: numbe
 const linkColumn = { person: activities.personId, organization: activities.organizationId, client: activities.clientId };
 
 /** A file on a record, without its storage URL (downloads go through /api/files/[id]). `activityType` is set when it's attached to a note, call or other activity. */
-export type RecordFile = { id: string; name: string; size: number; contentType: string; uploadedBy: string; createdAt: Date; activityId: string | null; activityType: ActivityType | null };
+export type RecordFile = {
+  id: string;
+  name: string;
+  size: number;
+  contentType: string;
+  uploadedBy: string;
+  createdAt: Date;
+  activityId: string | null;
+  activityType: ActivityType | null;
+  /** Set while anyone with the link can open it (/share/<token>). */
+  publicToken: string | null;
+  /** On a client's page, the contact, person or organization it came from when it isn't on the client itself. */
+  via?: string | null;
+};
 
 /** An attachment on an email in a connected inbox. It stays in Resend, so it opens with its conversation. */
 export type EmailFile = { key: string; name: string; size: number | null; threadId: string; from: string; at: Date };
+
+const recordFile = (f: RecordFile & { own: boolean }): RecordFile => ({
+  via: f.via ?? null,
+  id: f.id,
+  name: f.name,
+  size: f.size,
+  contentType: f.contentType,
+  uploadedBy: f.uploadedBy,
+  createdAt: f.createdAt,
+  activityId: f.activityId,
+  activityType: f.activityType,
+  publicToken: f.publicToken,
+});
 
 /** One entry on a record's timeline: something someone logged, something that changed, or a file added on its own. */
 export type TimelineItem =
@@ -131,10 +158,15 @@ export async function timeline(entity: EntityType, id: string) {
         createdAt: files.createdAt,
         activityId: files.activityId,
         activityType: activities.type,
+        publicToken: files.publicToken,
+        /** Uploaded on this record, rather than attached to it later or gathered from one below it. */
+        own: sql<boolean>`${entity === "person" ? files.personId : entity === "organization" ? files.organizationId : files.clientId} is not distinct from ${id}`,
+        /** On a client's page, the person or organization a file came from when it isn't on the client itself. */
+        via: entity === "client" ? sql<string | null>`case when ${onRecord("client", id)} then null else coalesce((select p.first_name || coalesce(' ' || p.last_name, '') from people p where p.id = ${files.personId}), (select o.name from organizations o where o.id = ${files.organizationId})) end` : sql<string | null>`null`,
       })
       .from(files)
       .leftJoin(activities, eq(activities.id, files.activityId))
-      .where(and(eq(entity === "person" ? files.personId : entity === "organization" ? files.organizationId : files.clientId, id), isNull(files.deletedAt)))
+      .where(and(inRecordView(entity, id), isNull(files.deletedAt)))
       .orderBy(desc(files.createdAt))
       .limit(500),
     db
@@ -154,13 +186,14 @@ export async function timeline(entity: EntityType, id: string) {
     ...done.map((row): TimelineItem => ({ kind: "activity", at: (row.activity.occurredAt ?? row.activity.completedAt ?? row.activity.createdAt).toISOString(), row })),
     ...history.map((event): TimelineItem => ({ kind: "event", at: event.createdAt.toISOString(), event })),
     // A file attached to an activity shows on that activity, not as its own line.
-    ...attached.filter((f) => !f.activityId).map((file): TimelineItem => ({ kind: "file", at: file.createdAt.toISOString(), file })),
+    // One attached to the record later shows on its own, whatever activity it came from.
+    ...attached.filter((f) => !f.activityId || !f.own).map((f): TimelineItem => ({ kind: "file", at: f.createdAt.toISOString(), file: recordFile(f) })),
   ];
   const pinned = past.filter((i) => i.kind === "activity" && i.row.activity.pinned);
   const rest = past.filter((i) => !(i.kind === "activity" && i.row.activity.pinned)).sort((a, b) => b.at.localeCompare(a.at));
   const lastContactAt = contact?.at ? new Date(contact.at).toISOString() : null;
   const emailFiles: EmailFile[] = mail.flatMap((m) => m.attachments.map((a) => ({ key: `${m.id}:${a.id}`, name: a.filename ?? "Attachment", size: a.size, threadId: m.threadId, from: m.from, at: m.sentAt })));
-  return { planned, pinned, past: rest, lastContactAt, files: attached, emailFiles };
+  return { planned, pinned, past: rest, lastContactAt, files: attached.map(recordFile), emailFiles };
 }
 
 /**
@@ -186,20 +219,41 @@ export async function resolveLinks(l: { personId?: string | null; organizationId
 }
 
 /**
- * What an uploaded file links to. A file attached to an activity takes that
- * activity's person, organization and client, so it shows on every record the
- * activity does; otherwise the links the browser sent roll up the same way
- * an activity's do (a client's file also shows on its contact and organization).
+ * Where an uploaded file goes: the one record it was added on, without
+ * rolling down. Added on a client (its page, or a note or email on it), it's
+ * on that client only, not its contact or organization; added on a person or
+ * an organization, on them only. A client still shows the files of its
+ * contact, its people and its organization (`inRecordView`), so
+ * files reach a client from below but never spread down from it.
  */
 export async function uploadLinks(input: { personId?: string | null; organizationId?: string | null; clientId?: string | null; activityId?: string | null }) {
-  if (!input.activityId) return { ...(await resolveLinks(input)), activityId: null };
   const db = await getDb();
-  const [a] = await db
-    .select({ personId: activities.personId, organizationId: activities.organizationId, clientId: activities.clientId })
-    .from(activities)
-    .where(eq(activities.id, input.activityId));
-  if (!a) throw new ActionError("That activity was deleted. Attach the file to the record instead.");
-  return { ...a, activityId: input.activityId };
+  let l: { personId?: string | null; organizationId?: string | null; clientId?: string | null } = input;
+  if (input.activityId) {
+    const [a] = await db
+      .select({ personId: activities.personId, organizationId: activities.organizationId, clientId: activities.clientId })
+      .from(activities)
+      .where(eq(activities.id, input.activityId));
+    if (!a) throw new ActionError("That activity was deleted. Attach the file to the record instead.");
+    l = a;
+  }
+  const none = { personId: null, organizationId: null, clientId: null, activityId: input.activityId ?? null };
+  if (l.clientId) {
+    const [c] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, l.clientId));
+    if (!c) throw new ActionError("That client was deleted.");
+    return { ...none, clientId: c.id };
+  }
+  if (l.personId) {
+    const [p] = await db.select({ id: people.id }).from(people).where(eq(people.id, l.personId));
+    if (!p) throw new ActionError("That person was deleted.");
+    return { ...none, personId: p.id };
+  }
+  if (l.organizationId) {
+    const [o] = await db.select({ id: schema.organizations.id }).from(schema.organizations).where(eq(schema.organizations.id, l.organizationId));
+    if (!o) throw new ActionError("That organization was deleted.");
+    return { ...none, organizationId: o.id };
+  }
+  return none;
 }
 
 export type ActivityFilter = {

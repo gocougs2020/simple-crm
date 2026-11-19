@@ -2,10 +2,9 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getDb, schema } from "@/db";
 import { ActionError, getUser } from "@/lib/auth";
-import { uploadLinks } from "@/lib/crm/activities";
-import { touch } from "@/lib/crm/events";
+import { sessionActor } from "@/lib/crm/actor";
+import { saveUpload } from "@/lib/crm/service/files";
 import { forbiddenMessage, roleCan } from "@/lib/permissions";
 import { blobConfigured, cleanFileName, fileProblem, LOCAL_UPLOAD_DIR } from "@/lib/files";
 
@@ -14,32 +13,39 @@ export async function POST(request: Request) {
   if (process.env.VERCEL || blobConfigured()) return NextResponse.json({ error: "Not available." }, { status: 404 });
   const user = await getUser();
   if (!user) return NextResponse.json({ error: "Sign in to upload files." }, { status: 401 });
-  if (!roleCan(user.role, "records:write")) return NextResponse.json({ error: forbiddenMessage["records:write"] }, { status: 403 });
   const form = await request.formData();
+  const origin = form.get("origin") === "chat" ? ("chat" as const) : null;
+  // Viewers can't add files anywhere, the team chat included.
+  if (!roleCan(user.role, "records:write")) return NextResponse.json({ error: forbiddenMessage["records:write"] }, { status: 403 });
   const file = form.get("file");
   if (!(file instanceof File)) return NextResponse.json({ error: "No file." }, { status: 400 });
   const problem = fileProblem(file.name, file.size, file.type);
   if (problem) return NextResponse.json({ error: problem }, { status: 400 });
   const id = z.uuid().nullable();
-  const sent = id.array().safeParse(["personId", "organizationId", "clientId", "activityId"].map((k) => form.get(k) || null));
+  const sent = id.array().safeParse(["personId", "organizationId", "clientId", "activityId", "folderId"].map((k) => form.get(k) || null));
   if (!sent.success) return NextResponse.json({ error: "That record link isn't valid." }, { status: 400 });
-  const [personId, organizationId, clientId, activityId] = sent.data;
-  let links: Awaited<ReturnType<typeof uploadLinks>>;
+  const [personId, organizationId, clientId, activityId, folderId] = sent.data;
+  const name = cleanFileName(file.name);
+  const pathname = `${crypto.randomUUID()}${path.extname(name).slice(0, 12)}`;
   try {
-    links = await uploadLinks({ personId, organizationId, clientId, activityId });
+    await mkdir(LOCAL_UPLOAD_DIR, { recursive: true });
+    await writeFile(path.join(LOCAL_UPLOAD_DIR, pathname), Buffer.from(await file.arrayBuffer()));
+    const row = await saveUpload(sessionActor(user), {
+      name,
+      url: `local:${pathname}`,
+      pathname,
+      size: file.size,
+      contentType: file.type || "application/octet-stream",
+      personId,
+      organizationId,
+      clientId,
+      activityId,
+      folderId,
+      origin,
+    });
+    return NextResponse.json({ id: row.id });
   } catch (err) {
     if (err instanceof ActionError) return NextResponse.json({ error: err.message }, { status: 400 });
     throw err;
   }
-  const name = cleanFileName(file.name);
-  const pathname = `${crypto.randomUUID()}${path.extname(name).slice(0, 12)}`;
-  await mkdir(LOCAL_UPLOAD_DIR, { recursive: true });
-  await writeFile(path.join(LOCAL_UPLOAD_DIR, pathname), Buffer.from(await file.arrayBuffer()));
-  const db = await getDb();
-  const [row] = await db
-    .insert(schema.files)
-    .values({ name, url: `local:${pathname}`, pathname, size: file.size, contentType: file.type || "application/octet-stream", uploadedBy: user.id, ...links })
-    .returning({ id: schema.files.id });
-  await touch(links);
-  return NextResponse.json({ id: row.id });
 }

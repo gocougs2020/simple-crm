@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { siteOrigin } from "@/lib/origin";
 import { rateLimit } from "@/lib/rate-limit";
 import { authenticate } from "./auth";
-import { readBodyLimited } from "./body";
+import { MAX_BODY_BYTES, readBodyLimited } from "./body";
 import { internalError, toApiError, type ApiError } from "./errors";
 import { executeOperation } from "./execute";
 import { API_RATE_LIMIT_PER_MINUTE } from "./limits";
@@ -32,12 +32,13 @@ function queryObject(params: URLSearchParams) {
 }
 
 export const tooLarge: ApiError = { status: 413, code: "payload_too_large", message: "The request body is over 1 MB. Send less at once." };
+const tooLargeFor = (max: number): ApiError => (max === MAX_BODY_BYTES ? tooLarge : { ...tooLarge, message: `The request body is over ${Math.round((max / 1024 / 1024) * 10) / 10} MB. Send a smaller file.` });
 
-async function readBody(request: Request): Promise<{ ok: true; body: unknown } | { ok: false; error: ApiError }> {
+async function readBody(request: Request, max = MAX_BODY_BYTES): Promise<{ ok: true; body: unknown } | { ok: false; error: ApiError }> {
   const type = request.headers.get("content-type") ?? "";
   if (type && !/^application\/(.+\+)?json\b/i.test(type)) return { ok: false, error: { status: 415, code: "unsupported_media_type", message: "Send the body as JSON with Content-Type: application/json." } };
-  const read = await readBodyLimited(request);
-  if (!read.ok) return { ok: false, error: tooLarge };
+  const read = await readBodyLimited(request, max);
+  if (!read.ok) return { ok: false, error: tooLargeFor(max) };
   const text = read.text;
   if (!text.trim()) return { ok: true, body: {} };
   try {
@@ -68,7 +69,7 @@ export async function handleApiRequest(request: NextRequest, segments: string[])
   const op = operations[match.id] as Operation;
   let body: unknown;
   if (op.body) {
-    const read = await readBody(request);
+    const read = await readBody(request, op.maxBodyBytes);
     if (!read.ok) return errorResponse(read.error, rate);
     body = read.body;
   }

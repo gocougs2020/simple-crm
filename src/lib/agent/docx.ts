@@ -72,6 +72,68 @@ async function inflate(data: Uint8Array, max: number) {
   return out;
 }
 
+/**
+ * Whether every entry of a zip (a .docx or .xlsx) inflates to `max` bytes or
+ * less in all. Each entry is actually inflated with the budget that's left,
+ * so a file whose headers understate its size is caught as well. The archive
+ * is read both ways a parser might (its directory at the end, and entry after
+ * entry from the start) and refused unless they agree exactly, so no entry
+ * can hide from this check and still be read. Run before a library reads the
+ * file whole.
+ */
+export async function zipFitsUnder(file: Uint8Array, max: number) {
+  const v = new DataView(file.buffer, file.byteOffset, file.byteLength);
+  let end = -1;
+  for (let i = file.length - 22; i >= Math.max(0, file.length - 22 - 65_535); i--) {
+    if (u32(v, i) === 0x06054b50) {
+      end = i;
+      break;
+    }
+  }
+  if (end < 0) return false;
+  const count = u16(v, end + 10);
+  const dirStart = u32(v, end + 16);
+  // Zip64 archives (counts or offsets that don't fit in the classic fields) and multi-part ones aren't read at all.
+  if (count === 0xffff || dirStart === 0xffffffff || u16(v, end + 4) !== 0 || u16(v, end + 8) !== count) return false;
+  if (dirStart + u32(v, end + 12) !== end) return false;
+
+  type Entry = { local: number; method: number; flags: number; compressed: number };
+  const entries: Entry[] = [];
+  let at = dirStart;
+  for (let n = 0; n < count; n++) {
+    if (at + 46 > end || u32(v, at) !== 0x02014b50) return false;
+    const e = { flags: u16(v, at + 8), method: u16(v, at + 10), compressed: u32(v, at + 20), local: u32(v, at + 42) };
+    if (e.compressed === 0xffffffff || e.local === 0xffffffff) return false;
+    entries.push(e);
+    at += 46 + u16(v, at + 28) + u16(v, at + 30) + u16(v, at + 32);
+  }
+  if (at !== end) return false;
+
+  // Entry after entry from the start: each must be the next one the directory lists, with nothing between them.
+  entries.sort((a, b) => a.local - b.local);
+  let pos = 0;
+  let left = max;
+  for (const e of entries) {
+    if (e.local !== pos || pos + 30 > dirStart || u32(v, pos) !== 0x04034b50) return false;
+    const start = pos + 30 + u16(v, pos + 26) + u16(v, pos + 28);
+    if (start + e.compressed > dirStart) return false;
+    const data = file.subarray(start, start + e.compressed);
+    if (e.method === 0) left -= e.compressed;
+    else if (e.method === 8) {
+      try {
+        left -= (await inflate(data, left)).length;
+      } catch {
+        return false;
+      }
+    } else return false;
+    if (left < 0) return false;
+    pos = start + e.compressed;
+    // A data descriptor after the bytes (flag bit 3): 12 bytes, or 16 with its optional signature.
+    if (e.flags & 0x8) pos += pos + 4 <= dirStart && u32(v, pos) === 0x08074b50 ? 16 : 12;
+  }
+  return pos === dirStart;
+}
+
 const entities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
 const decodeEntities = (s: string) =>
   s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, e: string) => {
