@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, isNull, lt, or, sql, type SQL } from "drizzle-o
 import { generateText } from "ai";
 import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
+import { billingIntervalLabels } from "@/lib/constants";
 import { getAppData } from "@/lib/crm/context";
 import { clientsOfOrganization, getClient, getOrganization, getPerson, metricsOf, peopleOf, servicesOf } from "@/lib/crm/records";
 import { formatMoney, personName } from "@/lib/format";
@@ -154,7 +155,7 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
         .filter(Boolean)
         .join("\n"),
     );
-    if (services.length) sections.push(["## Services", ...services.map((s) => `${s.name}: ${money(s.price, client.currency)} per ${s.interval}, ${s.endedOn ? `ended ${d(s.endedOn)}` : s.startedOn ? `since ${d(s.startedOn)}` : "not started"}${s.note ? ` (${s.note})` : ""}`)].join("\n"));
+    if (services.length) sections.push(["## Services", ...services.map((s) => `${s.name}: ${money(s.price, client.currency)} billed ${billingIntervalLabels[s.interval].label.toLowerCase()}, ${s.endedOn ? `ended ${d(s.endedOn)}` : s.startedOn ? `since ${d(s.startedOn)}` : "not started"}${s.note ? ` (${s.note})` : ""}`)].join("\n"));
     if (metrics.length) {
       const latest = new Map<string, (typeof metrics)[number]>();
       for (const m of metrics) latest.set(m.label, m);

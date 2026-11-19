@@ -132,21 +132,40 @@ function ServiceRow({ row, active, onEdit }: { row: ClientServiceRow; active: bo
 }
 
 function ServiceDialog({ clientId, category, row, onClose }: { clientId: string; category: ClientCategory; row?: ClientServiceRow; onClose: () => void }) {
-  const { catalog, workspace } = useApp();
+  const { catalog, plans, workspace } = useApp();
   const available = catalog.filter((s) => !s.archivedAt);
   const [serviceId, setServiceId] = useState(row?.serviceId ?? available[0]?.id ?? "");
   const service = catalog.find((s) => s.id === serviceId);
-  const [price, setPrice] = useState(row ? String(row.price / 100) : service ? String(service.price / 100) : "");
-  const [interval, setInterval] = useState<BillingInterval>(row?.interval ?? service?.interval ?? "month");
+  // The plans that can be picked: the service's open ones, plus the one this client is already on.
+  const plansOf = (id: string) => plans.filter((x) => x.serviceId === id && (!x.archivedAt || x.id === row?.planId));
+  const choices = plansOf(serviceId);
+  // A new subscription starts on the service's first plan, with that plan's price, billing and description.
+  const first = row ? undefined : choices[0];
+  const [planId, setPlanId] = useState(row ? (row.planId ?? "") : (first?.id ?? ""));
+  const usual = first ?? service;
+  const [price, setPrice] = useState(row ? String(row.price / 100) : usual ? String(usual.price / 100) : "");
+  const [interval, setInterval] = useState<BillingInterval>(row?.interval ?? usual?.interval ?? "month");
   const [startedOn, setStartedOn] = useState(row?.startedOn ?? (category === "current" ? dayFromToday(workspace.timezone) : ""));
   const [endedOn, setEndedOn] = useState(row?.endedOn ?? "");
-  const [note, setNote] = useState(row?.note ?? "");
+  const [note, setNote] = useState(row ? (row.note ?? "") : (first?.description ?? ""));
   const [pending, start] = useTransition();
   const cents = parseMoney(price || "0");
+  /** Picking a service or plan fills in its usual price, billing and note, which can then be changed for this client. */
+  const pick = (nextService: string, nextPlan: string | null) => {
+    const list = plansOf(nextService);
+    const plan = nextPlan === null ? list[0] : list.find((x) => x.id === nextPlan);
+    const from = plan ?? catalog.find((s) => s.id === nextService);
+    setServiceId(nextService);
+    setPlanId(plan?.id ?? "");
+    if (!from) return;
+    setPrice(String(from.price / 100));
+    setInterval(from.interval);
+    setNote(plan?.description ?? "");
+  };
   const save = () =>
     start(async () => {
       if (cents === null) return void toast.error("Enter the price as a number, like 450 or 1.2k.");
-      const input = { price: cents, interval, startedOn: startedOn || null, endedOn: endedOn || null, note: note || null };
+      const input = { planId: planId || null, price: cents, interval, startedOn: startedOn || null, endedOn: endedOn || null, note: note || null };
       const r = row ? await updateClientService(row.id, input) : await addClientService(clientId, serviceId, input);
       if (!r.ok) return void toast.error(r.error);
       toast.success(row ? "Service updated" : `${service?.name ?? "Service"} added`);
@@ -156,7 +175,7 @@ function ServiceDialog({ clientId, category, row, onClose }: { clientId: string;
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
-      title={row ? `Edit ${row.name}` : "Add a service"}
+      title={row ? `Edit ${row.service}` : "Add a service"}
       size="sm"
       footer={
         <>
@@ -171,20 +190,9 @@ function ServiceDialog({ clientId, category, row, onClose }: { clientId: string;
     >
       <div className="grid gap-4 sm:grid-cols-2">
         {!row ? (
-          <Field label="Service" className="sm:col-span-2">
+          <Field label="Service" className={choices.length ? undefined : "sm:col-span-2"}>
             {(p) => (
-              <Select
-                id={p.id}
-                value={serviceId}
-                onChange={(e) => {
-                  setServiceId(e.target.value);
-                  const s = catalog.find((x) => x.id === e.target.value);
-                  if (s) {
-                    setPrice(String(s.price / 100));
-                    setInterval(s.interval);
-                  }
-                }}
-              >
+              <Select id={p.id} value={serviceId} onChange={(e) => pick(e.target.value, null)}>
                 {available.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
@@ -194,7 +202,21 @@ function ServiceDialog({ clientId, category, row, onClose }: { clientId: string;
             )}
           </Field>
         ) : null}
-        <Field label={`Price (${workspace.currency})`} hint="What this client pays, if it differs from the usual price.">
+        {choices.length ? (
+          <Field label="Plan" className={row ? "sm:col-span-2" : undefined}>
+            {(p) => (
+              <Select id={p.id} value={planId} onChange={(e) => pick(serviceId, e.target.value)}>
+                <option value="">No plan</option>
+                {choices.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+        ) : null}
+        <Field label={`Price (${workspace.currency})`} hint="What this client pays. Change it if it differs from the usual price.">
           {(p) => <Input {...p} inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />}
         </Field>
         <Field label="Billed">

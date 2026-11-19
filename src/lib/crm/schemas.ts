@@ -132,11 +132,12 @@ export const categoryInput = z.object({
 });
 
 export const subscriptionInput = z.object({
-  price: z.number().int().min(0).max(1e13).optional().describe("In cents. Defaults to the service's catalog price."),
-  interval: z.enum(billingIntervals).optional().describe("Defaults to the service's interval."),
+  planId: optionalId.describe("One of the service's plans, from GET /services. Null for no plan."),
+  price: z.number().int().min(0).max(1e13).optional().describe("In cents. Defaults to the plan's price, or the service's catalog price with no plan."),
+  interval: z.enum(billingIntervals).optional().describe("month, four_weeks (13 payments a year), quarter, year or once. Defaults to the plan's or the service's."),
   startedOn: optionalDate,
   endedOn: optionalDate.describe("Set to end the service. Ended services stop counting toward monthly revenue."),
-  note: optionalText(300),
+  note: optionalText(300).describe("Defaults to the plan's description when a plan is picked."),
 });
 
 export const metricInput = z.object({

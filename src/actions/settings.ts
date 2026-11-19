@@ -16,7 +16,7 @@ import { hashPassword, passwordProblem, verifyPassword } from "@/lib/password";
 import { loadSampleData } from "@/lib/sample-data";
 import InviteEmail from "@/emails/invite";
 
-const { users, pipelines, stages, clients, customFields, workspace, services } = schema;
+const { users, pipelines, stages, clients, customFields, workspace, services, servicePlans } = schema;
 const uuid = z.uuid();
 
 // ─── Profile ─────────────────────────────────────────────────────────────
@@ -325,6 +325,78 @@ export async function reorderServices(ids: string[]): Promise<Result> {
     await actionAdmin();
     const db = await getDb();
     for (const [i, id] of z.array(uuid).max(200).parse(ids).entries()) await db.update(services).set({ position: i }).where(eq(services.id, id));
+    refresh();
+  });
+}
+
+// ─── Plans of a service ──────────────────────────────────────────────────
+
+const planInput = z.object({
+  name: z.string().trim().min(1, "Name the plan.").max(80),
+  description: z
+    .string()
+    .trim()
+    .max(300)
+    .nullable()
+    .optional()
+    .transform((v) => v || null),
+  price: z.number().int().min(0, "Prices can't be negative.").max(1e13),
+  interval: z.enum(billingIntervals),
+});
+
+/** Adds a plan to a service, or edits one. Changing the price doesn't change what existing clients pay. */
+export async function savePlan(serviceId: string, planId: string | null, input: z.input<typeof planInput>): Promise<Result<{ id: string }>> {
+  return run(async () => {
+    await actionAdmin();
+    const data = planInput.parse(input);
+    const db = await getDb();
+    const service = uuid.parse(serviceId);
+    const [dupe] = await db
+      .select({ id: servicePlans.id })
+      .from(servicePlans)
+      .where(and(eq(servicePlans.serviceId, service), sql`lower(${servicePlans.name}) = lower(${data.name})`, isNull(servicePlans.archivedAt), planId ? ne(servicePlans.id, uuid.parse(planId)) : undefined))
+      .limit(1);
+    if (dupe) throw new ActionError(`This service already has a plan called ${data.name}.`);
+    if (planId) {
+      await db
+        .update(servicePlans)
+        .set(data)
+        .where(and(eq(servicePlans.id, uuid.parse(planId)), eq(servicePlans.serviceId, service)));
+      refresh();
+      return { id: planId };
+    }
+    const [parent] = await db.select({ id: services.id }).from(services).where(eq(services.id, service));
+    if (!parent) throw new ActionError("That service was removed. Reload and try again.");
+    const [{ max }] = await db.select({ max: sql<number>`coalesce(max(${servicePlans.position}), -1)::int` }).from(servicePlans).where(eq(servicePlans.serviceId, service));
+    const [row] = await db.insert(servicePlans).values({ ...data, serviceId: service, position: max + 1 }).returning({ id: servicePlans.id });
+    refresh();
+    return row;
+  });
+}
+
+/** Archived plans can't be picked for clients; the clients who are on them keep them. */
+export async function archivePlan(planId: string, archived: boolean): Promise<Result> {
+  return run(async () => {
+    await actionAdmin();
+    const db = await getDb();
+    await db
+      .update(servicePlans)
+      .set({ archivedAt: archived ? new Date() : null })
+      .where(eq(servicePlans.id, uuid.parse(planId)));
+    refresh();
+  });
+}
+
+export async function reorderPlans(serviceId: string, ids: string[]): Promise<Result> {
+  return run(async () => {
+    await actionAdmin();
+    const db = await getDb();
+    const service = uuid.parse(serviceId);
+    for (const [i, id] of z.array(uuid).max(200).parse(ids).entries())
+      await db
+        .update(servicePlans)
+        .set({ position: i })
+        .where(and(eq(servicePlans.id, id), eq(servicePlans.serviceId, service)));
     refresh();
   });
 }

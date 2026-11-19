@@ -9,7 +9,7 @@ It's built to cover the 80% of CRM work a small team does every day, and to stay
 ## What it does
 
 - **Clients in three buckets.** Prospective, current and past, each with its own pipelines and stages, and a record page that fits: potential value for prospects; health, services, monthly revenue, Stripe billing, performance numbers and how long since anyone talked to them for current clients; what they had, why they left and whether they'd come back for past clients. Signing, leaving and winning back are one step each.
-- **Services** you sell are set up once in Settings and picked per client, with their own price and dates.
+- **Services** you sell, and the plans each comes in, are set up once in Settings and picked per client, with their own price, billing (monthly, every 4 weeks, quarterly, yearly or one time) and dates.
 - **People, organizations, clients.** Every record has a details panel you edit in place, custom fields, related records and files, and one timeline, topped by a two-line AI summary of who they are, what happened lately and what needs attention, refreshed daily.
 - **One timeline per record.** Notes, calls, emails, texts, meetings and tasks, plus every change (stage moves, owner changes, field edits) and every file, each attributed to the teammate who did it. Logged on a client, an activity also shows on the client's contact and organization, and received email lands there by itself.
 - **A composer that's fast to use.** Pick a tab, write a sentence (or dictate it with the microphone), ⌘↵. Calls take a direction and an outcome; anything that happened can schedule a follow-up in the same step.

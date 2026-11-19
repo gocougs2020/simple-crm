@@ -45,7 +45,7 @@ import { toast } from "@/components/ui/toast";
 import type { ActivityRow, NoteReply, RecordFile, TimelineItem } from "@/lib/crm/activities";
 import { appConfig } from "@/app.config";
 import { deliveryLabels, deliveryTone } from "@/lib/email/delivery-status";
-import { activityLabels, agentRunStatusLabels, clientCategoryLabels, clientHealthLabels, interactionTypes, type ActivityType, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
+import { activityLabels, agentRunStatusLabels, billingIntervalLabels, clientCategoryLabels, clientHealthLabels, interactionTypes, type ActivityType, type BillingInterval, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
 import { dayKey, dueTone, formatBytes, formatDateTime, formatDay, formatFull, formatTime, senderName, timeKey, zonedTime } from "@/lib/format";
 import { formatPhone } from "@/lib/phone/numbers";
 import { formatCallDuration, textStatusLabels } from "@/lib/phone/rules";
@@ -768,7 +768,7 @@ const fieldText = (v: unknown, label: string | null | undefined, member: (id: st
   if (field === "value" || field === "price") return money(Number(v));
   if (field === "marketingOptIn" || field === "openToReturn") return v ? "Yes" : "No";
   if (field === "health") return clientHealthLabels[v as ClientHealth] ?? String(v);
-  if (field === "interval") return String(v) === "once" ? "one time" : `${v}ly`;
+  if (field === "interval") return billingIntervalLabels[v as BillingInterval]?.label.toLowerCase() ?? String(v);
   if (Array.isArray(v)) return v.join(", ");
   if (field === "organizationId" || field === "personId") return "a deleted record";
   return String(v);
