@@ -159,10 +159,17 @@ export async function deleteFile(a: Actor, fileId: string) {
   for (const r of records) await recordEvent({ entityType: r.entity, entityId: r.id, action: "file_deleted", data: { name: f.name }, ...stamp(a) });
 }
 
-/** Deletes the bytes behind removed files from Vercel Blob. Local development files stay on disk. */
+/** Deletes the bytes behind removed files from Vercel Blob, unless a file still in the CRM uses them. Local development files stay on disk. */
 export async function removeStoredBytes(urls: string[]) {
-  const remote = urls.filter((u) => !u.startsWith("local:"));
+  let remote = urls.filter((u) => !u.startsWith("local:"));
   if (!remote.length || !process.env.BLOB_READ_WRITE_TOKEN) return;
+  const db = await getDb();
+  const kept = await db
+    .select({ url: files.url })
+    .from(files)
+    .where(and(inArray(files.url, remote), isNull(files.deletedAt)));
+  remote = remote.filter((u) => !kept.some((k) => k.url === u));
+  if (!remote.length) return;
   const { del } = await import("@vercel/blob");
   await del(remote).catch((err) => console.error("[files] blob delete", err));
 }
@@ -197,6 +204,9 @@ export async function saveUpload(a: Actor, input: UploadInput) {
   const userId = actorUserId(a);
   if (!userId) throw new ActionError("Uploads need a teammate behind them.");
   const db = await getDb();
+  // Each upload is registered once: a second row on the same stored bytes could later delete them out from under the first.
+  const [taken] = await db.select({ id: files.id }).from(files).where(eq(files.url, data.url));
+  if (taken) throw new ActionError("That upload was already added. Upload the file again.");
   const [row] = await db
     .insert(files)
     .values({

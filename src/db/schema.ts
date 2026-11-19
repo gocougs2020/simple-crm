@@ -778,6 +778,7 @@ export const files = pgTable(
     index("files_folder_idx").on(t.folderId),
     index("files_chat_message_idx").on(t.chatMessageId),
     uniqueIndex("files_public_token_idx").on(t.publicToken),
+    index("files_url_idx").on(t.url),
   ],
 );
 
