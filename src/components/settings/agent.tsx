@@ -62,7 +62,7 @@ function Empty({ children }: { children: ReactNode }) {
  * agent, and a shared job is offered for each teammate to add.
  */
 export function AgentSettings({ skills, jobs, background }: { skills: SkillItem[]; jobs: JobItem[]; background: boolean }) {
-  const { viewer, isAdmin, canEdit, workspace } = useApp();
+  const { viewer, isAdmin, canEdit, workspace, workspaceTimezone } = useApp();
   const name = appConfig.agent.name;
   const [skill, setSkill] = useState<SkillItem | { new: AgentScope } | null>(null);
   const [job, setJob] = useState<JobItem | { new: AgentScope } | null>(null);
@@ -174,7 +174,7 @@ export function AgentSettings({ skills, jobs, background }: { skills: SkillItem[
 
       <Section
         title="Your scheduled jobs"
-        description={`Work ${name} does on its own, on a schedule, as you and with your access. Each run shows under Background tasks in the ${name} panel and sends you a notification. Times are in ${workspace.timezone}.`}
+        description={`Work ${name} does on its own, on a schedule, as you and with your access. Each run shows under Background tasks in the ${name} panel and sends you a notification. Times are in ${workspaceTimezone}.`}
         action={
           canEdit && background ? (
             <Button size="sm" variant="outline" onClick={() => setJob({ new: "personal" })}>
@@ -343,7 +343,7 @@ function SkillDialog({ skill, scope, onClose }: { skill: SkillItem | null; scope
 }
 
 function JobDialog({ job, scope, onClose }: { job: JobItem | null; scope: AgentScope; onClose: () => void }) {
-  const { viewer, isAdmin, canEdit, workspace } = useApp();
+  const { viewer, isAdmin, canEdit, workspace, workspaceTimezone } = useApp();
   const agent = appConfig.agent.name;
   const [name, setName] = useState(job?.name ?? "");
   const [request, setRequest] = useState(job?.request ?? "");
@@ -465,7 +465,7 @@ function JobDialog({ job, scope, onClose }: { job: JobItem | null; scope: AgentS
             </Select>
           )}
         </Field>
-        <Field label="Time" hint={workspace.timezone}>
+        <Field label="Time" hint={workspaceTimezone}>
           {(p) => (
             <Select id={p.id} value={time} onChange={(e) => setTime(e.target.value)} disabled={!editable}>
               {quarterHours.map((t) => (

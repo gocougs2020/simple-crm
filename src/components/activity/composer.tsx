@@ -2,7 +2,7 @@
 
 import clsx from "clsx";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { PaperClipIcon, XMarkIcon } from "@heroicons/react/20/solid";
 import {
   ArrowDownLeftIcon,
@@ -209,7 +209,7 @@ function EmailTab({ links, recipient: contact, contacts, who, onWho, draft, onDr
         {mode === "send" && !recipient?.email ? <span className="ml-2 text-[12px] text-muted">Add an email address to this person first.</span> : null}
       </div>
       {mode === "send" && recipient?.email ? (
-        <EmailComposer links={links} recipient={recipient} contacts={draft ? [] : contacts} draft={draft} onDraftSent={onDraftSent} />
+        <EmailComposer links={links} recipient={recipient} contacts={draft ? [] : contacts} draft={draft} onDraftSent={onDraftSent} startBlank={!contact && !draft} />
       ) : mode === "log" ? (
         <>
           <WhoSelect id="email-who" label="With" contacts={contacts} value={who?.personId ?? null} onChange={onWho} />
@@ -224,7 +224,9 @@ function EmailTab({ links, recipient: contact, contacts, who, onWho, draft, onDr
 function TextTab({ links, recipient, who, draft, onDraftSent }: { links: Links; recipient?: Recipient | null; /** The dropdown that picks who it's to, on a record with several people. */ who?: ReactNode } & DraftProps) {
   const { comms } = useApp();
   const canSend = comms.texting && !!recipient?.phone;
-  const [mode, setMode] = useState<"send" | "log">(canSend ? "send" : "log");
+  // Follows who's picked (sending when they have a phone) until the teammate chooses.
+  const [chosen, setMode] = useState<"send" | "log" | null>(null);
+  const mode = chosen ?? (canSend ? "send" : "log");
   // Logged on whoever is picked, like a sent one.
   const logLinks = who && recipient ? { ...links, personId: recipient.personId } : links;
   if (!comms.texting)
@@ -273,9 +275,8 @@ function CallNow({ links, recipient }: { links: Links; recipient: Recipient }) {
 
 function ActivityForm({ type, links, contacts }: { type: ActivityType; links: Links; /** Meetings: the people who can be put on it. */ contacts?: Contact[] }) {
   const { workspace, viewer, services, canEdit } = useApp();
-  // Times here are in the teammate's own time zone, so "now" reads as now to them wherever the workspace is set
-  // (a Mountain-time teammate on a Pacific-time workspace sees 2:00, not 1:00). The moment saved is the same either way.
-  const tz = useLocalTimeZone(workspace.timezone);
+  // The teammate's own time zone (src/lib/time-zone.ts), so "now" reads as now to them wherever the workspace is set.
+  const tz = workspace.timezone;
   // Background work (docs/AGENT.md): tasks can go to the agent, and a note can call on it with @Agent.
   const assistantWorks = services.ai.background && canEdit;
   const editor = useRef<RichTextHandle>(null);
@@ -287,7 +288,7 @@ function ActivityForm({ type, links, contacts }: { type: ActivityType; links: Li
   // When it happened, or when it's due. Defaults: now for things that happened, tomorrow for tasks.
   const [day, setDay] = useState(() => (type === "task" ? dayFromToday(tz, 1) : dayFromToday(tz)));
   const [time, setTime] = useState(() => (type === "task" ? "" : timeKey(new Date(), tz)));
-  // The page is first drawn in the workspace's zone (the server can't know the teammate's), then switches to theirs:
+  // A first visit is drawn in the workspace's zone until the browser says its own, then refreshes:
   // the defaults move with it, unless they've already picked a day or time.
   const [whenPicked, setWhenPicked] = useState(false);
   const [defaultsTz, setDefaultsTz] = useState(tz);
@@ -420,12 +421,6 @@ function ActivityForm({ type, links, contacts }: { type: ActivityType; links: Li
               className="h-8 w-[7.5rem] text-[13px]"
               step={900}
             />
-            {/* Named only when it isn't the workspace's, so nobody wonders which zone the time is in. */}
-            {tz !== workspace.timezone ? (
-              <span className="text-[12px] text-muted" title={`Your time zone (${tz}). The workspace is set to ${workspace.timezone}.`}>
-                {zoneAbbreviation(tz)}
-              </span>
-            ) : null}
           </div>
           {type === "meeting" ? (
             <Input
@@ -580,21 +575,6 @@ function Chips({ value, onChange, options }: { value: string | null; onChange: (
       ))}
     </div>
   );
-}
-
-/** The device's time zone ("America/Denver"). `fallback` (the workspace's) while rendering on the server and hydrating, so the markup matches. */
-function useLocalTimeZone(fallback: string) {
-  return useSyncExternalStore(
-    noSubscribe,
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone || fallback,
-    () => fallback,
-  );
-}
-const noSubscribe = () => () => {};
-
-/** "MST", "PDT": the short name of a time zone right now. */
-function zoneAbbreviation(tz: string) {
-  return new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "short" }).formatToParts(new Date()).find((p) => p.type === "timeZoneName")?.value ?? tz;
 }
 
 /** The current time, refreshed every 30 seconds, so "is this in the future?" stays right while a form is open. */

@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/auth";
 import { calendarWeek } from "@/lib/calendar";
 import { mondayOf } from "@/lib/calendar-week";
 import { getAppData } from "@/lib/crm/context";
+import { viewerTimeZone } from "@/lib/viewer-time-zone";
 import { dayKey } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Calendar" };
@@ -23,7 +24,7 @@ async function Calendar({ searchParams }: Pick<PageProps<"/calendar">, "searchPa
   const user = await requireUser("/calendar");
   const app = await getAppData();
   const params = await searchParams;
-  const tz = app.workspace.timezone;
+  const tz = await viewerTimeZone(app.workspace.timezone);
   const week = z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)

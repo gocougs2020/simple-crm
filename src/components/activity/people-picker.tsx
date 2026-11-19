@@ -26,7 +26,8 @@ export type Contact = {
 /** Picks the one person a call, text or logged email is with. Starts on the record's contact. */
 export function WhoSelect({ id, label, contacts, value, onChange, needs }: { id: string; label: string; contacts: Contact[]; value: string | null; onChange: (personId: string) => void; needs?: "phone" | "email" }) {
   const [open, setOpen] = useState(false);
-  if (contacts.length < 2) return null;
+  // Nothing to choose with one person, unless nobody is picked yet (an organization has no contact to start on).
+  if (!contacts.length || (contacts.length === 1 && value === contacts[0].personId)) return null;
   const current = contacts.find((c) => c.personId === value);
   const missing = (c: Contact) => (needs && !c[needs] ? `No ${needs === "phone" ? "phone number" : "email address"}` : null);
   const currentMissing = current ? missing(current) : null;

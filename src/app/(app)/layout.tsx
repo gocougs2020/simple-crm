@@ -12,6 +12,8 @@ import { unreadTextCount } from "@/lib/conversations/texts";
 import { phoneConfigured } from "@/lib/twilio/config";
 import { CallPanel } from "@/components/phone/call-panel";
 import { LiveUpdates } from "@/components/live-updates";
+import { TimeZoneSync } from "@/components/time-zone-sync";
+import { viewerTimeZone } from "@/lib/viewer-time-zone";
 
 /** Everything inside requires a signed-in, active teammate. */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -25,18 +27,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 async function Gate({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
   const data = await getAppData();
+  const tz = await viewerTimeZone(data.workspace.timezone);
   const [due, unread, unreadTexts, comms] = await Promise.all([
-    myDueCounts(user.id, data.workspace.timezone),
+    myDueCounts(user.id, tz),
     data.services.email ? unreadCount(user.id) : 0,
     phoneConfigured() ? unreadTextCount(user.id) : 0,
     commsFor(user),
   ]);
   return (
-    <AppProvider data={data} viewer={toViewer(user)} comms={comms}>
+    <AppProvider data={data} viewer={toViewer(user)} comms={comms} timezone={tz}>
       <TooltipProvider delayDuration={300}>
         <AppShell due={due} unread={unread} unreadTexts={unreadTexts}>{children}</AppShell>
         {comms.calling ? <CallPanel /> : null}
         <LiveUpdates />
+        <TimeZoneSync />
         <Toaster />
       </TooltipProvider>
     </AppProvider>

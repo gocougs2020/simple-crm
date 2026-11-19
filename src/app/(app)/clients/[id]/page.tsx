@@ -21,6 +21,7 @@ import { PageSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { monthlyFactor } from "@/lib/constants";
 import { timeline } from "@/lib/crm/activities";
 import { getAppData } from "@/lib/crm/context";
+import { viewerTimeZone } from "@/lib/viewer-time-zone";
 import { clientPeople, getClient, metricsOf, servicesOf } from "@/lib/crm/records";
 import { dayKey, formatMoney, personName } from "@/lib/format";
 
@@ -71,7 +72,7 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
     starred: p.decisionMaker,
   }));
   const stage = app.pipelines.flatMap((p) => p.stages).find((s) => s.id === client.stageId);
-  const today = dayKey(new Date(), app.workspace.timezone);
+  const today = dayKey(new Date(), await viewerTimeZone(app.workspace.timezone));
   // A past client's subscription is what ended on their latest end date (a client won back and lost again has two periods).
   const lastEnded = services.reduce<string | null>((max, s) => (s.endedOn && (!max || s.endedOn > max) ? s.endedOn : max), null);
   const monthly = Math.round(services.filter((s) => (c === "past" ? s.endedOn === lastEnded : !s.endedOn || s.endedOn > today)).reduce((sum, s) => sum + s.price * monthlyFactor[s.interval], 0));

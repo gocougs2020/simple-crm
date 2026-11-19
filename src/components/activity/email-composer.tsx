@@ -40,12 +40,15 @@ export function EmailComposer({
   contacts = [],
   draft,
   onDraftSent,
+  startBlank,
 }: {
   links: Links;
   recipient: EmailRecipient;
   contacts?: Contact[];
   draft?: { subject: string | null; body: string } | null;
   onDraftSent?: () => void;
+  /** Start with nobody on the To line: a record with no contact of its own (an organization), so the teammate picks who. */
+  startBlank?: boolean;
 }) {
   const editor = useRef<RichTextHandle>(null);
   const subjectRef = useRef<HTMLInputElement>(null);
@@ -54,7 +57,8 @@ export function EmailComposer({
   const [body, setBody] = useState(draft?.body ?? "");
   /** Everyone who can be picked: the record's people, with whoever it starts addressed to. */
   const everyone: Contact[] = contacts.some((c) => c.personId === recipient.personId) ? contacts : [recipient, ...contacts];
-  const [pickedTo, setToIds] = useState<string[]>([recipient.personId]);
+  const startTo = startBlank ? [] : [recipient.personId];
+  const [pickedTo, setToIds] = useState<string[]>(startTo);
   const [pickedCc, setCcIds] = useState<string[]>([]);
   const [cc, setCc] = useState("");
   // Someone taken off the record while the email was being written comes off it too, so it never goes to a person who isn't shown.
@@ -133,7 +137,7 @@ export function EmailComposer({
       setSubject("");
       setCc("");
       setCcIds([]);
-      setToIds([recipient.personId]);
+      setToIds(startTo);
       setAttachments([]);
       setReplyTo(viewer.email);
       setEditReplyTo(false);

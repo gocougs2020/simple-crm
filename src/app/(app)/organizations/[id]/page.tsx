@@ -15,7 +15,9 @@ import { RecordBody, RecordHeader } from "@/components/records/record-header";
 import { CallButton } from "@/components/phone/contact-actions";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { timeline } from "@/lib/crm/activities";
+import { orderPeople } from "@/lib/crm/people-order";
 import { clientsOfOrganization, getOrganization, organizationsOf, peopleOf } from "@/lib/crm/records";
+import { personName } from "@/lib/format";
 
 export async function generateMetadata({ params }: PageProps<"/organizations/[id]">): Promise<Metadata> {
   const { id } = await params;
@@ -51,6 +53,11 @@ async function Organization({ params }: Pick<PageProps<"/organizations/[id]">, "
     org.parentId ? getOrganization(org.parentId) : null,
     org.isParent ? organizationsOf(id) : [],
   ]);
+  // Everyone a call, email, text or meeting from this page can be with: decision makers, then everyone else, A to Z.
+  const contacts = orderPeople(
+    people.map((p) => ({ personId: p.id, name: personName(p), email: p.email, phone: p.phone, textOptedOut: !!p.textOptOutAt, detail: p.title, starred: p.decisionMaker })),
+    (c) => c,
+  );
   return (
     <>
       <RecordHeader
@@ -79,7 +86,7 @@ async function Organization({ params }: Pick<PageProps<"/organizations/[id]">, "
       >
         <RecordSummary entity="organization" id={id} summary={org.summary} summaryAt={org.summaryAt} />
         <FocusLine planned={tl.planned} lastContactAt={tl.lastContactAt} context={{ type: "organization", id }} />
-        <Composer links={{ organizationId: id }} />
+        <Composer links={{ organizationId: id }} contacts={contacts} />
         <Timeline
           planned={tl.planned}
           pinned={tl.pinned}

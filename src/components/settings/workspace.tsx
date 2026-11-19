@@ -12,11 +12,11 @@ import { Section } from "./nav";
 const currencies = ["USD", "CAD", "EUR", "GBP", "AUD", "NZD", "MXN", "JPY", "INR", "CHF", "SEK", "BRL", "ZAR", "SGD"];
 
 export function WorkspaceSettings({ canAddSample }: { canAddSample: boolean }) {
-  const { workspace } = useApp();
+  const { workspace, workspaceTimezone } = useApp();
   const router = useRouter();
   const [name, setName] = useState(workspace.name);
   const [currency, setCurrency] = useState(workspace.currency);
-  const [timezone, setTimezone] = useState(workspace.timezone);
+  const [timezone, setTimezone] = useState(workspaceTimezone);
   const [pending, start] = useTransition();
   const zones = useMemo(() => Intl.supportedValuesOf("timeZone"), []);
   return (

@@ -8,6 +8,8 @@ import { formatMoney } from "@/lib/format";
 import { roleCan } from "@/lib/permissions";
 
 type Ctx = AppData & {
+  /** The zone set in Settings → Workspace. Scheduled jobs run in it; `workspace.timezone` is the viewer's own zone, for showing times. */
+  workspaceTimezone: string;
   viewer: Viewer;
   /** What the viewer can call, text and email from (src/lib/comms.ts). */
   comms: Comms;
@@ -25,13 +27,16 @@ const AppContext = createContext<Ctx | null>(null);
 /** Team, pipelines, custom fields and the signed-in viewer, available to every client component. */
 const noComms: Comms = { phone: false, numbers: [], defaultNumberId: null, texting: false, calling: false, microsoft: false, mailbox: null };
 
-export function AppProvider({ data, viewer, comms = noComms, children }: { data: AppData; viewer: Viewer; comms?: Comms; children: ReactNode }) {
+export function AppProvider({ data, viewer, comms = noComms, timezone, children }: { data: AppData; viewer: Viewer; comms?: Comms; /** The viewer's time zone (src/lib/time-zone.ts). */ timezone?: string; children: ReactNode }) {
   const value = useMemo<Ctx>(() => {
     const members = new Map(data.team.map((m) => [m.id, m]));
     const stages = new Map(data.pipelines.flatMap((p) => p.stages.map((s) => [s.id, { ...s, pipeline: p }] as const)));
     const keys = new Map(data.apiKeys.map((k) => [k.id, k]));
     return {
       ...data,
+      // Every time on screen is in the viewer's own zone; the workspace's stays available for what runs on its clock.
+      workspace: { ...data.workspace, timezone: timezone ?? data.workspace.timezone },
+      workspaceTimezone: data.workspace.timezone,
       viewer,
       comms,
       member: (id) => (id ? members.get(id) : undefined),
@@ -41,7 +46,7 @@ export function AppProvider({ data, viewer, comms = noComms, children }: { data:
       canEdit: roleCan(viewer.role, "records:write"),
       apiKey: (id) => (id ? keys.get(id) : undefined),
     };
-  }, [data, viewer, comms]);
+  }, [data, viewer, comms, timezone]);
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 

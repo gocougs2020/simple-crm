@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth";
 import { activityTypes, type ActivityType } from "@/lib/constants";
 import { listActivities } from "@/lib/crm/activities";
 import { getAppData } from "@/lib/crm/context";
+import { viewerTimeZone } from "@/lib/viewer-time-zone";
 
 export const metadata: Metadata = { title: "Activities" };
 
@@ -25,6 +26,6 @@ async function Activities({ searchParams }: Pick<PageProps<"/activities">, "sear
   const status = one(sp.status) === "done" ? "done" : "todo";
   const who = one(sp.who);
   const types = (one(sp.type)?.split(",") ?? []).filter((t): t is ActivityType => (activityTypes as readonly string[]).includes(t));
-  const rows = await listActivities({ status, assigneeId: who === "all" ? undefined : who && who !== "me" ? who : user.id, types }, app.workspace.timezone);
+  const rows = await listActivities({ status, assigneeId: who === "all" ? undefined : who && who !== "me" ? who : user.id, types }, await viewerTimeZone(app.workspace.timezone));
   return <ActivitiesView rows={rows} status={status} />;
 }
