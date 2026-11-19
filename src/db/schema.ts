@@ -778,7 +778,8 @@ export const files = pgTable(
     index("files_folder_idx").on(t.folderId),
     index("files_chat_message_idx").on(t.chatMessageId),
     uniqueIndex("files_public_token_idx").on(t.publicToken),
-    index("files_url_idx").on(t.url),
+    /** One row per stored file, so removing a row can never delete bytes another row still uses. */
+    uniqueIndex("files_url_idx").on(t.url),
   ],
 );
 

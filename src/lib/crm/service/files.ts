@@ -204,9 +204,7 @@ export async function saveUpload(a: Actor, input: UploadInput) {
   const userId = actorUserId(a);
   if (!userId) throw new ActionError("Uploads need a teammate behind them.");
   const db = await getDb();
-  // Each upload is registered once: a second row on the same stored bytes could later delete them out from under the first.
-  const [taken] = await db.select({ id: files.id }).from(files).where(eq(files.url, data.url));
-  if (taken) throw new ActionError("That upload was already added. Upload the file again.");
+  // Each upload is registered once (a unique index on the URL): a second row on the same stored bytes could later delete them out from under the first.
   const [row] = await db
     .insert(files)
     .values({
@@ -220,7 +218,9 @@ export async function saveUpload(a: Actor, input: UploadInput) {
       name: cleanFileName(data.name),
       uploadedBy: userId,
     })
+    .onConflictDoNothing({ target: files.url })
     .returning({ id: files.id });
+  if (!row) throw new ActionError("That upload was already added. Upload the file again.");
   await touch(linked);
   return row;
 }

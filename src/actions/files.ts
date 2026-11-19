@@ -7,6 +7,7 @@ import { ActionError, actionUser } from "@/lib/auth";
 import { sessionActor } from "@/lib/crm/actor";
 import { fileDetails as loadFileDetails } from "@/lib/crm/files";
 import * as svc from "@/lib/crm/service/files";
+import { canonicalBlobUrl } from "@/lib/blob-url";
 import { blobConfigured } from "@/lib/files";
 
 /**
@@ -18,10 +19,9 @@ export async function attachUploadedFile(input: svc.UploadInput): Promise<Result
     const user = await actionUser();
     if (!blobConfigured()) throw new ActionError("File storage isn't set up.");
     const data = svc.uploadInput.parse(input);
-    z.url().parse(data.url);
-    if (!data.pathname.startsWith("files/")) throw new ActionError("That upload didn't come from file storage.");
-    if (!new URL(data.url).hostname.endsWith(".blob.vercel-storage.com")) throw new ActionError("That upload didn't come from file storage.");
-    const row = await svc.saveUpload(sessionActor(user), data);
+    const url = canonicalBlobUrl(data.url, data.pathname);
+    if (!url) throw new ActionError("That upload didn't come from file storage.");
+    const row = await svc.saveUpload(sessionActor(user), { ...data, url });
     refresh();
     return row;
   });
