@@ -242,8 +242,9 @@ export async function addClientService(a: Actor, clientId: string, serviceId: st
       interval: data.interval ?? (plan ?? service).interval,
       startedOn: data.startedOn ?? (client.category === "current" ? today : null),
       endedOn: data.endedOn ?? (client.category === "past" ? (client.endedOn ?? today) : null),
-      // The plan's description is the note only when none was sent; a note cleared on purpose stays empty.
-      note: input.note === undefined ? (plan?.description?.slice(0, 300) ?? null) : data.note,
+      // No note sent: the plan's description. An empty string is a note cleared on purpose (the dialog sends one), and stays empty.
+      // The API validates before calling, so a note it leaves out arrives as null and gets the description too.
+      note: data.note ?? (input.note === "" ? null : (plan?.description?.slice(0, 300) ?? null)),
     })
     .returning({ id: clientServices.id });
   await recordEvent({ entityType: "client", entityId: client.id, action: "service_added", data: { name: plan ? `${service.name} · ${plan.name}` : service.name }, ...stamp(a) });

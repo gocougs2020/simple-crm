@@ -165,7 +165,8 @@ function ServiceDialog({ clientId, category, row, onClose }: { clientId: string;
   const save = () =>
     start(async () => {
       if (cents === null) return void toast.error("Enter the price as a number, like 450 or 1.2k.");
-      const input = { planId: planId || null, price: cents, interval, startedOn: startedOn || null, endedOn: endedOn || null, note: note || null };
+      // An empty note is sent as "" so a prefilled plan description that was cleared stays cleared.
+      const input = { planId: planId || null, price: cents, interval, startedOn: startedOn || null, endedOn: endedOn || null, note: note.trim() };
       const r = row ? await updateClientService(row.id, input) : await addClientService(clientId, serviceId, input);
       if (!r.ok) return void toast.error(r.error);
       toast.success(row ? "Service updated" : `${service?.name ?? "Service"} added`);
