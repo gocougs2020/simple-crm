@@ -14,13 +14,9 @@ export function canonicalBlobUrl(raw: string, pathname: string): string | null {
   const host = u.hostname.toLowerCase();
   if (u.protocol !== "https:" || u.username || u.password || u.port || u.search || u.hash) return null;
   if (!host.endsWith(".blob.vercel-storage.com") || !pathname.startsWith("files/")) return null;
-  let path: string;
-  try {
-    path = decodeURIComponent(u.pathname);
-  } catch {
-    return null;
-  }
-  if (path !== `/${pathname}`) return null;
-  if (pathname.split("/").some((part) => part === ".." || part === ".")) return null;
-  return `https://${host}${u.pathname}`;
+  if (pathname.split("/").some((part) => !part || part === ".." || part === ".")) return null;
+  // One encoding only: the path as Blob writes it. Any other spelling of the same name (%61 for "a") is refused.
+  const encoded = `/${pathname.split("/").map(encodeURIComponent).join("/")}`;
+  if (u.pathname !== encoded) return null;
+  return `https://${host}${encoded}`;
 }

@@ -24,4 +24,7 @@ test("a URL outside Blob, outside files/, or not matching the pathname is refuse
   assert.equal(canonicalBlobUrl(`https://${host}/files/other.pdf`, "files/a.pdf"), null);
   assert.equal(canonicalBlobUrl(`https://${host}/files/%E0%A4%A.pdf`, "files/a.pdf"), null);
   assert.equal(canonicalBlobUrl("not a url", "files/a.pdf"), null);
+  // The same name spelled with a different encoding.
+  assert.equal(canonicalBlobUrl(`https://${host}/files/%61.pdf`, "files/a.pdf"), null);
+  assert.equal(canonicalBlobUrl(`https://${host}/files/Acme MSA.txt`, "files/Acme MSA.txt"), `https://${host}/files/Acme%20MSA.txt`);
 });
