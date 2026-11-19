@@ -266,7 +266,7 @@ async function addLabelsWhere(a: Actor, entity: EntityType, where: SQL, names: s
   const table = tables[entity];
   const db = await getDb();
   const before = await db.select({ id: table.id, tags: table.tags }).from(table).where(where);
-  const changed = before.map((b) => ({ ...b, next: [...new Set([...b.tags, ...names])] })).filter((b) => b.next.length !== b.tags.length);
+  const changed = before.filter((b) => names.some((n) => !b.tags.includes(n))).map((b) => ({ ...b, next: [...new Set([...b.tags, ...names])] }));
   if (!changed.length) return { count: before.length, changed: 0 };
   const ids = changed.map((b) => b.id);
   // The labels are added in SQL, so a change made to a record's labels since the read above isn't written over.
