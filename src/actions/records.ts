@@ -1,16 +1,15 @@
 "use server";
 
 import { refresh } from "next/cache";
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import type { UserPrefs } from "@/db/schema";
 import { run, type Result } from "@/lib/action";
-import { actionCan, actionEditor, actionUser } from "@/lib/auth";
-import { clientCategories, type EntityType } from "@/lib/constants";
+import { actionEditor, actionUser } from "@/lib/auth";
+import { clientCategories, entityTypes, type EntityType } from "@/lib/constants";
 import { sessionActor } from "@/lib/crm/actor";
 import { recordEvent } from "@/lib/crm/events";
-import { ensureLabels } from "@/lib/crm/labels";
 import { id, optionalId, type orgInput, type personInput } from "@/lib/crm/schemas";
 import { globalSearch, listOrganizations, listPeople, lookup, pageSize } from "@/lib/crm/records";
 import * as svc from "@/lib/crm/service/records";
@@ -82,20 +81,21 @@ export async function assignOwner(entity: EntityType, ids: string[], ownerId: st
   });
 }
 
-export async function addTag(personIds: string[], tag: string): Promise<Result<{ count: number }>> {
+/** Bulk "Add labels" from a table selection: the labels are added to what each record already has. */
+export async function addLabels(entity: EntityType, ids: string[], labels: string[]): Promise<Result<{ count: number; changed: number }>> {
   return run(async () => {
-    await actionCan("records:write");
-    const list = z.array(id).min(1).max(500).parse(personIds);
-    const t = z.string().trim().toLowerCase().min(1, "Pick a label.").max(40).parse(tag);
-    const db = await getDb();
-    const rows = await db
-      .update(people)
-      .set({ tags: sql`(select coalesce(jsonb_agg(distinct x), '[]'::jsonb) from jsonb_array_elements_text(${people.tags} || ${JSON.stringify([t])}::jsonb) x)` })
-      .where(inArray(people.id, list))
-      .returning({ id: people.id });
-    await ensureLabels([t]);
+    const result = await svc.addLabels(sessionActor(await actionUser()), z.enum(entityTypes).parse(entity), ids, labels);
     refresh();
-    return { count: rows.length };
+    return result;
+  });
+}
+
+/** Carries labels just added to a parent organization onto every organization that is part of it. */
+export async function addLabelsToChildOrganizations(parentId: string, labels: string[]): Promise<Result<{ count: number; changed: number }>> {
+  return run(async () => {
+    const result = await svc.addLabelsToChildOrganizations(sessionActor(await actionUser()), parentId, labels);
+    refresh();
+    return result;
   });
 }
 

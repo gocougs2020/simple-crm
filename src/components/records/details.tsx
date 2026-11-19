@@ -20,7 +20,7 @@ import { churnReasons, clientHealthLabels, clientHealths, type ClientCategory, t
 import { formatDateOnly, formatDay, formatPhoneInput, parseMoney, personName } from "@/lib/format";
 import { CustomFieldInput, formatCustomValue } from "./custom-field-input";
 import { InlineField, SideCard } from "./inline-field";
-import { LabelChips, LabelPicker, useLabels } from "./labels";
+import { ChildLabelsDialog, LabelChips, LabelPicker, useLabels } from "./labels";
 import { OwnerSelect } from "./owner-select";
 import { RecordPicker, type PickerValue } from "./record-picker";
 
@@ -367,78 +367,89 @@ function LabelsField({ value, carried, onSave }: { value: string[]; carried?: { 
 
 // ─── Organization ────────────────────────────────────────────────────────
 
-export function OrganizationDetails({ org, parent }: { org: Organization; parent: { id: string; name: string } | null }) {
+export function OrganizationDetails({ org, parent, childCount = 0 }: { org: Organization; parent: { id: string; name: string } | null; childCount?: number }) {
   const { parentOrganizations } = useApp();
   // By name; the current one stays in the list even if it was archived or unmarked since.
   const choices = [...parentOrganizations.filter((p) => p.id !== org.id), ...(parent && !parentOrganizations.some((p) => p.id === parent.id) ? [parent] : [])].sort((a, b) => a.name.localeCompare(b.name));
   const save = (patch: Parameters<typeof updateOrganization>[1]) => updateOrganization(org.id, patch).then(ok);
+  // Labels just added to a parent organization, waiting on whether the organizations that are part of it get them too.
+  const [forChildren, setForChildren] = useState<string[] | null>(null);
+  const saveLabels = async (tags: string[]) => {
+    const r = await save({ tags });
+    const added = tags.filter((t) => !org.tags.includes(t));
+    if (r.ok && org.isParent && childCount && added.length) setForChildren(added);
+    return r;
+  };
   return (
-    <SideCard title="Details">
-      <dl>
-        <InlineField label="Name" value={org.name} {...text((name) => save({ name: name ?? "" }))} />
-        <OwnerField value={org.ownerId} onSave={(ownerId) => save({ ownerId })} />
-        <InlineField
-          label="Website"
-          value={org.domain}
-          display={
-            org.domain ? (
-              <a href={`https://${org.domain}`} target="_blank" rel="noopener noreferrer nofollow" className="underline-offset-2 hover:underline" onClick={(e) => e.stopPropagation()}>
-                {org.domain}
-              </a>
-            ) : undefined
-          }
-          {...text((domain) => save({ domain }), { placeholder: "acme.com" })}
-        />
-        <InlineField label="Phone" value={org.phone} copy={org.phone} {...text((phone) => save({ phone }), { type: "tel", format: formatPhoneInput })} />
-        <InlineField label="Industry" value={org.industry} {...text((industry) => save({ industry }))} />
-        <InlineField
-          label="Address"
-          value={org.address}
-          multiline
-          editor={({ value, setValue }) => <Textarea value={value ?? ""} onChange={(e) => setValue(e.target.value)} autoFocus rows={2} className="text-[13.5px]" />}
-          onSave={(address) => save({ address: address?.trim() || null })}
-        />
-        {/* A parent organization isn't part of another, so it has no parent to pick. */}
-        {org.isParent ? null : (
-          <InlineField<string | null>
-            label="Parent organization"
-            value={org.parentId}
-            empty="Add parent organization"
+    <>
+      <SideCard title="Details">
+        <dl>
+          <InlineField label="Name" value={org.name} {...text((name) => save({ name: name ?? "" }))} />
+          <OwnerField value={org.ownerId} onSave={(ownerId) => save({ ownerId })} />
+          <InlineField
+            label="Website"
+            value={org.domain}
             display={
-              parent ? (
-                <Link href={`/organizations/${parent.id}`} className="underline-offset-2 hover:underline" onClick={(e) => e.stopPropagation()}>
-                  {parent.name}
-                </Link>
+              org.domain ? (
+                <a href={`https://${org.domain}`} target="_blank" rel="noopener noreferrer nofollow" className="underline-offset-2 hover:underline" onClick={(e) => e.stopPropagation()}>
+                  {org.domain}
+                </a>
               ) : undefined
             }
-            editor={({ value, commit, autoFocus }) =>
-              choices.length ? (
-                <Select value={value ?? ""} onChange={(e) => commit(e.target.value || null)} autoFocus={autoFocus} aria-label="Parent organization" className="[&_select]:h-8 [&_select]:text-[13.5px]">
-                  <option value="">None</option>
-                  {choices.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </Select>
-              ) : (
-                <p className="py-1.5 text-[12.5px] text-muted">No parent organizations yet. Open the organization that should be the parent and mark it as one.</p>
-              )
-            }
-            onSave={(parentId) => save({ parentId })}
+            {...text((domain) => save({ domain }), { placeholder: "acme.com" })}
           />
-        )}
-        <LabelsField value={org.tags} onSave={(tags) => save({ tags })} />
-        <InlineField<boolean>
-          label="Is a parent"
-          value={org.isParent}
-          display={org.isParent ? "Yes, others can be part of it" : "No"}
-          editor={({ value, commit }) => <Checkbox checked={value} onChange={(e) => commit(e.target.checked)} label="Other organizations can be part of it" autoFocus />}
-          onSave={(isParent) => save({ isParent })}
-        />
-        <CustomFieldRows entity="organization" values={org.custom} onSave={(key, v) => save({ custom: { [key]: v } })} />
-      </dl>
-    </SideCard>
+          <InlineField label="Phone" value={org.phone} copy={org.phone} {...text((phone) => save({ phone }), { type: "tel", format: formatPhoneInput })} />
+          <InlineField label="Industry" value={org.industry} {...text((industry) => save({ industry }))} />
+          <InlineField
+            label="Address"
+            value={org.address}
+            multiline
+            editor={({ value, setValue }) => <Textarea value={value ?? ""} onChange={(e) => setValue(e.target.value)} autoFocus rows={2} className="text-[13.5px]" />}
+            onSave={(address) => save({ address: address?.trim() || null })}
+          />
+          {/* A parent organization isn't part of another, so it has no parent to pick. */}
+          {org.isParent ? null : (
+            <InlineField<string | null>
+              label="Parent organization"
+              value={org.parentId}
+              empty="Add parent organization"
+              display={
+                parent ? (
+                  <Link href={`/organizations/${parent.id}`} className="underline-offset-2 hover:underline" onClick={(e) => e.stopPropagation()}>
+                    {parent.name}
+                  </Link>
+                ) : undefined
+              }
+              editor={({ value, commit, autoFocus }) =>
+                choices.length ? (
+                  <Select value={value ?? ""} onChange={(e) => commit(e.target.value || null)} autoFocus={autoFocus} aria-label="Parent organization" className="[&_select]:h-8 [&_select]:text-[13.5px]">
+                    <option value="">None</option>
+                    {choices.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <p className="py-1.5 text-[12.5px] text-muted">No parent organizations yet. Open the organization that should be the parent and mark it as one.</p>
+                )
+              }
+              onSave={(parentId) => save({ parentId })}
+            />
+          )}
+          <LabelsField value={org.tags} onSave={saveLabels} />
+          <InlineField<boolean>
+            label="Is a parent"
+            value={org.isParent}
+            display={org.isParent ? "Yes, others can be part of it" : "No"}
+            editor={({ value, commit }) => <Checkbox checked={value} onChange={(e) => commit(e.target.checked)} label="Other organizations can be part of it" autoFocus />}
+            onSave={(isParent) => save({ isParent })}
+          />
+          <CustomFieldRows entity="organization" values={org.custom} onSave={(key, v) => save({ custom: { [key]: v } })} />
+        </dl>
+      </SideCard>
+      {forChildren ? <ChildLabelsDialog parent={{ id: org.id, name: org.name }} labels={forChildren} count={childCount} onClose={() => setForChildren(null)} /> : null}
+    </>
   );
 }
 

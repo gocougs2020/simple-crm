@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import type { EntityType } from "@/lib/constants";
@@ -10,7 +10,7 @@ import { diff, labelRelations, recordEvent } from "@/lib/crm/events";
 import { withCustomChanges } from "@/lib/crm/inputs";
 import { ensureLabels } from "@/lib/crm/labels";
 import { distinct, emailKey, phoneKey } from "@/lib/crm/merge";
-import { id, orgInput, personInput } from "@/lib/crm/schemas";
+import { id, orgInput, personInput, tagList } from "@/lib/crm/schemas";
 import { ActionError, ConflictError, NotFoundError } from "@/lib/errors";
 import { recordAssigned } from "@/lib/push/triggers";
 import { matchKey } from "@/lib/phone/numbers";
@@ -257,4 +257,44 @@ export async function setArchived(a: Actor, entity: EntityType, ids: string[], a
     .returning({ id: table.id });
   for (const r of rows) await recordEvent({ entityType: entity, entityId: r.id, action: archived ? "archived" : "restored", ...stamp(a) });
   return { count: rows.length, ids: rows.map((r) => r.id) };
+}
+
+// ─── Labels on many records ──────────────────────────────────────────────
+
+/** Puts labels on the records a condition picks, keeping the ones they have, and writes history for each record that changed. */
+async function addLabelsWhere(a: Actor, entity: EntityType, where: SQL, names: string[]) {
+  const table = tables[entity];
+  const db = await getDb();
+  const before = await db.select({ id: table.id, tags: table.tags }).from(table).where(where);
+  const changed = before.filter((b) => names.some((n) => !b.tags.includes(n))).map((b) => ({ ...b, next: [...new Set([...b.tags, ...names])] }));
+  if (!changed.length) return { count: before.length, changed: 0 };
+  const ids = changed.map((b) => b.id);
+  // The labels are added in SQL, so a change made to a record's labels since the read above isn't written over.
+  await db
+    .update(table)
+    .set({ tags: sql`(select coalesce(jsonb_agg(x order by ord), '[]'::jsonb) from (select x, min(ord) as ord from jsonb_array_elements_text(${table.tags} || ${JSON.stringify(names)}::jsonb) with ordinality t(x, ord) group by x) u)`, updatedAt: new Date() })
+    .where(inArray(table.id, ids));
+  await ensureLabels(names);
+  for (const b of changed) await recordEvent({ entityType: entity, entityId: b.id, action: "updated", data: { changes: [{ field: "tags", label: "Labels", from: b.tags, to: b.next }] }, ...stamp(a) });
+  return { count: before.length, changed: changed.length };
+}
+
+const labelNames = tagList.min(1, "Pick a label.").transform((names) => [...new Set(names)]);
+
+/** Adds labels to the selected people, organizations or clients. `count` is how many records were picked; `changed` how many didn't have them all already. */
+export async function addLabels(a: Actor, entity: EntityType, ids: string[], labels: string[]) {
+  assertCan(a, "records:write");
+  const list = z.array(id).min(1).max(500).parse(ids);
+  return addLabelsWhere(a, entity, inArray(tables[entity].id, list), labelNames.parse(labels));
+}
+
+/** Adds labels to every organization that is part of a parent organization. Archived ones are left alone. */
+export async function addLabelsToChildOrganizations(a: Actor, parentId: string, labels: string[]) {
+  assertCan(a, "records:write");
+  const names = labelNames.parse(labels);
+  const db = await getDb();
+  const [parent] = await db.select({ id: organizations.id, isParent: organizations.isParent }).from(organizations).where(eq(organizations.id, id.parse(parentId)));
+  if (!parent) throw new NotFoundError("This organization was deleted.");
+  if (!parent.isParent) throw new ConflictError("This organization isn't a parent organization, so no organizations are part of it.");
+  return addLabelsWhere(a, "organization", and(eq(organizations.parentId, parent.id), isNull(organizations.archivedAt))!, names);
 }

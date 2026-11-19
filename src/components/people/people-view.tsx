@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 import { ArrowUpTrayIcon, PlusIcon } from "@heroicons/react/20/solid";
 import { UserIcon } from "@heroicons/react/24/outline";
-import { addTag, assignOwner, morePeople, setArchived } from "@/actions/records";
+import { assignOwner, morePeople, setArchived } from "@/actions/records";
 import { useApp } from "@/components/app-context";
 import { CategoryBadge } from "@/components/clients/client-controls";
 import { BulkButton } from "@/components/clients/clients-view";
@@ -21,7 +21,7 @@ import { usePagedRows } from "@/components/table/use-paged-rows";
 import { useListParams } from "@/components/table/use-params";
 import { MergeDialog, type MergeCandidate } from "@/components/records/merge-dialog";
 import { Avatar } from "@/components/ui/avatar";
-import { LabelChips, useLabels } from "@/components/records/labels";
+import { BulkAddLabels, LabelChips, useLabels } from "@/components/records/labels";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Select } from "@/components/ui/field";
@@ -36,9 +36,8 @@ const rowId = (r: Row) => r.person.id;
 
 export function PeopleView({ rows: first, total, filter, pageSize, tags, filtered }: { rows: Row[]; total: number; filter: PeopleFilter; pageSize: number; tags: string[]; filtered: boolean }) {
   const labels = useLabels();
-  // What the filter and the bulk action offer: labels the app shows.
+  // What the filter offers: labels the app shows.
   const shownTags = labels.shown(tags);
-  const pickable = labels.all.filter((l) => !l.hidden);
   const { viewer, customFields, money, team, member, canEdit } = useApp();
   const { get, set } = useListParams();
   const [importing, setImporting] = useState(false);
@@ -191,29 +190,7 @@ export function PeopleView({ rows: first, total, filter, pageSize, tags, filtere
                 No owner
               </option>
             </select>
-            {pickable.length ? (
-              <select
-                className="h-7 rounded-md border border-white/20 bg-white/10 px-2 text-[12.5px] text-white"
-                defaultValue=""
-                onChange={async (e) => {
-                  const label = e.target.value;
-                  const r = await addTag(ids, label);
-                  if (!r.ok) return void toast.error(r.error);
-                  toast.success(`${r.data.count} ${r.data.count === 1 ? "person" : "people"} labeled ${label}`);
-                  clear();
-                }}
-                aria-label="Add label"
-              >
-                <option value="" disabled>
-                  Add label…
-                </option>
-                {pickable.map((l) => (
-                  <option key={l.name} value={l.name} className="text-primary">
-                    {l.name}
-                  </option>
-                ))}
-              </select>
-            ) : null}
+            <BulkAddLabels entity="person" ids={ids} onDone={clear} />
             <BulkButton
               onClick={async () => {
                 const r = await setArchived("person", ids, true);
