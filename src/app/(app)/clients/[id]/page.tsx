@@ -60,7 +60,7 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
     metricsOf(id),
     clientPeople(client),
   ]);
-  // Everyone a call, email, text or meeting from this page can be with: the contact first.
+  // Everyone a call, email, text or meeting from this page can be with: the contact, then decision makers, then everyone else.
   const contacts = associated.map(({ person: p, source }) => ({
     personId: p.id,
     name: personName(p),
@@ -68,6 +68,7 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
     phone: p.phone,
     textOptedOut: !!p.textOptOutAt,
     detail: source === "contact" ? ["Contact", p.title].filter(Boolean).join(", ") : p.title,
+    starred: p.decisionMaker,
   }));
   const stage = app.pipelines.flatMap((p) => p.stages).find((s) => s.id === client.stageId);
   const today = dayKey(new Date(), app.workspace.timezone);

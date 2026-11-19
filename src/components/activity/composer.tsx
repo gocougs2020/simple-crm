@@ -2,7 +2,7 @@
 
 import clsx from "clsx";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
 import { PaperClipIcon, XMarkIcon } from "@heroicons/react/20/solid";
 import {
   ArrowDownLeftIcon,
@@ -273,7 +273,9 @@ function CallNow({ links, recipient }: { links: Links; recipient: Recipient }) {
 
 function ActivityForm({ type, links, contacts }: { type: ActivityType; links: Links; /** Meetings: the people who can be put on it. */ contacts?: Contact[] }) {
   const { workspace, viewer, services, canEdit } = useApp();
-  const tz = workspace.timezone;
+  // Times here are in the teammate's own time zone, so "now" reads as now to them wherever the workspace is set
+  // (a Mountain-time teammate on a Pacific-time workspace sees 2:00, not 1:00). The moment saved is the same either way.
+  const tz = useLocalTimeZone(workspace.timezone);
   // Background work (docs/AGENT.md): tasks can go to the agent, and a note can call on it with @Agent.
   const assistantWorks = services.ai.background && canEdit;
   const editor = useRef<RichTextHandle>(null);
@@ -285,6 +287,17 @@ function ActivityForm({ type, links, contacts }: { type: ActivityType; links: Li
   // When it happened, or when it's due. Defaults: now for things that happened, tomorrow for tasks.
   const [day, setDay] = useState(() => (type === "task" ? dayFromToday(tz, 1) : dayFromToday(tz)));
   const [time, setTime] = useState(() => (type === "task" ? "" : timeKey(new Date(), tz)));
+  // The page is first drawn in the workspace's zone (the server can't know the teammate's), then switches to theirs:
+  // the defaults move with it, unless they've already picked a day or time.
+  const [whenPicked, setWhenPicked] = useState(false);
+  const [defaultsTz, setDefaultsTz] = useState(tz);
+  if (defaultsTz !== tz) {
+    setDefaultsTz(tz);
+    if (!whenPicked) {
+      setDay(type === "task" ? dayFromToday(tz, 1) : dayFromToday(tz));
+      setTime(type === "task" ? "" : timeKey(new Date(), tz));
+    }
+  }
   const [assigneeId, setAssigneeId] = useState<string | null>(viewer.id);
   const [followUp, setFollowUp] = useState<number | null>(null);
   /** Meetings: who's on it. Nobody is fine: it's then simply a meeting with the client. */
@@ -304,6 +317,7 @@ function ActivityForm({ type, links, contacts }: { type: ActivityType; links: Li
   const label = forAssistant ? `Give to ${appConfig.agent.name}` : isTask ? "Add task" : planned ? `Schedule ${type}` : `Log ${activityLabels[type].toLowerCase()}`;
 
   const reset = () => {
+    setWhenPicked(false);
     editor.current?.clear();
     setBody("");
     setSubject("");
@@ -382,11 +396,36 @@ function ActivityForm({ type, links, contacts }: { type: ActivityType; links: Li
             <label className="sr-only" htmlFor={`${type}-day`}>
               {isTask ? "Due date" : "Date"}
             </label>
-            <Input id={`${type}-day`} type="date" value={day} onChange={(e) => setDay(e.target.value)} className="h-8 w-[9.5rem] text-[13px]" />
+            <Input
+              id={`${type}-day`}
+              type="date"
+              value={day}
+              onChange={(e) => {
+                setWhenPicked(true);
+                setDay(e.target.value);
+              }}
+              className="h-8 w-[9.5rem] text-[13px]"
+            />
             <label className="sr-only" htmlFor={`${type}-time`}>
               Time
             </label>
-            <Input id={`${type}-time`} type="time" value={time} onChange={(e) => setTime(e.target.value)} className="h-8 w-[7.5rem] text-[13px]" step={900} />
+            <Input
+              id={`${type}-time`}
+              type="time"
+              value={time}
+              onChange={(e) => {
+                setWhenPicked(true);
+                setTime(e.target.value);
+              }}
+              className="h-8 w-[7.5rem] text-[13px]"
+              step={900}
+            />
+            {/* Named only when it isn't the workspace's, so nobody wonders which zone the time is in. */}
+            {tz !== workspace.timezone ? (
+              <span className="text-[12px] text-muted" title={`Your time zone (${tz}). The workspace is set to ${workspace.timezone}.`}>
+                {zoneAbbreviation(tz)}
+              </span>
+            ) : null}
           </div>
           {type === "meeting" ? (
             <Input
@@ -541,6 +580,21 @@ function Chips({ value, onChange, options }: { value: string | null; onChange: (
       ))}
     </div>
   );
+}
+
+/** The device's time zone ("America/Denver"). `fallback` (the workspace's) while rendering on the server and hydrating, so the markup matches. */
+function useLocalTimeZone(fallback: string) {
+  return useSyncExternalStore(
+    noSubscribe,
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || fallback,
+    () => fallback,
+  );
+}
+const noSubscribe = () => () => {};
+
+/** "MST", "PDT": the short name of a time zone right now. */
+function zoneAbbreviation(tz: string) {
+  return new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "short" }).formatToParts(new Date()).find((p) => p.type === "timeZoneName")?.value ?? tz;
 }
 
 /** The current time, refreshed every 30 seconds, so "is this in the future?" stays right while a form is open. */
