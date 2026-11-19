@@ -3,7 +3,8 @@ import { describe, it } from "node:test";
 import { graphAddress, stripQuoted } from "./mail-text";
 import { Experimental_DecisionMockModelV4 as MockDecisionModel } from "ai/test";
 import { decideSensitive } from "./screen-decide";
-import { keepsOut, screenQuestion, screenState } from "./screen-prompt";
+import { screenQuestion, screenState } from "./screen-prompt";
+import { internalDomains, isBlocked, outsiders, parseBlockList, visibilityFor } from "./sync-rules";
 
 describe("synced mail text", () => {
   it("keeps the new part of a reply and drops the quoted thread", () => {
@@ -46,17 +47,48 @@ describe("mail screen", () => {
     assert.ok(state.body.length < 6_100);
   });
 
-  it("keeps an email out at or above the threshold", () => {
-    assert.equal(keepsOut(0.5, 0.5), true);
-    assert.equal(keepsOut(0.49, 0.5), false);
-    assert.equal(keepsOut(0.9, 2), false);
-    assert.equal(keepsOut(0.6, Number.NaN), true);
+  it("sorts a probability into public, private or not stored", () => {
+    const t = { private: 0.3, withhold: 0.85 };
+    assert.equal(visibilityFor(0.05, t), "public");
+    assert.equal(visibilityFor(0.3, t), "private");
+    assert.equal(visibilityFor(0.84, t), "private");
+    assert.equal(visibilityFor(0.85, t), "withhold");
+    // A private threshold above the withhold one never widens what's public past it.
+    assert.equal(visibilityFor(0.5, { private: 0.9, withhold: 0.6 }), "public");
+    assert.equal(visibilityFor(0.6, { private: 0.9, withhold: 0.6 }), "withhold");
+    assert.equal(visibilityFor(0.9, { private: Number.NaN, withhold: Number.NaN }), "withhold");
+  });
+});
+
+describe("which mail the sync looks at", () => {
+  const team = new Set(["sam@us.com", "pat@gmail.com"]);
+  const domains = internalDomains(["sam@us.com", "pat@gmail.com"], ["@Sister.co"]);
+
+  it("treats our own domains as ours, but never a public mail domain", () => {
+    assert.deepEqual([...domains].sort(), ["sister.co", "us.com"]);
+  });
+
+  it("only counts people outside our organization", () => {
+    // A colleague without a login, a teammate and a teammate on Gmail are all ours.
+    assert.deepEqual(outsiders(["New.Hire@us.com", "sam@us.com", "pat@gmail.com", "x@sister.co"], team, domains), []);
+    assert.deepEqual(outsiders(["sam@us.com", "Jo@Acme.com", "jo@acme.com", "kim@gmail.com", ""], team, domains), ["jo@acme.com", "kim@gmail.com"]);
+  });
+
+  it("reads a block list and matches addresses, domains and subdomains", () => {
+    const { entries, invalid } = parseBlockList("Jo@Acme.com, @legal.co\nlegal.co\nnot an address!");
+    assert.deepEqual(entries, ["jo@acme.com", "legal.co"]);
+    assert.deepEqual(invalid, ["not", "an", "address!"]);
+    assert.equal(isBlocked(["jo@acme.com"], entries), true);
+    assert.equal(isBlocked(["sue@acme.com"], entries), false);
+    assert.equal(isBlocked(["x@mail.legal.co"], entries), true);
+    assert.equal(isBlocked(["x@notlegal.co"], entries), false);
+    assert.equal(isBlocked(["x@legal.co"], []), false);
   });
 });
 
 describe("screening with a decision model", () => {
   const email = { from: "Jo <jo@acme.com>", to: ["sam@us.com"], subject: "Q3 pricing", text: "Can you send the updated quote?" };
-  const opts = { sensitive: "Health matters.", workspaceName: "Acme", threshold: 0.6, timeoutMs: 2_000 };
+  const opts = { sensitive: "Health matters.", workspaceName: "Acme", threshold: 0.6, privateThreshold: 0.3, timeoutMs: 2_000 };
   const model = (probability: number | Error, seen: unknown[] = []) =>
     new MockDecisionModel({
       provider: "typesafe-ai",
@@ -79,20 +111,20 @@ describe("screening with a decision model", () => {
     assert.match(call, /"ourTeam":\["Sam Owner <sam@us.com>"\]/);
   });
 
-  it("keeps sensitive mail out and lets the rest in, with the score", async () => {
+  it("keeps sensitive mail out, keeps doubtful mail private and lets the rest in, with the score", async () => {
     assert.deepEqual(await decideSensitive(model(0.82), email, opts), { decision: "withhold", reason: "Looked sensitive (82% likely)", screened: true, score: 0.82 });
     assert.deepEqual(await decideSensitive(model(0.07), email, opts), { decision: "import", reason: "Screened (7% likely sensitive)", screened: true, score: 0.07 });
-    // At 0.6, a 55% "maybe" goes in and 60% stays out.
-    assert.equal((await decideSensitive(model(0.55), email, opts)).decision, "import");
+    assert.deepEqual(await decideSensitive(model(0.45), email, opts), { decision: "private", reason: "Might be sensitive (45% likely)", screened: true, score: 0.45 });
+    assert.equal((await decideSensitive(model(0.29), email, opts)).decision, "import");
     assert.equal((await decideSensitive(model(0.6), email, opts)).decision, "withhold");
   });
 
-  it("lets mail in unscreened when the model fails", async () => {
+  it("keeps mail private, unscreened, when the model fails", async () => {
     const original = console.error;
     console.error = () => {};
     try {
       const r = await decideSensitive(model(new Error("down")), email, opts);
-      assert.deepEqual(r, { decision: "import", reason: "Not screened: the screen didn't answer", screened: false, score: null });
+      assert.deepEqual(r, { decision: "private", reason: "Not screened: the screen didn't answer", screened: false, score: null });
     } finally {
       console.error = original;
     }

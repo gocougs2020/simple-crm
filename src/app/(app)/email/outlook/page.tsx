@@ -19,7 +19,8 @@ export default function OutlookPage() {
 }
 
 /**
- * What the sync copied from the signed-in teammate's own mailbox. The account
+ * What the sync stored from the signed-in teammate's own mailbox: on records
+ * for the team, or private to them. The account
  * is always looked up from the session, never from the URL, so there's no way
  * to open someone else's list, owner or not.
  */
@@ -34,6 +35,9 @@ async function Outlook() {
       rows={rows.map((r) => ({
         id: r.id,
         activityId: r.activityId,
+        visibility: r.status === "private" ? ("private" as const) : ("public" as const),
+        // Why the screen kept it private, in its own words.
+        reason: r.status === "private" ? r.reason : null,
         direction: r.direction,
         from: r.from,
         to: r.to,

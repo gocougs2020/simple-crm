@@ -5,11 +5,13 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
-import { ActionError, actionOwner, actionUser } from "@/lib/auth";
+import { ActionError, actionEditor, actionOwner, actionUser } from "@/lib/auth";
+import { recordEvent } from "@/lib/crm/events";
 import { calendarSharings } from "@/lib/constants";
 import { microsoftConfigured } from "@/lib/microsoft/config";
 import { accountOf, GraphError } from "@/lib/microsoft/graph";
-import { removeSyncedMail, syncMailbox } from "@/lib/microsoft/mail";
+import { clearPrivateMail, INBOX, listMailFolders, removePrivateEmail, removeSyncedMail, SENT_ITEMS, shareSyncedEmail, syncMailbox, unshareSyncedEmail } from "@/lib/microsoft/mail";
+import { MAX_BLOCKED, parseBlockList } from "@/lib/microsoft/sync-rules";
 
 /**
  * A teammate's own connected Microsoft 365 account: what it's used for, who
@@ -34,16 +36,35 @@ const settingsInput = z.object({
   syncMail: z.boolean().optional(),
   syncCalendar: z.boolean().optional(),
   calendarSharing: z.enum(calendarSharings).optional(),
+  /** The block list as typed: addresses and domains, one per line or separated by commas. */
+  blocked: z.string().max(20_000).optional(),
+  /** The folders to sync, or null for Inbox and Sent Items. */
+  mailFolders: z.array(z.object({ id: z.string().min(1).max(300), name: z.string().min(1).max(200) })).min(1).max(25).nullable().optional(),
 });
 
 export async function updateMicrosoftAccount(input: z.input<typeof settingsInput>): Promise<Result> {
   return run(async () => {
     const user = await actionUser();
-    const data = settingsInput.parse(input);
+    const { blocked, ...data } = settingsInput.parse(input);
+    const list = blocked === undefined ? undefined : parseBlockList(blocked);
+    if (list?.invalid.length) throw new ActionError(`These aren't email addresses or domains: ${list.invalid.slice(0, 5).join(", ")}. Use one per line, like jo@acme.com or acme.com.`);
+    if (list?.tooMany) throw new ActionError(`A block list holds up to ${MAX_BLOCKED} addresses and domains.`);
     const db = await getDb();
+    // Inbox or Sent Items coming back into the sync starts from now, not from wherever it was left months ago.
+    let mailCursor: Record<string, string> | undefined;
+    if (data.mailFolders !== undefined) {
+      const account = await accountOf(user.id);
+      if (account) {
+        const synced = (folders: { id: string }[] | null) => (folders?.length ? folders.map((f) => f.id) : [INBOX, SENT_ITEMS]);
+        const before = synced(account.mailFolders);
+        const now = new Date().toISOString();
+        mailCursor = { ...account.mailCursor };
+        for (const [id, key] of [[INBOX, "inbox"], [SENT_ITEMS, "sent"]] as const) if (synced(data.mailFolders).includes(id) && !before.includes(id)) mailCursor[key] = now;
+      }
+    }
     const rows = await db
       .update(t)
-      .set({ ...data, updatedAt: new Date() })
+      .set({ ...data, ...(list ? { blocked: list.entries } : {}), ...(mailCursor ? { mailCursor } : {}), updatedAt: new Date() })
       .where(and(eq(t.userId, user.id), eq(t.provider, "microsoft")))
       .returning({ id: t.id });
     if (!rows.length) throw new ActionError("Your Microsoft account isn't connected anymore. Connect it again.");
@@ -52,7 +73,7 @@ export async function updateMicrosoftAccount(input: z.input<typeof settingsInput
 }
 
 /** Runs the mailbox sync for the signed-in teammate right away. */
-export async function syncMyMailbox(): Promise<Result<{ imported: number; withheld: number }>> {
+export async function syncMyMailbox(): Promise<Result<{ imported: number; private: number; withheld: number }>> {
   return run(async () => {
     const user = await actionUser();
     const account = await accountOf(user.id);
@@ -85,6 +106,7 @@ export async function disconnectMicrosoft(input: { removeMail?: boolean } = {}):
     const account = await accountOf(user.id);
     if (!account) return;
     if (input.removeMail === true) await removeSyncedMail(account.id);
+    else await clearPrivateMail(account.id);
     const db = await getDb();
     await db.delete(t).where(eq(t.id, account.id));
     refresh();
@@ -108,10 +130,57 @@ export async function disconnectTeammateMicrosoft(input: z.input<typeof teammate
       return { email: null };
     }
     if (data.removeMail === true) await removeSyncedMail(account.id);
+    else await clearPrivateMail(account.id);
     const db = await getDb();
     await db.delete(t).where(eq(t.id, account.id));
     console.info(`[microsoft] owner ${owner.id} disconnected the account of user ${data.userId}${data.removeMail ? ", copied mail removed" : ""}`);
     refresh();
     return { email: account.email };
+  });
+}
+
+/** The signed-in teammate's own mail folders, for choosing which ones sync. */
+export async function myMailFolders(): Promise<Result<{ id: string; name: string }[]>> {
+  return run(async () => {
+    const user = await actionUser();
+    const account = await accountOf(user.id);
+    if (!account) throw new ActionError("Connect your Microsoft account first.");
+    try {
+      return await listMailFolders(account);
+    } catch (err) {
+      if (err instanceof GraphError) throw new ActionError(err.message);
+      throw err;
+    }
+  });
+}
+
+const visibilityInput = z.object({ id: z.uuid(), visibility: z.enum(["public", "private"]) });
+
+/**
+ * Shares a private synced email with the team, or takes a shared one back to
+ * private. Only for mail from the signed-in teammate's own mailbox: the
+ * lookup is by their session, so no id reaches anyone else's.
+ */
+export async function setSyncedEmailVisibility(input: z.input<typeof visibilityInput>): Promise<Result> {
+  return run(async () => {
+    const user = await actionEditor();
+    const data = visibilityInput.parse(input);
+    if (data.visibility === "public") await shareSyncedEmail(user.id, data.id);
+    else {
+      const links = await unshareSyncedEmail(user.id, data.id);
+      const entity = links?.clientId ? ("client" as const) : links?.personId ? ("person" as const) : links?.organizationId ? ("organization" as const) : null;
+      // The history says an email came off the record, never what it was about.
+      if (links && entity) await recordEvent({ entityType: entity, entityId: (links.clientId ?? links.personId ?? links.organizationId)!, action: "activity_deleted", data: { type: "email" }, userId: user.id });
+    }
+    refresh();
+  });
+}
+
+/** Deletes one of the signed-in teammate's private synced emails from the CRM. It stays in their Outlook and is never synced again. */
+export async function deletePrivateEmail(id: string): Promise<Result> {
+  return run(async () => {
+    const user = await actionEditor();
+    await removePrivateEmail(user.id, z.uuid().parse(id));
+    refresh();
   });
 }

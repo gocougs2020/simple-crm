@@ -488,7 +488,8 @@ export async function recordTimeline(entity: EntityType, id: string, limit = 50)
   await assertExists(entity, id);
   const t = await timeline(entity, id);
   const event = (e: typeof schema.events.$inferSelect) => ({ id: e.id, action: e.action, data: e.data, userId: e.userId, apiKeyId: e.apiKeyId, createdAt: iso(e.createdAt)! });
-  const history = [...t.pinned, ...t.past].slice(0, limit).map((i) => {
+  // No viewer is passed, so a teammate's private mail is never read here. The filter makes that true for the types too.
+  const history = [...t.pinned, ...t.past].filter((i) => i.kind !== "privateMail").slice(0, limit).map((i) => {
     if (i.kind === "activity") return { kind: "activity" as const, at: i.at, activity: toActivity(i.row) };
     if (i.kind === "event") return { kind: "event" as const, at: i.at, event: event(i.event) };
     return { kind: "file" as const, at: i.at, file: { id: i.file.id, name: i.file.name, size: i.file.size, contentType: i.file.contentType } };

@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
-import { ArrowDownLeftIcon, ArrowUpRightIcon } from "@heroicons/react/20/solid";
+import { ArrowDownLeftIcon, ArrowUpRightIcon, LockClosedIcon } from "@heroicons/react/20/solid";
 import { EnvelopeIcon } from "@heroicons/react/24/outline";
-import { syncMyMailbox } from "@/actions/accounts";
+import { deletePrivateEmail, setSyncedEmailVisibility, syncMyMailbox } from "@/actions/accounts";
 import { deleteActivity } from "@/actions/activities";
 import { useApp } from "@/components/app-context";
 import { PageHeader } from "@/components/shell/app-shell";
+import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -17,7 +18,11 @@ import { EmailTabs } from "./email-tabs";
 
 export type OutlookRow = {
   id: string;
-  activityId: string;
+  /** Its entry on the record; null while it's private. */
+  activityId: string | null;
+  /** `public`: on the record for the team. `private`: only this teammate sees it. */
+  visibility: "public" | "private";
+  reason: string | null;
   direction: "inbound" | "outbound";
   from: string | null;
   to: string[];
@@ -29,9 +34,9 @@ export type OutlookRow = {
 };
 
 /**
- * Email → My Outlook: the mail the sync copied from the viewer's own mailbox
- * onto records, so they can see what the team sees and take back anything
- * that shouldn't be there. Their whole inbox stays in Outlook.
+ * Email → My Outlook: the mail the sync stored from the viewer's own mailbox.
+ * Each email is either on its record for the team or private to them; they
+ * can switch it either way, or delete it. Their whole inbox stays in Outlook.
  */
 export function OutlookList({
   account,
@@ -41,12 +46,13 @@ export function OutlookList({
 }: {
   account: { email: string; syncMail: boolean; needsReconnect: boolean; lastSyncAt: string | null } | null;
   rows: OutlookRow[];
-  stats: { imported: number; withheld: number; unscreened: number } | null;
+  stats: { imported: number; private: number; withheld: number; unscreened: number } | null;
   category: string | null;
 }) {
   const { workspace, canEdit } = useApp();
   const [removing, setRemoving] = useState<OutlookRow | null>(null);
   const [pending, start] = useTransition();
+  const [syncing, startSync] = useTransition();
   const tz = workspace.timezone;
 
   return (
@@ -54,12 +60,12 @@ export function OutlookList({
       <PageHeader title="Email">
         {account?.syncMail && !account.needsReconnect ? (
           <Button
-            loading={pending && !removing}
+            loading={syncing}
             onClick={() =>
-              start(async () => {
+              startSync(async () => {
                 const r = await syncMyMailbox();
                 if (!r.ok) return void toast.error(r.error);
-                toast.success(r.data.imported || r.data.withheld ? `Synced: ${r.data.imported} copied, ${r.data.withheld} kept out` : "Up to date");
+                toast.success(syncSummary(r.data));
               })
             }
           >
@@ -84,7 +90,7 @@ export function OutlookList({
           <>
             <div className="mb-4 rounded-xl border border-line bg-surface px-4 py-3">
               <p className="text-[13.5px] text-secondary">
-                Mail copied from <span className="font-medium text-primary">{account.email}</span> onto records. Only you see this list. The rest of your mailbox stays in Outlook.
+                Mail synced from <span className="font-medium text-primary">{account.email}</span>. Shared emails are on their records for the team; private ones are only for you, here and on the record. Only you see this list.
               </p>
               <p className="mt-1 text-[12.5px] text-muted tabular-nums">
                 {account.needsReconnect
@@ -94,8 +100,8 @@ export function OutlookList({
                     : account.lastSyncAt
                       ? `Last synced ${formatAgo(account.lastSyncAt, tz)}.`
                       : "Not synced yet."}
-                {stats ? ` Last 30 days: ${stats.imported} copied, ${stats.withheld} kept out.` : ""}
-                {category && stats?.withheld ? ` Kept-out emails have the “${category}” category in Outlook.` : ""}{" "}
+                {stats ? ` Last 30 days: ${stats.imported} shared, ${stats.private} private, ${stats.withheld} not stored.` : ""}
+                {category && stats?.withheld ? ` Emails that weren't stored have the “${category}” category in Outlook.` : ""}{" "}
                 <Link href="/settings/accounts" className="font-medium text-accent hover:underline">
                   Settings
                 </Link>
@@ -112,6 +118,11 @@ export function OutlookList({
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline gap-2">
                           <p className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-primary">{r.subject || "No subject"}</p>
+                          {r.visibility === "private" ? (
+                            <StatusBadge icon={<LockClosedIcon className="size-3" aria-hidden />}>Private</StatusBadge>
+                          ) : (
+                            <StatusBadge tone="success">Shared</StatusBadge>
+                          )}
                           <time dateTime={r.sentAt} className="shrink-0 text-[12px] text-muted tabular-nums">
                             {formatDateTime(r.sentAt, tz)}
                           </time>
@@ -128,18 +139,36 @@ export function OutlookList({
                           ) : null}
                         </p>
                         {r.snippet ? <p className="mt-0.5 line-clamp-2 text-[12.5px] text-muted">{r.snippet}</p> : null}
+                        {r.reason ? <p className="mt-0.5 text-[12px] text-faint">{r.reason}</p> : null}
                       </div>
                       {canEdit ? (
-                        <Button size="sm" variant="ghost" onClick={() => setRemoving(r)}>
-                          Remove
-                        </Button>
+                        <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={pending}
+                            onClick={() =>
+                              start(async () => {
+                                const to = r.visibility === "private" ? "public" : "private";
+                                const res = await setSyncedEmailVisibility({ id: r.id, visibility: to });
+                                if (!res.ok) return void toast.error(res.error);
+                                toast.success(to === "public" ? "Shared with the team" : "Only you see this email now");
+                              })
+                            }
+                          >
+                            {r.visibility === "private" ? "Share with team" : "Make private"}
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setRemoving(r)}>
+                            Delete
+                          </Button>
+                        </div>
                       ) : null}
                     </li>
                   );
                 })}
               </ul>
             ) : (
-              <EmptyState icon={EnvelopeIcon} title="Nothing copied yet" description="Mail to and from people and organizations in the CRM shows here once the sync has copied it onto their records." />
+              <EmptyState icon={EnvelopeIcon} title="Nothing synced yet" description="Mail with people in the CRM shows here once the sync has stored it: shared on their records, or private to you." />
             )}
             {rows.length >= 100 ? <p className="mt-3 text-center text-fine">Showing the newest 100. Older mail is on each record&apos;s timeline.</p> : null}
           </>
@@ -150,7 +179,7 @@ export function OutlookList({
         <Dialog
           open
           onOpenChange={(o) => !o && setRemoving(null)}
-          title="Remove this email from records?"
+          title="Delete this email from the CRM?"
           description={removing.subject || "No subject"}
           size="sm"
           footer={
@@ -163,21 +192,27 @@ export function OutlookList({
                 loading={pending}
                 onClick={() =>
                   start(async () => {
-                    const r = await deleteActivity(removing.activityId);
+                    const r = removing.activityId ? await deleteActivity(removing.activityId) : await deletePrivateEmail(removing.id);
                     setRemoving(null);
                     if (!r.ok) return void toast.error(r.error);
-                    toast.success("Removed from records");
+                    toast.success("Email deleted");
                   })
                 }
               >
-                Remove
+                Delete
               </Button>
             </>
           }
         >
-          <p className="text-[13.5px] text-secondary">It comes off every timeline for everyone and is never copied again. It stays in your Outlook.</p>
+          <p className="text-[13.5px] text-secondary">{removing.visibility === "public" ? "It comes off every timeline for everyone and is never synced again." : "It's removed from the CRM and never synced again."} It stays in your Outlook.</p>
         </Dialog>
       ) : null}
     </>
   );
+}
+
+/** What a sync did, in a sentence for the toast. */
+export function syncSummary(r: { imported: number; private: number; withheld: number }) {
+  if (!r.imported && !r.private && !r.withheld) return "Up to date";
+  return `Synced: ${r.imported} shared, ${r.private} private, ${r.withheld} not stored`;
 }

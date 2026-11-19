@@ -28,8 +28,8 @@ async function clientFor(personId: string | null, organizationId: string | null)
   return c?.id ?? null;
 }
 
-/** The first address that belongs to a person, else an organization whose website matches an address's domain. Addresses must be lowercased. */
-export async function linksForEmails(addresses: string[]): Promise<Links> {
+/** The first address that belongs to a person, else an organization whose website matches an address's domain (unless `peopleOnly`). Addresses must be lowercased. */
+export async function linksForEmails(addresses: string[], opts: { peopleOnly?: boolean } = {}): Promise<Links> {
   const db = await getDb();
   let personId: string | null = null;
   let organizationId: string | null = null;
@@ -53,6 +53,8 @@ export async function linksForEmails(addresses: string[]): Promise<Links> {
     const first = addresses.map((p) => found.find((f) => f.email?.toLowerCase() === p) ?? found.find((f) => f.otherEmails.some((e) => e.toLowerCase() === p))).find(Boolean);
     personId = first?.id ?? null;
     organizationId = first?.organizationId ?? null;
+    // Synced mailboxes only take mail with someone who is a person here: a matching website alone isn't enough.
+    if (opts.peopleOnly && !personId) return { personId: null, organizationId: null, clientId: null };
     if (!organizationId) {
       const domains = [...new Set(addresses.map((p) => p.split("@")[1]).filter(Boolean))];
       if (domains.length) {

@@ -18,6 +18,7 @@ import { timeline } from "@/lib/crm/activities";
 import { clientsOfPerson, getPerson, otherOrganizationsOf } from "@/lib/crm/records";
 import { personName } from "@/lib/format";
 import { z } from "zod";
+import { requireUser } from "@/lib/auth";
 
 export async function generateMetadata({ params }: PageProps<"/people/[id]">): Promise<Metadata> {
   const { id } = await params;
@@ -47,7 +48,9 @@ async function Person({ params }: Pick<PageProps<"/people/[id]">, "params">) {
     notFound();
   }
   const { person, organization } = row;
-  const [tl, clients, alsoAt] = await Promise.all([timeline("person", id), clientsOfPerson(id, person.organizationId), otherOrganizationsOf(id)]);
+  // Their own private mail with this record is on the timeline, for them alone.
+  const viewer = await requireUser();
+  const [tl, clients, alsoAt] = await Promise.all([timeline("person", id, viewer.id), clientsOfPerson(id, person.organizationId), otherOrganizationsOf(id)]);
   const name = personName(person);
   return (
     <>
