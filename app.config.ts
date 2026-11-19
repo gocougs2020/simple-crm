@@ -116,6 +116,12 @@ export type AppConfig = {
     titleModel: string;
     /** Reads each uploaded file once and describes it. Small and cheap is enough; it has no tools. */
     fileModel: string;
+    /**
+     * Turns file descriptions (and searches) into vectors, so files are found
+     * by meaning. Must make 1536-dimension vectors (the column's width); a
+     * model with another width needs a migration.
+     */
+    embeddingModel: string;
     /** Speech-to-speech for voice chat (a realtime model with tool use). */
     voiceModel: string;
     /** Speech-to-text for the composer's microphone. */
@@ -280,6 +286,7 @@ const defaults = {
     summaryReasoning: "low",
     titleModel: "anthropic/claude-haiku-5.5",
     fileModel: "openai/gpt-6-luna",
+    embeddingModel: "openai/text-embedding-3-small",
     voiceModel: "spacexai/grok-voice-3.0",
     transcriptionModel: "spacexai/grok-stt",
     suggestions: ["What's on my plate today?", "Which clients need attention?", "Add a task to follow up with…", "Log a call with…"],

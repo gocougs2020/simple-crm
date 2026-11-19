@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, boolean, date, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { bigint, boolean, date, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, vector, type AnyPgColumn } from "drizzle-orm/pg-core";
 import type {
   ActivityType,
   AgentDraftKind,
@@ -779,6 +779,13 @@ export const files = pgTable(
     describedAt: timestamp("described_at", { withTimezone: true }),
     /** Claims the description while it's being written, so two requests don't both pay for it. */
     describeStartedAt: timestamp("describe_started_at", { withTimezone: true }),
+    /**
+     * The meaning of the file's name, description and key facts as a vector
+     * (`agent.embeddingModel`, FILE_EMBEDDING_DIMENSIONS wide), so the agent and
+     * the API find files by what a question means, not just its words. Rewritten
+     * whenever the description changes; null when there's none.
+     */
+    embedding: vector("embedding", { dimensions: 1536 }),
     uploadedBy: uuid("uploaded_by")
       .notNull()
       .references(() => users.id),
@@ -795,6 +802,7 @@ export const files = pgTable(
     uniqueIndex("files_public_token_idx").on(t.publicToken),
     /** One row per stored file, so removing a row can never delete bytes another row still uses. */
     uniqueIndex("files_url_idx").on(t.url),
+    index("files_embedding_idx").using("hnsw", t.embedding.op("vector_cosine_ops")),
   ],
 );
 

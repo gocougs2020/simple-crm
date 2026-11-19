@@ -38,6 +38,13 @@ test("a zip that inflates past the budget fails, whatever its headers say", asyn
   assert.equal(await zipFitsUnder(zip(Buffer.alloc(5_000_000)), 1_000_000), false);
 });
 
+test("an entry the directory doesn't list fails, so it can't slip past the check", async () => {
+  const good = zip(Buffer.from("hello"));
+  // A hidden extra local entry in front of the listed one.
+  const hidden = Buffer.concat([Buffer.from(zip(Buffer.alloc(5_000_000)).subarray(0, 30 + 5)), Buffer.from(good)]);
+  assert.equal(await zipFitsUnder(new Uint8Array(hidden), 1_000_000), false);
+});
+
 test("something that isn't a zip fails", async () => {
   assert.equal(await zipFitsUnder(new Uint8Array([1, 2, 3]), 1000), false);
 });

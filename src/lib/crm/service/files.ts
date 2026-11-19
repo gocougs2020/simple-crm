@@ -11,6 +11,7 @@ import { onAnyRecord, recordsFor } from "@/lib/crm/files";
 import { ActionError, ForbiddenError, NotFoundError } from "@/lib/errors";
 import { cleanFileName, fileProblem } from "@/lib/files";
 import { describeSoon } from "@/lib/file-describe";
+import { embedSoon } from "@/lib/file-search";
 import { cleanModelText, DESCRIPTION_MAX } from "@/lib/file-describe-rules";
 
 /**
@@ -124,6 +125,8 @@ export async function updateFile(a: Actor, fileId: string, patch: { name?: strin
   if (!Object.keys(set).length) return;
   const db = await getDb();
   await db.update(files).set(set).where(eq(files.id, f.id));
+  // The vector follows the description: rewritten when it's edited, cleared when it's removed (until it's described again).
+  if (set.description !== undefined || set.name !== undefined) embedSoon(f.id);
   if (redescribe) describeSoon(f.id);
 }
 

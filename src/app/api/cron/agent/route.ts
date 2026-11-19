@@ -21,7 +21,7 @@ export async function GET(request: Request) {
   const swept = await sweepRuns();
   const described = await describeBacklog().catch((err) => {
     console.error("[files] describe backlog", err);
-    return { described: 0 };
+    return { described: 0, embedded: 0 };
   });
   return NextResponse.json({ ...swept, scheduled: jobs.started, ...described });
 }

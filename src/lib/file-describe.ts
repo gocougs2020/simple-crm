@@ -9,6 +9,7 @@ import { aiFeatures } from "@/lib/agent/config";
 import { aiGateway } from "@/lib/agent/gateway";
 import { readStoredBytes } from "@/lib/file-bytes";
 import { cleanModelText, DESCRIBE_BYTES_MAX, describeInstructions, describeKind, DESCRIPTION_MAX, fileTextBlock, NOTES_MAX } from "@/lib/file-describe-rules";
+import { embedBacklog, embedFile } from "@/lib/file-search";
 import { fileText } from "@/lib/file-text";
 
 /**
@@ -77,6 +78,7 @@ export async function describeFile(fileId: string, opts: { again?: boolean } = {
     });
     const description = cleanModelText(output?.description, DESCRIPTION_MAX);
     await finish({ describeStatus: description ? "done" : "failed", description: description || null, contentNotes: cleanModelText(output?.notes, NOTES_MAX, { lines: true }) || null });
+    if (description) await embedFile(f.id).catch((err) => console.error("[files] embed", f.id, err));
   } catch (err) {
     console.error("[files] describe", f.id, err);
     await finish({ describeStatus: "failed" });
@@ -100,7 +102,7 @@ export function describeSoon(fileId: string) {
  * time, so a big backlog spreads over the day.
  */
 export async function describeBacklog(limit = 15) {
-  if (!aiFeatures().files) return { described: 0 };
+  if (!aiFeatures().files) return { described: 0, embedded: 0 };
   const db = await getDb();
   const rows = await db
     .select({ id: files.id })
@@ -110,5 +112,6 @@ export async function describeBacklog(limit = 15) {
     .limit(limit);
   // One file failing doesn't stop the rest.
   for (const r of rows) await describeFile(r.id).catch((err) => console.error("[files] describe", r.id, err));
-  return { described: rows.length };
+  const { embedded } = await embedBacklog();
+  return { described: rows.length, embedded };
 }
