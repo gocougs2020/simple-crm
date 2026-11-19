@@ -25,7 +25,7 @@ type Ctx = AppData & {
 const AppContext = createContext<Ctx | null>(null);
 
 /** Team, pipelines, custom fields and the signed-in viewer, available to every client component. */
-const noComms: Comms = { phone: false, numbers: [], defaultNumberId: null, texting: false, calling: false, microsoft: false, mailbox: null };
+const noComms: Comms = { phone: false, numbers: [], defaultNumberId: null, texting: false, calling: false, microsoft: false, outlook: false, mailbox: null };
 
 export function AppProvider({ data, viewer, comms = noComms, timezone, children }: { data: AppData; viewer: Viewer; comms?: Comms; /** The viewer's time zone (src/lib/time-zone.ts). */ timezone?: string; children: ReactNode }) {
   const value = useMemo<Ctx>(() => {

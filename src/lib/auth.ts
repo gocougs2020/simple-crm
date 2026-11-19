@@ -131,6 +131,13 @@ export async function actionAdmin() {
   return user;
 }
 
+/** For the few things only an owner does, like cutting a teammate's mailbox connection. */
+export async function actionOwner() {
+  const user = await actionUser();
+  if (user.role !== "owner") throw new ActionError("Only an owner can do that.");
+  return user;
+}
+
 /** For actions that change records. Viewers are refused with a sentence that says how to get access. */
 export async function actionCan(permission: Permission) {
   const user = await actionUser();

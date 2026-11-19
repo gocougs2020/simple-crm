@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
 import { touch } from "@/lib/crm/events";
@@ -135,9 +135,20 @@ export async function syncMailbox(account: ConnectedAccount): Promise<MailboxSyn
       TEXT_BODY,
       6,
     );
+    // One lookup for the whole batch: the overlap re-reads the last few minutes on every run, and those are all known.
+    const seen = new Set(
+      messages.length
+        ? (
+            await db
+              .select({ externalId: syncedEmails.externalId })
+              .from(syncedEmails)
+              .where(and(eq(syncedEmails.accountId, account.id), inArray(syncedEmails.externalId, messages.map((m) => m.id))))
+          ).map((r) => r.externalId)
+        : [],
+    );
     for (const m of messages) {
       if (m.isDraft) continue;
-      await handleMessage(ctx, m, folder === "inbox" ? "inbound" : "outbound");
+      if (!seen.has(m.id)) await handleMessage(ctx, m, folder === "inbox" ? "inbound" : "outbound");
       if (!cursor[folder] || m.receivedDateTime > cursor[folder]!) cursor[folder] = m.receivedDateTime;
     }
   }
@@ -160,11 +171,6 @@ async function handleMessage(ctx: Ctx, m: GraphMessage, direction: "inbound" | "
   const others = (direction === "inbound" ? [from.address] : to.map((a) => a.address)).filter((a) => a && !ctx.team.has(a));
   if (!others.length) return;
 
-  const [seen] = await db
-    .select({ id: syncedEmails.id })
-    .from(syncedEmails)
-    .where(and(eq(syncedEmails.accountId, account.id), eq(syncedEmails.externalId, m.id)));
-  if (seen) return;
   const links = await linksForEmails([...new Set(others)]);
   if (!links.personId && !links.organizationId) return;
 
@@ -292,6 +298,67 @@ export async function mailboxStats(accountId: string) {
     .from(syncedEmails)
     .where(and(eq(syncedEmails.accountId, accountId), sql`${syncedEmails.createdAt} > now() - interval '30 days'`));
   return row ?? { imported: 0, withheld: 0, unscreened: 0 };
+}
+
+/**
+ * What was copied from one mailbox and is on records now, newest first, for
+ * that teammate's own "My Outlook" list. Always called with the signed-in
+ * teammate's own account: nobody reads another mailbox's list, whatever their role.
+ */
+export async function copiedMail(accountId: string, limit = 100) {
+  const db = await getDb();
+  const { people, organizations, clients } = schema;
+  return db
+    .select({
+      id: syncedEmails.id,
+      activityId: activities.id,
+      direction: syncedEmails.direction,
+      from: syncedEmails.from,
+      to: syncedEmails.to,
+      sentAt: syncedEmails.sentAt,
+      subject: activities.subject,
+      body: activities.body,
+      personId: activities.personId,
+      personName: sql<string | null>`case when ${people.id} is null then null else ${people.firstName} || coalesce(' ' || ${people.lastName}, '') end`,
+      organizationId: activities.organizationId,
+      organizationName: organizations.name,
+      clientId: activities.clientId,
+      clientName: clients.name,
+    })
+    .from(syncedEmails)
+    .innerJoin(activities, eq(activities.syncedEmailId, syncedEmails.id))
+    .leftJoin(people, eq(people.id, activities.personId))
+    .leftJoin(organizations, eq(organizations.id, activities.organizationId))
+    .leftJoin(clients, eq(clients.id, activities.clientId))
+    .where(and(eq(syncedEmails.accountId, accountId), eq(syncedEmails.status, "imported")))
+    .orderBy(desc(syncedEmails.sentAt))
+    .limit(limit);
+}
+
+/**
+ * Every teammate's connection, for an owner's overview in Settings: whose
+ * mailbox and calendar, what it's used for and whether it's working. Never
+ * the tokens, and nothing about the mail itself.
+ */
+export async function teamConnections() {
+  const db = await getDb();
+  const t = schema.connectedAccounts;
+  return db
+    .select({
+      userId: t.userId,
+      userName: schema.users.name,
+      deactivated: sql<boolean>`${schema.users.deactivatedAt} is not null`,
+      email: t.email,
+      sendMail: t.sendMail,
+      syncMail: t.syncMail,
+      syncCalendar: t.syncCalendar,
+      status: t.status,
+      lastSyncAt: t.lastSyncAt,
+    })
+    .from(t)
+    .innerJoin(schema.users, eq(schema.users.id, t.userId))
+    .where(eq(t.provider, "microsoft"))
+    .orderBy(schema.users.name);
 }
 
 /**

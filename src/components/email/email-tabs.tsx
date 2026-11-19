@@ -3,11 +3,15 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useApp } from "@/components/app-context";
 
 export function EmailTabs() {
   const pathname = usePathname();
+  const { comms } = useApp();
   const tabs = [
     { href: "/email", label: "Inbox", active: pathname === "/email" },
+    // Only their own connected mailbox, and only for them.
+    ...(comms.outlook ? [{ href: "/email/outlook", label: "My Outlook", active: pathname.startsWith("/email/outlook") }] : []),
     { href: "/email/campaigns", label: "Campaigns", active: pathname.startsWith("/email/campaigns") },
     { href: "/email/audiences", label: "Audiences", active: pathname.startsWith("/email/audiences") },
     { href: "/email/templates", label: "Templates", active: pathname.startsWith("/email/templates") },

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { disconnectMicrosoft, syncMyMailbox, updateMicrosoftAccount } from "@/actions/accounts";
+import { disconnectMicrosoft, disconnectTeammateMicrosoft, syncMyMailbox, updateMicrosoftAccount } from "@/actions/accounts";
 import { useApp } from "@/components/app-context";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,18 @@ type Account = {
   lastError: string | null;
 };
 
+type Connection = {
+  userId: string;
+  userName: string;
+  deactivated: boolean;
+  email: string;
+  sendMail: boolean;
+  syncMail: boolean;
+  syncCalendar: boolean;
+  status: "active" | "reconnect";
+  lastSyncAt: string | null;
+};
+
 /**
  * Settings → Email and calendar: a teammate connects their own Microsoft 365
  * mailbox and calendar, and chooses what the CRM does with them.
@@ -33,12 +45,15 @@ export function AccountSettings({
   configured,
   account,
   stats,
+  team,
   sync,
   notice,
 }: {
   configured: boolean;
   account: Account | null;
   stats: { imported: number; withheld: number; unscreened: number } | null;
+  /** Everyone else's connections, for owners only; null for everybody else. */
+  team: Connection[] | null;
   sync: { everyMinutes: number; screening: boolean; screenReady: boolean; category: string | null };
   notice: { connected: string | null; error: string | null };
 }) {
@@ -72,7 +87,7 @@ export function AccountSettings({
     <>
       <Section
         title="Microsoft 365"
-        description="Connect your Outlook (Microsoft 365 or Exchange Online) to send email as yourself, bring mail with contacts onto their records, and keep CRM meetings on your calendar. Only you can connect or disconnect it."
+        description="Connect your Outlook (Microsoft 365 or Exchange Online) to send email as yourself, bring mail with contacts onto their records, and keep CRM meetings on your calendar. Only you can connect it. You can disconnect it any time, and so can an owner."
       >
         {!account ? (
           <div className="flex flex-wrap items-center gap-4 p-5">
@@ -163,6 +178,8 @@ export function AccountSettings({
         </Section>
       ) : null}
 
+      {team ? <TeamConnections rows={team} /> : null}
+
       {confirm ? (
         <Dialog
           open
@@ -207,6 +224,86 @@ export function AccountSettings({
           }
         >
           <p className="text-[13.5px] text-secondary">Mail already copied to records stays on their timelines unless you remove it. To revoke the app entirely, remove it from your Microsoft account&apos;s apps page too.</p>
+        </Dialog>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Owners only: every teammate's connected mailbox and calendar, and a way to
+ * cut one. It shows that a connection exists and what it's used for, never
+ * the mail or the calendar itself.
+ */
+function TeamConnections({ rows }: { rows: Connection[] }) {
+  const { workspace } = useApp();
+  const [target, setTarget] = useState<Connection | null>(null);
+  const [pending, start] = useTransition();
+  const cut = (removeMail: boolean) =>
+    start(async () => {
+      if (!target) return;
+      const r = await disconnectTeammateMicrosoft({ userId: target.userId, removeMail });
+      setTarget(null);
+      if (!r.ok) return void toast.error(r.error);
+      toast.success(removeMail ? `Disconnected ${target.userName}, and the copied mail removed` : `Disconnected ${target.userName}`);
+    });
+  return (
+    <>
+      <Section
+        title="Team connections"
+        description="Teammates who connected their Microsoft account. As an owner you can disconnect one if you need to, for example when someone leaves. You can't read their mailbox, and only they can connect it again."
+      >
+        {rows.length ? (
+          <ul className="divide-y divide-line">
+            {rows.map((c) => {
+              const uses = [c.sendMail ? "sends email" : "", c.syncMail ? "copies mail to records" : "", c.syncCalendar ? "calendar" : ""].filter(Boolean).join(", ");
+              return (
+                <li key={c.userId} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[14px] font-medium text-primary">
+                      {c.userName}
+                      {c.deactivated ? <span className="ml-2 text-[12.5px] font-normal text-muted">Deactivated</span> : null}
+                    </p>
+                    <p className="truncate text-[12.5px] text-muted">
+                      {c.email} · {uses || "nothing turned on"}
+                      {c.syncMail ? ` · ${c.lastSyncAt ? `last synced ${formatAgo(c.lastSyncAt, workspace.timezone)}` : "not synced yet"}` : ""}
+                    </p>
+                  </div>
+                  {c.status === "reconnect" ? <StatusBadge tone="error">Needs reconnecting</StatusBadge> : c.deactivated ? <StatusBadge>Paused</StatusBadge> : <StatusBadge tone="success">Connected</StatusBadge>}
+                  <Button variant="ghost" size="sm" onClick={() => setTarget(c)}>
+                    Disconnect
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="p-5 text-[13.5px] text-muted">Nobody else has connected a Microsoft account yet. Each teammate connects their own from this page.</p>
+        )}
+      </Section>
+
+      {target ? (
+        <Dialog
+          open
+          onOpenChange={(o) => !o && setTarget(null)}
+          title={`Disconnect ${target.userName}?`}
+          description={`The CRM forgets its access to ${target.email} right away: no more mail is copied, email from records stops going out through it, and their Outlook calendar leaves Calendar.`}
+          size="sm"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setTarget(null)}>
+                Cancel
+              </Button>
+              <Button variant="outline" loading={pending} onClick={() => cut(true)}>
+                Disconnect and remove copied mail
+              </Button>
+              <Button variant="primary" loading={pending} onClick={() => cut(false)}>
+                Disconnect
+              </Button>
+            </>
+          }
+        >
+          <p className="text-[13.5px] text-secondary">Mail already copied to records stays on their timelines unless you remove it. {target.userName} can connect again from their own settings.</p>
         </Dialog>
       ) : null}
     </>

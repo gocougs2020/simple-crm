@@ -26,6 +26,8 @@ export async function commsFor(user: User) {
     calling: phone && !!voice && list.length > 0,
     /** Microsoft 365 can be connected here. */
     microsoft,
+    /** They connected a mailbox, so Email offers the list of what was copied from it. */
+    outlook: !!account,
     /** Their own mailbox, when connected and allowed to send. */
     mailbox: account && account.sendMail ? { email: account.email, needsReconnect: account.status !== "active" } : null,
   };

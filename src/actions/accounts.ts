@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
-import { ActionError, actionUser } from "@/lib/auth";
+import { ActionError, actionOwner, actionUser } from "@/lib/auth";
 import { calendarSharings } from "@/lib/constants";
 import { microsoftConfigured } from "@/lib/microsoft/config";
 import { accountOf, GraphError } from "@/lib/microsoft/graph";
@@ -14,7 +14,8 @@ import { removeSyncedMail, syncMailbox } from "@/lib/microsoft/mail";
 /**
  * A teammate's own connected Microsoft 365 account: what it's used for, who
  * sees their calendar, syncing now, and disconnecting. Each teammate manages
- * only their own; nothing here reaches anyone else's connection.
+ * only their own. The one exception is `disconnectTeammateMicrosoft`: an
+ * owner can cut anyone's connection, and nothing more.
  */
 
 const t = schema.connectedAccounts;
@@ -87,5 +88,30 @@ export async function disconnectMicrosoft(input: { removeMail?: boolean } = {}):
     const db = await getDb();
     await db.delete(t).where(eq(t.id, account.id));
     refresh();
+  });
+}
+
+const teammateInput = z.object({ userId: z.uuid(), removeMail: z.boolean().optional() });
+
+/**
+ * An owner cuts a teammate's connection (they left, a device was lost): the
+ * tokens are deleted at once, exactly as if the teammate had disconnected.
+ * It never reads the mailbox, and only the teammate can connect it again.
+ */
+export async function disconnectTeammateMicrosoft(input: z.input<typeof teammateInput>): Promise<Result<{ email: string | null }>> {
+  return run(async () => {
+    const owner = await actionOwner();
+    const data = teammateInput.parse(input);
+    const account = await accountOf(data.userId);
+    if (!account) {
+      refresh();
+      return { email: null };
+    }
+    if (data.removeMail === true) await removeSyncedMail(account.id);
+    const db = await getDb();
+    await db.delete(t).where(eq(t.id, account.id));
+    console.info(`[microsoft] owner ${owner.id} disconnected the account of user ${data.userId}${data.removeMail ? ", copied mail removed" : ""}`);
+    refresh();
+    return { email: account.email };
   });
 }
