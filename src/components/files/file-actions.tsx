@@ -23,7 +23,7 @@ import { useApp } from "@/components/app-context";
 import { RecordPicker } from "@/components/records/record-picker";
 import { Button, Spinner } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Field, Input, Select } from "@/components/ui/field";
+import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { toast } from "@/components/ui/toast";
 import type { EntityType } from "@/lib/constants";
@@ -210,13 +210,16 @@ export function FileDialog({ fileId, onClose }: { fileId: string; onClose: () =>
 }
 
 function FileForm({ details, onDone }: { details: Details; onDone: () => void }) {
-  const { canEdit } = useApp();
+  const { canEdit, member, services } = useApp();
+  const aiFiles = services.ai.files;
   const { file, folders } = details;
   const [name, setName] = useState(file.name);
   const [folderId, setFolderId] = useState(file.folderId ?? "");
   const [records, setRecords] = useState(file.records);
   const [kind, setKind] = useState<EntityType>("client");
   const [token, setToken] = useState(file.publicToken);
+  const [description, setDescription] = useState(file.description ?? "");
+  const [showNotes, setShowNotes] = useState(false);
   const [pending, start] = useTransition();
   const [sharing, startSharing] = useTransition();
   const key = (r: { entity: string; id: string }) => `${r.entity}:${r.id}`;
@@ -232,9 +235,10 @@ function FileForm({ details, onDone }: { details: Details; onDone: () => void })
 
   const save = () =>
     start(async () => {
-      const changed = name.trim() !== file.name || (folderId || null) !== file.folderId;
+      const describedChanged = description.trim() !== (file.description ?? "");
+      const changed = name.trim() !== file.name || (folderId || null) !== file.folderId || describedChanged;
       if (changed) {
-        const r = await updateFile(file.id, { name, folderId: folderId || null });
+        const r = await updateFile(file.id, { name, folderId: folderId || null, ...(describedChanged ? { description: description.trim() || null } : {}) });
         if (!r.ok) return void toast.error(r.error);
       }
       const before = new Set(file.records.map(key));
@@ -268,6 +272,35 @@ function FileForm({ details, onDone }: { details: Details; onDone: () => void })
           )}
         </Field>
       </div>
+
+      <section>
+        <Field
+          label="Description"
+          hint={
+            file.descriptionBy
+              ? `Written by ${member(file.descriptionBy)?.name ?? "a teammate"}. Clear it to have it written for you again.`
+              : file.description
+                ? "Written by AI from what's in the file. Edit it and your version is kept. The agent finds files by their descriptions."
+                : file.describeStatus === "skipped"
+                  ? "This kind of file can't be read for a description. Write one so the agent can find it."
+                  : file.describeStatus === "failed"
+                    ? "A description couldn't be written for this file. Write one so the agent can find it."
+                    : aiFiles
+                      ? "A description is written from what's in the file a moment after it's uploaded."
+                      : "Say what's in it, so teammates and the agent can find it."
+          }
+        >
+          {(p) => <Textarea {...p} value={description} onChange={(e) => setDescription(e.target.value)} rows={2} maxLength={300} disabled={!canEdit} placeholder="What's in this file" />}
+        </Field>
+        {file.contentNotes ? (
+          <div className="mt-2">
+            <button type="button" className="text-[12.5px] font-medium text-muted hover:text-primary" onClick={() => setShowNotes(!showNotes)} aria-expanded={showNotes}>
+              {showNotes ? "Hide key facts" : "Show key facts"}
+            </button>
+            {showNotes ? <p className="mt-1.5 max-h-48 overflow-y-auto rounded-lg border border-line bg-sunken/50 px-3 py-2 text-[12.5px] whitespace-pre-line text-secondary scroll-thin">{file.contentNotes}</p> : null}
+          </div>
+        ) : null}
+      </section>
 
       <section>
         <h3 className="text-label">Attached to</h3>

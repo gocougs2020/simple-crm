@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, count, desc, eq, ilike, inArray, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { EntityType } from "@/lib/constants";
 import { likeTerm } from "@/lib/crm/records";
@@ -41,6 +41,10 @@ const fileColumns = {
   folderId: files.folderId,
   publicToken: files.publicToken,
   chatMessageId: files.chatMessageId,
+  description: files.description,
+  contentNotes: files.contentNotes,
+  descriptionBy: files.descriptionBy,
+  describeStatus: files.describeStatus,
 };
 
 export type FileRow = {
@@ -53,6 +57,11 @@ export type FileRow = {
   folderId: string | null;
   publicToken: string | null;
   chatMessageId: string | null;
+  /** What's in it, written by the model on upload or by a teammate (`descriptionBy`). */
+  description: string | null;
+  contentNotes: string | null;
+  descriptionBy: string | null;
+  describeStatus: "done" | "skipped" | "failed" | null;
   records: FileRecord[];
 };
 
@@ -65,7 +74,7 @@ export async function listFiles(f: { view: FileView; folderId?: string | null; q
   const db = await getDb();
   const where: SQL[] = [isNull(files.deletedAt)];
   const q = f.q?.trim();
-  if (q) where.push(ilike(files.name, likeTerm(q)));
+  if (q) where.push(or(ilike(files.name, likeTerm(q)), ilike(files.description, likeTerm(q)))!);
   if (f.view === "general") {
     where.push(general);
     if (!q) where.push(f.folderId ? eq(files.folderId, f.folderId) : isNull(files.folderId));

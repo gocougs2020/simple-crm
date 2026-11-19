@@ -304,6 +304,7 @@ export const Draft = z.object({
   clientId: uuid.nullable(),
   subject: z.string().nullable().describe("Emails only."),
   body: z.string().describe("HTML for an email, plain text for a text."),
+  attachments: z.array(z.object({ fileId: uuid, name: z.string(), size: z.number(), contentType: z.string() })).describe("Files the email goes with."),
   status: z.enum(agentDraftStatuses).describe("pending until the teammate sends or discards it."),
   url: z.string().describe("Where the teammate reviews and sends it."),
   createdAt: z.string(),

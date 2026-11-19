@@ -15,8 +15,8 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Sign in to upload files." }, { status: 401 });
   const form = await request.formData();
   const origin = form.get("origin") === "chat" ? ("chat" as const) : null;
-  // Anyone who can sign in can post in the team chat, attachments included.
-  if (!origin && !roleCan(user.role, "records:write")) return NextResponse.json({ error: forbiddenMessage["records:write"] }, { status: 403 });
+  // Viewers can't add files anywhere, the team chat included.
+  if (!roleCan(user.role, "records:write")) return NextResponse.json({ error: forbiddenMessage["records:write"] }, { status: 403 });
   const file = form.get("file");
   if (!(file instanceof File)) return NextResponse.json({ error: "No file." }, { status: 400 });
   const problem = fileProblem(file.name, file.size, file.type);

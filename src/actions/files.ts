@@ -36,9 +36,9 @@ export async function setFileRecords(fileId: string, records: svc.FileRecordInpu
   });
 }
 
-export async function updateFile(fileId: string, patch: { name?: string; folderId?: string | null }): Promise<Result> {
+export async function updateFile(fileId: string, patch: { name?: string; folderId?: string | null; description?: string | null }): Promise<Result> {
   return run(async () => {
-    await svc.updateFile(sessionActor(await actionUser()), fileId, z.object({ name: z.string().optional(), folderId: z.uuid().nullable().optional() }).parse(patch));
+    await svc.updateFile(sessionActor(await actionUser()), fileId, z.object({ name: z.string().optional(), folderId: z.uuid().nullable().optional(), description: z.string().max(2000).nullable().optional() }).parse(patch));
     refresh();
   });
 }
@@ -82,11 +82,17 @@ export async function updateFolder(folderId: string, patch: { name?: string; par
   });
 }
 
-export async function deleteFolder(folderId: string): Promise<Result> {
+export async function deleteFolder(folderId: string, choice: { contents: "move"; to: string | null } | { contents: "delete" }): Promise<Result<{ deletedFiles: number }>> {
   return run(async () => {
-    await svc.deleteFolder(sessionActor(await actionUser()), folderId);
+    const out = await svc.deleteFolder(sessionActor(await actionUser()), folderId, choice);
     refresh();
+    return { deletedFiles: out?.deletedFiles ?? 0 };
   });
+}
+
+/** What deleting a folder would delete, for the confirmation. */
+export async function getFolderContents(folderId: string): Promise<Result<svc.FolderContents>> {
+  return run(async () => svc.folderContents(sessionActor(await actionUser()), z.uuid().parse(folderId)));
 }
 
 /** A file with every record it's on and every folder, for the file dialog. */

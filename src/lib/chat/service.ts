@@ -2,7 +2,7 @@ import "server-only";
 import { and, asc, count, desc, eq, gt, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
-import { actorUserId, can, type Actor } from "@/lib/crm/actor";
+import { actorUserId, assertCan, can, type Actor } from "@/lib/crm/actor";
 import { onAnyRecord } from "@/lib/crm/files";
 import { mentionedTeammates } from "@/lib/crm/mentions";
 import { removeStoredBytes } from "@/lib/crm/service/files";
@@ -11,7 +11,8 @@ import { notify } from "@/lib/push/notify";
 import { MAX_CHAT_FILES, MAX_CHAT_LENGTH } from "./format";
 
 /**
- * The team chat: one thread for everyone who can sign in, viewers included.
+ * The team chat: one thread for everyone who can sign in. Viewers can read
+ * and post, but not attach files.
  * Messages are plain text; mentioning a teammate ("@Sam") sends them the
  * "Mentions and replies" push. Attachments are ordinary files uploaded with
  * `origin: "chat"` and claimed by the message they're posted with.
@@ -93,6 +94,8 @@ export async function postChatMessage(a: Actor, input: { body: string; fileIds?:
     .max(MAX_CHAT_FILES, `Attach ${MAX_CHAT_FILES} files at most to one message.`)
     .parse(input.fileIds ?? []);
   if (!body && !fileIds.length) throw new ActionError("Write a message or attach a file.");
+  // Viewers can post, but not add files.
+  if (fileIds.length) assertCan(a, "records:write");
   const db = await getDb();
   // Only the poster's own chat uploads that no message has claimed yet.
   const own = fileIds.length

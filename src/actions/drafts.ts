@@ -4,6 +4,7 @@ import { refresh } from "next/cache";
 import { z } from "zod";
 import { run, type Result } from "@/lib/action";
 import { actionEditor, actionUser } from "@/lib/auth";
+import type { EmailAttachment } from "@/db/schema";
 import type { AgentDraftKind } from "@/lib/constants";
 import { sessionActor } from "@/lib/crm/actor";
 import * as svc from "@/lib/crm/service/drafts";
@@ -14,7 +15,7 @@ import * as svc from "@/lib/crm/service/drafts";
  * actions only list drafts and mark them sent or discarded.
  */
 
-export type PersonDraft = { id: string; kind: AgentDraftKind; subject: string | null; body: string; clientId: string | null; createdAt: string };
+export type PersonDraft = { id: string; kind: AgentDraftKind; subject: string | null; body: string; attachments: EmailAttachment[]; clientId: string | null; createdAt: string };
 
 const uuid = z.uuid("That draft doesn't exist.");
 
@@ -23,7 +24,7 @@ export async function listPersonDrafts(personId: string): Promise<Result<PersonD
   return run(async () => {
     const user = await actionUser();
     const rows = await svc.listDrafts(sessionActor(user), { personId: z.uuid().parse(personId) });
-    return rows.map((d) => ({ id: d.id, kind: d.kind, subject: d.subject, body: d.body, clientId: d.clientId, createdAt: d.createdAt.toISOString() }));
+    return rows.map((d) => ({ id: d.id, kind: d.kind, subject: d.subject, body: d.body, attachments: d.attachments, clientId: d.clientId, createdAt: d.createdAt.toISOString() }));
   });
 }
 

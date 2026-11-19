@@ -3,23 +3,24 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState, useTransition, type DragEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type DragEvent } from "react";
 import { ArrowUpTrayIcon, ChevronRightIcon, EllipsisHorizontalIcon, FolderPlusIcon, PencilSquareIcon, TrashIcon, ArrowsRightLeftIcon } from "@heroicons/react/20/solid";
 import { ChatBubbleOvalLeftEllipsisIcon, FolderIcon, PaperClipIcon } from "@heroicons/react/24/outline";
 import { FolderIcon as FolderSolidIcon } from "@heroicons/react/20/solid";
-import { createFolder, deleteFolder, moveFiles, updateFolder } from "@/actions/files";
+import { createFolder, deleteFolder, getFolderContents, moveFiles, updateFolder } from "@/actions/files";
 import { useApp } from "@/components/app-context";
 import { PageHeader } from "@/components/shell/app-shell";
 import { OwnerCell } from "@/components/table/cells";
 import { FilterTabs, SearchBox, Toolbar } from "@/components/table/toolbar";
-import { Button } from "@/components/ui/button";
+import { Button, Spinner } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Field, Input } from "@/components/ui/field";
+import { Field, Input, Select } from "@/components/ui/field";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { toast } from "@/components/ui/toast";
 import type { FileRow, FileView, FolderRow } from "@/lib/crm/files";
-import { folderLabel, folderPath } from "@/lib/folder-tree";
+import type { FolderContents } from "@/lib/crm/service/files";
+import { folderLabel, folderPath, folderTree } from "@/lib/folder-tree";
 import { formatBytes, formatDay } from "@/lib/format";
 import { FileDialog, FileMenu, MoveDialog, PublicBadge, RecordChips } from "./file-actions";
 import { FileIcon, useUploader } from "./files-panel";
@@ -48,7 +49,7 @@ export function FilesView({ view, folderId, q, rows, folders, counts }: { view: 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
   const [moving, setMoving] = useState<{ files: string[]; current: string | null } | null>(null);
-  const [folderDialog, setFolderDialog] = useState<{ mode: "new" } | { mode: "rename"; folder: FolderRow } | { mode: "move"; folder: FolderRow } | null>(null);
+  const [folderDialog, setFolderDialog] = useState<{ mode: "new" } | { mode: "rename"; folder: FolderRow } | { mode: "move"; folder: FolderRow } | { mode: "delete"; folder: FolderRow } | null>(null);
   const [dropOn, setDropOn] = useState<string | null>(null);
   const [pageDrop, setPageDrop] = useState(false);
   const [, start] = useTransition();
@@ -162,7 +163,7 @@ export function FilesView({ view, folderId, q, rows, folders, counts }: { view: 
             { value: "chat", label: <>From chat {counts.chat ? <span className="ml-1 text-faint tabular-nums">{counts.chat}</span> : null}</> },
           ]}
         />
-        <SearchBox placeholder={general ? "Search every folder" : "Search file names"} />
+        <SearchBox placeholder={general ? "Search every folder" : "Search names and descriptions"} />
       </Toolbar>
 
       {general && !q ? (
@@ -304,12 +305,7 @@ export function FilesView({ view, folderId, q, rows, folders, counts }: { view: 
                                 <MenuItem
                                   destructive
                                   icon={<TrashIcon />}
-                                  onSelect={async () => {
-                                    if (!confirm(`Delete the ${f.name} folder? What's in it moves up to ${folderLabel(folders, f.parentId)}; no files are removed.`)) return;
-                                    const r = await deleteFolder(f.id);
-                                    if (!r.ok) toast.error(r.error);
-                                    else toast.success(`${f.name} deleted. What was in it is in ${folderLabel(folders, f.parentId)}.`);
-                                  }}
+                                  onSelect={() => setFolderDialog({ mode: "delete", folder: f })}
                                 >
                                   Delete folder
                                 </MenuItem>
@@ -347,6 +343,11 @@ export function FilesView({ view, folderId, q, rows, folders, counts }: { view: 
                         </a>
                         {r.publicToken ? <PublicBadge className="shrink-0" /> : null}
                       </span>
+                      {r.description ? (
+                        <span className="mt-0.5 block truncate pl-6 text-[12px] text-muted" title={r.description}>
+                          {r.description}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="h-11 max-w-72 px-3 py-1.5 text-[13px]">
                       {q && general ? (
@@ -405,7 +406,9 @@ export function FilesView({ view, folderId, q, rows, folders, counts }: { view: 
           }}
         />
       ) : null}
-      {folderDialog?.mode === "move" ? (
+      {folderDialog?.mode === "delete" ? (
+        <DeleteFolderDialog folder={folderDialog.folder} folders={folders} onClose={() => setFolderDialog(null)} />
+      ) : folderDialog?.mode === "move" ? (
         <MoveDialog
           folders={folders.filter((f) => f.id !== folderDialog.folder.id && !folderPath(folders, f.id).some((p) => p.id === folderDialog.folder.id))}
           current={folderDialog.folder.parentId}
@@ -469,6 +472,125 @@ function FolderNameDialog({ folder, where, onSave, onClose }: { folder?: FolderR
       >
         <Field label="Name">{(p) => <Input {...p} value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder="Contracts" />}</Field>
       </form>
+    </Dialog>
+  );
+}
+
+/**
+ * Deleting a folder: says what's in it, then either moves all of it to
+ * another folder first or deletes it along with the folder.
+ */
+function DeleteFolderDialog({ folder, folders, onClose }: { folder: FolderRow; folders: FolderRow[]; onClose: () => void }) {
+  const [contents, setContents] = useState<FolderContents | null | undefined>(undefined);
+  const [choice, setChoice] = useState<"move" | "delete">("delete");
+  const inside = (id: string) => id === folder.id || folderPath(folders, id).some((p) => p.id === folder.id);
+  const targets = folders.filter((f) => !inside(f.id));
+  const [to, setTo] = useState<string>(folder.parentId ?? "");
+  const [pending, start] = useTransition();
+  useEffect(() => {
+    let live = true;
+    getFolderContents(folder.id).then((r) => {
+      if (!live) return;
+      if (!r.ok) {
+        toast.error(r.error);
+        setContents(null);
+      } else setContents(r.data);
+    });
+    return () => {
+      live = false;
+    };
+  }, [folder.id]);
+
+  const empty = contents && !contents.files && !contents.folders;
+  const what = contents ? [contents.files ? `${contents.files} ${contents.files === 1 ? "file" : "files"}` : "", contents.folders ? `${contents.folders} ${contents.folders === 1 ? "folder" : "folders"}` : ""].filter(Boolean).join(" and ") : "";
+  const submit = () =>
+    start(async () => {
+      const r = await deleteFolder(folder.id, empty || choice === "delete" ? { contents: "delete" } : { contents: "move", to: to || null });
+      if (!r.ok) return void toast.error(r.error);
+      toast.success(empty ? `${folder.name} deleted` : choice === "move" ? `${folder.name} deleted. What was in it is in ${folderLabel(folders, to || null)}.` : `${folder.name} and ${what} deleted`);
+      onClose();
+    });
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={`Delete ${folder.name}?`}
+      size="md"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant={choice === "delete" || empty ? "destructive" : "primary"} loading={pending} disabled={!contents} onClick={submit}>
+            {empty ? "Delete folder" : choice === "move" ? "Move and delete folder" : "Delete everything"}
+          </Button>
+        </>
+      }
+    >
+      {contents === undefined ? (
+        <div className="flex justify-center py-6">
+          <Spinner className="size-5 text-faint" />
+        </div>
+      ) : contents === null ? (
+        <p className="text-[13.5px] text-muted">Couldn&apos;t check what&apos;s in this folder. Close this and try again.</p>
+      ) : empty ? (
+        <p className="text-[13.5px] text-secondary">This folder is empty.</p>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <div>
+            <p className="text-[13.5px] text-secondary">
+              It holds <strong className="font-medium text-primary">{what}</strong>
+              {contents.folders ? ", counting everything in the folders inside it" : ""}.
+            </p>
+            {contents.sample.length ? (
+              <ul className="mt-2 flex flex-col gap-0.5 rounded-lg border border-line bg-sunken/50 px-3 py-2 text-[13px] text-secondary">
+                {contents.sample.map((n, i) => (
+                  <li key={`${n}:${i}`} className="truncate">
+                    {n}
+                  </li>
+                ))}
+                {contents.files > contents.sample.length ? <li className="text-muted">and {contents.files - contents.sample.length} more</li> : null}
+              </ul>
+            ) : null}
+          </div>
+          <fieldset className="flex flex-col gap-2">
+            <legend className="sr-only">What happens to what&apos;s inside</legend>
+            <label className={clsx("flex cursor-pointer gap-3 rounded-lg border p-3", choice === "move" ? "border-accent bg-accent-soft/40" : "border-line")}>
+              <input type="radio" name="contents" className="mt-0.5 accent-[var(--accent)]" checked={choice === "move"} onChange={() => setChoice("move")} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13.5px] font-medium text-primary">Move everything, then delete the folder</span>
+                <span className="block text-fine">Nothing is lost. Files keep their records and links.</span>
+                {choice === "move" ? (
+                  <Select value={to} onChange={(e) => setTo(e.target.value)} aria-label="Move to" className="mt-2">
+                    <option value="">Top level</option>
+                    {folderTree(targets).map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {"\u2003".repeat(f.depth)}
+                        {f.name}
+                      </option>
+                    ))}
+                  </Select>
+                ) : null}
+              </span>
+            </label>
+            <label className={clsx("flex cursor-pointer gap-3 rounded-lg border p-3", choice === "delete" ? "border-error-border bg-error-surface/40" : "border-line")}>
+              <input type="radio" name="contents" className="mt-0.5 accent-[var(--error)]" checked={choice === "delete"} onChange={() => setChoice("delete")} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13.5px] font-medium text-primary">Delete the folder and everything in it</span>
+                <span className="block text-fine">This can&apos;t be undone.</span>
+                {choice === "delete" && (contents.onRecords || contents.public || contents.notYours) ? (
+                  <ul className="mt-2 flex flex-col gap-1 text-[12.5px] text-error">
+                    {contents.onRecords ? <li>{contents.onRecords === 1 ? "One file is" : `${contents.onRecords} files are`} on clients, people or organizations, and will come off them.</li> : null}
+                    {contents.public ? <li>{contents.public === 1 ? "One file has" : `${contents.public} files have`} a public link that will stop working.</li> : null}
+                    {contents.notYours ? <li>{contents.notYours === 1 ? "One file was" : `${contents.notYours} files were`} uploaded by someone else, so only an admin can delete {contents.notYours === 1 ? "it" : "them"}. Move everything instead.</li> : null}
+                  </ul>
+                ) : null}
+              </span>
+            </label>
+          </fieldset>
+        </div>
+      )}
     </Dialog>
   );
 }

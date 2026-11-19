@@ -45,7 +45,7 @@ export function EmailComposer({
   links: Links;
   recipient: EmailRecipient;
   contacts?: Contact[];
-  draft?: { subject: string | null; body: string } | null;
+  draft?: { subject: string | null; body: string; attachments?: EmailAttachment[] } | null;
   onDraftSent?: () => void;
   /** Start with nobody on the To line: a record with no contact of its own (an organization), so the teammate picks who. */
   startBlank?: boolean;
@@ -82,7 +82,8 @@ export function EmailComposer({
   /** Replies go to the sender unless they change it for this email. */
   const [replyTo, setReplyTo] = useState(viewer.email);
   const [editReplyTo, setEditReplyTo] = useState(false);
-  const [attachments, setAttachments] = useState<EmailAttachment[]>([]);
+  // A draft's files come with it; the teammate can remove any before sending.
+  const [attachments, setAttachments] = useState<EmailAttachment[]>(draft?.attachments ?? []);
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {

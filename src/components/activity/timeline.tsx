@@ -121,6 +121,8 @@ export function Timeline({
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const { uploads, run } = useUploader(fileLinks);
+  // Viewers can't add files.
+  const canAttach = useApp().canEdit;
   const counts = Object.fromEntries(filters.map((f) => [f.value, [...pinned, ...past].filter((i) => matches(i, f.value)).length]));
 
   return (
@@ -151,13 +153,13 @@ export function Timeline({
       <section
         aria-labelledby="history-heading"
         onDragOver={(e) => {
-          if (!e.dataTransfer.types.includes("Files")) return;
+          if (!canAttach || !e.dataTransfer.types.includes("Files")) return;
           e.preventDefault();
           setOver(true);
         }}
         onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setOver(false)}
         onDrop={(e) => {
-          if (!e.dataTransfer.files.length) return;
+          if (!canAttach || !e.dataTransfer.files.length) return;
           e.preventDefault();
           setOver(false);
           run(e.dataTransfer.files);
@@ -189,10 +191,12 @@ export function Timeline({
                 </button>
               ))}
           </div>
-          <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={() => input.current?.click()}>
-            <ArrowUpTrayIcon />
-            Attach file
-          </Button>
+          {canAttach ? (
+            <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={() => input.current?.click()}>
+              <ArrowUpTrayIcon />
+              Attach file
+            </Button>
+          ) : null}
         </div>
         {uploads.map((u) => (
           <div key={u.name} className="mb-2 flex items-center gap-2 pl-[9px] text-[12.5px]">

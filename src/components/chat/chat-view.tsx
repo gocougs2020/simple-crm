@@ -320,7 +320,8 @@ function EditBox({ initial, pending, onSave, onCancel }: { initial: string; pend
 type Pending = { key: string; name: string; pct: number; id?: string; failed?: boolean };
 
 function Composer({ onPosted }: { onPosted: () => void }) {
-  const { services } = useApp();
+  // Viewers can post, but not attach files.
+  const { services, canEdit } = useApp();
   const [body, setBody] = useState("");
   const [attached, setAttached] = useState<Pending[]>([]);
   const [over, setOver] = useState(false);
@@ -363,14 +364,14 @@ function Composer({ onPosted }: { onPosted: () => void }) {
     <div
       className={clsx("border-t border-line bg-background px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:px-6", over && "bg-accent-soft")}
       onDragOver={(e) => {
-        if (!e.dataTransfer.types.includes("Files")) return;
+        if (!canEdit || !e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
         setOver(true);
       }}
       onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setOver(false)}
       onDrop={(e) => {
         setOver(false);
-        if (!e.dataTransfer.files.length) return;
+        if (!canEdit || !e.dataTransfer.files.length) return;
         e.preventDefault();
         void attach(e.dataTransfer.files);
       }}
@@ -393,12 +394,18 @@ function Composer({ onPosted }: { onPosted: () => void }) {
             </ul>
           ) : null}
           <div className="flex items-end gap-1 p-1.5">
-            <input ref={input} type="file" multiple hidden onChange={(e) => e.target.files && attach(e.target.files).then(() => (e.target.value = ""))} />
-            <button type="button" onClick={() => input.current?.click()} className="rounded-md p-2 text-faint hover:bg-sunken hover:text-primary" aria-label="Attach files">
-              <PaperClipIcon className="size-5" />
-            </button>
+            {canEdit ? (
+              <>
+                <input ref={input} type="file" multiple hidden onChange={(e) => e.target.files && attach(e.target.files).then(() => (e.target.value = ""))} />
+                <button type="button" onClick={() => input.current?.click()} className="rounded-md p-2 text-faint hover:bg-sunken hover:text-primary" aria-label="Attach files">
+                  <PaperClipIcon className="size-5" />
+                </button>
+              </>
+            ) : (
+              <span className="w-2" />
+            )}
             <div className="min-w-0 flex-1">
-              <MentionTextarea value={body} onChange={setBody} onSubmit={send} onPasteFiles={attach} placeholder="Message the team" label="Message" bare />
+              <MentionTextarea value={body} onChange={setBody} onSubmit={send} onPasteFiles={canEdit ? attach : undefined} placeholder="Message the team" label="Message" bare />
             </div>
             <Button variant="primary" size="icon-sm" onClick={send} disabled={uploading || (!body.trim() && !ready.length)} loading={sending} aria-label="Send">
               <ArrowUpIcon />
@@ -406,7 +413,7 @@ function Composer({ onPosted }: { onPosted: () => void }) {
           </div>
         </div>
         <p className="mt-1.5 hidden text-fine sm:block">
-          <Kbd>Enter</Kbd> sends, <Kbd>Shift</Kbd> + <Kbd>Enter</Kbd> adds a line. Drop or paste files to attach them.
+          <Kbd>Enter</Kbd> sends, <Kbd>Shift</Kbd> + <Kbd>Enter</Kbd> adds a line.{canEdit ? " Drop or paste files to attach them." : ""}
         </p>
       </div>
     </div>

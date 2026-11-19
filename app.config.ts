@@ -97,6 +97,12 @@ export type AppConfig = {
     dictation: boolean;
     /** The AI summary at the top of client, person and organization pages. */
     summaries: boolean;
+    /**
+     * A short description and the key facts of every file uploaded (Files,
+     * a record, the team chat), written by `fileModel`. The agent finds and
+     * quotes files by them.
+     */
+    fileDescriptions: boolean;
     /** What the agent is called in its panel and its own replies. */
     name: string;
     /** AI Gateway model ids (creator/model). Change them to try another model; nothing else needs to change. */
@@ -108,6 +114,8 @@ export type AppConfig = {
     summaryReasoning: "provider-default" | "none" | "minimal" | "low" | "medium" | "high";
     /** Names threads from their first messages. Small and fast is enough. */
     titleModel: string;
+    /** Reads each uploaded file once and describes it. Small and cheap is enough; it has no tools. */
+    fileModel: string;
     /** Speech-to-speech for voice chat (a realtime model with tool use). */
     voiceModel: string;
     /** Speech-to-text for the composer's microphone. */
@@ -264,12 +272,14 @@ const defaults = {
     voice: true,
     dictation: true,
     summaries: true,
+    fileDescriptions: true,
     name: "Agent",
     chatModel: "openai/gpt-6.1-sol",
     chatReasoning: "medium",
     summaryModel: "openai/gpt-6.1-sol",
     summaryReasoning: "low",
     titleModel: "anthropic/claude-haiku-5.5",
+    fileModel: "openai/gpt-6-luna",
     voiceModel: "spacexai/grok-voice-3.0",
     transcriptionModel: "spacexai/grok-stt",
     suggestions: ["What's on my plate today?", "Which clients need attention?", "Add a task to follow up with…", "Log a call with…"],

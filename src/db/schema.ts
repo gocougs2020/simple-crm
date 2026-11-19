@@ -764,6 +764,21 @@ export const files = pgTable(
     /** Set while the file is public: anyone with /share/<token> can open it. Making it internal again clears it, so old links stop working. */
     publicToken: text("public_token"),
     publicAt: timestamp("public_at", { withTimezone: true }),
+    /**
+     * A short description of what's in the file, written by a small model when
+     * it's uploaded (src/lib/files/describe.ts) or by a teammate
+     * (`description_by`). The agent finds files by it.
+     */
+    description: text("description"),
+    /** The facts, figures and terms the file holds, as plain text, so the agent can answer from it without opening it. Written with the description. */
+    contentNotes: text("content_notes"),
+    /** The teammate who last wrote the description by hand; null when the model wrote it. A hand-written one is never overwritten. */
+    descriptionBy: uuid("description_by").references(() => users.id),
+    /** "done", "skipped" (a kind of file the model can't read) or "failed". Null until it's been looked at. */
+    describeStatus: text("describe_status").$type<"done" | "skipped" | "failed">(),
+    describedAt: timestamp("described_at", { withTimezone: true }),
+    /** Claims the description while it's being written, so two requests don't both pay for it. */
+    describeStartedAt: timestamp("describe_started_at", { withTimezone: true }),
     uploadedBy: uuid("uploaded_by")
       .notNull()
       .references(() => users.id),
@@ -1256,6 +1271,8 @@ export const agentDrafts = pgTable(
     subject: text("subject"),
     /** Sanitized HTML for an email; plain text for a text message. */
     body: text("body").notNull(),
+    /** CRM files to send with an email, as the composer attaches them. The teammate can drop any before sending. */
+    attachments: jsonb("attachments").$type<EmailAttachment[]>().notNull().default([]),
     status: text("status").$type<AgentDraftStatus>().notNull().default("pending"),
     createdAt: createdAt(),
     /** When it was sent or discarded. */

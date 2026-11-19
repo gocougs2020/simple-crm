@@ -7,9 +7,11 @@ import { entityTypes, type EntityType } from "@/lib/constants";
 import { actorUserId, assertCan, can, stamp, type Actor } from "@/lib/crm/actor";
 import { uploadLinks } from "@/lib/crm/activities";
 import { recordEvent, touch } from "@/lib/crm/events";
-import { recordsFor } from "@/lib/crm/files";
+import { onAnyRecord, recordsFor } from "@/lib/crm/files";
 import { ActionError, ForbiddenError, NotFoundError } from "@/lib/errors";
 import { cleanFileName, fileProblem } from "@/lib/files";
+import { describeSoon } from "@/lib/file-describe";
+import { cleanModelText, DESCRIPTION_MAX } from "@/lib/file-describe-rules";
 
 /**
  * Changes to files and folders: which records a file is on, which folder it's
@@ -91,11 +93,27 @@ async function assertFolder(id: string | null | undefined) {
 
 const fileName = z.string().trim().min(1, "Give the file a name.").max(180);
 
-/** Renames a file or moves it to a folder (null is the top level). Its extension stays, so it still opens with the right app. */
-export async function updateFile(a: Actor, fileId: string, patch: { name?: string; folderId?: string | null }) {
+/**
+ * Renames a file, moves it to a folder (null is the top level) or rewrites
+ * its description. Its extension stays, so it still opens with the right
+ * app. A description written here is kept from then on; clearing it hands it
+ * back to the model.
+ */
+export async function updateFile(a: Actor, fileId: string, patch: { name?: string; folderId?: string | null; description?: string | null }) {
   assertCan(a, "records:write");
   const f = await loadFile(fileId);
-  const set: { name?: string; folderId?: string | null } = {};
+  const set: Partial<typeof files.$inferInsert> = {};
+  let redescribe = false;
+  if (patch.description !== undefined) {
+    const text = cleanModelText(patch.description ?? "", DESCRIPTION_MAX);
+    if (text !== (f.description ?? "")) {
+      if (text) Object.assign(set, { description: text, descriptionBy: actorUserId(a), describeStatus: "done", describedAt: new Date() });
+      else {
+        Object.assign(set, { description: null, contentNotes: null, descriptionBy: null, describeStatus: null, describedAt: null });
+        redescribe = true;
+      }
+    }
+  }
   if (patch.name !== undefined) {
     let name = cleanFileName(fileName.parse(patch.name));
     const ext = f.name.match(/\.[\w]{1,10}$/)?.[0];
@@ -106,6 +124,7 @@ export async function updateFile(a: Actor, fileId: string, patch: { name?: strin
   if (!Object.keys(set).length) return;
   const db = await getDb();
   await db.update(files).set(set).where(eq(files.id, f.id));
+  if (redescribe) describeSoon(f.id);
 }
 
 /** Moves files to a folder (null is the top level). */
@@ -187,15 +206,16 @@ export const uploadInput = z.object({
   activityId: z.uuid().nullable().optional(),
   /** The folder it goes in on the Files page. */
   folderId: z.uuid().nullable().optional(),
-  /** "chat" for an attachment to a team chat message: anyone who can sign in may add one, viewers included. */
+  /** "chat" for an attachment to a team chat message. */
   origin: z.literal("chat").nullable().optional(),
 });
 export type UploadInput = z.input<typeof uploadInput>;
 
 /** Records a file whose bytes were just stored (in Blob, or on disk locally). */
 export async function saveUpload(a: Actor, input: UploadInput) {
+  // Viewers can't add files anywhere, the team chat included.
+  assertCan(a, "records:write");
   const data = uploadInput.parse(input);
-  if (data.origin !== "chat") assertCan(a, "records:write");
   const problem = fileProblem(data.name, data.size, data.contentType);
   if (problem) throw new ActionError(problem);
   // A chat attachment belongs to the message, not to a record.
@@ -222,6 +242,7 @@ export async function saveUpload(a: Actor, input: UploadInput) {
     .returning({ id: files.id });
   if (!row) throw new ActionError("That upload was already added. Upload the file again.");
   await touch(linked);
+  describeSoon(row.id);
   return row;
 }
 
@@ -285,18 +306,105 @@ export async function updateFolder(a: Actor, folderId: string, patch: { name?: s
   await db.update(fileFolders).set(set).where(eq(fileFolders.id, folder.id));
 }
 
+/** A folder and every folder inside it, at any depth. */
+async function folderAndDescendants(folderId: string) {
+  const db = await getDb();
+  const all = await db.select({ id: fileFolders.id, parentId: fileFolders.parentId }).from(fileFolders);
+  const ids = [folderId];
+  for (let i = 0; i < ids.length && ids.length < 10_000; i++) for (const f of all) if (f.parentId === ids[i] && !ids.includes(f.id)) ids.push(f.id);
+  return ids;
+}
+
+export type FolderContents = {
+  folders: number;
+  files: number;
+  /** A few of the files, for the dialog to name. */
+  sample: string[];
+  /** Files on a client, person or organization: deleting them takes them off those records. */
+  onRecords: number;
+  public: number;
+  /** Files someone else uploaded, which only an admin can delete. */
+  notYours: number;
+};
+
+/** What deleting a folder would delete: every file and folder inside it, at any depth. */
+export async function folderContents(a: Actor, folderId: string): Promise<FolderContents> {
+  const folder = await assertFolder(folderId);
+  if (!folder) throw new NotFoundError("That folder was deleted.");
+  const ids = await folderAndDescendants(folder.id);
+  const db = await getDb();
+  const inside = await db
+    .select({ name: files.name, uploadedBy: files.uploadedBy, publicToken: files.publicToken, onRecords: sql<boolean>`${onAnyRecord}` })
+    .from(files)
+    .where(and(inArray(files.folderId, ids), isNull(files.deletedAt)))
+    .orderBy(sql`lower(${files.name})`);
+  const me = actorUserId(a);
+  return {
+    folders: ids.length - 1,
+    files: inside.length,
+    sample: inside.slice(0, 8).map((f) => f.name),
+    onRecords: inside.filter((f) => f.onRecords).length,
+    public: inside.filter((f) => f.publicToken).length,
+    notYours: can(a, "activities:moderate") ? 0 : inside.filter((f) => f.uploadedBy !== me).length,
+  };
+}
+
+export const deleteFolderInput = z.discriminatedUnion("contents", [
+  /** Move what's directly inside to another folder (null is the top level), then delete the folder. */
+  z.object({ contents: z.literal("move"), to: z.uuid().nullable() }),
+  /** Delete the folder with every file and folder in it. */
+  z.object({ contents: z.literal("delete") }),
+]);
+
 /**
- * Deletes a folder. Nothing in it is lost: its files and folders move up to
- * where the folder was. Whoever made it, or an admin, can delete it.
+ * Deletes a folder, with what's in it: either moved somewhere else first, or
+ * deleted along with it (every file and folder inside, at any depth). Whoever
+ * made the folder, or an admin, can delete it; deleting its files also needs
+ * the right to delete each one (the uploader, or an admin).
  */
-export async function deleteFolder(a: Actor, folderId: string) {
+export async function deleteFolder(a: Actor, folderId: string, choice: z.input<typeof deleteFolderInput>) {
   assertCan(a, "records:write");
+  const how = deleteFolderInput.parse(choice);
   const folder = await assertFolder(folderId);
   if (!folder) return;
   if (folder.createdBy && folder.createdBy !== actorUserId(a) && !can(a, "activities:moderate")) throw new ForbiddenError("Only the person who made this folder, or an admin, can delete it.");
   const db = await getDb();
-  await db.update(files).set({ folderId: folder.parentId }).where(eq(files.folderId, folder.id));
-  await db.update(fileFolders).set({ parentId: folder.parentId }).where(eq(fileFolders.parentId, folder.id));
+  const ids = await folderAndDescendants(folder.id);
+
+  if (how.contents === "move") {
+    const to = await assertFolder(how.to);
+    if (to && ids.includes(to.id)) throw new ActionError("Pick a folder outside the one you're deleting.");
+    await assertDepth(to?.id ?? null);
+    const subfolders = await db.select({ id: fileFolders.id, name: fileFolders.name }).from(fileFolders).where(eq(fileFolders.parentId, folder.id));
+    for (const f of subfolders) await assertNameFree(f.name, to?.id ?? null, f.id);
+    await db.update(files).set({ folderId: to?.id ?? null }).where(eq(files.folderId, folder.id));
+    await db.update(fileFolders).set({ parentId: to?.id ?? null, updatedAt: new Date() }).where(eq(fileFolders.parentId, folder.id));
+    await db.delete(fileFolders).where(eq(fileFolders.id, folder.id));
+    return { parentId: folder.parentId, deletedFiles: 0 };
+  }
+
+  const inside = await db
+    .select()
+    .from(files)
+    .where(and(inArray(files.folderId, ids), isNull(files.deletedAt)));
+  const me = actorUserId(a);
+  const notYours = can(a, "activities:moderate") ? 0 : inside.filter((f) => f.uploadedBy !== me).length;
+  if (notYours) throw new ForbiddenError(`${notYours === 1 ? "One file" : `${notYours} files`} in this folder ${notYours === 1 ? "was" : "were"} uploaded by someone else, so only an admin can delete ${notYours === 1 ? "it" : "them"}. Move everything to another folder instead, or ask an admin.`);
+  const records = await recordsFor(inside.map((f) => f.id));
+  if (inside.length) {
+    await db
+      .update(files)
+      .set({ deletedAt: new Date(), publicToken: null, folderId: null })
+      .where(
+        inArray(
+          files.id,
+          inside.map((f) => f.id),
+        ),
+      );
+  }
+  // Folders inside go with it (parent_id cascades).
   await db.delete(fileFolders).where(eq(fileFolders.id, folder.id));
-  return { parentId: folder.parentId };
+  await removeStoredBytes(inside.map((f) => f.url));
+  for (const f of inside) for (const r of records.get(f.id) ?? []) await recordEvent({ entityType: r.entity, entityId: r.id, action: "file_deleted", data: { name: f.name }, ...stamp(a) });
+  return { parentId: folder.parentId, deletedFiles: inside.length };
 }

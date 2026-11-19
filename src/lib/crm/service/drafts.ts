@@ -7,6 +7,7 @@ import type { AgentDraftStatus } from "@/lib/constants";
 import { assertCan, type Actor } from "@/lib/crm/actor";
 import { draftInput, type DraftInput } from "@/lib/crm/schemas";
 import { ActionError, ForbiddenError, NotFoundError } from "@/lib/errors";
+import { resolveAttachments } from "@/lib/email/attachments";
 import { notify } from "@/lib/push/notify";
 import { sanitizeHtml, textToHtml, htmlToText } from "@/lib/safe-html";
 
@@ -54,9 +55,11 @@ export async function createDraft(a: Actor, input: DraftInput) {
   }
   const body = data.kind === "email" ? sanitizeHtml(richTag.test(data.body) ? data.body : textToHtml(data.body)) : htmlToText(data.body);
   if (!htmlToText(body)) throw new ActionError("Write the message first.");
+  if (data.attachmentFileIds?.length && data.kind !== "email") throw new ActionError("Only emails can carry files. Leave out attachmentFileIds for a text, or put the file's public link in it.");
+  const attachments = data.attachmentFileIds?.length ? await resolveAttachments(data.attachmentFileIds) : [];
   const [row] = await db
     .insert(drafts)
-    .values({ userId: user.id, runId, kind: data.kind, personId: person.id, clientId: data.clientId ?? null, subject: data.kind === "email" ? (data.subject ?? null) : null, body })
+    .values({ userId: user.id, runId, kind: data.kind, personId: person.id, clientId: data.clientId ?? null, subject: data.kind === "email" ? (data.subject ?? null) : null, body, attachments })
     .returning();
   // From background work the teammate isn't looking: tell them something is waiting.
   if (runId) {

@@ -58,7 +58,7 @@ const SHOWN = 8;
  * composer.
  */
 export function FilesCard({ files, emailFiles, links }: { files: RecordFile[]; emailFiles: EmailFile[]; links: FileLinks }) {
-  const { workspace, member } = useApp();
+  const { workspace, member, canEdit } = useApp();
   const tz = workspace.timezone;
   const [all, setAll] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
@@ -75,22 +75,25 @@ export function FilesCard({ files, emailFiles, links }: { files: RecordFile[]; e
         </>
       }
       action={
-        <Button size="sm" variant="ghost" className="-mr-2" onClick={() => input.current?.click()}>
-          <ArrowUpTrayIcon />
-          Upload
-        </Button>
+        // Viewers can't add files.
+        canEdit ? (
+          <Button size="sm" variant="ghost" className="-mr-2" onClick={() => input.current?.click()}>
+            <ArrowUpTrayIcon />
+            Upload
+          </Button>
+        ) : null
       }
     >
       <input ref={input} type="file" multiple hidden onChange={(e) => e.target.files && run(e.target.files).then(() => (e.target.value = ""))} />
       <div
         onDragOver={(e) => {
-          if (!e.dataTransfer.types.includes("Files")) return;
+          if (!canEdit || !e.dataTransfer.types.includes("Files")) return;
           e.preventDefault();
           setOver(true);
         }}
         onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setOver(false)}
         onDrop={(e) => {
-          if (!e.dataTransfer.files.length) return;
+          if (!canEdit || !e.dataTransfer.files.length) return;
           e.preventDefault();
           setOver(false);
           run(e.dataTransfer.files);
@@ -140,7 +143,7 @@ export function FilesCard({ files, emailFiles, links }: { files: RecordFile[]; e
             )}
           </ul>
         ) : !uploads.length ? (
-          <p className="py-1 text-[12.5px] text-muted">No files yet. Upload one or drop it here, or attach one to a note or call.</p>
+          <p className="py-1 text-[12.5px] text-muted">{canEdit ? "No files yet. Upload one or drop it here, or attach one to a note or call." : "No files yet."}</p>
         ) : null}
       </div>
       {rows.length > SHOWN ? (

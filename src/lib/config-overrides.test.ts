@@ -9,7 +9,7 @@ const defaults: AppConfig = {
   theme: { brandColor: null, brandForeground: "#ffffff", tokens: {}, browserColor: "#fafafa" },
   layout: { defaultClientsView: "board" },
   email: { trackOpens: false, trackClicks: false },
-  agent: { enabled: true, voice: true, dictation: true, summaries: true, name: "Assistant", chatModel: "a/chat", chatReasoning: "medium", summaryModel: "a/sum", summaryReasoning: "low", titleModel: "a/title", voiceModel: "a/voice", transcriptionModel: "a/stt", suggestions: ["One"], viewerSuggestions: ["Two"], background: { enabled: true, model: "a/work", reasoning: "low", researchModel: "a/research", maxRunUsd: 0.75, monthlyBudgetUsd: 30, maxRunMinutes: 20, maxConcurrentPerUser: 3, maxBulkRecords: 50 } },
+  agent: { enabled: true, voice: true, dictation: true, summaries: true, fileDescriptions: true, name: "Assistant", chatModel: "a/chat", chatReasoning: "medium", summaryModel: "a/sum", summaryReasoning: "low", titleModel: "a/title", fileModel: "a/file", voiceModel: "a/voice", transcriptionModel: "a/stt", suggestions: ["One"], viewerSuggestions: ["Two"], background: { enabled: true, model: "a/work", reasoning: "low", researchModel: "a/research", maxRunUsd: 0.75, monthlyBudgetUsd: 30, maxRunMinutes: 20, maxConcurrentPerUser: 3, maxBulkRecords: 50 } },
   notifications: { morningHour: 7 },
   live: { pollSeconds: 30, idleMinutes: 10, chatPollSeconds: 5 },
   records: { keyContactLabel: "Decision maker" },

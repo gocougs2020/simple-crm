@@ -210,5 +210,10 @@ export const draftInput = z.object({
   clientId: z.uuid().nullable().optional().describe("The client it's about, if one, so the sent message lands on its timeline too."),
   subject: z.string().trim().max(200).nullable().optional().describe("Emails: the subject line."),
   body: z.string().trim().min(1, "Write the message first.").max(50_000).describe("The message. Emails: plain text or simple HTML (p, strong, em, a, ul, ol, li). Texts: plain text, up to 1,600 characters. Merge tags like {{first_name}} work in emails."),
+  attachmentFileIds: z
+    .array(z.uuid())
+    .max(10)
+    .optional()
+    .describe("Emails only: ids of CRM files to attach (a brochure, a price sheet). Find them with search_files. Up to 10 files and 20 MB in all; the teammate can remove any before sending."),
 });
 export type DraftInput = z.input<typeof draftInput>;
