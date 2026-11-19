@@ -242,7 +242,8 @@ export async function addClientService(a: Actor, clientId: string, serviceId: st
       interval: data.interval ?? (plan ?? service).interval,
       startedOn: data.startedOn ?? (client.category === "current" ? today : null),
       endedOn: data.endedOn ?? (client.category === "past" ? (client.endedOn ?? today) : null),
-      note: data.note ?? plan?.description?.slice(0, 300) ?? null,
+      // The plan's description is the note only when none was sent; a note cleared on purpose stays empty.
+      note: input.note === undefined ? (plan?.description?.slice(0, 300) ?? null) : data.note,
     })
     .returning({ id: clientServices.id });
   await recordEvent({ entityType: "client", entityId: client.id, action: "service_added", data: { name: plan ? `${service.name} · ${plan.name}` : service.name }, ...stamp(a) });
