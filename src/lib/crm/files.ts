@@ -12,8 +12,8 @@ import { likeTerm } from "@/lib/crm/records";
 
 const { files, fileLinks, fileFolders, people, organizations, clients } = schema;
 
-/** Which list the Files page shows: general files (in folders), files on records, or chat attachments. */
-export const fileViews = ["general", "records", "chat"] as const;
+/** Which list the Files page shows: every file, general files (in folders), files on records, or chat attachments. */
+export const fileViews = ["all", "general", "records", "chat"] as const;
 export type FileView = (typeof fileViews)[number];
 
 export type FileRecord = { entity: EntityType; id: string; name: string; /** "upload" when it was uploaded there; "link" when attached later. */ via: "upload" | "link" };
@@ -21,12 +21,28 @@ export type FileRecord = { entity: EntityType; id: string; name: string; /** "up
 /** A file is on a record when one of its own columns or a `file_links` row says so. */
 export const onAnyRecord = sql`(${files.personId} is not null or ${files.organizationId} is not null or ${files.clientId} is not null or exists (select 1 from file_links fl where fl.file_id = ${files.id}))`;
 
-/** A file is on this record: uploaded on it or attached to it later. */
+/** A file is on exactly this record: added on it, or attached to it later. */
 export function onRecord(entity: EntityType, id: string) {
   const column = entity === "person" ? "person_id" : entity === "organization" ? "organization_id" : "client_id";
   const own = entity === "person" ? files.personId : entity === "organization" ? files.organizationId : files.clientId;
   return sql`(${own} = ${id} or exists (select 1 from file_links fl where fl.file_id = ${files.id} and ${sql.raw(`fl.${column}`)} = ${id}))`;
 }
+
+/**
+ * What a record's Files card and timeline show. A person or an organization
+ * shows its own files. A client also shows its contact's, its people's and
+ * its organization's: files reach a client from below, never the other way.
+ */
+export function inRecordView(entity: EntityType, id: string) {
+  if (entity !== "client") return onRecord(entity, id);
+  const people = sql`(select c.person_id from clients c where c.id = ${id} and c.person_id is not null union select cp.person_id from client_people cp where cp.client_id = ${id})`;
+  const org = sql`(select c.organization_id from clients c where c.id = ${id})`;
+  return sql`(${files.clientId} = ${id} or ${files.personId} in ${people} or ${files.organizationId} = ${org}
+    or exists (select 1 from file_links fl where fl.file_id = ${files.id} and (fl.client_id = ${id} or fl.person_id in ${people} or fl.organization_id = ${org})))`;
+}
+
+/** Every file in the CRM, except chat uploads nobody posted. */
+const anywhere = sql`(${files.origin} is distinct from 'chat' or ${files.chatMessageId} is not null)`;
 
 /** A general file: not on any record and not a chat attachment, unless someone put it in a folder (a folder keeps whatever is put in it). */
 const general = sql`((not ${onAnyRecord} and ${files.origin} is distinct from 'chat') or ${files.folderId} is not null)`;
@@ -78,6 +94,8 @@ export async function listFiles(f: { view: FileView; folderId?: string | null; q
   if (f.view === "general") {
     where.push(general);
     if (!q) where.push(f.folderId ? eq(files.folderId, f.folderId) : isNull(files.folderId));
+  } else if (f.view === "all") {
+    where.push(anywhere);
   } else if (f.view === "records") {
     where.push(onAnyRecord);
   } else {
@@ -98,13 +116,14 @@ export async function fileViewCounts() {
   const db = await getDb();
   const [row] = await db
     .select({
+      all: sql<number>`count(*) filter (where ${anywhere})`.mapWith(Number),
       general: sql<number>`count(*) filter (where ${general})`.mapWith(Number),
       records: sql<number>`count(*) filter (where ${onAnyRecord})`.mapWith(Number),
       chat: sql<number>`count(*) filter (where ${files.origin} = 'chat' and ${files.chatMessageId} is not null)`.mapWith(Number),
     })
     .from(files)
     .where(isNull(files.deletedAt));
-  return row ?? { general: 0, records: 0, chat: 0 };
+  return row ?? { all: 0, general: 0, records: 0, chat: 0 };
 }
 
 const personLabel = sql<string>`${people.firstName} || coalesce(' ' || ${people.lastName}, '')`;

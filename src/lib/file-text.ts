@@ -1,6 +1,11 @@
 import "server-only";
 import type { DescribeKind } from "@/lib/file-describe-rules";
 
+/** Files read for their text on the server: anything bigger isn't read. */
+const MAX_READ_BYTES = 10 * 1024 * 1024;
+/** What a workbook may inflate to before it's parsed, so a small file built to expand can't exhaust memory. */
+const MAX_WORKBOOK_BYTES = 40 * 1024 * 1024;
+
 /** A file's text isn't text: binary data saved under a .csv or .txt name. */
 const looksBinary = (text: string) => text.slice(0, 4000).includes("\u0000");
 
@@ -11,6 +16,7 @@ const looksBinary = (text: string) => text.slice(0, 4000).includes("\u0000");
  * pictures) and for files that turn out not to be text.
  */
 export async function fileText(bytes: Buffer, kind: DescribeKind): Promise<string | null> {
+  if (bytes.length > MAX_READ_BYTES) return null;
   if (kind === "text") {
     const text = bytes.toString("utf8");
     return looksBinary(text) ? null : text;
@@ -20,6 +26,8 @@ export async function fileText(bytes: Buffer, kind: DescribeKind): Promise<strin
     return docxText(new Uint8Array(bytes)).catch(() => null);
   }
   if (kind === "xlsx") {
+    const { zipFitsUnder } = await import("@/lib/agent/docx");
+    if (!(await zipFitsUnder(new Uint8Array(bytes), MAX_WORKBOOK_BYTES))) return null;
     const { default: readXlsxFile } = await import("read-excel-file/node");
     const { default: Papa } = await import("papaparse");
     const workbook = await readXlsxFile(bytes).catch(() => null);

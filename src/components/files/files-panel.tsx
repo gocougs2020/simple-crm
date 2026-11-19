@@ -121,6 +121,7 @@ export function FilesCard({ files, emailFiles, links }: { files: RecordFile[]; e
                       {r.f.publicToken ? <PublicBadge className="shrink-0" /> : null}
                     </span>
                     <span className="block truncate text-[11.5px] text-muted" suppressHydrationWarning>
+                      {r.f.via ? `From ${r.f.via} · ` : ""}
                       {r.f.activityType ? `In a ${activityLabels[r.f.activityType].toLowerCase()} · ` : ""}
                       {formatBytes(r.f.size)} · {member(r.f.uploadedBy)?.name ?? "Someone"} · {formatDay(r.f.createdAt, tz)}
                     </span>

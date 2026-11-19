@@ -17,7 +17,8 @@ export default function FilesPage({ searchParams }: PageProps<"/files">) {
 
 async function Files({ searchParams }: Pick<PageProps<"/files">, "searchParams">) {
   const sp = await searchParams;
-  const view: FileView = fileViews.find((v) => v === sp.view) ?? "general";
+  // Every file by default; a folder link opens General files.
+  const view: FileView = fileViews.find((v) => v === sp.view) ?? (sp.folder ? "general" : "all");
   const q = typeof sp.q === "string" ? sp.q.slice(0, 100) : "";
   const folders = await listFolders();
   const asked = z.uuid().safeParse(sp.folder);

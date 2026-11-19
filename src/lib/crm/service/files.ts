@@ -325,6 +325,8 @@ export type FolderContents = {
   public: number;
   /** Files someone else uploaded, which only an admin can delete. */
   notYours: number;
+  /** Folders inside that someone else made, which only an admin can delete. */
+  foldersNotYours: number;
 };
 
 /** What deleting a folder would delete: every file and folder inside it, at any depth. */
@@ -339,7 +341,9 @@ export async function folderContents(a: Actor, folderId: string): Promise<Folder
     .where(and(inArray(files.folderId, ids), isNull(files.deletedAt)))
     .orderBy(sql`lower(${files.name})`);
   const me = actorUserId(a);
+  const others = await othersFolders(a, ids.slice(1));
   return {
+    foldersNotYours: others,
     folders: ids.length - 1,
     files: inside.length,
     sample: inside.slice(0, 8).map((f) => f.name),
@@ -347,6 +351,14 @@ export async function folderContents(a: Actor, folderId: string): Promise<Folder
     public: inside.filter((f) => f.publicToken).length,
     notYours: can(a, "activities:moderate") ? 0 : inside.filter((f) => f.uploadedBy !== me).length,
   };
+}
+
+/** How many of these folders someone else made; zero for an admin. */
+async function othersFolders(a: Actor, ids: string[]) {
+  if (!ids.length || can(a, "activities:moderate")) return 0;
+  const db = await getDb();
+  const rows = await db.select({ createdBy: fileFolders.createdBy }).from(fileFolders).where(inArray(fileFolders.id, ids));
+  return rows.filter((f) => f.createdBy && f.createdBy !== actorUserId(a)).length;
 }
 
 export const deleteFolderInput = z.discriminatedUnion("contents", [
@@ -390,6 +402,8 @@ export async function deleteFolder(a: Actor, folderId: string, choice: z.input<t
   const me = actorUserId(a);
   const notYours = can(a, "activities:moderate") ? 0 : inside.filter((f) => f.uploadedBy !== me).length;
   if (notYours) throw new ForbiddenError(`${notYours === 1 ? "One file" : `${notYours} files`} in this folder ${notYours === 1 ? "was" : "were"} uploaded by someone else, so only an admin can delete ${notYours === 1 ? "it" : "them"}. Move everything to another folder instead, or ask an admin.`);
+  const foldersNotYours = await othersFolders(a, ids.slice(1));
+  if (foldersNotYours) throw new ForbiddenError(`${foldersNotYours === 1 ? "One folder" : `${foldersNotYours} folders`} inside this one ${foldersNotYours === 1 ? "was" : "were"} made by someone else, so only an admin can delete ${foldersNotYours === 1 ? "it" : "them"}. Move everything to another folder instead, or ask an admin.`);
   const records = await recordsFor(inside.map((f) => f.id));
   if (inside.length) {
     await db

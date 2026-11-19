@@ -35,7 +35,8 @@ export async function describeFile(fileId: string, opts: { again?: boolean } = {
   const now = new Date();
   const [f] = await db
     .update(files)
-    .set({ describeStartedAt: now })
+    // Marked failed up front: if reading the file takes the worker down, the backlog doesn't pick it up again.
+    .set({ describeStartedAt: now, describeStatus: "failed" })
     .where(
       and(
         eq(files.id, fileId),
@@ -107,6 +108,7 @@ export async function describeBacklog(limit = 15) {
     .where(and(isNull(files.deletedAt), isNull(files.describeStatus), isNull(files.descriptionBy), or(isNull(files.describeStartedAt), lt(files.describeStartedAt, sql`now() - interval '5 minutes'`))))
     .orderBy(desc(files.createdAt))
     .limit(limit);
-  for (const r of rows) await describeFile(r.id);
+  // One file failing doesn't stop the rest.
+  for (const r of rows) await describeFile(r.id).catch((err) => console.error("[files] describe", r.id, err));
   return { described: rows.length };
 }

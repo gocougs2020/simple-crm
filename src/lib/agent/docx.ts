@@ -72,6 +72,50 @@ async function inflate(data: Uint8Array, max: number) {
   return out;
 }
 
+/**
+ * Whether every entry of a zip (a .docx or .xlsx) inflates to `max` bytes or
+ * less in all. Each entry is actually inflated with the budget that's left,
+ * so a file whose headers understate its size is caught as well. Run before a
+ * library reads the file whole.
+ */
+export async function zipFitsUnder(file: Uint8Array, max: number) {
+  const v = new DataView(file.buffer, file.byteOffset, file.byteLength);
+  let end = -1;
+  for (let i = file.length - 22; i >= Math.max(0, file.length - 22 - 65_535); i--) {
+    if (u32(v, i) === 0x06054b50) {
+      end = i;
+      break;
+    }
+  }
+  if (end < 0) return false;
+  const count = u16(v, end + 10);
+  // Zip64 archives (counts or offsets that don't fit in the classic fields) aren't read at all.
+  if (count === 0xffff || u32(v, end + 16) === 0xffffffff) return false;
+  let at = u32(v, end + 16);
+  let left = max;
+  for (let n = 0; n < count; n++) {
+    if (at + 46 > file.length || u32(v, at) !== 0x02014b50) return false;
+    const method = u16(v, at + 10);
+    const compressed = u32(v, at + 20);
+    const local = u32(v, at + 42);
+    if (compressed === 0xffffffff || local + 30 > file.length || u32(v, local) !== 0x04034b50) return false;
+    const start = local + 30 + u16(v, local + 26) + u16(v, local + 28);
+    if (start + compressed > file.length) return false;
+    const data = file.subarray(start, start + compressed);
+    if (method === 0) left -= compressed;
+    else if (method === 8) {
+      try {
+        left -= (await inflate(data, left)).length;
+      } catch {
+        return false;
+      }
+    } else return false;
+    if (left < 0) return false;
+    at += 46 + u16(v, at + 28) + u16(v, at + 30) + u16(v, at + 32);
+  }
+  return true;
+}
+
 const entities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
 const decodeEntities = (s: string) =>
   s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, e: string) => {

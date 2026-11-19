@@ -30,7 +30,7 @@ type Dragged = { files: string[]; folder?: string };
 
 const viewHref = (view: FileView, folderId?: string | null) => {
   const p = new URLSearchParams();
-  if (view !== "general") p.set("view", view);
+  if (view !== "all") p.set("view", view);
   if (folderId) p.set("folder", folderId);
   const s = p.toString();
   return s ? `/files?${s}` : "/files";
@@ -116,7 +116,9 @@ export function FilesView({ view, folderId, q, rows, folders, counts }: { view: 
     });
 
   const emptyText =
-    view === "records"
+    view === "all"
+      ? { icon: FolderIcon, title: q ? "No files match" : "No files yet", description: q ? "Try another name or word from a description." : "Every file your team adds shows here: on the Files page, on a client, person or organization, or in the team chat." }
+      : view === "records"
       ? { icon: PaperClipIcon, title: q ? "No files match" : "No files on records yet", description: q ? "Try another name." : "Files uploaded on a client, person or organization show here, and so do general files you attach to one." }
       : view === "chat"
         ? { icon: ChatBubbleOvalLeftEllipsisIcon, title: q ? "No files match" : "Nothing posted in chat yet", description: q ? "Try another name." : "Files your team attaches to chat messages show here." }
@@ -126,26 +128,28 @@ export function FilesView({ view, folderId, q, rows, folders, counts }: { view: 
     <div
       className={clsx("min-h-[calc(100dvh-3rem)]", pageDrop && "bg-accent-soft/40")}
       onDragOver={(e) => {
-        if (!general || !canEdit || !e.dataTransfer.types.includes("Files")) return;
+        if (!(general || view === "all") || !canEdit || !e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
         setPageDrop(true);
       }}
       onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setPageDrop(false)}
       onDrop={(e) => {
         setPageDrop(false);
-        if (!general || !canEdit || !e.dataTransfer.files.length) return;
+        if (!(general || view === "all") || !canEdit || !e.dataTransfer.files.length) return;
         e.preventDefault();
         run(e.dataTransfer.files);
       }}
     >
       <PageHeader title="Files" count={counts[view]} sub={!services.blob ? <p className="mt-0.5 text-[12px] text-muted">Stored on this computer for local development. Connect Vercel Blob for production.</p> : null}>
-        {general && canEdit ? (
+        {(general || view === "all") && canEdit ? (
           <>
             <input ref={input} type="file" multiple hidden onChange={(e) => e.target.files && run(e.target.files).then(() => (e.target.value = ""))} />
-            <Button onClick={() => setFolderDialog({ mode: "new" })}>
-              <FolderPlusIcon />
-              New folder
-            </Button>
+            {general ? (
+              <Button onClick={() => setFolderDialog({ mode: "new" })}>
+                <FolderPlusIcon />
+                New folder
+              </Button>
+            ) : null}
             <Button variant="primary" onClick={() => input.current?.click()} loading={uploads.length > 0}>
               <ArrowUpTrayIcon />
               Upload{folder ? " here" : ""}
@@ -156,8 +160,9 @@ export function FilesView({ view, folderId, q, rows, folders, counts }: { view: 
       <Toolbar>
         <FilterTabs
           param="view"
-          fallback="general"
+          fallback="all"
           options={[
+            { value: "all", label: <>All files {counts.all ? <span className="ml-1 text-faint tabular-nums">{counts.all}</span> : null}</> },
             { value: "general", label: <>General files {counts.general ? <span className="ml-1 text-faint tabular-nums">{counts.general}</span> : null}</> },
             { value: "records", label: <>On records {counts.records ? <span className="ml-1 text-faint tabular-nums">{counts.records}</span> : null}</> },
             { value: "chat", label: <>From chat {counts.chat ? <span className="ml-1 text-faint tabular-nums">{counts.chat}</span> : null}</> },
@@ -169,7 +174,7 @@ export function FilesView({ view, folderId, q, rows, folders, counts }: { view: 
       {general && !q ? (
         <nav aria-label="Folders" className="flex flex-wrap items-center gap-0.5 px-4 pb-2 text-[13.5px] lg:px-6">
           <Link href={viewHref("general")} {...dropTarget(null)} className={clsx("rounded-md px-1.5 py-0.5 font-medium hover:bg-sunken", folder ? "text-muted hover:text-primary" : "text-primary", dropOn === "top" && "bg-accent-soft ring-2 ring-accent")}>
-            All files
+            General files
           </Link>
           {crumbs.map((c) => (
             <span key={c.id} className="flex items-center gap-0.5">
@@ -367,6 +372,11 @@ export function FilesView({ view, folderId, q, rows, folders, counts }: { view: 
                               <Link href={`/chat#m-${r.chatMessageId}`} className="inline-flex items-center gap-1 text-secondary hover:text-primary hover:underline">
                                 <ChatBubbleOvalLeftEllipsisIcon className="size-3.5 text-faint" aria-hidden />
                                 Team chat
+                              </Link>
+                            ) : r.folderId ? (
+                              <Link href={viewHref("general", r.folderId)} className="inline-flex max-w-full items-center gap-1 text-secondary hover:text-primary hover:underline">
+                                <FolderSolidIcon className="size-3.5 shrink-0 text-faint" aria-hidden />
+                                <span className="truncate">{folderLabel(folders, r.folderId)}</span>
                               </Link>
                             ) : undefined
                           }
@@ -579,10 +589,11 @@ function DeleteFolderDialog({ folder, folders, onClose }: { folder: FolderRow; f
               <span className="min-w-0 flex-1">
                 <span className="block text-[13.5px] font-medium text-primary">Delete the folder and everything in it</span>
                 <span className="block text-fine">This can&apos;t be undone.</span>
-                {choice === "delete" && (contents.onRecords || contents.public || contents.notYours) ? (
+                {choice === "delete" && (contents.onRecords || contents.public || contents.notYours || contents.foldersNotYours) ? (
                   <ul className="mt-2 flex flex-col gap-1 text-[12.5px] text-error">
                     {contents.onRecords ? <li>{contents.onRecords === 1 ? "One file is" : `${contents.onRecords} files are`} on clients, people or organizations, and will come off them.</li> : null}
                     {contents.public ? <li>{contents.public === 1 ? "One file has" : `${contents.public} files have`} a public link that will stop working.</li> : null}
+                    {contents.foldersNotYours ? <li>{contents.foldersNotYours === 1 ? "One folder inside was" : `${contents.foldersNotYours} folders inside were`} made by someone else, so only an admin can delete {contents.foldersNotYours === 1 ? "it" : "them"}. Move everything instead.</li> : null}
                     {contents.notYours ? <li>{contents.notYours === 1 ? "One file was" : `${contents.notYours} files were`} uploaded by someone else, so only an admin can delete {contents.notYours === 1 ? "it" : "them"}. Move everything instead.</li> : null}
                   </ul>
                 ) : null}

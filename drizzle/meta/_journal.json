@@ -197,6 +197,13 @@
       "when": 1795115370251,
       "tag": "0027_draft-attachments",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1795115577480,
+      "tag": "0028_scope-files-to-their-record",
+      "breakpoints": true
     }
   ]
 }
