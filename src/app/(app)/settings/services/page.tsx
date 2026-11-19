@@ -24,5 +24,10 @@ async function Services() {
     .select({ serviceId: cs.serviceId, active: sql<number>`count(*) filter (where ${cs.endedOn} is null or ${cs.endedOn} > current_date)::int`, total: sql<number>`count(distinct ${cs.clientId})::int` })
     .from(cs)
     .groupBy(cs.serviceId);
-  return <ServiceSettings usage={Object.fromEntries(rows.map((r) => [r.serviceId, { active: r.active, total: r.total }]))} />;
+  const byPlan = await db
+    .select({ planId: cs.planId, active: sql<number>`count(*)::int` })
+    .from(cs)
+    .where(sql`${cs.planId} is not null and (${cs.endedOn} is null or ${cs.endedOn} > current_date)`)
+    .groupBy(cs.planId);
+  return <ServiceSettings usage={Object.fromEntries(rows.map((r) => [r.serviceId, { active: r.active, total: r.total }]))} planUsage={Object.fromEntries(byPlan.map((r) => [r.planId, r.active]))} />;
 }

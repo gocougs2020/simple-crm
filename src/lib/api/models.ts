@@ -164,15 +164,29 @@ export const Service = z.object({
   id: uuid,
   name: z.string(),
   description: z.string().nullable(),
-  price: z.number().int().describe("Catalog price, in cents."),
+  price: z.number().int().describe("Catalog price, in cents, for a client on no plan."),
   interval: z.enum(billingIntervals),
   archived: z.boolean(),
+  plans: z
+    .array(
+      z.object({
+        id: uuid,
+        name: z.string(),
+        description: z.string().nullable().describe("What the plan includes. The default note when it's added to a client."),
+        price: z.number().int().describe("The plan's usual price, in cents."),
+        interval: z.enum(billingIntervals),
+        archived: z.boolean(),
+      }),
+    )
+    .describe("The levels the service is sold at. Empty when it has none."),
 });
 
 export const ClientService = z.object({
   id: uuid.describe("The subscription's own id (not the service's)."),
   serviceId: uuid,
-  name: z.string(),
+  name: z.string().describe("The service's name."),
+  planId: uuid.nullable().describe("The plan of the service they're on, if any."),
+  plan: z.string().nullable().describe("That plan's name."),
   price: z.number().int().describe("In cents."),
   interval: z.enum(billingIntervals),
   startedOn: day.nullable(),

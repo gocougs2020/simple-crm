@@ -5,7 +5,7 @@ import type { SkillRow } from "@/lib/agent/skills";
 import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { getDb, schema } from "@/db";
-import type { ActivityType, EntityType } from "@/lib/constants";
+import { monthlyPriceSql, type ActivityType, type EntityType } from "@/lib/constants";
 import { actorUserId, type Actor } from "@/lib/crm/actor";
 import { timeline, type NoteReply } from "@/lib/crm/activities";
 import { effectiveTags, listLabels } from "@/lib/crm/labels";
@@ -219,7 +219,7 @@ export async function getOrganization(ctx: Ctx, id: string) {
 // ─── Clients ─────────────────────────────────────────────────────────────
 
 const mrr = sql<number>`(
-  select coalesce(round(sum(case cs.interval when 'month' then cs.price when 'quarter' then cs.price / 3.0 when 'year' then cs.price / 12.0 else 0 end)), 0)::bigint
+  select coalesce(round(sum(${sql.raw(monthlyPriceSql)})), 0)::bigint
   from client_services cs where cs.client_id = ${clients.id} and (cs.ended_on is null or cs.ended_on > current_date)
 )`;
 const clientSelect = {
@@ -317,16 +317,19 @@ export async function clientServices(clientId: string) {
   const db = await getDb();
   await assertExists("client", clientId);
   const rows = await db
-    .select({ cs: schema.clientServices, name: schema.services.name, position: schema.services.position })
+    .select({ cs: schema.clientServices, name: schema.services.name, plan: schema.servicePlans.name, position: schema.services.position })
     .from(schema.clientServices)
     .innerJoin(schema.services, eq(schema.services.id, schema.clientServices.serviceId))
+    .leftJoin(schema.servicePlans, eq(schema.servicePlans.id, schema.clientServices.planId))
     .where(eq(schema.clientServices.clientId, clientId))
     .orderBy(asc(schema.services.position), asc(schema.services.name));
   const today = new Date().toISOString().slice(0, 10);
-  return rows.map(({ cs, name }) => ({
+  return rows.map(({ cs, name, plan }) => ({
     id: cs.id,
     serviceId: cs.serviceId,
     name,
+    planId: cs.planId,
+    plan,
     price: Number(cs.price),
     interval: cs.interval,
     startedOn: cs.startedOn,
@@ -499,8 +502,19 @@ export async function listLabelDefinitions() {
 
 export async function listServices() {
   const db = await getDb();
-  const rows = await db.select().from(schema.services).orderBy(asc(schema.services.position), asc(schema.services.name));
-  return rows.map((s) => ({ id: s.id, name: s.name, description: s.description, price: Number(s.price), interval: s.interval, archived: !!s.archivedAt }));
+  const [rows, plans] = await Promise.all([
+    db.select().from(schema.services).orderBy(asc(schema.services.position), asc(schema.services.name)),
+    db.select().from(schema.servicePlans).orderBy(asc(schema.servicePlans.position), asc(schema.servicePlans.name)),
+  ]);
+  return rows.map((s) => ({
+    id: s.id,
+    name: s.name,
+    description: s.description,
+    price: Number(s.price),
+    interval: s.interval,
+    archived: !!s.archivedAt,
+    plans: plans.filter((p) => p.serviceId === s.id).map((p) => ({ id: p.id, name: p.name, description: p.description, price: Number(p.price), interval: p.interval, archived: !!p.archivedAt })),
+  }));
 }
 
 export const toUser = (u: typeof users.$inferSelect) => ({ id: u.id, name: u.name, email: u.email, role: u.role, title: u.title, active: !u.deactivatedAt && !!u.passwordHash });

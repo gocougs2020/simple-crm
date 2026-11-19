@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
-import { interactionTypes, type ActivityType, type EntityType } from "@/lib/constants";
+import { interactionTypes, monthlyPriceSql, type ActivityType, type EntityType } from "@/lib/constants";
 import { ActionError } from "@/lib/auth";
 import { zonedTime } from "@/lib/format";
 
@@ -286,7 +286,7 @@ export async function clientStats(tz: string) {
       signedThisMonth: sql<number>`count(*) filter (where ${clients.category} = 'current' and ${clients.startedOn} >= ${monthStart})::int`,
       leftThisMonth: sql<number>`count(*) filter (where ${clients.category} = 'past' and ${clients.endedOn} >= ${monthStart})::int`,
       mrr: sql<number>`(
-        select coalesce(round(sum(case cs.interval when 'month' then cs.price when 'quarter' then cs.price / 3.0 when 'year' then cs.price / 12.0 else 0 end)), 0)::bigint
+        select coalesce(round(sum(${sql.raw(monthlyPriceSql)})), 0)::bigint
         from client_services cs join clients c on c.id = cs.client_id
         where c.category = 'current' and c.archived_at is null and (cs.ended_on is null or cs.ended_on > current_date)
       )`,

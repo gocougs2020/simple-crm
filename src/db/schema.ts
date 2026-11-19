@@ -508,6 +508,32 @@ export const services = pgTable("services", {
 });
 
 /**
+ * The levels a service is sold at ("Starter", "Advanced"), each with its own
+ * usual price, billing and description. Managed under each service in
+ * Settings → Services. A service with no plans is sold at its own price.
+ */
+export const servicePlans = pgTable(
+  "service_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serviceId: uuid("service_id")
+      .notNull()
+      .references(() => services.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** What the plan includes. Offered as the note when the plan is added to a client. */
+    description: text("description"),
+    /** The usual price, in cents. Each client's subscription can differ. */
+    price: bigint("price", { mode: "number" }).notNull().default(0),
+    interval: text("interval").$type<BillingInterval>().notNull().default("month"),
+    position: integer("position").notNull().default(0),
+    /** Archived plans can't be picked for clients, but stay on the ones that have them. */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("service_plans_service_idx").on(t.serviceId)],
+);
+
+/**
  * A service a client uses or used. An open row (no `endedOn`) is what they
  * pay for today; ended rows are what a past client had.
  */
@@ -521,6 +547,8 @@ export const clientServices = pgTable(
     serviceId: uuid("service_id")
       .notNull()
       .references(() => services.id),
+    /** The plan of that service they're on, when the service has plans. */
+    planId: uuid("plan_id").references(() => servicePlans.id),
     price: bigint("price", { mode: "number" }).notNull().default(0),
     interval: text("interval").$type<BillingInterval>().notNull().default("month"),
     startedOn: date("started_on"),
