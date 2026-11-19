@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
-import { clientCategoryLabels, type ClientCategory } from "@/lib/constants";
+import { clientCategoryLabels, monthlyPriceSql, type ClientCategory } from "@/lib/constants";
 import { effectiveTags } from "@/lib/crm/labels";
 
 const { people, organizations, clients, stages, personOrganizations } = schema;
@@ -239,7 +239,7 @@ export async function peopleOf(organizationId: string) {
 
 /** Monthly value of a client's subscriptions: open ones, or for past clients, what they had when they left. */
 const monthly = (where: SQL) => sql<number>`(
-  select coalesce(round(sum(case cs.interval when 'month' then cs.price when 'quarter' then cs.price / 3.0 when 'year' then cs.price / 12.0 else 0 end)), 0)::bigint
+  select coalesce(round(sum(${sql.raw(monthlyPriceSql)})), 0)::bigint
   from client_services cs where cs.client_id = ${clients.id} and ${where}
 )`;
 const activeService = sql`(cs.ended_on is null or cs.ended_on > current_date)`;
@@ -390,11 +390,12 @@ export async function allClientTags() {
 /** The services a client has had, current first. */
 export async function servicesOf(clientId: string) {
   const db = await getDb();
-  const { clientServices, services } = schema;
+  const { clientServices, services, servicePlans } = schema;
   return db
-    .select({ id: clientServices.id, serviceId: clientServices.serviceId, name: services.name, price: clientServices.price, interval: clientServices.interval, startedOn: clientServices.startedOn, endedOn: clientServices.endedOn, note: clientServices.note })
+    .select({ id: clientServices.id, serviceId: clientServices.serviceId, planId: clientServices.planId, name: sql<string>`${services.name} || coalesce(' · ' || ${servicePlans.name}, '')`, service: services.name, plan: servicePlans.name, price: clientServices.price, interval: clientServices.interval, startedOn: clientServices.startedOn, endedOn: clientServices.endedOn, note: clientServices.note })
     .from(clientServices)
     .innerJoin(services, eq(services.id, clientServices.serviceId))
+    .leftJoin(servicePlans, eq(servicePlans.id, clientServices.planId))
     .where(eq(clientServices.clientId, clientId))
     .orderBy(sql`${clientServices.endedOn} desc nulls first`, asc(services.position), asc(services.name));
 }

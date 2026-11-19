@@ -16,7 +16,7 @@ import { rankBetween } from "@/lib/rank";
 
 /** Clients: creating, editing, moving through stages and categories, services and performance numbers. Shared by the browser, the API and MCP. */
 
-const { clients, stages, pipelines, people, services, clientServices, clientMetrics, clientPeople } = schema;
+const { clients, stages, pipelines, people, services, servicePlans, clientServices, clientMetrics, clientPeople } = schema;
 
 const clientLabels = {
   name: "Name",
@@ -270,21 +270,35 @@ export async function addClientService(a: Actor, clientId: string, serviceId: st
   const client = await getClientRow(clientId);
   const [service] = await db.select().from(services).where(eq(services.id, id.parse(serviceId)));
   if (!service || service.archivedAt) throw new NotFoundError("That service isn't offered anymore. Pick another one.");
+  const plan = data.planId ? await planOf(service.id, data.planId) : null;
+  if (plan?.archivedAt) throw new NotFoundError("That plan isn't offered anymore. Pick another one.");
   const today = await workspaceToday();
   const [row] = await db
     .insert(clientServices)
     .values({
       clientId: client.id,
       serviceId: service.id,
-      price: data.price ?? service.price,
-      interval: data.interval ?? service.interval,
+      planId: plan?.id ?? null,
+      // The plan's price, billing and description are the starting point; what this client pays can differ.
+      price: data.price ?? (plan ?? service).price,
+      interval: data.interval ?? (plan ?? service).interval,
       startedOn: data.startedOn ?? (client.category === "current" ? today : null),
       endedOn: data.endedOn ?? (client.category === "past" ? (client.endedOn ?? today) : null),
-      note: data.note,
+      // No note sent: the plan's description. An empty string is a note cleared on purpose (the dialog sends one), and stays empty.
+      // The API validates before calling, so a note it leaves out arrives as null and gets the description too.
+      note: data.note ?? (input.note === "" ? null : (plan?.description?.slice(0, 300) ?? null)),
     })
     .returning({ id: clientServices.id });
-  await recordEvent({ entityType: "client", entityId: client.id, action: "service_added", data: { name: service.name }, ...stamp(a) });
+  await recordEvent({ entityType: "client", entityId: client.id, action: "service_added", data: { name: plan ? `${service.name} · ${plan.name}` : service.name }, ...stamp(a) });
   return row;
+}
+
+/** A plan, checked to belong to the service it's being used with. */
+async function planOf(serviceId: string, planId: string) {
+  const db = await getDb();
+  const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.serviceId, serviceId)));
+  if (!plan) throw new NotFoundError("That plan isn't one of this service's plans. Pick one from the service's list.");
+  return plan;
 }
 
 async function getSubscription(rowId: string, clientId?: string) {
@@ -300,9 +314,17 @@ export async function updateClientService(a: Actor, rowId: string, patch: z.inpu
   const data = subscriptionInput.partial().parse(patch);
   const db = await getDb();
   const row = await getSubscription(rowId, clientId);
+  const planChanged = data.planId !== undefined && data.planId !== row.cs.planId;
+  const plan = planChanged && data.planId ? await planOf(row.cs.serviceId, data.planId) : null;
+  // Staying on an archived plan is fine; moving onto one isn't, the same as when adding.
+  if (plan?.archivedAt) throw new NotFoundError("That plan isn't offered anymore. Pick another one.");
   await db.update(clientServices).set(data).where(eq(clientServices.id, row.cs.id));
   const ended = data.endedOn && !row.cs.endedOn;
   const changes = diff(row.cs, data, { price: `${row.name} price`, interval: `${row.name} billing`, startedOn: `${row.name} start`, endedOn: `${row.name} end` });
+  if (planChanged) {
+    const [before] = row.cs.planId ? await db.select({ name: servicePlans.name }).from(servicePlans).where(eq(servicePlans.id, row.cs.planId)) : [];
+    changes.push({ field: "planId", label: `${row.name} plan`, from: before?.name ?? null, to: plan?.name ?? null });
+  }
   if (ended) await recordEvent({ entityType: "client", entityId: row.cs.clientId, action: "service_ended", data: { name: row.name, on: data.endedOn }, ...stamp(a) });
   else if (changes.length) await recordEvent({ entityType: "client", entityId: row.cs.clientId, action: "updated", data: { changes }, ...stamp(a) });
   return { id: row.cs.id };

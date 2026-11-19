@@ -224,6 +224,15 @@ export function PersonDetails({ person, organization }: { person: Person; organi
     <SideCard title="Details">
       <dl>
         <InlineField
+          label="Name"
+          value={personName(person)}
+          {...text((name) => {
+            const [firstName = "", ...rest] = (name ?? "").split(/\s+/);
+            return save({ firstName, lastName: rest.join(" ") || null });
+          })}
+        />
+        <OwnerField value={person.ownerId} onSave={(ownerId) => save({ ownerId })} />
+        <InlineField
           label={person.otherEmails.length ? "Primary email" : "Email"}
           value={person.email}
           copy={person.email}
@@ -278,7 +287,6 @@ export function PersonDetails({ person, organization }: { person: Person; organi
           editor={({ value, commit }) => <RecordPicker kind="organization" value={value} onChange={(v) => commit(v)} allowCreate={false} autoFocus />}
           onSave={(v) => save({ organizationId: v && "record" in v ? v.record.id : null })}
         />
-        <OwnerField value={person.ownerId} onSave={(ownerId) => save({ ownerId })} />
         <LabelsField value={person.tags} carried={organization?.tags.length ? { names: organization.tags, from: organization.name } : null} onSave={(tags) => save({ tags })} />
         <InlineField<boolean>
           label="Email opt-in"
@@ -377,6 +385,7 @@ export function OrganizationDetails({ org, parent, childCount = 0 }: { org: Orga
       <SideCard title="Details">
         <dl>
           <InlineField label="Name" value={org.name} {...text((name) => save({ name: name ?? "" }))} />
+          <OwnerField value={org.ownerId} onSave={(ownerId) => save({ ownerId })} />
           <InlineField
             label="Website"
             value={org.domain}
@@ -436,7 +445,6 @@ export function OrganizationDetails({ org, parent, childCount = 0 }: { org: Orga
             editor={({ value, commit }) => <Checkbox checked={value} onChange={(e) => commit(e.target.checked)} label="Other organizations can be part of it" autoFocus />}
             onSave={(isParent) => save({ isParent })}
           />
-          <OwnerField value={org.ownerId} onSave={(ownerId) => save({ ownerId })} />
           <CustomFieldRows entity="organization" values={org.custom} onSave={(key, v) => save({ custom: { [key]: v } })} />
         </dl>
       </SideCard>
@@ -461,6 +469,7 @@ export function ClientDetails({ client, person, organization }: { client: Client
     <SideCard title="Details">
       <dl>
         <InlineField label="Name" value={client.name} {...text((name) => save({ name: name ?? "" }))} />
+        <OwnerField value={client.ownerId} onSave={(ownerId) => save({ ownerId })} />
         {c === "prospective" ? (
           <>
             <InlineField<string>
@@ -572,7 +581,6 @@ export function ClientDetails({ client, person, organization }: { client: Client
           editor={({ value, commit }) => <RecordPicker kind="organization" value={value} onChange={(v) => commit(v)} allowCreate={false} autoFocus />}
           onSave={(v) => save({ organizationId: v && "record" in v ? v.record.id : null })}
         />
-        <OwnerField value={client.ownerId} onSave={(ownerId) => save({ ownerId })} />
         <LabelsField value={client.tags} onSave={(tags) => save({ tags })} />
         <CustomFieldRows entity="client" values={client.custom} onSave={(key, v) => save({ custom: { [key]: v } })} />
       </dl>
