@@ -104,7 +104,8 @@ export async function postChatMessage(a: Actor, input: { body: string; fileIds?:
   if (own.length !== fileIds.length) throw new ActionError("One of those files was already posted or removed. Attach it again.");
   const mentions = await mentionsIn(body);
   const [row] = await db.insert(chatMessages).values({ userId: user.id, body, mentions }).returning({ id: chatMessages.id, createdAt: chatMessages.createdAt });
-  if (fileIds.length) await db.update(files).set({ chatMessageId: row.id }).where(inArray(files.id, fileIds));
+  // Claimed only while still unclaimed, so a double-submitted message can't take another's files.
+  if (fileIds.length) await db.update(files).set({ chatMessageId: row.id }).where(and(inArray(files.id, fileIds), isNull(files.chatMessageId)));
   await db.update(users).set({ chatReadAt: row.createdAt }).where(eq(users.id, user.id));
   tellMentioned(a, row.id, body, mentions);
   return row;
