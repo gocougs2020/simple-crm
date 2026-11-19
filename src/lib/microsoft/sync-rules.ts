@@ -76,6 +76,6 @@ export type Visibility = "public" | "private" | "withhold";
 export function visibilityFor(probability: number, t: { private: number; withhold: number }): Visibility {
   const clamp = (n: number, fallback: number) => (Number.isFinite(n) ? Math.min(Math.max(n, 0), 1) : fallback);
   const withhold = clamp(t.withhold, 0.85);
-  const priv = Math.min(clamp(t.private, 0.3), withhold);
+  const priv = Math.min(clamp(t.private, 0.5), withhold);
   return probability >= withhold ? "withhold" : probability >= priv ? "private" : "public";
 }

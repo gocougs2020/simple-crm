@@ -227,10 +227,11 @@ async function handleMessage(ctx: Ctx, m: GraphMessage, folder: SyncFolder) {
   // Sent Items is mail out. Anywhere else, it's out when one of us wrote it.
   const direction: "inbound" | "outbound" = folder.sent || (!!from.address && isInternal(from.address, ctx.team, ctx.domains)) ? "outbound" : "inbound";
   // Everyone on it who isn't us: the sender, To and Cc. A teammate who's also a person in the CRM doesn't count.
-  const others = outsiders([from.address, ...to.map((a) => a.address)], ctx.team, ctx.domains);
+  const everyone = [from.address, ...to.map((a) => a.address)].filter(Boolean);
+  const others = outsiders(everyone, ctx.team, ctx.domains);
   if (!others.length) return;
-  // The teammate said never to sync mail with this address or domain. Nothing about it is kept.
-  if (isBlocked(others, account.blocked)) return;
+  // The teammate said never to sync mail with this address or domain, one of ours included. Nothing about it is kept.
+  if (isBlocked(everyone, account.blocked)) return;
   // One of them has to be a person here. An organization's website matching isn't enough.
   const links = await linksForEmails(others, { peopleOnly: true });
   if (!links.personId) return;
@@ -252,6 +253,13 @@ async function handleMessage(ctx: Ctx, m: GraphMessage, folder: SyncFolder) {
   const keepPrivate = async (reason: string, score?: number | null) => {
     if (await save(base, "private", reason, score, content)) ctx.result.private++;
   };
+
+  // Outlook's own sensitivity label is the sender's word for it: always kept out, before anything else, so no copy of it is ever stored.
+  if (m.sensitivity && m.sensitivity !== "normal") {
+    if (await save(base, "withheld", `Marked ${m.sensitivity} in Outlook`)) await markWithheld(account, m);
+    ctx.result.withheld++;
+    return;
+  }
 
   // Sent from a record through this mailbox, or already copied from a teammate's mailbox: it's on the timeline once.
   if (m.internetMessageId) {
@@ -287,13 +295,6 @@ async function handleMessage(ctx: Ctx, m: GraphMessage, folder: SyncFolder) {
     }
     // Private on a teammate's copy, so private on this one: each of them sees their own, and either can share it.
     if (others.length) return keepPrivate("Kept private on a teammate's copy");
-  }
-
-  // Outlook's own sensitivity label is the sender's word for it: always kept out, no AI needed.
-  if (m.sensitivity && m.sensitivity !== "normal") {
-    if (await save(base, "withheld", `Marked ${m.sensitivity} in Outlook`)) await markWithheld(account, m);
-    ctx.result.withheld++;
-    return;
   }
 
   // The screen answers with how likely the email is to be sensitive: fine for the team, private to this teammate, or not stored.

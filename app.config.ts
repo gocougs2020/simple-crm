@@ -336,7 +336,7 @@ const defaults = {
     screenModel: "typesafe-ai/jev",
     screenInstructions:
       "Anything not about recruiting, broadly speaking. Above all: compensation, pay, salary, bonuses, commissions, benefits or other money matters about a person; and conversations between members of our own team (listed in ourTeam), even when a teammate also happens to be in the CRM as a person. Also personal matters (health, family), HR issues, legal disputes, and passwords or security codes.",
-    privateThreshold: 0.3,
+    privateThreshold: 0.5,
     screenThreshold: 0.85,
     internalDomains: [],
     withheldCategory: null,
