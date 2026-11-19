@@ -272,6 +272,8 @@ export async function updateClientService(a: Actor, rowId: string, patch: z.inpu
   const row = await getSubscription(rowId, clientId);
   const planChanged = data.planId !== undefined && data.planId !== row.cs.planId;
   const plan = planChanged && data.planId ? await planOf(row.cs.serviceId, data.planId) : null;
+  // Staying on an archived plan is fine; moving onto one isn't, the same as when adding.
+  if (plan?.archivedAt) throw new NotFoundError("That plan isn't offered anymore. Pick another one.");
   await db.update(clientServices).set(data).where(eq(clientServices.id, row.cs.id));
   const ended = data.endedOn && !row.cs.endedOn;
   const changes = diff(row.cs, data, { price: `${row.name} price`, interval: `${row.name} billing`, startedOn: `${row.name} start`, endedOn: `${row.name} end` });
