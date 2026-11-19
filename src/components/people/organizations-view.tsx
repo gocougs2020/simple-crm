@@ -3,7 +3,7 @@
 import { PlusIcon } from "@heroicons/react/20/solid";
 import { BuildingOffice2Icon } from "@heroicons/react/24/outline";
 import { useCallback, useState } from "react";
-import { assignOwner, moreOrganizations, setArchived } from "@/actions/records";
+import { assignOwner, moreOrganizations, setArchived, setParentOrganization } from "@/actions/records";
 import { useApp } from "@/components/app-context";
 import { CategoryBadge } from "@/components/clients/client-controls";
 import { BulkButton } from "@/components/clients/clients-view";
@@ -164,6 +164,32 @@ export function OrganizationsView({ rows: first, total, filter, pageSize, filter
                 No owner
               </option>
             </select>
+            {parentOrganizations.length ? (
+              <select
+                className="h-7 rounded-md border border-white/20 bg-white/10 px-2 text-[12.5px] text-white"
+                defaultValue=""
+                onChange={async (e) => {
+                  const parentId = e.target.value === "none" ? null : e.target.value;
+                  const r = await setParentOrganization(ids, parentId);
+                  if (!r.ok) return void toast.error(r.error);
+                  toast.success(parentResult(r.data, parentOrganizations.find((p) => p.id === parentId)?.name ?? null));
+                  clear();
+                }}
+                aria-label="Set parent organization"
+              >
+                <option value="" disabled>
+                  Set parent organization…
+                </option>
+                {parentOrganizations.map((p) => (
+                  <option key={p.id} value={p.id} className="text-primary">
+                    {p.name}
+                  </option>
+                ))}
+                <option value="none" className="text-primary">
+                  No parent organization
+                </option>
+              </select>
+            ) : null}
             <BulkAddLabels entity="organization" ids={ids} onDone={clear} />
             <BulkButton
               onClick={async () => {
@@ -192,4 +218,19 @@ export function OrganizationsView({ rows: first, total, filter, pageSize, filter
       ) : null}
     </>
   );
+}
+
+const orgCount = (n: number) => `${n} ${n === 1 ? "organization" : "organizations"}`;
+
+/** What a bulk parent change did, for the toast: `parentName` is null when they were taken out of their parent. */
+function parentResult({ changed, skipped }: { changed: number; skipped: number }, parentName: string | null) {
+  const done = changed
+    ? parentName
+      ? `${orgCount(changed)} moved under ${parentName}`
+      : `${orgCount(changed)} taken out of their parent organization`
+    : parentName
+      ? `The selected organizations were already part of ${parentName}`
+      : "The selected organizations weren't part of a parent organization";
+  if (!skipped) return done;
+  return `${done}. ${orgCount(skipped)} ${skipped === 1 ? "is a parent organization, so it was" : "are parent organizations, so they were"} left as is.`;
 }

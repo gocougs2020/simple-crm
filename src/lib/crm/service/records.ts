@@ -298,3 +298,50 @@ export async function addLabelsToChildOrganizations(a: Actor, parentId: string, 
   if (!parent.isParent) throw new ConflictError("This organization isn't a parent organization, so no organizations are part of it.");
   return addLabelsWhere(a, "organization", and(eq(organizations.parentId, parent.id), isNull(organizations.archivedAt))!, names);
 }
+
+// ─── Parent organization on many organizations ───────────────────────────
+
+/**
+ * Puts the selected organizations under one parent organization, or takes
+ * them out of theirs when `parentId` is null, and writes history for each one
+ * that changed. Organizations that are parents themselves can't be part of
+ * another, so they're left as they are and counted in `skipped`.
+ */
+export async function setParentOrganization(a: Actor, ids: string[], parentId: string | null) {
+  assertCan(a, "records:write");
+  const list = z.array(id).min(1).max(500).parse(ids);
+  const target = id.nullable().parse(parentId);
+  const db = await getDb();
+  if (target) {
+    const [parent] = await db.select({ name: organizations.name, isParent: organizations.isParent, archivedAt: organizations.archivedAt }).from(organizations).where(eq(organizations.id, target));
+    if (!parent) throw new NotFoundError("That parent organization doesn't exist.");
+    if (parent.archivedAt) throw new ConflictError(`${parent.name} is archived. Restore it, or pick another parent organization.`);
+    if (!parent.isParent) throw new ConflictError(`${parent.name} isn't marked as a parent organization. Mark it as one on its page first, then pick it here.`);
+  }
+  const before = await db.select({ id: organizations.id, isParent: organizations.isParent, parentId: organizations.parentId }).from(organizations).where(inArray(organizations.id, list));
+  const skipped = target ? before.filter((b) => b.isParent).length : 0;
+  const changed = before.filter((b) => !(target && b.isParent) && b.parentId !== target);
+  let updated = new Set<string>();
+  if (changed.length) {
+    const rows = await db
+      .update(organizations)
+      .set({ parentId: target, updatedAt: new Date() })
+      // A parent can't be part of another, even one marked as a parent since the read above.
+      .where(
+        and(
+          inArray(
+            organizations.id,
+            changed.map((b) => b.id),
+          ),
+          target ? eq(organizations.isParent, false) : undefined,
+        ),
+      )
+      .returning({ id: organizations.id });
+    updated = new Set(rows.map((r) => r.id));
+    for (const b of changed.filter((c) => updated.has(c.id))) {
+      const changes = await labelRelations([{ field: "parentId", label: orgLabels.parentId, from: b.parentId, to: target }]);
+      await recordEvent({ entityType: "organization", entityId: b.id, action: "updated", data: { changes }, ...stamp(a) });
+    }
+  }
+  return { count: before.length, changed: updated.size, skipped: skipped + changed.length - updated.size };
+}

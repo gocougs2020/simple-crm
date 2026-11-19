@@ -90,6 +90,15 @@ export async function addLabels(entity: EntityType, ids: string[], labels: strin
   });
 }
 
+/** Bulk "Set parent organization" from the Organizations table; null takes the selected organizations out of their parent. */
+export async function setParentOrganization(ids: string[], parentId: string | null): Promise<Result<{ count: number; changed: number; skipped: number }>> {
+  return run(async () => {
+    const result = await svc.setParentOrganization(sessionActor(await actionUser()), ids, parentId);
+    refresh();
+    return result;
+  });
+}
+
 /** Carries labels just added to a parent organization onto every organization that is part of it. */
 export async function addLabelsToChildOrganizations(parentId: string, labels: string[]): Promise<Result<{ count: number; changed: number }>> {
   return run(async () => {

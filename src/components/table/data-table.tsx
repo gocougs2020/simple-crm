@@ -99,17 +99,19 @@ export function DataTable<T>({
           <thead className="sticky top-0 z-10 bg-surface shadow-[0_1px_0_var(--border)]">
             <tr>
               {bulk ? (
-                <th className="w-10 px-3 py-2">
-                  <input
-                    type="checkbox"
-                    className="size-4 accent-[var(--accent)]"
-                    checked={allOn}
-                    ref={(el) => {
-                      if (el) el.indeterminate = selected.size > 0 && !allOn;
-                    }}
-                    onChange={() => setSelected(allOn ? new Set() : new Set(ids))}
-                    aria-label="Select all"
-                  />
+                <th className="w-11 p-0">
+                  <label className="flex h-10 cursor-pointer items-center justify-center px-3">
+                    <input
+                      type="checkbox"
+                      className="size-[18px] cursor-pointer accent-[var(--accent)]"
+                      checked={allOn}
+                      ref={(el) => {
+                        if (el) el.indeterminate = selected.size > 0 && !allOn;
+                      }}
+                      onChange={() => setSelected(allOn ? new Set() : new Set(ids))}
+                      aria-label="Select all"
+                    />
+                  </label>
                 </th>
               ) : null}
               {columns.map((c) => (
@@ -142,21 +144,23 @@ export function DataTable<T>({
                   className={clsx("table-row-link border-t border-line first:border-t-0", selected.has(id) && "bg-accent-soft")}
                 >
                   {bulk ? (
-                    <td className={clsx("w-10 px-3 py-2", isMine && "shadow-[inset_2px_0_0_var(--accent)]")}>
-                      <input
-                        type="checkbox"
-                        className="size-4 accent-[var(--accent)]"
-                        checked={selected.has(id)}
-                        onChange={() =>
-                          setSelected((s) => {
-                            const n = new Set(s);
-                            if (n.has(id)) n.delete(id);
-                            else n.add(id);
-                            return n;
-                          })
-                        }
-                        aria-label="Select row"
-                      />
+                    <td className={clsx("w-11 p-0", isMine && "shadow-[inset_2px_0_0_var(--accent)]")}>
+                      <label className="flex h-11 cursor-pointer items-center justify-center px-3">
+                        <input
+                          type="checkbox"
+                          className="size-[18px] cursor-pointer accent-[var(--accent)]"
+                          checked={selected.has(id)}
+                          onChange={() =>
+                            setSelected((s) => {
+                              const n = new Set(s);
+                              if (n.has(id)) n.delete(id);
+                              else n.add(id);
+                              return n;
+                            })
+                          }
+                          aria-label="Select row"
+                        />
+                      </label>
                     </td>
                   ) : null}
                   {columns.map((c, i) => (
