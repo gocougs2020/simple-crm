@@ -296,7 +296,12 @@ export async function setCompleted(a: Actor, activityId: string, completed: bool
     .where(eq(activities.id, z.uuid().parse(activityId)))
     .returning();
   if (!row) throw new NotFoundError("This activity was deleted.");
-  if (completed) await touch(row, now);
+  if (completed) {
+    await touch(row, now);
+    // Everyone else who was on it (a meeting's other attendees) was contacted too.
+    const others = await db.select({ personId: activityPeople.personId }).from(activityPeople).where(eq(activityPeople.activityId, row.id));
+    for (const o of others) await touch({ personId: o.personId }, now);
+  }
   let clientWithoutNext: string | null = null;
   if (completed && row.clientId) {
     const [c] = await db.select({ category: clients.category }).from(clients).where(eq(clients.id, row.clientId));

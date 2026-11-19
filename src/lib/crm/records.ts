@@ -353,7 +353,7 @@ export async function clientPeople(client: { id: string; personId: string | null
     .from(people)
     .where(and(or(client.personId ? eq(people.id, client.personId) : undefined, added, atOrganization), isNull(people.archivedAt)))
     // The contact and the people added by hand come first, so a very large organization can't crowd them out of the limit.
-    .orderBy(client.personId ? sql`${people.id} = ${client.personId} desc` : sql`true`, sql`${added} desc`, desc(people.decisionMaker), asc(people.firstName), asc(people.lastName))
+    .orderBy(...(client.personId ? [sql`${people.id} = ${client.personId} desc`] : []), sql`${added} desc`, desc(people.decisionMaker), asc(people.firstName), asc(people.lastName))
     .limit(200);
   const rank = { contact: 0, added: 1, organization: 2 } as const;
   return rows
