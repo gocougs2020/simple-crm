@@ -175,6 +175,17 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
     await clients.changeClientCategory(a, params.id, body);
     return q.getClient(ctx, params.id);
   },
+  async listClientPeople(_a, { params }, ctx) {
+    return { data: await q.clientPeople(ctx, params.id), nextCursor: null };
+  },
+  async addClientPerson(a, { params, body }, ctx) {
+    await clients.addClientPerson(a, params.id, body.personId);
+    return (await q.clientPeople(ctx, params.id)).find((p) => p.id === body.personId);
+  },
+  async removeClientPerson(a, { params }) {
+    await clients.removeClientPerson(a, params.id, params.personId);
+    return deleted(params.personId);
+  },
   async listClientServices(_a, { params }) {
     return { data: await q.clientServices(params.id), nextCursor: null };
   },

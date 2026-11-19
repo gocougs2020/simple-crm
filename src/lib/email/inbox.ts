@@ -225,7 +225,7 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
         .from(outboundEmails)
         .leftJoin(activities, eq(activities.emailId, outboundEmails.id))
         .where(
-          sql`${outboundEmails.resendId} = ${m.id} or (${outboundEmails.resendId} is null and ${outboundEmails.campaignId} is null and lower(${outboundEmails.to}) in (${sql.join(recipients.length ? recipients.map((r) => sql`${r}`) : [sql`''`], sql`, `)}) and ${outboundEmails.subject} = ${m.subject ?? ""} and ${outboundEmails.createdAt} >= ${new Date(sentAt.getTime() - 15 * 60_000)})`,
+          sql`${outboundEmails.resendId} = ${m.id} or (${outboundEmails.resendId} is null and ${outboundEmails.campaignId} is null and lower(split_part(${outboundEmails.to}, ',', 1)) in (${sql.join(recipients.length ? recipients.map((r) => sql`${r}`) : [sql`''`], sql`, `)}) and ${outboundEmails.subject} = ${m.subject ?? ""} and ${outboundEmails.createdAt} >= ${new Date(sentAt.getTime() - 15 * 60_000)})`,
         )
         .limit(1);
       if (sent?.activityId) activityId = sent.activityId;

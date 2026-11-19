@@ -155,6 +155,11 @@ export const metricInput = z.object({
 /** A moment in time. The offset matters: it's what makes "3pm" mean the right 3pm. */
 export const datetime = z.iso.datetime({ offset: true, error: "Use an ISO 8601 time with an offset, like 2026-05-01T15:00:00-06:00." });
 
+/** How many people one activity can name (meeting attendees). */
+export const MAX_ACTIVITY_PEOPLE = 20;
+/** How many addresses one email from a record can go to, To and Cc together. */
+export const MAX_EMAIL_RECIPIENTS = 10;
+
 export const activityInput = z.object({
   type: z.enum(activityTypes).describe("note, call, email, text, meeting or task."),
   subject: z
@@ -174,6 +179,11 @@ export const activityInput = z.object({
   dueHasTime: z.boolean().optional().describe("Whether dueAt carries a time of day, or only the date matters."),
   assigneeId: z.uuid().nullable().optional().describe("Who it's assigned to. Defaults to whoever creates it."),
   personId: z.uuid().nullable().optional(),
+  personIds: z
+    .array(z.uuid())
+    .max(MAX_ACTIVITY_PEOPLE)
+    .optional()
+    .describe("Everyone on it, for a meeting with several attendees. It shows on each person's timeline. Replaces the whole list. Without personId, the first one becomes it."),
   organizationId: z.uuid().nullable().optional(),
   clientId: z.uuid().nullable().optional().describe("Linking a client also links its contact and organization; linking a person also links their organization."),
   agent: z

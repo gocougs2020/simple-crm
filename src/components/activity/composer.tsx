@@ -29,6 +29,7 @@ import { dayFromToday, timeKey, zonedTime } from "@/lib/format";
 import { CallButton } from "@/components/phone/contact-actions";
 import { TextComposer } from "@/components/phone/text-composer";
 import { EmailComposer, type EmailRecipient } from "./email-composer";
+import { PeopleChips, WhoSelect, type Contact } from "./people-picker";
 import { useUploader } from "@/components/files/files-panel";
 
 export const activityIcons: Record<ActivityType, typeof PhoneIcon> = {
@@ -46,9 +47,19 @@ export type Links = { personId?: string | null; organizationId?: string | null; 
  * The one place to record anything about a record. Each tab asks only for
  * what that kind of activity needs; everything defaults to "now, by me", so
  * logging a call is two clicks and a sentence.
+ *
+ * `recipient` is who calls, emails and texts go to by default: the person, or
+ * a client's contact. On a client, `contacts` is everyone associated with it,
+ * so any of them can be picked instead, several can go on one email, and a
+ * meeting can name who attended.
  */
-export function Composer({ links, recipient, initialType = "note" }: { links: Links; recipient?: (EmailRecipient & { phone?: string | null; textOptedOut?: boolean }) | null; initialType?: ActivityType }) {
+export function Composer({ links, recipient, contacts = [], initialType = "note" }: { links: Links; recipient?: Recipient | null; contacts?: Contact[]; initialType?: ActivityType }) {
   const [type, setType] = useState<ActivityType>(initialType);
+  // Who a call or text is with. Starts on the contact; the dropdown offers everyone else.
+  const [whoId, setWhoId] = useState<string | null>(recipient?.personId ?? null);
+  const picked = contacts.find((c) => c.personId === whoId);
+  const who: Recipient | null = picked ? { ...picked, phone: picked.phone } : (recipient ?? null);
+  const whoLinks = who && contacts.length ? { ...links, personId: who.personId } : links;
   const { canEdit } = useApp();
   // Emails and texts the agent drafted to this person, waiting for this teammate to review and send (docs/AGENT.md).
   const [drafts, setDrafts] = useState<PersonDraft[]>([]);
@@ -143,23 +154,46 @@ export function Composer({ links, recipient, initialType = "note" }: { links: Li
       </div>
       <div className="p-3">
         {type === "email" ? (
-          <EmailTab key={emailDraft?.id ?? "email"} links={emailDraft ? draftLinks : links} recipient={recipient} draft={emailDraft} onDraftSent={emailDraft ? () => settle(emailDraft, "sent") : undefined} />
+          // A draft was written to the contact, so it opens addressed to them.
+          <EmailTab
+            key={emailDraft?.id ?? "email"}
+            links={emailDraft ? draftLinks : links}
+            recipient={recipient}
+            contacts={contacts}
+            who={who}
+            onWho={setWhoId}
+            draft={emailDraft}
+            onDraftSent={emailDraft ? () => settle(emailDraft, "sent") : undefined}
+          />
         ) : type === "text" ? (
-          <TextTab key={textDraft?.id ?? "text"} links={textDraft ? draftLinks : links} recipient={recipient} draft={textDraft} onDraftSent={textDraft ? () => settle(textDraft, "sent") : undefined} />
-        ) : (
+          <TextTab
+            key={textDraft?.id ?? "text"}
+            links={textDraft ? draftLinks : links}
+            recipient={textDraft ? recipient : who}
+            who={textDraft || !contacts.length ? null : <WhoSelect id="text-who" label="To" contacts={contacts} value={who?.personId ?? null} onChange={setWhoId} needs="phone" />}
+            draft={textDraft}
+            onDraftSent={textDraft ? () => settle(textDraft, "sent") : undefined}
+          />
+        ) : type === "call" ? (
           <>
-            {type === "call" && recipient?.phone ? <CallNow links={links} recipient={recipient} /> : null}
-            <ActivityForm key={type} type={type} links={links} />
+            <WhoSelect id="call-who" label="With" contacts={contacts} value={who?.personId ?? null} onChange={setWhoId} needs="phone" />
+            {who?.phone ? <CallNow links={links} recipient={who} /> : null}
+            <ActivityForm key={type} type={type} links={whoLinks} />
           </>
+        ) : (
+          <ActivityForm key={type} type={type} links={links} contacts={type === "meeting" ? contacts : undefined} />
         )}
       </div>
     </div>
   );
 }
 
+type Recipient = EmailRecipient & { phone?: string | null; textOptedOut?: boolean };
 type DraftProps = { draft?: PersonDraft | null; onDraftSent?: () => void };
 
-function EmailTab({ links, recipient, draft, onDraftSent }: { links: Links; recipient?: EmailRecipient | null } & DraftProps) {
+function EmailTab({ links, recipient: contact, contacts, who, onWho, draft, onDraftSent }: { links: Links; recipient?: EmailRecipient | null; contacts: Contact[]; who: Recipient | null; onWho: (personId: string) => void } & DraftProps) {
+  // Sending starts with the contact on the To line, or the first of the record's people who has an address.
+  const recipient = contact?.email || draft ? contact : (contacts.find((c) => c.email) ?? contact);
   const [mode, setMode] = useState<"send" | "log">(recipient?.email ? "send" : "log");
   return (
     <div>
@@ -174,19 +208,35 @@ function EmailTab({ links, recipient, draft, onDraftSent }: { links: Links; reci
         />
         {mode === "send" && !recipient?.email ? <span className="ml-2 text-[12px] text-muted">Add an email address to this person first.</span> : null}
       </div>
-      {mode === "send" && recipient?.email ? <EmailComposer links={links} recipient={recipient} draft={draft} onDraftSent={onDraftSent} /> : mode === "log" ? <ActivityForm type="email" links={links} /> : null}
+      {mode === "send" && recipient?.email ? (
+        <EmailComposer links={links} recipient={recipient} contacts={draft ? [] : contacts} draft={draft} onDraftSent={onDraftSent} />
+      ) : mode === "log" ? (
+        <>
+          <WhoSelect id="email-who" label="With" contacts={contacts} value={who?.personId ?? null} onChange={onWho} />
+          <ActivityForm type="email" links={who && contacts.length ? { ...links, personId: who.personId } : links} />
+        </>
+      ) : null}
     </div>
   );
 }
 
 /** Texting through the team's numbers when it's set up and the person has a phone; logging a text sent some other way otherwise. */
-function TextTab({ links, recipient, draft, onDraftSent }: { links: Links; recipient?: (EmailRecipient & { phone?: string | null; textOptedOut?: boolean }) | null } & DraftProps) {
+function TextTab({ links, recipient, who, draft, onDraftSent }: { links: Links; recipient?: Recipient | null; /** The dropdown that picks who it's to, on a record with several people. */ who?: ReactNode } & DraftProps) {
   const { comms } = useApp();
   const canSend = comms.texting && !!recipient?.phone;
   const [mode, setMode] = useState<"send" | "log">(canSend ? "send" : "log");
-  if (!comms.texting) return <ActivityForm type="text" links={links} />;
+  // Logged on whoever is picked, like a sent one.
+  const logLinks = who && recipient ? { ...links, personId: recipient.personId } : links;
+  if (!comms.texting)
+    return (
+      <>
+        {who}
+        <ActivityForm type="text" links={logLinks} />
+      </>
+    );
   return (
     <div>
+      {who}
       <div className="mb-3 flex items-center gap-1">
         <Segmented
           value={mode}
@@ -201,14 +251,14 @@ function TextTab({ links, recipient, draft, onDraftSent }: { links: Links; recip
       {mode === "send" && recipient?.phone ? (
         <TextComposer recipient={{ personId: recipient.personId, name: recipient.name, phone: recipient.phone, optedOut: recipient.textOptedOut }} clientId={links.clientId} draft={draft} onDraftSent={onDraftSent} />
       ) : mode === "log" ? (
-        <ActivityForm type="text" links={links} />
+        <ActivityForm type="text" links={logLinks} />
       ) : null}
     </div>
   );
 }
 
 /** "Call Sam now" above the call form, when calling from the browser is set up. The call logs itself; this form is for calls made some other way. */
-function CallNow({ links, recipient }: { links: Links; recipient: EmailRecipient & { phone?: string | null } }) {
+function CallNow({ links, recipient }: { links: Links; recipient: Recipient }) {
   const { comms } = useApp();
   if (!comms.calling) return null;
   return (
@@ -221,7 +271,7 @@ function CallNow({ links, recipient }: { links: Links; recipient: EmailRecipient
   );
 }
 
-function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
+function ActivityForm({ type, links, contacts }: { type: ActivityType; links: Links; /** Meetings: the people who can be put on it. */ contacts?: Contact[] }) {
   const { workspace, viewer, services, canEdit } = useApp();
   const tz = workspace.timezone;
   // Background work (docs/AGENT.md): tasks can go to the agent, and a note can call on it with @Agent.
@@ -237,6 +287,8 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
   const [time, setTime] = useState(() => (type === "task" ? "" : timeKey(new Date(), tz)));
   const [assigneeId, setAssigneeId] = useState<string | null>(viewer.id);
   const [followUp, setFollowUp] = useState<number | null>(null);
+  /** Meetings: who's on it. Nobody is fine: it's then simply a meeting with the client. */
+  const [attendees, setAttendees] = useState<string[]>([]);
   /** Files to attach once the activity is saved. */
   const [attached, setAttached] = useState<File[]>([]);
   const picker = useRef<HTMLInputElement>(null);
@@ -257,6 +309,7 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
     setSubject("");
     setDuration("");
     setFollowUp(null);
+    setAttendees([]);
     setAttached([]);
     setTime(isTask ? "" : timeKey(new Date(), tz));
     setDay(isTask ? dayFromToday(tz, 1) : dayFromToday(tz));
@@ -274,6 +327,7 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
         subject: subject || null,
         body: body || null,
         ...links,
+        ...(attendees.length ? { personIds: attendees } : {}),
         ...(type === "call" || type === "email" || type === "text" ? { direction } : {}),
         ...(type === "call" ? { outcome: planned ? null : outcome } : {}),
         ...(type === "meeting" ? { outcome: planned ? null : outcome, durationMinutes: duration ? Number(duration) : null } : {}),
@@ -315,6 +369,12 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
           onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && submit()}
           autoFocus={isTask}
         />
+      ) : null}
+      {type === "meeting" && contacts?.length ? (
+        <div className="flex items-start gap-2 text-[13px]">
+          <span className="pt-1 text-muted">With</span>
+          <PeopleChips contacts={contacts} value={attendees} onChange={setAttendees} addLabel={attendees.length ? "Add" : "Add people"} menuLabel="Who's on the meeting" />
+        </div>
       ) : null}
       {type !== "note" ? (
         <div className="flex flex-wrap items-center gap-2">

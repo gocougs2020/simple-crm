@@ -13,20 +13,58 @@ import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "@/component
 import { RichText, type RichTextHandle } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
 import type { EmailAttachment } from "@/db/schema";
+import { MAX_EMAIL_RECIPIENTS } from "@/lib/crm/schemas";
 import type { Links } from "./composer";
+import { PeopleChips, type Contact } from "./people-picker";
 
 export type EmailRecipient = { personId: string; name: string; email: string | null };
 type Template = Awaited<ReturnType<typeof listTemplates>>[number];
 type SendingInbox = Awaited<ReturnType<typeof listSendingInboxes>>[number];
 
-/** Write and send an email to this record's person, optionally from a template. Merge tags fill in at send time. */
-export function EmailComposer({ links, recipient, draft, onDraftSent }: { links: Links; recipient: EmailRecipient; draft?: { subject: string | null; body: string } | null; onDraftSent?: () => void }) {
+const noEmail = (c: Contact) => (c.email ? null : "No email address");
+const splitAddresses = (s: string) =>
+  s
+    .split(/[,;\s]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+/**
+ * Write and send an email to this record's person, optionally from a template.
+ * Merge tags fill in at send time. With `contacts` (a client's people) more of
+ * them can go on the To and Cc lines: one email to all of them, 10 addresses
+ * at most between the two lines.
+ */
+export function EmailComposer({
+  links,
+  recipient,
+  contacts = [],
+  draft,
+  onDraftSent,
+}: {
+  links: Links;
+  recipient: EmailRecipient;
+  contacts?: Contact[];
+  draft?: { subject: string | null; body: string } | null;
+  onDraftSent?: () => void;
+}) {
   const editor = useRef<RichTextHandle>(null);
   const subjectRef = useRef<HTMLInputElement>(null);
   // A draft the agent wrote starts the email off; the teammate edits it like any other before sending.
   const [subject, setSubject] = useState(draft?.subject ?? "");
   const [body, setBody] = useState(draft?.body ?? "");
+  /** Everyone who can be picked: the record's people, with whoever it starts addressed to. */
+  const everyone: Contact[] = contacts.some((c) => c.personId === recipient.personId) ? contacts : [recipient, ...contacts];
+  const several = everyone.length > 1;
+  const [pickedTo, setToIds] = useState<string[]>([recipient.personId]);
+  const [pickedCc, setCcIds] = useState<string[]>([]);
   const [cc, setCc] = useState("");
+  // Someone taken off the record while the email was being written comes off it too, so it never goes to a person who isn't shown.
+  const onRecord = (id: string) => everyone.some((c) => c.personId === id);
+  const toIds = pickedTo.some(onRecord) ? pickedTo.filter(onRecord) : [recipient.personId];
+  const ccIds = pickedCc.filter((id) => onRecord(id) && !toIds.includes(id));
+  const first = everyone.find((c) => c.personId === toIds[0]) ?? recipient;
+  const count = toIds.length + ccIds.length + splitAddresses(cc).length;
+  const full = count >= MAX_EMAIL_RECIPIENTS;
   const [showCc, setShowCc] = useState(false);
   const [copyMe, setCopyMe] = useState(false);
   const [templates, setTemplates] = useState<Template[] | null>(null);
@@ -68,13 +106,13 @@ export function EmailComposer({ links, recipient, draft, onDraftSent }: { links:
 
   const send = () => {
     if (uploading) return void toast.error("Wait for the attachments to finish uploading.");
+    if (count > MAX_EMAIL_RECIPIENTS) return void toast.error(`An email can go to ${MAX_EMAIL_RECIPIENTS} addresses at most, counting To and Cc. Take ${count - MAX_EMAIL_RECIPIENTS} off and send again.`);
     start(async () => {
-      const ccList = cc
-        .split(/[,;\s]+/)
-        .map((s) => s.trim())
-        .filter(Boolean);
+      const ccList = splitAddresses(cc);
       const r = await sendRecordEmail({
-        personId: recipient.personId,
+        personId: first.personId,
+        toPersonIds: toIds.slice(1),
+        ccPersonIds: ccIds,
         clientId: links.clientId ?? null,
         inboxId: viaMailbox ? null : inboxId || null,
         via: viaMailbox ? "microsoft" : "crm",
@@ -86,12 +124,15 @@ export function EmailComposer({ links, recipient, draft, onDraftSent }: { links:
         copyMe,
       });
       if (!r.ok) return void toast.error(r.error);
-      toast.success(`Email sent to ${recipient.name}`);
+      const others = toIds.length - 1 + ccIds.length + ccList.length;
+      toast.success(`Email sent to ${first.name}${others ? ` and ${others} ${others === 1 ? "other" : "others"}` : ""}`);
       onDraftSent?.();
       editor.current?.clear();
       setBody("");
       setSubject("");
       setCc("");
+      setCcIds([]);
+      setToIds([recipient.personId]);
       setAttachments([]);
       setReplyTo(viewer.email);
       setEditReplyTo(false);
@@ -120,11 +161,15 @@ export function EmailComposer({ links, recipient, draft, onDraftSent }: { links:
           </Select>
         </div>
       ) : null}
-      <div className="flex items-center gap-2 text-[13px]">
-        <span className="w-10 text-muted">To</span>
-        <span className="min-w-0 flex-1 truncate text-primary">
-          {recipient.name} <span className="text-muted">&lt;{recipient.email}&gt;</span>
-        </span>
+      <div className={several ? "flex items-start gap-2 text-[13px]" : "flex items-center gap-2 text-[13px]"}>
+        <span className={several ? "w-10 shrink-0 pt-1 text-muted" : "w-10 text-muted"}>To</span>
+        {several ? (
+          <PeopleChips contacts={everyone} value={toIds} onChange={setToIds} exclude={ccIds} unavailable={noEmail} full={full} min={1} addLabel="Add" menuLabel="Add to the To line" />
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-primary">
+            {recipient.name} <span className="text-muted">&lt;{recipient.email}&gt;</span>
+          </span>
+        )}
         {!showCc ? (
           <button type="button" className="text-[12.5px] text-muted hover:text-primary" onClick={() => setShowCc(true)}>
             Cc
@@ -157,12 +202,21 @@ export function EmailComposer({ links, recipient, draft, onDraftSent }: { links:
         </Menu>
       </div>
       {showCc ? (
-        <div className="flex items-center gap-2 text-[13px]">
-          <label htmlFor="email-cc" className="w-10 text-muted">
+        <div className="flex items-start gap-2 text-[13px]">
+          <label htmlFor="email-cc" className="w-10 shrink-0 pt-1.5 text-muted">
             Cc
           </label>
-          <Input id="email-cc" value={cc} onChange={(e) => setCc(e.target.value)} placeholder="name@company.com, …" className="h-8 text-[13px]" autoFocus />
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            {several ? <PeopleChips contacts={everyone} value={ccIds} onChange={setCcIds} exclude={toIds} unavailable={noEmail} full={full} addLabel="Add" menuLabel="Add to the Cc line" /> : null}
+            <Input id="email-cc" value={cc} onChange={(e) => setCc(e.target.value)} placeholder={several ? "Or type addresses: name@company.com, …" : "name@company.com, …"} className="h-8 text-[13px]" autoFocus={!several} />
+          </div>
         </div>
+      ) : null}
+      {count > 1 ? (
+        <p className={count > MAX_EMAIL_RECIPIENTS ? "text-[12px] text-error" : "text-fine"} role={count > MAX_EMAIL_RECIPIENTS ? "alert" : undefined}>
+          {count} of {MAX_EMAIL_RECIPIENTS} recipients, counting To and Cc.
+          {toIds.length > 1 ? ` Everyone gets the same email, so merge tags like {{first_name}} fill in for ${first.name}.` : ""}
+        </p>
       ) : null}
       <Input ref={subjectRef} value={subject} onChange={(e) => setSubject(e.target.value)} onFocus={() => setLastFocus("subject")} placeholder="Subject" aria-label="Subject" />
       <div onFocusCapture={(e) => (e.target as HTMLElement).isContentEditable && setLastFocus("body")}>
@@ -172,7 +226,7 @@ export function EmailComposer({ links, recipient, draft, onDraftSent }: { links:
           onChange={setBody}
           onSubmit={send}
           minHeight={120}
-          placeholder={`Hi {{first_name}},`}
+          placeholder={toIds.length > 1 ? "Hi all," : `Hi {{first_name}},`}
           actions={<MergeTagMenu onInsert={insertTag} className="h-7" />}
           dictation
         />

@@ -9,7 +9,7 @@ import { monthlyPriceSql, type ActivityType, type EntityType } from "@/lib/const
 import { actorUserId, type Actor } from "@/lib/crm/actor";
 import { timeline, type NoteReply } from "@/lib/crm/activities";
 import { effectiveTags, listLabels } from "@/lib/crm/labels";
-import { inOrganizations, likeTerm } from "@/lib/crm/records";
+import { clientPeople as peopleOnClient, inOrganizations, likeTerm } from "@/lib/crm/records";
 import { ActionError, NotFoundError } from "@/lib/errors";
 import { htmlToText } from "@/lib/safe-html";
 
@@ -313,6 +313,21 @@ export async function getClient(ctx: Ctx, id: string) {
   return toClient(ctx, row);
 }
 
+/** Everyone associated with a client, with how each comes to be on it. */
+export async function clientPeople(ctx: Ctx, clientId: string) {
+  const db = await getDb();
+  const [client] = await db.select({ id: clients.id, personId: clients.personId, organizationId: clients.organizationId }).from(clients).where(eq(clients.id, clientId));
+  if (!client) throw new NotFoundError("There's no client with that id.");
+  const rows = await peopleOnClient(client);
+  if (!rows.length) return [];
+  const orgIds = [...new Set(rows.map((r) => r.person.organizationId).filter((x): x is string => !!x))];
+  const orgs = orgIds.length ? await db.select({ id: organizations.id, name: organizations.name, tags: organizations.tags }).from(organizations).where(inArray(organizations.id, orgIds)) : [];
+  return rows.map((r) => {
+    const org = orgs.find((o) => o.id === r.person.organizationId);
+    return { ...toPerson(ctx, { person: r.person, organizationName: org?.name ?? null, organizationTags: org?.tags ?? null }), source: r.source };
+  });
+}
+
 export async function clientServices(clientId: string) {
   const db = await getDb();
   await assertExists("client", clientId);
@@ -359,9 +374,10 @@ const activitySelect = {
   personName: sql<string | null>`case when ${people.id} is null then null else ${people.firstName} || coalesce(' ' || ${people.lastName}, '') end`,
   organizationName: organizations.name,
   clientName: clients.name,
+  alsoPeople: sql<{ id: string; name: string }[]>`(select coalesce(json_agg(json_build_object('id', ap_p.id, 'name', ap_p.first_name || coalesce(' ' || ap_p.last_name, '')) order by ap_p.first_name, ap_p.id), '[]'::json) from activity_people ap join people ap_p on ap_p.id = ap.person_id where ap.activity_id = ${activities.id})`,
   replies: sql<NoteReply[]>`(select coalesce(json_agg(json_build_object('id', r.id, 'body', r.body, 'userId', r.user_id, 'apiKeyId', r.api_key_id, 'createdAt', r.created_at) order by r.created_at, r.id), '[]'::json) from note_replies r where r.activity_id = ${activities.id})`,
 };
-type ActivityRowLike = { activity: typeof activities.$inferSelect; personName: string | null; organizationName: string | null; clientName: string | null; replies?: NoteReply[] };
+type ActivityRowLike = { activity: typeof activities.$inferSelect; personName: string | null; organizationName: string | null; clientName: string | null; alsoPeople?: { id: string; name: string }[]; replies?: NoteReply[] };
 
 export function toActivity(r: ActivityRowLike) {
   const x = r.activity;
@@ -383,6 +399,7 @@ export function toActivity(r: ActivityRowLike) {
     pinned: x.pinned,
     personId: x.personId,
     person: ref(x.personId, r.personName),
+    people: [...(x.personId && r.personName ? [{ id: x.personId, name: r.personName }] : []), ...(r.alsoPeople ?? [])],
     organizationId: x.organizationId,
     organization: ref(x.organizationId, r.organizationName),
     clientId: x.clientId,
@@ -438,7 +455,7 @@ export async function listActivities(a: Actor, f: ActivityListFilter) {
   if (f.status === "planned") where.push(isNull(activities.completedAt), isNotNull(activities.dueAt));
   if (f.status === "done") where.push(or(isNotNull(activities.completedAt), isNull(activities.dueAt)));
   where.push(whoFilter(a, activities.assigneeId, f.assigneeId));
-  if (f.personId) where.push(eq(activities.personId, f.personId));
+  if (f.personId) where.push(or(eq(activities.personId, f.personId), sql`exists (select 1 from activity_people ap where ap.activity_id = ${activities.id} and ap.person_id = ${f.personId})`));
   if (f.organizationId) where.push(eq(activities.organizationId, f.organizationId));
   if (f.clientId) where.push(eq(activities.clientId, f.clientId));
   if (f.unlinked) where.push(isNull(activities.personId), isNull(activities.organizationId), isNull(activities.clientId));

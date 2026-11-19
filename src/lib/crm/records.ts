@@ -333,6 +333,35 @@ export async function getClient(id: string) {
   return row ?? null;
 }
 
+/** How someone comes to be on a client: its contact, added to it by hand, or at its organization. */
+export type ClientPersonSource = "contact" | "added" | "organization";
+
+/**
+ * Everyone associated with a client: its contact first, then people added to
+ * it by hand, then everyone at its organization (decision makers first).
+ * Each person once, under the closest of the three.
+ */
+export async function clientPeople(client: { id: string; personId: string | null; organizationId: string | null }) {
+  const db = await getDb();
+  const cp = schema.clientPeople;
+  const added = sql<boolean>`exists (select 1 from ${cp} where ${cp.clientId} = ${client.id} and ${cp.personId} = ${people.id})`;
+  const atOrganization = client.organizationId
+    ? or(eq(people.organizationId, client.organizationId), sql`exists (select 1 from ${personOrganizations} po where po.person_id = ${people.id} and po.organization_id = ${client.organizationId})`)
+    : undefined;
+  const rows = await db
+    .select({ person: people, added })
+    .from(people)
+    .where(and(or(client.personId ? eq(people.id, client.personId) : undefined, added, atOrganization), isNull(people.archivedAt)))
+    // The contact and the people added by hand come first, so a very large organization can't crowd them out of the limit.
+    .orderBy(...(client.personId ? [sql`${people.id} = ${client.personId} desc`] : []), sql`${added} desc`, desc(people.decisionMaker), asc(people.firstName), asc(people.lastName))
+    .limit(200);
+  const rank = { contact: 0, added: 1, organization: 2 } as const;
+  return rows
+    .map((r) => ({ person: r.person, source: (r.person.id === client.personId ? "contact" : r.added ? "added" : "organization") as ClientPersonSource }))
+    .sort((x, y) => rank[x.source] - rank[y.source]);
+}
+export type ClientPerson = Awaited<ReturnType<typeof clientPeople>>[number];
+
 /** Counts per category for the Clients tabs, so each tab says how many it holds. */
 export async function clientCounts() {
   const db = await getDb();
@@ -380,14 +409,15 @@ export async function metricsOf(clientId: string) {
   return db.select().from(m).where(eq(m.clientId, clientId)).orderBy(asc(m.label), asc(m.period), asc(m.createdAt)).limit(1000);
 }
 
-/** Clients linked to a person directly or through their organization, for the person's page. */
+/** Clients linked to a person directly (as the contact, or added to its people) or through their organization, for the person's page. */
 export async function clientsOfPerson(personId: string, organizationId: string | null) {
   const db = await getDb();
+  const theirs = or(eq(clients.personId, personId), sql`exists (select 1 from client_people cp where cp.client_id = ${clients.id} and cp.person_id = ${personId})`)!;
   return db
     .select({ id: clients.id, name: clients.name, category: clients.category, value: clients.value, stageName: stages.name, mrr: monthly(activeService) })
     .from(clients)
     .innerJoin(stages, eq(stages.id, clients.stageId))
-    .where(and(isNull(clients.archivedAt), organizationId ? or(eq(clients.personId, personId), eq(clients.organizationId, organizationId)) : eq(clients.personId, personId)))
+    .where(and(isNull(clients.archivedAt), organizationId ? or(theirs, eq(clients.organizationId, organizationId)) : theirs))
     .orderBy(asc(clients.category), desc(clients.updatedAt))
     .limit(50);
 }

@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, eq, isNotNull, isNull, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { interactionTypes, type ActivityType } from "@/lib/constants";
@@ -22,7 +22,7 @@ import { htmlToText, sanitizeHtml, textToHtml } from "@/lib/safe-html";
  * texts, meetings) need someone on the other side.
  */
 
-const { activities, clients, noteReplies } = schema;
+const { activities, activityPeople, clients, noteReplies } = schema;
 
 function cleanBody(body: string | null | undefined) {
   const html = sanitizeHtml(body);
@@ -50,6 +50,29 @@ async function checkLinks(l: { personId?: string | null; organizationId?: string
   await Promise.all([assertPerson(l.personId), assertOrganization(l.organizationId), assertUser(l.assigneeId, "assignee")]);
 }
 
+/** Everyone an activity names: its person first, then the rest of `personIds`, each once. */
+function everyoneOn(personId: string | null | undefined, personIds: string[] | undefined) {
+  return [...new Set([...(personId ? [personId] : []), ...(personIds ?? [])])];
+}
+
+async function assertPeople(ids: string[]) {
+  if (!ids.length) return;
+  const db = await getDb();
+  const found = await db.select({ id: schema.people.id }).from(schema.people).where(inArray(schema.people.id, ids));
+  if (found.length !== ids.length) throw new NotFoundError("One of those people doesn't exist.");
+}
+
+/**
+ * Sets who else is on an activity besides its own person (activity_people):
+ * the other attendees of a meeting, the other recipients of an email. It then
+ * shows on each of their timelines.
+ */
+export async function setActivityPeople(activityId: string, personIds: string[]) {
+  const db = await getDb();
+  await db.delete(activityPeople).where(eq(activityPeople.activityId, activityId));
+  if (personIds.length) await db.insert(activityPeople).values(personIds.map((personId) => ({ activityId, personId }))).onConflictDoNothing();
+}
+
 /** Loaded on demand: the agent's run service uses this file to save its answers. */
 const handoff = () => import("@/lib/agent/handoff");
 
@@ -67,7 +90,10 @@ export async function logActivity(a: Actor, input: ActivityInput, opts: { requir
   const forAssistant = opts.handOff !== false && data.type === "task" && !!data.agent;
   if (forAssistant) await (await handoff()).assertCanHandOff(a);
   await checkLinks(data);
-  const links = await resolveLinks(data);
+  const everyone = everyoneOn(data.personId, data.personIds);
+  await assertPeople(everyone);
+  const links = await resolveLinks({ ...data, personId: everyone[0] ?? null });
+  const others = everyone.filter((id) => id !== links.personId);
   const linked = !!(links.personId || links.organizationId || links.clientId);
   if (!linked && (opts.requireLink || interactionTypes.includes(data.type))) throw new ActionError("Link this to a person, organization or client.");
   const body = cleanBody(bodyFrom(data.body));
@@ -96,8 +122,11 @@ export async function logActivity(a: Actor, input: ActivityInput, opts: { requir
       ...links,
     })
     .returning({ id: activities.id });
-  if (done) await touch(links, occurredAt ?? now);
-  else {
+  if (others.length) await setActivityPeople(row.id, others);
+  if (done) {
+    await touch(links, occurredAt ?? now);
+    for (const personId of others) await touch({ personId }, occurredAt ?? now);
+  } else {
     taskAssigned(a, { id: row.id, subject: data.subject ?? null, type: data.type, assigneeId, ...links });
     if (onCalendar(data.type)) calendarChanged(row.id);
   }
@@ -213,6 +242,14 @@ export async function updateActivity(a: Actor, activityId: string, patch: Partia
   if (data.type !== undefined && data.type !== before.type && !authorOrModerator) throw new ForbiddenError("Only the person who logged this, or an admin, can change what kind of activity it is.");
   if (data.type !== undefined && data.type !== before.type && (before.emailId || before.inboxThreadId || before.syncedEmailId)) throw new ActionError("Emails sent or received through the CRM stay emails.");
   if (data.type !== undefined && data.type !== before.type && (before.callId || before.textMessageId)) throw new ActionError("Calls and texts made through the CRM keep their type.");
+  // A new list of people: the activity's own person stays if still on it, else the first of the list takes their place.
+  let others: string[] | null = null;
+  if (data.personIds !== undefined) {
+    const everyone = everyoneOn(data.personId, data.personIds);
+    await assertPeople(everyone);
+    if (data.personId === undefined && everyone.length) data.personId = before.personId && everyone.includes(before.personId) ? before.personId : everyone[0];
+    others = everyone.filter((id) => id !== data.personId);
+  }
   const links = data.personId !== undefined || data.organizationId !== undefined || data.clientId !== undefined ? await resolveLinks({ ...before, ...data }) : {};
   await db
     .update(activities)
@@ -231,6 +268,7 @@ export async function updateActivity(a: Actor, activityId: string, patch: Partia
       updatedAt: new Date(),
     })
     .where(eq(activities.id, before.id));
+  if (others) await setActivityPeople(before.id, others);
   if (before.calendarEventId || onCalendar(data.type ?? before.type)) calendarChanged(before.id);
   if (data.assigneeId && data.assigneeId !== before.assigneeId && (before.dueAt || before.type === "task")) {
     taskAssigned(a, { ...before, ...links, subject: data.subject !== undefined ? data.subject : before.subject, assigneeId: data.assigneeId });
@@ -258,7 +296,12 @@ export async function setCompleted(a: Actor, activityId: string, completed: bool
     .where(eq(activities.id, z.uuid().parse(activityId)))
     .returning();
   if (!row) throw new NotFoundError("This activity was deleted.");
-  if (completed) await touch(row, now);
+  if (completed) {
+    await touch(row, now);
+    // Everyone else who was on it (a meeting's other attendees) was contacted too.
+    const others = await db.select({ personId: activityPeople.personId }).from(activityPeople).where(eq(activityPeople.activityId, row.id));
+    for (const o of others) await touch({ personId: o.personId }, now);
+  }
   let clientWithoutNext: string | null = null;
   if (completed && row.clientId) {
     const [c] = await db.select({ category: clients.category }).from(clients).where(eq(clients.id, row.clientId));

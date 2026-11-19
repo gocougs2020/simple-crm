@@ -30,14 +30,14 @@ const recipients = (list: string[] | undefined) => (list ?? []).map((address) =>
  */
 export async function sendFromMailbox(
   account: ConnectedAccount,
-  m: { to: string; cc?: string[]; bcc?: string[]; replyTo?: string | null; subject: string; html: string; attachments: LoadedAttachment[] },
+  m: { to: string | string[]; cc?: string[]; bcc?: string[]; replyTo?: string | null; subject: string; html: string; attachments: LoadedAttachment[] },
 ): Promise<{ messageId: string | null; graphId: string }> {
   const draft = await graph<{ id: string; internetMessageId?: string }>(account, "/me/messages", {
     method: "POST",
     json: {
       subject: m.subject,
       body: { contentType: "HTML", content: m.html },
-      toRecipients: recipients([m.to]),
+      toRecipients: recipients([m.to].flat()),
       ccRecipients: recipients(m.cc),
       bccRecipients: recipients(m.bcc),
       ...(m.replyTo && m.replyTo.toLowerCase() !== account.email ? { replyTo: recipients([m.replyTo]) } : {}),

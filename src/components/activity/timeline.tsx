@@ -26,7 +26,7 @@ import {
 
 /** The record being viewed. For clients, the category decides whether a missing next step is worth flagging. */
 type Context = { type: EntityType; id: string; category?: ClientCategory };
-import { MapPinIcon } from "@heroicons/react/24/outline";
+import { MapPinIcon, UserPlusIcon } from "@heroicons/react/24/outline";
 import { deleteActivity, deleteReply, replyToNote, setCompleted, setPinned, updateActivity } from "@/actions/activities";
 import { deleteFile } from "@/actions/files";
 import { useApp } from "@/components/app-context";
@@ -254,6 +254,8 @@ function LinkedTo({ row, context }: { row: ActivityRow; context: Context }) {
   const parts: { href: string; label: string }[] = [];
   if (a.clientId && row.clientName && !(context.type === "client" && context.id === a.clientId)) parts.push({ href: `/clients/${a.clientId}`, label: row.clientName });
   if (a.personId && row.personName && !(context.type === "person" && context.id === a.personId)) parts.push({ href: `/people/${a.personId}`, label: row.personName });
+  // Everyone else on it: a meeting's other attendees, an email's other recipients.
+  for (const p of row.alsoPeople ?? []) if (!(context.type === "person" && context.id === p.id)) parts.push({ href: `/people/${p.id}`, label: p.name });
   if (a.organizationId && row.organizationName && context.type === "client" && !a.personId) parts.push({ href: `/organizations/${a.organizationId}`, label: row.organizationName });
   if (!parts.length) return null;
   return (
@@ -819,6 +821,14 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
           <>moved this from {cat(d.from)} to {cat(d.to)} clients</>
         );
       icon = d.to === "current" ? <TrophyIcon className="size-3.5 text-success" /> : d.to === "past" ? <XCircleIcon className="size-3.5 text-error" /> : <BriefcaseIcon className="size-3.5" />;
+      break;
+    case "person_added":
+      text = <>added <strong className="font-medium text-secondary">{d.name ?? "a person"}</strong> to this client&apos;s people</>;
+      icon = <UserPlusIcon className="size-3.5" />;
+      break;
+    case "person_removed":
+      text = <>took <strong className="font-medium text-secondary">{d.name ?? "a person"}</strong> off this client&apos;s people</>;
+      icon = <TrashIcon className="size-3.5" />;
       break;
     case "service_added":
       text = <>added the service <strong className="font-medium text-secondary">{d.name}</strong></>;
