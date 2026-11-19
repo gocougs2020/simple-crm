@@ -51,3 +51,19 @@ export async function deleteActivity(activityId: string): Promise<Result> {
     refresh();
   });
 }
+
+/** A reply under a note, from its thread on the timeline. */
+export async function replyToNote(activityId: string, body: string): Promise<Result<{ id: string }>> {
+  return run(async () => {
+    const row = await svc.replyToNote(sessionActor(await actionUser()), activityId, { body });
+    refresh();
+    return row;
+  });
+}
+
+export async function deleteReply(replyId: string): Promise<Result> {
+  return run(async () => {
+    await svc.deleteReply(sessionActor(await actionUser()), replyId);
+    refresh();
+  });
+}

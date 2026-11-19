@@ -27,7 +27,8 @@ export const Person = z.object({
   organizationId: uuid.nullable(),
   organization: ref.nullable(),
   ownerId: uuid.nullable(),
-  tags: z.array(z.string()),
+  tags: z.array(z.string()).describe("Their own labels. GET /labels says what each means."),
+  organizationTags: z.array(z.string()).describe("Labels they carry from their organization, besides their own. Filtering people by tag matches these too."),
   marketingOptIn: z.boolean(),
   unsubscribedAt: ts.nullable(),
   emailBouncedAt: ts.nullable().describe("When an email to this address bounced for good. Campaigns skip the person until the address changes."),
@@ -50,8 +51,13 @@ export const Organization = z.object({
   phone: z.string().nullable(),
   address: z.string().nullable(),
   industry: z.string().nullable(),
+  tags: z.array(z.string()).describe("Its labels. Everyone at the organization carries them too. GET /labels says what each means."),
+  isParent: z.boolean().describe("A parent organization: others can be part of it (a franchisor and its franchises)."),
+  parentId: uuid.nullable().describe("The parent organization this one is part of."),
+  parent: ref.nullable(),
+  childCount: z.number().int().describe("Parent organizations: how many organizations are part of it. List them with GET /organizations?parentId=."),
   ownerId: uuid.nullable(),
-  peopleCount: z.number().int(),
+  peopleCount: z.number().int().describe("People at this organization itself. For a parent organization, GET /people?organizationId= also returns the people at the organizations that are part of it."),
   custom,
   lastActivityAt: ts.nullable(),
   createdAt: ts,
@@ -115,6 +121,9 @@ export const Activity = z.object({
   userId: uuid.nullable().describe("Who logged it. Null for inbox mail and workspace API keys."),
   assigneeId: uuid.nullable(),
   apiKeyId: uuid.nullable().describe("The API key it was logged through, if any."),
+  replies: z
+    .array(z.object({ id: uuid, body: z.string().describe("Sanitized HTML."), bodyText: z.string(), userId: uuid.nullable().describe("Who replied."), apiKeyId: uuid.nullable().describe("The key it came through: the agent's, for its answers."), createdAt: ts }))
+    .describe("Notes: the replies under it, oldest first. Add one with POST /notes/{id}/replies."),
   createdAt: ts,
   updatedAt: ts,
 });
@@ -144,6 +153,12 @@ export const Timeline = z.object({
 
 export const Stage = z.object({ id: uuid, name: z.string(), position: z.number().int(), probability: z.number().int(), rottingDays: z.number().int().nullable() });
 export const Pipeline = z.object({ id: uuid, name: z.string(), category: z.enum(clientCategories), position: z.number().int(), stages: z.array(Stage) });
+
+export const Label = z.object({
+  name: z.string().describe("The label as it appears in a record's tags."),
+  description: z.string().nullable().describe("What the team means by it."),
+  hidden: z.boolean().describe("Hidden labels stay on records but the app doesn't show or offer them."),
+});
 
 export const Service = z.object({
   id: uuid,
@@ -276,5 +291,5 @@ export const Draft = z.object({
 });
 
 /** Named schemas, in the order the docs list them. */
-export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, ClientService, Metric, User, CustomField, Me, SearchResult, AgentTask, AgentBulk, Skill, ScheduledJob, Draft, Knowledge, Deleted } as const;
+export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, Label, ClientService, Metric, User, CustomField, Me, SearchResult, AgentTask, AgentBulk, Skill, ScheduledJob, Draft, Knowledge, Deleted } as const;
 export type ModelName = keyof typeof models;

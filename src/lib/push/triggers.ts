@@ -73,3 +73,20 @@ export async function inboundEmail(message: { id: string; from: string; subject:
     dedupeKey: `inbound:${message.id}`,
   });
 }
+
+/**
+ * A note or a reply mentions teammates ("@Sam"), and a reply reaches whoever
+ * is already in the thread: the note's author and everyone who replied.
+ * Someone both mentioned and in the thread hears once, as a mention.
+ */
+export function noteMentioned(a: Actor, note: { id: string; replyId?: string } & Links, text: string, mentioned: string[], thread: (string | null)[] = []) {
+  const body = text.replace(/\s+/g, " ").trim().slice(0, 140) || "Open it to read the note.";
+  const url = recordUrl(note);
+  const key = note.replyId ?? note.id;
+  notify(mentioned, { kind: "mention", title: `${actorName(a)} mentioned you in a note`, body, url, dedupeKey: `mention:${key}` }, { except: actorUserId(a) });
+  notify(
+    thread.filter((id) => !id || !mentioned.includes(id)),
+    { kind: "mention", title: `${actorName(a)} replied to a note`, body, url, dedupeKey: `reply:${key}` },
+    { except: actorUserId(a) },
+  );
+}

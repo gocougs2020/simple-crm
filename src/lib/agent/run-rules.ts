@@ -103,6 +103,8 @@ export type RunMessageContext = {
   /** The note that mentioned the agent or the task given to it. */
   activity?: { id: string; type: "note" | "task"; subject: string | null } | null;
   knowledge?: string | null;
+  /** The labels and what they mean (labelsSection in src/lib/crm/label-rules.ts), when there are any. */
+  labels?: string | null;
   /** The skills section (skillsSection in skill-rules.ts), when the teammate has any. */
   skills?: string | null;
   /** The scheduled job this run is one occurrence of. */
@@ -113,7 +115,7 @@ export type RunMessageContext = {
 const answerGoes: Record<AgentRunSource, string> = {
   chat: "Your answer is posted back into their chat with you.",
   api: "Your answer is saved on the run for whoever started it.",
-  mention: "Your answer is saved as a note on the same record, in reply to theirs.",
+  mention: "Your answer is added as a reply under their note, so don't add a note of your own to report back.",
   task: "Your answer is saved on the task, and the task is then marked done. Don't complete or edit the task yourself.",
   bulk: "Your answer is saved on this record's run and listed with the others. Keep it to a few lines.",
   schedule: "Your answer is saved on the run, and they're notified that it's ready. Lead with what changed or needs them since last time. If there's nothing to report, say so in one line.",
@@ -143,6 +145,7 @@ export function runMessage(c: RunMessageContext) {
     c.activity ? `The ${c.activity.type} has id ${c.activity.id}${c.activity.subject ? ` and is called "${c.activity.subject}"` : ""}.` : "",
     answerGoes[c.source],
     c.knowledge ? `\n## About ${c.workspace.name}\n${c.knowledge}` : "",
+    c.labels ? `\n${c.labels}` : "",
     c.skills ? `\n${c.skills}` : "",
     "\n## The request",
     c.prompt.slice(0, MAX_RUN_PROMPT).trim(),

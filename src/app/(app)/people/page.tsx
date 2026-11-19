@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { z } from "zod";
 import { PeopleView } from "@/components/people/people-view";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { requireUser } from "@/lib/auth";
@@ -23,9 +24,10 @@ async function People({ searchParams }: Pick<PageProps<"/people">, "searchParams
   const owner = one(sp.owner);
   const dir = one(sp.dir);
   // As the URL has it ("me" stays "me"), so loading more rows asks for the same list.
-  const view = { q: one(sp.q), ownerId: owner, tag: one(sp.tag), sort: one(sp.sort), dir: dir === "asc" || dir === "desc" ? (dir as "asc" | "desc") : undefined };
+  const parent = one(sp.parent);
+  const view = { q: one(sp.q), ownerId: owner, organizationId: parent && z.uuid().safeParse(parent).success ? parent : undefined, tag: one(sp.tag), sort: one(sp.sort), dir: dir === "asc" || dir === "desc" ? (dir as "asc" | "desc") : undefined };
   const filter = { ...view, ownerId: owner === "me" ? user.id : owner };
   // The first rows and the total together; the table loads the rest as it's scrolled.
   const [rows, total, tags] = await Promise.all([listPeople(filter), countPeople(filter), allTags()]);
-  return <PeopleView rows={rows} total={total} filter={view} pageSize={pageSize} tags={tags} filtered={!!(filter.q || filter.ownerId || filter.tag)} />;
+  return <PeopleView rows={rows} total={total} filter={view} pageSize={pageSize} tags={tags} filtered={!!(filter.q || filter.ownerId || filter.tag || filter.organizationId)} />;
 }

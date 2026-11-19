@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { activityTypes, clientCategories, clientHealths, entityTypes } from "@/lib/constants";
-import { activityInput, categoryInput, draftInput, datetime, clientCreateInput, clientInput, metricInput, moveInput, orgInput, personInput, subscriptionInput } from "@/lib/crm/schemas";
+import { activityInput, categoryInput, draftInput, datetime, clientCreateInput, clientInput, metricInput, moveInput, orgInput, personInput, replyInput, subscriptionInput } from "@/lib/crm/schemas";
 import { jobInput, jobPatch } from "@/lib/agent/schedule-rules";
 import { skillInput, skillPatch } from "@/lib/agent/skill-rules";
 import { idParam, op, pageQuery, queryBool, queryInt, recordQuery, type Operation } from "./spec";
@@ -138,9 +138,9 @@ export const operations = {
     permission: "records:read",
     query: z.object({
       ...recordQuery,
-      organizationId: z.uuid().optional().describe("Only people at this organization."),
+      organizationId: z.uuid().optional().describe("Only people at this organization. For a parent organization, that includes the people at every organization that is part of it."),
       email: z.string().trim().toLowerCase().max(200).optional().describe("Exact email address."),
-      tag: z.string().trim().toLowerCase().max(40).optional(),
+      tag: z.string().trim().toLowerCase().max(40).optional().describe("Only people with this label, their own or one their organization carries."),
     }),
     response: "Person",
     list: true,
@@ -171,9 +171,15 @@ export const operations = {
     path: "/organizations",
     tag: "Organizations",
     summary: "List organizations",
-    description: "Companies, newest first.",
+    description: "Companies, newest first. An organization can be marked as a parent organization (isParent), and others can be part of it (parentId): a franchisor and its franchises, say.",
     permission: "records:read",
-    query: z.object({ ...recordQuery, domain: z.string().trim().toLowerCase().max(200).optional().describe("Exact website domain, like acme.com.") }),
+    query: z.object({
+      ...recordQuery,
+      domain: z.string().trim().toLowerCase().max(200).optional().describe("Exact website domain, like acme.com."),
+      tag: z.string().trim().toLowerCase().max(40).optional().describe("Only organizations with this label."),
+      parentId: z.uuid().optional().describe("Only organizations that are part of this parent organization."),
+      isParent: queryBool.optional().describe("true for parent organizations only, false for the rest."),
+    }),
     response: "Organization",
     list: true,
     tool: "list_organizations",
@@ -197,7 +203,7 @@ export const operations = {
     path: "/organizations/{id}",
     tag: "Organizations",
     summary: "Update an organization",
-    description: "Send only the fields to change.",
+    description: "Send only the fields to change. To group organizations, set isParent on the parent, then set parentId on each organization that is part of it.",
     permission: "records:write",
     params: idParam,
     body: orgInput.partial(),
@@ -451,6 +457,32 @@ export const operations = {
     tool: "update_note",
   }),
   deleteNote: op({ method: "DELETE", path: "/notes/{id}", tag: "Notes", summary: "Delete a note", description: "Only its author or an admin can delete it.", permission: "records:write", params: idParam, response: "Deleted", tool: "delete_note" }),
+  replyToNote: op({
+    method: "POST",
+    path: "/notes/{id}/replies",
+    tag: "Notes",
+    summary: "Reply to a note",
+    description: "Adds a reply under the note, so the conversation stays in one place on the timeline instead of becoming another note. The note's author, everyone who already replied and anyone the reply mentions (@ and their name) are told.",
+    permission: "records:write",
+    params: idParam,
+    body: replyInput,
+    example: { body: "Called them back. They want the proposal by Friday." },
+    response: "Activity",
+    status: 201,
+    tool: "reply_to_note",
+    toolDescription: "Reply under an existing note instead of adding a new one, when what you're adding answers or follows up on that note. Returns the note with its replies.",
+  }),
+  deleteNoteReply: op({
+    method: "DELETE",
+    path: "/notes/{id}/replies/{replyId}",
+    tag: "Notes",
+    summary: "Delete a reply",
+    description: "Only its author or an admin can delete it.",
+    permission: "records:write",
+    params: ids("id", "replyId"),
+    response: "Activity",
+    tool: null,
+  }),
 
   // ─── Activities ────────────────────────────────────────────────────────
   listActivities: op({
@@ -519,6 +551,18 @@ export const operations = {
   // ─── Workspace ─────────────────────────────────────────────────────────
   listPipelines: op({ method: "GET", path: "/pipelines", tag: "Workspace", summary: "Pipelines and their stages", description: "Each pipeline belongs to one client category.", permission: "records:read", response: "Pipeline", list: true, tool: "list_pipelines" }),
   listServices: op({ method: "GET", path: "/services", tag: "Workspace", summary: "What the workspace sells", permission: "records:read", response: "Service", list: true, tool: "list_services" }),
+  listLabels: op({
+    method: "GET",
+    path: "/labels",
+    tag: "Workspace",
+    summary: "Labels and what they mean",
+    description: "Labels are the strings in a person's, organization's or client's tags. Each has a description the team wrote. An organization's labels carry to its people.",
+    permission: "records:read",
+    response: "Label",
+    list: true,
+    tool: "list_labels",
+    toolDescription: "The team's labels (the tags on people, organizations and clients) with what each one means. Read it before choosing a label for a record or explaining one. Use only labels from this list unless the teammate asks for a new one.",
+  }),
   listUsers: op({ method: "GET", path: "/users", tag: "Workspace", summary: "The team", description: "For ownerId and assigneeId.", permission: "records:read", response: "User", list: true, tool: "list_users" }),
   listCustomFields: op({
     method: "GET",

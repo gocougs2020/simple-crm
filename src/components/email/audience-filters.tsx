@@ -9,7 +9,7 @@ import type { CampaignAudience } from "@/db/schema";
 import { appConfig } from "@/app.config";
 import { churnReasons, clientCategories, clientCategoryLabels } from "@/lib/constants";
 
-type ListKey = "tags" | "excludeTags" | "ownerIds" | "clientCategories" | "pipelineIds" | "stageIds" | "serviceIds" | "churnReasons" | "clientTags" | "organizationIndustries";
+type ListKey = "tags" | "excludeTags" | "ownerIds" | "clientCategories" | "pipelineIds" | "stageIds" | "serviceIds" | "churnReasons" | "clientTags" | "organizationIndustries" | "organizationIds";
 
 /** Whether any filter is set, so the summary can say "everyone" or "people who match all of these". */
 export function hasFilters(a: CampaignAudience) {
@@ -38,7 +38,7 @@ export function AudienceFilters({
   industries?: string[];
   readOnly?: boolean;
 }) {
-  const { team, pipelines, catalog, customFields } = useApp();
+  const { team, pipelines, catalog, customFields, parentOrganizations, labels } = useApp();
   const toggle = (key: ListKey, value: string) =>
     onChange((a) => {
       const list = (a[key] ?? []) as string[];
@@ -50,6 +50,10 @@ export function AudienceFilters({
       const n = Math.round(Number(raw));
       return { ...a, [key]: raw && n > 0 ? Math.min(n, 3650) : undefined };
     });
+  // Hidden labels aren't offered; one already chosen stays so it can be taken off.
+  const offered = (all: string[], chosen: string[] | undefined) => all.filter((t) => !labels.find((l) => l.name === t)?.hidden || chosen?.includes(t));
+  const personLabels = offered(tags, [...(audience.tags ?? []), ...(audience.excludeTags ?? [])]);
+  const clientLabels = offered(clientTags, audience.clientTags);
   const choosable = customFields.filter((f) => f.entityType === "person" && (f.type === "select" || f.type === "multiselect" || f.type === "checkbox"));
   const toggleField = (list: "customFields" | "organizationFields", key: string, value: string) =>
     onChange((a) => {
@@ -67,7 +71,7 @@ export function AudienceFilters({
     <div className={clsx("flex flex-col gap-3", readOnly && "pointer-events-none opacity-70")} aria-disabled={readOnly || undefined}>
       <div>
         <div className="mb-1.5 flex items-center justify-between gap-2">
-          <p className="text-[12px] font-medium text-secondary">Tagged</p>
+          <p className="text-[12px] font-medium text-secondary">Labeled</p>
           {(audience.tags?.length ?? 0) > 1 ? (
             <Segmented
               value={audience.tagMatch ?? "any"}
@@ -79,9 +83,10 @@ export function AudienceFilters({
             />
           ) : null}
         </div>
-        <Chips options={tags.map((t) => ({ value: t, label: t }))} selected={audience.tags ?? []} onToggle={(v) => toggle("tags", v)} empty="No tags yet. Tag people from their page or during import." />
+        <Chips options={personLabels.map((t) => ({ value: t, label: t }))} selected={audience.tags ?? []} onToggle={(v) => toggle("tags", v)} empty="No labels on people or organizations yet. Add them from a record's page or during import." />
+        {personLabels.length ? <p className="mt-1.5 text-fine">A person has a label when they or their organization has it.</p> : null}
       </div>
-      {tags.length ? <ChipGroup label="Not tagged" options={tags.map((t) => ({ value: t, label: t }))} selected={audience.excludeTags ?? []} onToggle={(v) => toggle("excludeTags", v)} /> : null}
+      {personLabels.length ? <ChipGroup label="Not labeled" options={personLabels.map((t) => ({ value: t, label: t }))} selected={audience.excludeTags ?? []} onToggle={(v) => toggle("excludeTags", v)} /> : null}
       <ChipGroup label="Owned by" options={team.filter((m) => m.active).map((m) => ({ value: m.id, label: m.name }))} selected={audience.ownerIds ?? []} onToggle={(v) => toggle("ownerIds", v)} />
       <div className="grid gap-3 sm:grid-cols-3">
         <DaysField label="Contacted in the last" value={audience.activeWithinDays} onChange={(v) => setDays("activeWithinDays", v)} />
@@ -104,6 +109,21 @@ export function AudienceFilters({
           onChange={(e) => onChange((a) => ({ ...a, decisionMakersOnly: e.target.checked || undefined }))}
           label={<span className="text-[13px]">Only {appConfig.records.keyContactLabel.toLowerCase()}s (people starred at their organization)</span>}
         />
+        {parentOrganizations.length || audience.organizationIds?.length ? (
+          <div>
+            <ChipGroup
+              label="Part of"
+              options={[
+                ...parentOrganizations.map((o) => ({ value: o.id, label: o.name })),
+                // Chosen before, and since archived or unmarked as a parent: still shown so it can be taken off.
+                ...(audience.organizationIds ?? []).filter((id) => !parentOrganizations.some((o) => o.id === id)).map((id) => ({ value: id, label: "Another organization" })),
+              ]}
+              selected={audience.organizationIds ?? []}
+              onToggle={(v) => toggle("organizationIds", v)}
+            />
+            <p className="mt-1.5 text-fine">People at the parent organization and at every organization that is part of it.</p>
+          </div>
+        ) : null}
         {industries.length || audience.organizationIndustries?.length ? (
           <ChipGroup
             label="At organizations in"
@@ -122,7 +142,7 @@ export function AudienceFilters({
           />
         ))}
       </div>
-      <ClientFilters audience={audience} onChange={onChange} toggle={toggle} pipelines={pipelines} catalog={catalog} clientTags={clientTags} />
+      <ClientFilters audience={audience} onChange={onChange} toggle={toggle} pipelines={pipelines} catalog={catalog} clientTags={clientLabels} />
     </div>
   );
 }
@@ -174,7 +194,7 @@ function ClientFilters({
         onToggle={(v) => toggle("stageIds", v)}
       />
       <ChipGroup label="Using or used" options={services.map((s) => ({ value: s.id, label: s.name }))} selected={audience.serviceIds ?? []} onToggle={(v) => toggle("serviceIds", v)} empty="No services yet. Add them in Settings → Services." />
-      <ChipGroup label="Client tagged" options={clientTags.map((t) => ({ value: t, label: t }))} selected={audience.clientTags ?? []} onToggle={(v) => toggle("clientTags", v)} empty="No client tags yet. Tag clients from their page." />
+      <ChipGroup label="Client labeled" options={clientTags.map((t) => ({ value: t, label: t }))} selected={audience.clientTags ?? []} onToggle={(v) => toggle("clientTags", v)} empty="No labels on clients yet. Add them from a client's page." />
       {showPast ? (
         <>
           <ChipGroup label="Left because" options={reasons.map((r) => ({ value: r, label: r }))} selected={audience.churnReasons ?? []} onToggle={(v) => toggle("churnReasons", v)} />

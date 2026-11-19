@@ -16,12 +16,12 @@ import { PageHeader } from "@/components/shell/app-shell";
 import { openCreate } from "@/components/shell/create-store";
 import { AgoCell, NextActivityCell, OwnerCell } from "@/components/table/cells";
 import { DataTable, type Column } from "@/components/table/data-table";
-import { OwnerFilter, SearchBox, Toolbar } from "@/components/table/toolbar";
+import { OwnerFilter, ParentFilter, SearchBox, Toolbar } from "@/components/table/toolbar";
 import { usePagedRows } from "@/components/table/use-paged-rows";
 import { useListParams } from "@/components/table/use-params";
 import { MergeDialog, type MergeCandidate } from "@/components/records/merge-dialog";
 import { Avatar } from "@/components/ui/avatar";
-import { Tag } from "@/components/ui/badge";
+import { LabelChips, useLabels } from "@/components/records/labels";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Select } from "@/components/ui/field";
@@ -35,6 +35,10 @@ type Row = Awaited<ReturnType<typeof listPeople>>[number];
 const rowId = (r: Row) => r.person.id;
 
 export function PeopleView({ rows: first, total, filter, pageSize, tags, filtered }: { rows: Row[]; total: number; filter: PeopleFilter; pageSize: number; tags: string[]; filtered: boolean }) {
+  const labels = useLabels();
+  // What the filter and the bulk action offer: labels the app shows.
+  const shownTags = labels.shown(tags);
+  const pickable = labels.all.filter((l) => !l.hidden);
   const { viewer, customFields, money, team, member, canEdit } = useApp();
   const { get, set } = useListParams();
   const [importing, setImporting] = useState(false);
@@ -60,7 +64,7 @@ export function PeopleView({ rows: first, total, filter, pageSize, tags, filtere
       { label: "Owner", value: r.person.ownerId ? (member(r.person.ownerId)?.name ?? "A former teammate") : null },
       ...customFields.filter((f) => f.entityType === "person").map((f) => ({ label: f.label, value: formatCustomValue(f, r.person.custom[f.key], money) || null })),
     ],
-    extras: [r.clientCategories.length ? "Client contact" : null, r.person.tags.length ? `${r.person.tags.length} ${r.person.tags.length === 1 ? "tag" : "tags"}` : null].filter((x): x is string => !!x),
+    extras: [r.clientCategories.length ? "Client contact" : null, r.person.tags.length ? `${r.person.tags.length} ${r.person.tags.length === 1 ? "label" : "labels"}` : null].filter((x): x is string => !!x),
   });
 
   const columns: Column<Row>[] = [
@@ -92,7 +96,7 @@ export function PeopleView({ rows: first, total, filter, pageSize, tags, filtere
     { key: "phone", label: "Phone", render: (r) => (r.person.phone ? <a href={`tel:${r.person.phone.replace(/[^\d+]/g, "")}`} className="whitespace-nowrap text-secondary hover:underline">{r.person.phone}</a> : <span className="text-faint">—</span>) },
     { key: "clients", label: "Client", render: (r) => (r.clientCategories.length ? <span className="flex gap-1">{(["current", "prospective", "past"] as const).filter((c) => r.clientCategories.includes(c)).map((c) => <CategoryBadge key={c} category={c} />)}</span> : <span className="text-faint">—</span>) },
     { key: "next", label: "Next activity", className: "max-w-60", render: (r) => <NextActivityCell next={r.next} /> },
-    { key: "tags", label: "Tags", render: (r) => <span className="flex gap-1">{r.person.tags.slice(0, 2).map((t) => <Tag key={t}>{t}</Tag>)}{r.person.tags.length > 2 ? <span className="text-[12px] text-muted">+{r.person.tags.length - 2}</span> : null}</span> },
+    { key: "tags", label: "Labels", render: (r) => <LabelChips names={r.person.tags} carried={r.organizationTags?.length && r.organizationName ? { names: r.organizationTags, from: r.organizationName } : null} max={2} /> },
     { key: "owner", label: "Owner", render: (r) => <OwnerCell id={r.person.ownerId} /> },
     { key: "last", label: "Last activity", sort: "lastActivity", render: (r) => <AgoCell at={r.person.lastActivityAt} /> },
     { key: "campaign", label: "Last campaign", sort: "lastCampaign", render: (r) => <AgoCell at={r.person.lastCampaignAt} /> },
@@ -120,10 +124,11 @@ export function PeopleView({ rows: first, total, filter, pageSize, tags, filtere
       <Toolbar>
         <SearchBox placeholder="Search name, email, phone" />
         <OwnerFilter />
-        {tags.length ? (
-          <Select value={get("tag") ?? ""} onChange={(e) => set({ tag: e.target.value || null })} aria-label="Tag" className="w-36 [&_select]:h-8 [&_select]:text-[13px]">
-            <option value="">Any tag</option>
-            {tags.map((t) => (
+        <ParentFilter />
+        {shownTags.length ? (
+          <Select value={get("tag") ?? ""} onChange={(e) => set({ tag: e.target.value || null })} aria-label="Label" className="w-36 [&_select]:h-8 [&_select]:text-[13px]">
+            <option value="">Any label</option>
+            {shownTags.map((t) => (
               <option key={t}>{t}</option>
             ))}
           </Select>
@@ -186,18 +191,29 @@ export function PeopleView({ rows: first, total, filter, pageSize, tags, filtere
                 No owner
               </option>
             </select>
-            <BulkButton
-              onClick={async () => {
-                const tag = prompt("Tag to add");
-                if (!tag) return;
-                const r = await addTag(ids, tag);
-                if (!r.ok) return void toast.error(r.error);
-                toast.success(`Tagged ${r.data.count} people “${tag.trim().toLowerCase()}”`);
-                clear();
-              }}
-            >
-              Add tag
-            </BulkButton>
+            {pickable.length ? (
+              <select
+                className="h-7 rounded-md border border-white/20 bg-white/10 px-2 text-[12.5px] text-white"
+                defaultValue=""
+                onChange={async (e) => {
+                  const label = e.target.value;
+                  const r = await addTag(ids, label);
+                  if (!r.ok) return void toast.error(r.error);
+                  toast.success(`${r.data.count} ${r.data.count === 1 ? "person" : "people"} labeled ${label}`);
+                  clear();
+                }}
+                aria-label="Add label"
+              >
+                <option value="" disabled>
+                  Add label…
+                </option>
+                {pickable.map((l) => (
+                  <option key={l.name} value={l.name} className="text-primary">
+                    {l.name}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             <BulkButton
               onClick={async () => {
                 const r = await setArchived("person", ids, true);

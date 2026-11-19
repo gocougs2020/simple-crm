@@ -2,6 +2,7 @@ import "server-only";
 import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { clientCategoryLabels, type ClientCategory } from "@/lib/constants";
+import { effectiveTags } from "@/lib/crm/labels";
 
 const { people, organizations, clients, stages, personOrganizations } = schema;
 
@@ -21,6 +22,16 @@ function nextActivity(col: "person_id" | "organization_id" | "client_id", idCol:
 // ─── People ──────────────────────────────────────────────────────────────
 
 export type PeopleFilter = { q?: string; ownerId?: string; organizationId?: string; tag?: string; sort?: string; dir?: "asc" | "desc" };
+
+/**
+ * "At this organization" for lists, audiences and the API: the organization
+ * itself, or one that is part of it when it's a parent organization. `col`
+ * is the column holding the record's organization.
+ */
+export const inOrganizations = (col: SQL | typeof people.organizationId, ids: string[]) => {
+  const list = sql.join(ids.map((x) => sql`${x}`), sql`, `);
+  return sql`(${col} in (${list}) or ${col} in (select child.id from organizations child where child.parent_id in (${list}) and child.archived_at is null))`;
+};
 /** Which rows of a list: the tables load this many at a time as they're scrolled. */
 export type Page = { offset?: number; limit?: number };
 export const pageSize = 100;
@@ -42,8 +53,9 @@ function peopleQuery(f: PeopleFilter) {
     where.push(or(ilike(sql`${people.firstName} || ' ' || coalesce(${people.lastName}, '')`, t), ilike(people.email, t), ilike(people.phone, t), ilike(sql`${people.otherEmails}::text`, t), ilike(sql`${people.otherPhones}::text`, t), ilike(organizations.name, t))!);
   }
   if (f.ownerId) where.push(f.ownerId === "none" ? isNull(people.ownerId) : eq(people.ownerId, f.ownerId));
-  if (f.organizationId) where.push(eq(people.organizationId, f.organizationId));
-  if (f.tag) where.push(sql`${people.tags} ? ${f.tag}`);
+  if (f.organizationId) where.push(inOrganizations(people.organizationId, [f.organizationId]));
+  // Their own label, or one their organization carries.
+  if (f.tag) where.push(sql`${effectiveTags} ? ${f.tag}`);
   const order = peopleSorts[f.sort ?? ""] ?? peopleSorts.name;
   const dir = f.dir ?? (f.sort === "lastActivity" || f.sort === "lastCampaign" || f.sort === "created" ? "desc" : "asc");
   return { where: and(...where), sort: ordered(order as SQL, dir) };
@@ -71,6 +83,8 @@ export async function listPeople(f: PeopleFilter = {}, { offset = 0, limit = pag
     .select({
       person: people,
       organizationName: organizations.name,
+      /** Labels they carry from their organization. */
+      organizationTags: organizations.tags,
       clientCategories: sql<string[]>`(select coalesce(json_agg(distinct c.category), '[]') from clients c where c.person_id = ${people.id} and c.archived_at is null)`,
       next: nextActivity("person_id", sql`${people.id}`),
     })
@@ -114,13 +128,17 @@ export async function otherOrganizationsOf(personId: string) {
 
 export async function allTags() {
   const db = await getDb();
-  const rows = await db.execute<{ tag: string }>(sql`select distinct jsonb_array_elements_text(tags) as tag from people where archived_at is null order by 1`);
+  // People's own labels and their organizations', which they carry too.
+  const rows = await db.execute<{ tag: string }>(
+    sql`select distinct jsonb_array_elements_text(tags) as tag from people where archived_at is null union select jsonb_array_elements_text(tags) from organizations where archived_at is null order by 1`,
+  );
   return ((rows as unknown as { rows?: { tag: string }[] }).rows ?? (rows as unknown as { tag: string }[])).map((r) => r.tag);
 }
 
 // ─── Organizations ───────────────────────────────────────────────────────
 
-export type OrgFilter = { q?: string; ownerId?: string; sort?: string; dir?: "asc" | "desc" };
+/** `parentId` is a parent organization's id (the organizations that are part of it), or "parents" for the parent organizations themselves. */
+export type OrgFilter = { q?: string; ownerId?: string; parentId?: string; tag?: string; sort?: string; dir?: "asc" | "desc" };
 
 // Qualified by hand: in a select with no joins Drizzle renders a column as a bare "id", which the subquery would read as its own.
 const peopleCount = sql<number>`(select count(*)::int from people p where p.organization_id = "organizations"."id" and p.archived_at is null)`;
@@ -132,6 +150,8 @@ function organizationsQuery(f: OrgFilter) {
     where.push(or(ilike(organizations.name, t), ilike(organizations.domain, t), ilike(organizations.industry, t))!);
   }
   if (f.ownerId) where.push(f.ownerId === "none" ? isNull(organizations.ownerId) : eq(organizations.ownerId, f.ownerId));
+  if (f.tag) where.push(sql`${organizations.tags} ? ${f.tag}`);
+  if (f.parentId) where.push(f.parentId === "parents" ? eq(organizations.isParent, true) : eq(organizations.parentId, f.parentId));
   const sorts: Record<string, SQL> = {
     name: sql`lower(${organizations.name})`,
     lastActivity: sql`${organizations.lastActivityAt}`,
@@ -159,6 +179,7 @@ export async function listOrganizations(f: OrgFilter = {}, { offset = 0, limit =
     .select({
       organization: organizations,
       peopleCount,
+      parentName: sql<string | null>`(select parent.name from organizations parent where parent.id = "organizations"."parent_id")`,
       clientCategories: sql<string[]>`(select coalesce(json_agg(distinct c.category), '[]') from clients c where c.organization_id = "organizations"."id" and c.archived_at is null)`,
       next: nextActivity("organization_id", sql`"organizations"."id"`),
     })
@@ -178,6 +199,26 @@ export async function getOrganization(id: string) {
   const db = await getDb();
   const [row] = await db.select().from(organizations).where(eq(organizations.id, id)).limit(1);
   return row ?? null;
+}
+
+/** Every parent organization, by name: the choices for an organization's parent and for filters. */
+export async function parentOrganizations() {
+  const db = await getDb();
+  return db
+    .select({ id: organizations.id, name: organizations.name })
+    .from(organizations)
+    .where(and(eq(organizations.isParent, true), isNull(organizations.archivedAt)))
+    .orderBy(sql`lower(${organizations.name})`, asc(organizations.id));
+}
+
+/** The organizations that are part of a parent organization, by name, with how many people each has. */
+export async function organizationsOf(parentId: string) {
+  const db = await getDb();
+  return db
+    .select({ id: organizations.id, name: organizations.name, peopleCount })
+    .from(organizations)
+    .where(and(eq(organizations.parentId, parentId), isNull(organizations.archivedAt)))
+    .orderBy(sql`lower(${organizations.name})`, asc(organizations.id));
 }
 
 export async function peopleOf(organizationId: string) {

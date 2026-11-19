@@ -8,6 +8,7 @@ import { actorUserId, assertCan, stamp, type Actor } from "@/lib/crm/actor";
 import { cleanCustomValues } from "@/lib/crm/custom-fields";
 import { diff, labelRelations, recordEvent } from "@/lib/crm/events";
 import { withCustomChanges, workspaceToday } from "@/lib/crm/inputs";
+import { ensureLabels } from "@/lib/crm/labels";
 import { categoryInput, clientCreateInput, clientInput, id, metricInput, subscriptionInput } from "@/lib/crm/schemas";
 import { assertOrganization, assertPerson, assertUser, insertOrganization, insertPersonByName } from "@/lib/crm/service/records";
 import { ActionError, NotFoundError } from "@/lib/errors";
@@ -26,7 +27,7 @@ const clientLabels = {
   churnReason: "Reason for leaving",
   openToReturn: "Open to coming back",
   health: "Health",
-  tags: "Tags",
+  tags: "Labels",
   personId: "Contact",
   organizationId: "Organization",
   ownerId: "Owner",
@@ -112,6 +113,7 @@ export async function createClient(a: Actor, input: z.input<typeof clientCreateI
       createdBy: actorUserId(a),
     })
     .returning({ id: clients.id });
+  await ensureLabels(data.tags);
   await recordEvent({ entityType: "client", entityId: row.id, action: "created", data: { stage: stage.name, category }, ...stamp(a) });
   recordAssigned(a, { entity: "client", id: row.id, name: data.name, ownerId: data.ownerId === undefined ? actorUserId(a) : data.ownerId });
 
@@ -137,6 +139,7 @@ export async function updateClient(a: Actor, clientId: string, patch: Partial<z.
     .update(clients)
     .set({ ...data, custom, updatedAt: new Date() })
     .where(eq(clients.id, before.id));
+  await ensureLabels(data.tags);
   const changes = [...(await labelRelations(diff(before, { ...data, custom: undefined }, clientLabels))), ...(await withCustomChanges("client", before.custom, custom))];
   if (changes.length) await recordEvent({ entityType: "client", entityId: before.id, action: "updated", data: { changes }, ...stamp(a) });
   if (data.ownerId !== undefined) recordAssigned(a, { entity: "client", id: before.id, name: data.name ?? before.name, ownerId: data.ownerId, previousOwnerId: before.ownerId });

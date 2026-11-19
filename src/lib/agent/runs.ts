@@ -21,6 +21,8 @@ import { MAX_STORED_CHARS } from "./messages";
 import { budgetRefusal, budgetUsedUp, MAX_RUN_PROMPT, MAX_RUN_RESULT, monthStart, runFailure, runMessage, runTitle, usdToMicro, type RunRecord } from "./run-rules";
 import { signRunToken, type RunClaims } from "./run-token";
 import { cadenceLabel } from "./schedule-rules";
+import { labelsSection } from "@/lib/crm/label-rules";
+import { listLabels } from "@/lib/crm/labels";
 import { skillsSection } from "./skill-rules";
 import { activeSkills } from "./skills";
 
@@ -333,6 +335,7 @@ async function dispatch(run: Run, origin: string) {
       record,
       activity: activity && (activity.type === "note" || activity.type === "task") ? { id: activity.id, type: activity.type, subject: activity.subject } : null,
       knowledge: featureInstructions(),
+      labels: labelsSection(await listLabels()),
       skills: skillsSection(skills, { tool: "crm__get_skill", owner: user.name }),
       schedule: job ? { name: job.name, cadence: cadenceLabel(job) } : null,
       prompt: run.prompt,
@@ -456,7 +459,7 @@ async function postToThread(run: Run, opts: { batchDone?: boolean } = {}) {
     );
 }
 
-/** A note with the answer on the record a mention came from, or the answer added to the task that was assigned. */
+/** The answer as a reply under the note a mention came from, or added to the task that was assigned. */
 async function postToActivity(run: Run) {
   if (!run.activityId || (run.source !== "mention" && run.source !== "task")) return;
   const user = await userOf(run.userId);
@@ -476,11 +479,7 @@ async function postToActivity(run: Run) {
     return;
   }
   // The answer is the agent's own writing: it never hands work back to itself, whatever the text says.
-  await activities.logActivity(
-    actor,
-    { type: "note", subject: run.status === "done" ? null : `${appConfig.agent.name} couldn't finish`, body: answer, personId: source.personId, organizationId: source.organizationId, clientId: source.clientId },
-    { handOff: false },
-  );
+  await activities.replyToNote(actor, source.id, { body: run.status === "done" ? answer : `<p><strong>${appConfig.agent.name} couldn't finish.</strong></p>${answer}` }, { handOff: false });
 }
 
 /** Saves a final run's answer where the teammate asked for it and tells them it's ready. */

@@ -9,6 +9,7 @@ import {
   ArrowsRightLeftIcon,
   ArrowDownTrayIcon,
   ArrowUpTrayIcon,
+  ArrowUturnLeftIcon,
   BriefcaseIcon,
   ChevronRightIcon,
   CheckIcon,
@@ -26,7 +27,7 @@ import {
 /** The record being viewed. For clients, the category decides whether a missing next step is worth flagging. */
 type Context = { type: EntityType; id: string; category?: ClientCategory };
 import { MapPinIcon } from "@heroicons/react/24/outline";
-import { deleteActivity, setCompleted, setPinned, updateActivity } from "@/actions/activities";
+import { deleteActivity, deleteReply, replyToNote, setCompleted, setPinned, updateActivity } from "@/actions/activities";
 import { deleteFile } from "@/actions/files";
 import { useApp } from "@/components/app-context";
 import { AGENT_ASSIGNEE, OwnerSelect } from "@/components/records/owner-select";
@@ -41,7 +42,7 @@ import { useUploader } from "@/components/files/files-panel";
 import type { FileLinks } from "@/components/files/upload";
 import { RichText } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
-import type { ActivityRow, RecordFile, TimelineItem } from "@/lib/crm/activities";
+import type { ActivityRow, NoteReply, RecordFile, TimelineItem } from "@/lib/crm/activities";
 import { appConfig } from "@/app.config";
 import { deliveryLabels, deliveryTone } from "@/lib/email/delivery-status";
 import { activityLabels, agentRunStatusLabels, clientCategoryLabels, clientHealthLabels, interactionTypes, type ActivityType, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
@@ -464,6 +465,7 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
         {a.subject ? <h3 className="mt-1 text-[14px] font-medium">{a.subject}</h3> : null}
         {a.body ? <CollapsibleBody html={a.body} /> : null}
         <Attachments files={withEmailAttachments(attachments, row)} />
+        {a.type === "note" ? <Replies noteId={a.id} replies={row.replies ?? []} /> : null}
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] empty:hidden">
           {a.inboxThreadId ? (
             <Link href={`/email?t=${a.inboxThreadId}`} className="inline-flex items-center gap-1 font-medium text-secondary hover:text-primary">
@@ -549,6 +551,100 @@ function CollapsibleBody({ html }: { html: string }) {
           {open ? "Show less" : "Show more"}
         </button>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * The replies under a note, oldest first, and the box to add one. A reply
+ * stays with the note it answers: teammates answer each other here, and the
+ * agent answers here when a note or a reply calls on it.
+ */
+function Replies({ noteId, replies }: { noteId: string; replies: NoteReply[] }) {
+  const { viewer, isAdmin, canEdit, workspace, services } = useApp();
+  const tz = workspace.timezone;
+  const [open, setOpen] = useState(false);
+  const [body, setBody] = useState("");
+  const [pending, start] = useTransition();
+  const send = () => {
+    if (pending) return;
+    start(async () => {
+      const r = await replyToNote(noteId, body);
+      if (!r.ok) return void toast.error(r.error);
+      setBody("");
+      setOpen(false);
+    });
+  };
+  if (!replies.length && !canEdit) return null;
+  return (
+    <div className={clsx("mt-2", replies.length && "border-t border-line pt-2")}>
+      {replies.length ? (
+        <ul className="flex flex-col gap-2.5">
+          {replies.map((r) => (
+            <li key={r.id} className="group/reply flex gap-2.5 border-l-2 border-line pl-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-[12.5px] text-muted">
+                  <Who id={r.userId} apiKeyId={r.apiKeyId} /> replied
+                  <Tooltip content={formatFull(new Date(r.createdAt), tz)}>
+                    <time dateTime={r.createdAt} className="ml-1.5 text-[12px] whitespace-nowrap text-faint" suppressHydrationWarning>
+                      · {formatDateTime(new Date(r.createdAt), tz)}
+                    </time>
+                  </Tooltip>
+                </p>
+                <CollapsibleBody html={r.body} />
+              </div>
+              {r.userId === viewer.id || isAdmin ? (
+                <button
+                  type="button"
+                  className="-mt-0.5 h-fit rounded-md p-1 text-faint opacity-0 transition-opacity group-hover/reply:opacity-100 hover:bg-sunken hover:text-primary focus:opacity-100"
+                  aria-label="Delete reply"
+                  onClick={async () => {
+                    if (!confirm("Delete this reply? It's removed for everyone and can't be undone.")) return;
+                    const res = await deleteReply(r.id);
+                    if (!res.ok) toast.error(res.error);
+                    else toast.success("Reply deleted");
+                  }}
+                >
+                  <TrashIcon className="size-3.5" />
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {!canEdit ? null : open ? (
+        <div className={clsx(replies.length && "mt-2.5")}>
+          <RichText
+            value={body}
+            onChange={setBody}
+            onSubmit={send}
+            minHeight={56}
+            autoFocus
+            toolbar={false}
+            placeholder={services.ai.background ? `Reply. Type @ and a teammate's name to notify them, or @${appConfig.agent.name} to hand it something.` : "Reply. Type @ and a teammate's name to notify them."}
+          />
+          <div className="mt-1.5 flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setOpen(false);
+                setBody("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" variant="primary" loading={pending} onClick={send}>
+              Reply
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setOpen(true)} className={clsx("inline-flex items-center gap-1 text-[12.5px] font-medium text-secondary hover:text-primary", replies.length && "mt-2")}>
+          <ArrowUturnLeftIcon className="size-3.5" aria-hidden />
+          Reply
+        </button>
+      )}
     </div>
   );
 }

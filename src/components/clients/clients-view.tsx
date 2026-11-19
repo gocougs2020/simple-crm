@@ -15,6 +15,7 @@ import { AgoCell, NextActivityCell, OwnerCell } from "@/components/table/cells";
 import { DataTable, type Column } from "@/components/table/data-table";
 import { OwnerFilter, SearchBox, Toolbar } from "@/components/table/toolbar";
 import { useListParams } from "@/components/table/use-params";
+import { LabelChips, useLabels } from "@/components/records/labels";
 import { Tag } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -42,6 +43,8 @@ export function ClientsView({
   tags: string[];
 }) {
   const { pipelines, money, viewer, customFields, member, team, catalog, workspace, canEdit } = useApp();
+  const labels = useLabels();
+  const shownTags = labels.shown(tags);
   const tz = workspace.timezone;
   const { get, set } = useListParams();
   const [, start] = useTransition();
@@ -101,14 +104,10 @@ export function ClientsView({
   });
   const tagCol: Column<ClientRow> = {
     key: "tags",
-    label: "Tags",
+    label: "Labels",
     render: (r) =>
-      r.client.tags.length ? (
-        <span className="flex flex-wrap gap-1">
-          {r.client.tags.map((t) => (
-            <Tag key={t}>{t}</Tag>
-          ))}
-        </span>
+      labels.shown(r.client.tags).length ? (
+        <LabelChips names={r.client.tags} />
       ) : (
         <span className="text-faint">—</span>
       ),
@@ -147,7 +146,7 @@ export function ClientsView({
   };
   const columns: Column<ClientRow>[] = [
     ...byCategory[category],
-    ...(tags.length ? [tagCol] : []),
+    ...(shownTags.length ? [tagCol] : []),
     ...customFields
       .filter((f) => f.entityType === "client" && f.showInTable)
       .map((f): Column<ClientRow> => ({ key: `c-${f.key}`, label: f.label, render: (r) => formatCustomValue(f, r.client.custom[f.key], money) || <span className="text-faint">—</span> })),
@@ -220,7 +219,7 @@ export function ClientsView({
         {category === "current" ? filterSelect("health", "Any health", [...clientHealths.map((h) => ({ value: h, label: clientHealthLabels[h] })), { value: "none", label: "Not set" }]) : null}
         {category !== "prospective" && catalog.length ? filterSelect("service", "Any service", catalog.map((s) => ({ value: s.id, label: s.name }))) : null}
         {category === "past" ? filterSelect("reason", "Any reason", churnReasons.map((r) => ({ value: r, label: r }))) : null}
-        {tags.length ? filterSelect("tag", "Any tag", tags.map((t) => ({ value: t, label: t }))) : null}
+        {shownTags.length ? filterSelect("tag", "Any label", shownTags.map((t) => ({ value: t, label: t }))) : null}
       </Toolbar>
       {!options.length ? (
         <div className="p-6">

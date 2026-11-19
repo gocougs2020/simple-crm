@@ -363,7 +363,9 @@ function ActivityForm({ type, links }: { type: ActivityType; links: Links }) {
         }
         placeholder={
           {
-            note: assistantWorks ? `Write a note. Only your team sees it. Type @${appConfig.agent.name} to hand it something.` : "Write a note. Only your team sees it.",
+            note: assistantWorks
+              ? `Write a note. Only your team sees it. Type @ and a teammate's name to notify them, or @${appConfig.agent.name} to hand it something.`
+              : "Write a note. Only your team sees it. Type @ and a teammate's name to notify them.",
             call: "What did you talk about?",
             email: "Paste or summarize the email",
             text: "Paste the text message",

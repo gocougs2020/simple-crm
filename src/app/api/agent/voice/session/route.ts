@@ -1,3 +1,5 @@
+import { labelsSection } from "@/lib/crm/label-rules";
+import { listLabels } from "@/lib/crm/labels";
 import { experimental_getRealtimeToolDefinitions as realtimeTools } from "ai";
 import { z } from "zod";
 import { aiGateway } from "@/lib/agent/gateway";
@@ -54,6 +56,7 @@ export async function POST(request: Request) {
       page,
       voice: true,
       knowledge: featureInstructions(),
+      labels: labelsSection(await listLabels()),
       skills,
     });
     return Response.json({ ...token, tools, instructions }, { headers: { "Cache-Control": "no-store" } });

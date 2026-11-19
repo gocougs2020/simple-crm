@@ -66,6 +66,30 @@ export function OwnerFilter({ label = "Owner" }: { label?: string }) {
   );
 }
 
+/**
+ * Parent organization filter bound to ?parent=: a parent's id narrows the
+ * list to what is part of it. On the Organizations table, "parents" shows the
+ * parent organizations themselves. Hidden until one exists.
+ */
+export function ParentFilter({ parentsOption }: { parentsOption?: boolean }) {
+  const { parentOrganizations } = useApp();
+  const { get, set } = useListParams();
+  if (!parentOrganizations.length) return null;
+  return (
+    <Select value={get("parent") ?? ""} onChange={(e) => set({ parent: e.target.value || null })} aria-label="Parent organization" className="w-52 [&_select]:h-8 [&_select]:text-[13px]">
+      <option value="">Any parent organization</option>
+      {parentsOption ? <option value="parents">Parent organizations only</option> : null}
+      <optgroup label="Part of">
+        {parentOrganizations.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </optgroup>
+    </Select>
+  );
+}
+
 /** A row of pill tabs bound to a URL param. */
 export function FilterTabs({ param, options, fallback }: { param: string; options: { value: string; label: ReactNode }[]; fallback: string }) {
   const { get, set } = useListParams();

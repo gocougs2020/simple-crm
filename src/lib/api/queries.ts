@@ -7,8 +7,9 @@ import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { getDb, schema } from "@/db";
 import type { ActivityType, EntityType } from "@/lib/constants";
 import { actorUserId, type Actor } from "@/lib/crm/actor";
-import { timeline } from "@/lib/crm/activities";
-import { likeTerm } from "@/lib/crm/records";
+import { timeline, type NoteReply } from "@/lib/crm/activities";
+import { effectiveTags, listLabels } from "@/lib/crm/labels";
+import { inOrganizations, likeTerm } from "@/lib/crm/records";
 import { ActionError, NotFoundError } from "@/lib/errors";
 import { htmlToText } from "@/lib/safe-html";
 
@@ -86,8 +87,8 @@ function common(a: Actor, t: typeof people | typeof organizations | typeof clien
 
 // ─── People ──────────────────────────────────────────────────────────────
 
-const personSelect = { person: people, organizationName: organizations.name, key: exact(people.createdAt) };
-type PersonRow = { person: typeof people.$inferSelect; organizationName: string | null };
+const personSelect = { person: people, organizationName: organizations.name, organizationTags: organizations.tags, key: exact(people.createdAt) };
+type PersonRow = { person: typeof people.$inferSelect; organizationName: string | null; organizationTags: string[] | null };
 
 function toPerson(ctx: Ctx, r: PersonRow) {
   const p = r.person;
@@ -105,6 +106,7 @@ function toPerson(ctx: Ctx, r: PersonRow) {
     organization: p.organizationId && r.organizationName ? { id: p.organizationId, name: r.organizationName } : null,
     ownerId: p.ownerId,
     tags: p.tags,
+    organizationTags: (r.organizationTags ?? []).filter((t) => !p.tags.includes(t)),
     marketingOptIn: p.marketingOptIn,
     unsubscribedAt: iso(p.unsubscribedAt),
     emailBouncedAt: iso(p.emailBouncedAt),
@@ -129,9 +131,9 @@ export async function listPeople(a: Actor, ctx: Ctx, f: RecordFilter & { organiz
     const t = likeTerm(f.q);
     where.push(or(ilike(sql`${people.firstName} || ' ' || coalesce(${people.lastName}, '')`, t), ilike(people.email, t), ilike(people.phone, t), ilike(sql`${people.otherEmails}::text`, t), ilike(sql`${people.otherPhones}::text`, t), ilike(organizations.name, t)));
   }
-  if (f.organizationId) where.push(eq(people.organizationId, f.organizationId));
+  if (f.organizationId) where.push(inOrganizations(people.organizationId, [f.organizationId]));
   if (f.email) where.push(or(eq(people.email, f.email), sql`${people.otherEmails} ? ${f.email.toLowerCase()}`)!);
-  if (f.tag) where.push(sql`${people.tags} ? ${f.tag}`);
+  if (f.tag) where.push(sql`${effectiveTags} ? ${f.tag}`);
   const rows = await db
     .select(personSelect)
     .from(people)
@@ -153,9 +155,15 @@ export async function getPerson(ctx: Ctx, id: string) {
 
 // Qualified by hand: in a select with no joins Drizzle renders a column as a bare "id", which the subquery would read as its own.
 const peopleCount = sql<number>`(select count(*)::int from people p where p.organization_id = "organizations"."id" and p.archived_at is null)`;
-const orgSelect = { organization: organizations, peopleCount, key: exact(organizations.createdAt) };
+const orgSelect = {
+  organization: organizations,
+  peopleCount,
+  parentName: sql<string | null>`(select parent.name from organizations parent where parent.id = "organizations"."parent_id")`,
+  childCount: sql<number>`(select count(*)::int from organizations child where child.parent_id = "organizations"."id" and child.archived_at is null)`,
+  key: exact(organizations.createdAt),
+};
 
-function toOrganization(ctx: Ctx, r: { organization: typeof organizations.$inferSelect; peopleCount: number }) {
+function toOrganization(ctx: Ctx, r: { organization: typeof organizations.$inferSelect; peopleCount: number; parentName: string | null; childCount: number }) {
   const o = r.organization;
   return {
     id: o.id,
@@ -164,6 +172,11 @@ function toOrganization(ctx: Ctx, r: { organization: typeof organizations.$infer
     phone: o.phone,
     address: o.address,
     industry: o.industry,
+    tags: o.tags,
+    isParent: o.isParent,
+    parentId: o.parentId,
+    parent: o.parentId && r.parentName ? { id: o.parentId, name: r.parentName } : null,
+    childCount: Number(r.childCount),
     ownerId: o.ownerId,
     peopleCount: Number(r.peopleCount),
     custom: o.custom,
@@ -175,7 +188,7 @@ function toOrganization(ctx: Ctx, r: { organization: typeof organizations.$infer
   };
 }
 
-export async function listOrganizations(a: Actor, ctx: Ctx, f: RecordFilter & { domain?: string }) {
+export async function listOrganizations(a: Actor, ctx: Ctx, f: RecordFilter & { domain?: string; parentId?: string; isParent?: boolean; tag?: string }) {
   const db = await getDb();
   const limit = f.limit ?? 50;
   const where = common(a, organizations, f);
@@ -184,6 +197,9 @@ export async function listOrganizations(a: Actor, ctx: Ctx, f: RecordFilter & { 
     where.push(or(ilike(organizations.name, t), ilike(organizations.domain, t), ilike(organizations.industry, t)));
   }
   if (f.domain) where.push(eq(organizations.domain, f.domain.replace(/^https?:\/\//, "").replace(/\/$/, "")));
+  if (f.tag) where.push(sql`${organizations.tags} ? ${f.tag}`);
+  if (f.parentId) where.push(eq(organizations.parentId, f.parentId));
+  if (f.isParent !== undefined) where.push(eq(organizations.isParent, f.isParent));
   const rows = await db
     .select(orgSelect)
     .from(organizations)
@@ -340,8 +356,9 @@ const activitySelect = {
   personName: sql<string | null>`case when ${people.id} is null then null else ${people.firstName} || coalesce(' ' || ${people.lastName}, '') end`,
   organizationName: organizations.name,
   clientName: clients.name,
+  replies: sql<NoteReply[]>`(select coalesce(json_agg(json_build_object('id', r.id, 'body', r.body, 'userId', r.user_id, 'apiKeyId', r.api_key_id, 'createdAt', r.created_at) order by r.created_at, r.id), '[]'::json) from note_replies r where r.activity_id = ${activities.id})`,
 };
-type ActivityRowLike = { activity: typeof activities.$inferSelect; personName: string | null; organizationName: string | null; clientName: string | null };
+type ActivityRowLike = { activity: typeof activities.$inferSelect; personName: string | null; organizationName: string | null; clientName: string | null; replies?: NoteReply[] };
 
 export function toActivity(r: ActivityRowLike) {
   const x = r.activity;
@@ -370,6 +387,7 @@ export function toActivity(r: ActivityRowLike) {
     userId: x.userId,
     assigneeId: x.assigneeId,
     apiKeyId: x.apiKeyId,
+    replies: (r.replies ?? []).map((y) => ({ id: y.id, body: y.body, bodyText: htmlToText(y.body), userId: y.userId, apiKeyId: y.apiKeyId, createdAt: iso(new Date(y.createdAt))! })),
     createdAt: iso(x.createdAt)!,
     updatedAt: iso(x.updatedAt)!,
   };
@@ -472,6 +490,11 @@ export async function listPipelines() {
     position: p.position,
     stages: ss.filter((s) => s.pipelineId === p.id).map((s) => ({ id: s.id, name: s.name, position: s.position, probability: s.probability, rottingDays: s.rottingDays })),
   }));
+}
+
+/** What each label means. Hidden ones are included, marked, so a reader knows what a label on a record stands for. */
+export async function listLabelDefinitions() {
+  return (await listLabels()).map((l) => ({ name: l.name, description: l.description, hidden: l.hidden }));
 }
 
 export async function listServices() {

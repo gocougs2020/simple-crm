@@ -1,4 +1,5 @@
 import "server-only";
+import { ensureLabels } from "@/lib/crm/labels";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
@@ -40,6 +41,8 @@ export async function importRows(importId: string, rows: ImportRow[], defaults: 
     // With only an email, use the part before @ as a first name so the person is findable.
     clean.push({ ...r, email: email || undefined, firstName: r.firstName?.trim() || email!.split("@")[0] });
   }
+  // Once per chunk, for the rows that were accepted: labels the file brings get a definition, so they show in pickers and Settings.
+  await ensureLabels(clean.flatMap((r) => r.tags ?? []));
 
   // Organizations by name (case-insensitive), creating the missing ones.
   const orgNames = [...new Set(clean.map((r) => r.organization?.trim()).filter((n): n is string => !!n))];

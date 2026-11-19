@@ -10,6 +10,8 @@ const zonedMidnight = (ymd: string, tz: string) => zonedTime(ymd, "00:00", tz);
 const { activities, events, files, people, organizations, clients } = schema;
 
 export type ActivityRow = Awaited<ReturnType<typeof activityRows>>[number];
+/** A reply under a note (note_replies), as the timeline reads it: `createdAt` is an ISO string. */
+export type NoteReply = { id: string; body: string; userId: string | null; apiKeyId: string | null; createdAt: string };
 
 /**
  * Leaves out emails and texts a campaign sent. They're on each person's
@@ -55,6 +57,8 @@ function activityRows(where: SQL | undefined, opts: { order: SQL[]; limit: numbe
         inboxAddress: schema.inboxThreads.inboxAddress,
         /** The agent's background run for this note or task, when it was handed one: how it's going. */
         assistantStatus: schema.agentRuns.status,
+        /** Replies under a note, oldest first. */
+        replies: sql<NoteReply[]>`(select coalesce(json_agg(json_build_object('id', r.id, 'body', r.body, 'userId', r.user_id, 'apiKeyId', r.api_key_id, 'createdAt', r.created_at) order by r.created_at, r.id), '[]'::json) from note_replies r where r.activity_id = ${activities.id})`,
       })
       .from(activities)
       .leftJoin(people, eq(people.id, activities.personId))

@@ -1,3 +1,5 @@
+import { labelsSection } from "@/lib/crm/label-rules";
+import { listLabels } from "@/lib/crm/labels";
 import { after } from "next/server";
 import { convertToModelMessages, isStepCount, streamText, validateUIMessages, type UIMessage } from "ai";
 import { z } from "zod";
@@ -75,6 +77,7 @@ export async function POST(request: Request) {
       now: new Date(),
       page: input.page,
       knowledge: featureInstructions(),
+      labels: labelsSection(await listLabels()),
       skills,
       background: aiFeatures().background && can(actor, "records:write"),
     }),

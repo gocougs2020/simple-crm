@@ -255,6 +255,17 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
     await activities.deleteActivity(a, params.id, "note");
     return deleted(params.id);
   },
+  async replyToNote(a, { params, body }) {
+    await q.getActivity(params.id, "note");
+    await activities.replyToNote(a, params.id, body);
+    return q.getActivity(params.id);
+  },
+  async deleteNoteReply(a, { params }) {
+    const note = await q.getActivity(params.id, "note");
+    if (!note.replies.some((r) => r.id === params.replyId)) throw new NotFoundError("There's no reply with that id on this note.");
+    await activities.deleteReply(a, params.replyId);
+    return q.getActivity(params.id);
+  },
 
   // Activities
   listActivities: (a, { query }) => {
@@ -286,6 +297,7 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
   // Workspace
   listPipelines: async () => ({ data: await q.listPipelines(), nextCursor: null }),
   listServices: async () => ({ data: await q.listServices(), nextCursor: null }),
+  listLabels: async () => ({ data: await q.listLabelDefinitions(), nextCursor: null }),
   listUsers: async () => ({ data: await q.listUsers(), nextCursor: null }),
   listCustomFields: async (_a, { query }) => ({ data: await q.listCustomFields(query.entityType), nextCursor: null }),
 

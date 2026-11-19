@@ -65,7 +65,7 @@ export const personInput = z.object({
   title: optionalText(120).describe("Job title."),
   organizationId: optionalId.describe("The organization they work at."),
   ownerId: optionalId.describe("The teammate who owns the relationship. Defaults to whoever creates it; null for none."),
-  tags: tagList.optional().describe("Lowercase labels. Replaces the whole list."),
+  tags: tagList.optional().describe("Their labels (lowercase). Replaces the whole list. They also carry their organization's labels, which aren't in this list. GET /labels says what each label means."),
   marketingOptIn: z.boolean().optional().describe("Whether campaigns may go to them. One-off emails always send."),
   decisionMaker: z.boolean().optional().describe("Star them at their organization as someone who makes or signs off on the decision."),
   textConsent: z.boolean().optional().describe("Whether they agreed to receive marketing texts (text campaigns). Setting it records when; one-to-one texts don't need it."),
@@ -82,6 +82,12 @@ export const orgInput = z.object({
   phone: optionalText(40),
   address: optionalText(300),
   industry: optionalText(80),
+  isParent: z
+    .boolean()
+    .optional()
+    .describe("Mark it as a parent organization: one that others can be part of (a franchisor and its franchises, a group and its offices). Only parent organizations can be another's parentId."),
+  tags: tagList.optional().describe("Its labels (lowercase). Replaces the whole list. Everyone at the organization carries them too. GET /labels says what each label means."),
+  parentId: optionalId.describe("The parent organization this one is part of. Must be an organization with isParent true; a parent organization can't have a parent itself. null for none."),
   ownerId: optionalId.describe("The teammate who owns the relationship. Defaults to whoever creates it; null for none."),
   custom: customValues.optional(),
 });
@@ -100,7 +106,7 @@ export const clientInput = z.object({
   churnReason: optionalText(300).describe("Past clients: why they left."),
   openToReturn: z.boolean().optional().describe("Past clients: whether they'd consider coming back."),
   health: z.enum(clientHealths).nullable().optional().describe("Current clients: how the account is doing."),
-  tags: tagList.optional().describe("Lowercase labels. Replaces the whole list."),
+  tags: tagList.optional().describe("Its labels (lowercase). Replaces the whole list. GET /labels says what each label means."),
   custom: customValues.optional(),
 });
 
@@ -178,6 +184,11 @@ export const activityInput = z.object({
 });
 
 export type ActivityInput = z.input<typeof activityInput>;
+
+/** A reply under a note (src/lib/crm/service/activities.ts). */
+export const replyInput = z.object({
+  body: z.string().max(100_000).describe("The reply. Rich text as HTML (p, strong, em, a, ul, ol, li, blockquote, code), or plain text. Mention a teammate with @ and their name to notify them."),
+});
 
 // ─── Drafts ──────────────────────────────────────────────────────────────
 

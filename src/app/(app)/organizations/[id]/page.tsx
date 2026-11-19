@@ -10,12 +10,12 @@ import { FocusLine } from "@/components/activity/focus-line";
 import { RecordSummary } from "@/components/records/record-summary";
 import { Timeline } from "@/components/activity/timeline";
 import { FilesCard } from "@/components/files/files-panel";
-import { OrganizationDetails, RelatedClients, RelatedPeople } from "@/components/records/details";
+import { OrganizationDetails, RelatedClients, RelatedOrganizations, RelatedPeople } from "@/components/records/details";
 import { RecordBody, RecordHeader } from "@/components/records/record-header";
 import { CallButton } from "@/components/phone/contact-actions";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { timeline } from "@/lib/crm/activities";
-import { clientsOfOrganization, getOrganization, peopleOf } from "@/lib/crm/records";
+import { clientsOfOrganization, getOrganization, organizationsOf, peopleOf } from "@/lib/crm/records";
 
 export async function generateMetadata({ params }: PageProps<"/organizations/[id]">): Promise<Metadata> {
   const { id } = await params;
@@ -44,7 +44,13 @@ async function Organization({ params }: Pick<PageProps<"/organizations/[id]">, "
     if (current !== id) redirect(`/organizations/${current}`);
     notFound();
   }
-  const [tl, clients, people] = await Promise.all([timeline("organization", id), clientsOfOrganization(id), peopleOf(id)]);
+  const [tl, clients, people, parent, children] = await Promise.all([
+    timeline("organization", id),
+    clientsOfOrganization(id),
+    peopleOf(id),
+    org.parentId ? getOrganization(org.parentId) : null,
+    org.isParent ? organizationsOf(id) : [],
+  ]);
   return (
     <>
       <RecordHeader
@@ -57,13 +63,14 @@ async function Organization({ params }: Pick<PageProps<"/organizations/[id]">, "
             <BuildingOffice2Icon className="size-6 text-muted" />
           </span>
         }
-        sub={[org.industry, org.domain].filter(Boolean).join(" · ") || undefined}
+        sub={[org.isParent ? "Parent organization" : parent ? `Part of ${parent.name}` : null, org.industry, org.domain].filter(Boolean).join(" · ") || undefined}
         actions={<CallButton target={{ name: org.name, phone: org.phone, organizationId: id }} />}
       />
       <RecordBody
         side={
           <>
-            <OrganizationDetails org={org} />
+            <OrganizationDetails org={org} parent={parent ? { id: parent.id, name: parent.name } : null} />
+            {org.isParent ? <RelatedOrganizations parent={{ id, name: org.name }} organizations={children} /> : null}
             <RelatedPeople people={people} organization={org} />
             <RelatedClients clients={clients} create={{ kind: "client", defaults: { organizationId: id, organizationName: org.name, name: org.name } }} />
             <FilesCard files={tl.files} emailFiles={tl.emailFiles} links={{ organizationId: id }} />

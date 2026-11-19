@@ -152,8 +152,9 @@ function PersonDialog({ req, onClose }: { req: Extract<CreateRequest, { kind: "p
 }
 
 function OrganizationDialog({ req, onClose }: { req: Extract<CreateRequest, { kind: "organization" }>; onClose: () => void }) {
-  const { viewer } = useApp();
+  const { viewer, parentOrganizations } = useApp();
   const [name, setName] = useState(req.defaults?.name ?? "");
+  const [parentId, setParentId] = useState<string | null>(req.defaults?.parentId ?? null);
   const [domain, setDomain] = useState("");
   const [phone, setPhone] = useState("");
   const [industry, setIndustry] = useState("");
@@ -162,7 +163,7 @@ function OrganizationDialog({ req, onClose }: { req: Extract<CreateRequest, { ki
   const [custom, setCustom] = useState<Record<string, unknown>>({});
   const [openAfter, setOpenAfter] = useState(true);
   const done = useCreated("/organizations", "Organization", onClose);
-  const { pending, error, submit } = useSubmit(() => createOrganization({ name, domain, phone, industry, address, ownerId, custom }), (r) => done(r.id, name, openAfter));
+  const { pending, error, submit } = useSubmit(() => createOrganization({ name, domain, phone, industry, address, ownerId, parentId, custom }), (r) => done(r.id, name, openAfter));
   return (
     <Dialog
       open
@@ -190,6 +191,20 @@ function OrganizationDialog({ req, onClose }: { req: Extract<CreateRequest, { ki
           <Field label="Address" optional className="sm:col-span-2">
             {(p) => <Input {...p} value={address} onChange={(e) => setAddress(e.target.value)} autoComplete="off" />}
           </Field>
+          {parentOrganizations.length ? (
+            <Field label="Parent organization" optional className="sm:col-span-2">
+              {(p) => (
+                <Select {...p} value={parentId ?? ""} onChange={(e) => setParentId(e.target.value || null)}>
+                  <option value="">None</option>
+                  {parentOrganizations.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          ) : null}
         </div>
         <CustomFields entity="organization" values={custom} onChange={setCustom} />
       </form>

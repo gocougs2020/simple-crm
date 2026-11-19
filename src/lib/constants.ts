@@ -125,7 +125,7 @@ export const MAX_EMAIL_ATTACHMENTS = 10;
  * Notifications). Each one is about the teammate's own work, so nobody is
  * notified about something they did themselves.
  */
-export const notificationKinds = ["task_assigned", "task_due", "task_digest", "meeting_soon", "record_assigned", "inbound_email", "inbound_text", "agent_done"] as const;
+export const notificationKinds = ["task_assigned", "task_due", "task_digest", "meeting_soon", "record_assigned", "inbound_email", "inbound_text", "agent_done", "mention"] as const;
 export type NotificationKind = (typeof notificationKinds)[number];
 export const notificationLabels: Record<NotificationKind, { label: string; hint: string }> = {
   task_assigned: { label: "Tasks assigned to me", hint: "When a teammate (or their agent) gives you a task, call or meeting." },
@@ -135,6 +135,7 @@ export const notificationLabels: Record<NotificationKind, { label: string; hint:
   record_assigned: { label: "Records assigned to me", hint: "When a teammate makes you the owner of a client, person or organization." },
   inbound_email: { label: "Replies from my contacts", hint: "When email arrives in a connected inbox from a client, person or organization you own." },
   inbound_text: { label: "Texts from my contacts", hint: "When someone you own texts one of the team's phone numbers, or texts a number you look after." },
+  mention: { label: "Mentions and replies", hint: "When a teammate mentions you in a note (@ and your name), or replies to a note you wrote or replied to." },
   agent_done: { label: "The agent finished", hint: "When background work you gave the agent is done, has a draft for you to approve, or couldn't finish." },
 };
 

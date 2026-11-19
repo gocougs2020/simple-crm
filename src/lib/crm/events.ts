@@ -10,7 +10,7 @@ export async function labelRelations(changes: FieldChange[]) {
   const db = await getDb();
   const name = async (field: string, id: unknown) => {
     if (typeof id !== "string") return null;
-    if (field === "organizationId") return (await db.select({ n: schema.organizations.name }).from(schema.organizations).where(inArray(schema.organizations.id, [id])))[0]?.n ?? null;
+    if (field === "organizationId" || field === "parentId") return (await db.select({ n: schema.organizations.name }).from(schema.organizations).where(inArray(schema.organizations.id, [id])))[0]?.n ?? null;
     if (field === "personId") {
       const [p] = await db.select({ f: schema.people.firstName, l: schema.people.lastName }).from(schema.people).where(inArray(schema.people.id, [id]));
       return p ? [p.f, p.l].filter(Boolean).join(" ") : null;
@@ -18,7 +18,7 @@ export async function labelRelations(changes: FieldChange[]) {
     return null;
   };
   for (const c of changes) {
-    if (c.field !== "organizationId" && c.field !== "personId") continue;
+    if (c.field !== "organizationId" && c.field !== "personId" && c.field !== "parentId") continue;
     c.fromLabel = await name(c.field, c.from);
     c.toLabel = await name(c.field, c.to);
   }

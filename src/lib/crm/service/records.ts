@@ -8,9 +8,10 @@ import { cleanCustomValues } from "@/lib/crm/custom-fields";
 import { appConfig } from "@/app.config";
 import { diff, labelRelations, recordEvent } from "@/lib/crm/events";
 import { withCustomChanges } from "@/lib/crm/inputs";
+import { ensureLabels } from "@/lib/crm/labels";
 import { distinct, emailKey, phoneKey } from "@/lib/crm/merge";
 import { id, orgInput, personInput } from "@/lib/crm/schemas";
-import { ConflictError, NotFoundError } from "@/lib/errors";
+import { ActionError, ConflictError, NotFoundError } from "@/lib/errors";
 import { recordAssigned } from "@/lib/push/triggers";
 import { matchKey } from "@/lib/phone/numbers";
 import { adoptThreadsForPhones } from "@/lib/twilio/threads";
@@ -37,7 +38,7 @@ const personLabels = {
   title: "Job title",
   organizationId: "Organization",
   ownerId: "Owner",
-  tags: "Tags",
+  tags: "Labels",
   marketingOptIn: "Email opt-in",
   decisionMaker: appConfig.records.keyContactLabel,
   textConsent: "Agreed to marketing texts",
@@ -48,7 +49,7 @@ function consentColumns(textConsent: boolean | undefined, before?: Date | null) 
   if (textConsent === undefined) return {};
   return { textConsentAt: textConsent ? (before ?? new Date()) : null };
 }
-const orgLabels = { name: "Name", domain: "Website", phone: "Phone", address: "Address", industry: "Industry", ownerId: "Owner" } as const;
+const orgLabels = { name: "Name", domain: "Website", phone: "Phone", address: "Address", industry: "Industry", tags: "Labels", isParent: "Is a parent organization", parentId: "Parent organization", ownerId: "Owner" } as const;
 
 /** A new record's owner: whoever was named, else the teammate creating it (a workspace key leaves it unowned). */
 const ownerFor = (a: Actor, ownerId: string | null | undefined) => (ownerId === undefined ? actorUserId(a) : ownerId);
@@ -76,14 +77,41 @@ export async function assertPerson(personId: string | null | undefined) {
 
 // ─── Organizations ───────────────────────────────────────────────────────
 
+/**
+ * Parent organizations are one level deep: an organization can be part of
+ * one marked as a parent, and a parent isn't part of another. `self` is the
+ * organization as it will be; `changed` says which of the two fields the
+ * change touches, so an old link to a since-archived parent doesn't block
+ * unrelated edits.
+ */
+async function assertParentRules(self: { id?: string; name: string; isParent: boolean; parentId: string | null }, changed: { isParent: boolean; parentId: boolean }) {
+  const db = await getDb();
+  if (self.parentId && (changed.parentId || changed.isParent)) {
+    if (self.parentId === self.id) throw new ActionError(`${self.name} can't be its own parent organization. Pick a different one.`);
+    if (self.isParent) throw new ConflictError(`${self.name} is a parent organization, so it can't be part of another. Remove its parent organization first, or leave it unmarked as a parent.`);
+  }
+  if (self.parentId && changed.parentId) {
+    const [parent] = await db.select({ name: organizations.name, isParent: organizations.isParent, archivedAt: organizations.archivedAt }).from(organizations).where(eq(organizations.id, self.parentId));
+    if (!parent) throw new NotFoundError("That parent organization doesn't exist.");
+    if (parent.archivedAt) throw new ConflictError(`${parent.name} is archived. Restore it, or pick another parent organization.`);
+    if (!parent.isParent) throw new ConflictError(`${parent.name} isn't marked as a parent organization. Mark it as one on its page first, then pick it here.`);
+  }
+  if (self.id && changed.isParent && !self.isParent) {
+    const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(organizations).where(eq(organizations.parentId, self.id));
+    if (row.n) throw new ConflictError(`${row.n} ${row.n === 1 ? "organization is" : "organizations are"} part of ${self.name}. Move ${row.n === 1 ? "it" : "them"} to another parent organization first.`);
+  }
+}
+
 export async function insertOrganization(a: Actor, input: z.input<typeof orgInput>) {
   const data = orgInput.parse(input);
   await assertUser(data.ownerId, "owner");
+  await assertParentRules({ name: data.name, isParent: !!data.isParent, parentId: data.parentId ?? null }, { isParent: true, parentId: true });
   const db = await getDb();
   const [row] = await db
     .insert(organizations)
     .values({ ...data, ownerId: ownerFor(a, data.ownerId), custom: data.custom ? await cleanCustomValues("organization", data.custom) : {}, createdBy: actorUserId(a) })
     .returning({ id: organizations.id, name: organizations.name });
+  await ensureLabels(data.tags);
   await recordEvent({ entityType: "organization", entityId: row.id, action: "created", ...stamp(a) });
   recordAssigned(a, { entity: "organization", id: row.id, name: row.name, ownerId: ownerFor(a, data.ownerId) });
   return row;
@@ -109,9 +137,13 @@ export async function updateOrganization(a: Actor, orgId: string, patch: Partial
   const db = await getDb();
   const [before] = await db.select().from(organizations).where(eq(organizations.id, id.parse(orgId)));
   if (!before) throw new NotFoundError("This organization was deleted.");
+  const isParent = data.isParent ?? before.isParent;
+  const parentId = data.parentId !== undefined ? data.parentId : before.parentId;
+  await assertParentRules({ id: before.id, name: data.name ?? before.name, isParent, parentId }, { isParent: isParent !== before.isParent, parentId: parentId !== before.parentId });
   const custom = data.custom ? { ...before.custom, ...(await cleanCustomValues("organization", data.custom)) } : undefined;
   await db.update(organizations).set({ ...data, custom, updatedAt: new Date() }).where(eq(organizations.id, before.id));
-  const changes = [...diff(before, { ...data, custom: undefined }, orgLabels), ...(await withCustomChanges("organization", before.custom, custom))];
+  await ensureLabels(data.tags);
+  const changes = [...(await labelRelations(diff(before, { ...data, custom: undefined }, orgLabels))), ...(await withCustomChanges("organization", before.custom, custom))];
   if (changes.length) await recordEvent({ entityType: "organization", entityId: before.id, action: "updated", data: { changes }, ...stamp(a) });
   if (data.ownerId !== undefined) recordAssigned(a, { entity: "organization", id: before.id, name: data.name ?? before.name, ownerId: data.ownerId, previousOwnerId: before.ownerId });
   return { id: before.id };
@@ -165,6 +197,7 @@ export async function createPerson(a: Actor, input: z.input<typeof personInput> 
     .insert(people)
     .values({ ...data, ...consentColumns(textConsent), organizationId, ownerId: ownerFor(a, data.ownerId), tags: data.tags ?? [], custom: data.custom ? await cleanCustomValues("person", data.custom) : {}, createdBy: actorUserId(a) })
     .returning({ id: people.id });
+  await ensureLabels(data.tags);
   await recordEvent({ entityType: "person", entityId: row.id, action: "created", ...stamp(a) });
   recordAssigned(a, { entity: "person", id: row.id, name: [data.firstName, data.lastName].filter(Boolean).join(" ") || "a contact", ownerId: ownerFor(a, data.ownerId) });
   await adoptThreadsForPhones([data.phone, ...(data.otherPhones ?? [])]);
@@ -194,6 +227,7 @@ export async function updatePerson(a: Actor, personId: string, patch: Partial<z.
     .update(people)
     .set({ ...data, ...consentColumns(textConsent, before.textConsentAt), custom, ...(newAddress ? { emailBouncedAt: null } : {}), updatedAt: new Date() })
     .where(eq(people.id, before.id));
+  await ensureLabels(data.tags);
   const changes = [
     ...(await labelRelations(diff({ ...before, textConsent: !!before.textConsentAt }, { ...data, ...(textConsent !== undefined ? { textConsent } : {}), custom: undefined }, personLabels))),
     ...(await withCustomChanges("person", before.custom, custom)),

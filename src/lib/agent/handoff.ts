@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
 import type { Actor } from "@/lib/crm/actor";
+import { escapeHtml } from "@/lib/email/merge-tags";
 import { ActionError } from "@/lib/errors";
 import { htmlToText } from "@/lib/safe-html";
 import { assistantActor } from "./actor";
@@ -24,13 +25,13 @@ export async function assertCanHandOff(actor: Actor, activityId?: string) {
 }
 
 /** Starts a run for a task or note and links it, so the timeline can show how it's going. */
-export async function handOff(actor: Actor, activity: Handed, source: "task" | "mention") {
-  const text = [activity.subject, htmlToText(activity.body)].filter(Boolean).join("\n\n").trim();
+export async function handOff(actor: Actor, activity: Handed, source: "task" | "mention", thread?: string) {
+  const text = thread ?? [activity.subject, htmlToText(activity.body)].filter(Boolean).join("\n\n").trim();
   await assertCanStart(actor);
   await supersedeRuns(actor, activity.id);
   const run = await startRun(
     actor,
-    { prompt: text, title: activity.subject || text, source, activityId: activity.id, personId: activity.personId, organizationId: activity.organizationId, clientId: activity.clientId },
+    { prompt: text, title: activity.subject || htmlToText(activity.body) || text, source, activityId: activity.id, personId: activity.personId, organizationId: activity.organizationId, clientId: activity.clientId },
   );
   const db = await getDb();
   await db.update(schema.activities).set({ agentRunId: run.id }).where(eq(schema.activities.id, activity.id));
@@ -38,23 +39,22 @@ export async function handOff(actor: Actor, activity: Handed, source: "task" | "
 }
 
 /**
- * A note mentioned the agent. The note is already saved, so a refusal
- * (the budget is spent, say) becomes a short reply on the same record instead
- * of an error.
+ * A note, or a reply under one, mentioned the agent. It's already saved, so a
+ * refusal (the budget is spent, say) becomes a short reply under the note
+ * instead of an error. `thread` is the request when the mention came in a
+ * reply: the reply itself, then the note and earlier replies as quoted context.
  */
-export async function handOffMention(actor: Actor, note: Handed) {
+export async function handOffMention(actor: Actor, note: Handed, thread?: string) {
   try {
-    await handOff(actor, note, "mention");
+    await handOff(actor, note, "mention", thread);
   } catch (err) {
     if (!(err instanceof ActionError) || actor.kind !== "user") {
       console.error("[agent] mention", err);
       return;
     }
-    const { logActivity } = await import("@/lib/crm/service/activities");
-    await logActivity(
-      await assistantActor(actor.user),
-      { type: "note", subject: `${appConfig.agent.name} couldn't start`, body: err.message, personId: note.personId, organizationId: note.organizationId, clientId: note.clientId },
-      { handOff: false },
-    ).catch((e) => console.error("[agent] mention reply", e));
+    const { replyToNote } = await import("@/lib/crm/service/activities");
+    await replyToNote(await assistantActor(actor.user), note.id, { body: `<p><strong>${appConfig.agent.name} couldn't start.</strong> ${escapeHtml(err.message)}</p>` }, { handOff: false }).catch((e) =>
+      console.error("[agent] mention reply", e),
+    );
   }
 }

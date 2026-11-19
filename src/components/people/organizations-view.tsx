@@ -12,10 +12,14 @@ import { PageHeader } from "@/components/shell/app-shell";
 import { openCreate } from "@/components/shell/create-store";
 import { AgoCell, NextActivityCell, OwnerCell } from "@/components/table/cells";
 import { DataTable, type Column } from "@/components/table/data-table";
-import { OwnerFilter, SearchBox, Toolbar } from "@/components/table/toolbar";
+import { OwnerFilter, ParentFilter, SearchBox, Toolbar } from "@/components/table/toolbar";
 import { usePagedRows } from "@/components/table/use-paged-rows";
 import { MergeDialog, type MergeCandidate } from "@/components/records/merge-dialog";
 import { Button } from "@/components/ui/button";
+import { LabelChips, useLabels } from "@/components/records/labels";
+import { useListParams } from "@/components/table/use-params";
+import { Tag } from "@/components/ui/badge";
+import { Select } from "@/components/ui/field";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/components/ui/toast";
 import type { listOrganizations, OrgFilter } from "@/lib/crm/records";
@@ -25,7 +29,10 @@ type Row = Awaited<ReturnType<typeof listOrganizations>>[number];
 const rowId = (r: Row) => r.organization.id;
 
 export function OrganizationsView({ rows: first, total, filter, pageSize, filtered }: { rows: Row[]; total: number; filter: OrgFilter; pageSize: number; filtered: boolean }) {
-  const { viewer, customFields, money, team, member, canEdit } = useApp();
+  const { viewer, customFields, money, team, member, canEdit, parentOrganizations } = useApp();
+  const labels = useLabels();
+  const listParams = useListParams();
+  const pickable = labels.all.filter((l) => !l.hidden);
   const [merging, setMerging] = useState<{ rows: Row[]; done: () => void } | null>(null);
   const filterKey = JSON.stringify(filter);
   const fetchPage = useCallback((offset: number, limit: number) => moreOrganizations(JSON.parse(filterKey), { offset, limit }), [filterKey]);
@@ -44,6 +51,7 @@ export function OrganizationsView({ rows: first, total, filter, pageSize, filter
       { label: "Phone", value: r.organization.phone },
       { label: "Address", value: r.organization.address },
       { label: "Industry", value: r.organization.industry },
+      { label: "Parent organization", value: r.organization.isParent ? "Is a parent organization" : r.parentName },
       { label: "Owner", value: r.organization.ownerId ? (member(r.organization.ownerId)?.name ?? "A former teammate") : null },
       ...customFields.filter((f) => f.entityType === "organization").map((f) => ({ label: f.label, value: formatCustomValue(f, r.organization.custom[f.key], money) || null })),
     ],
@@ -61,9 +69,11 @@ export function OrganizationsView({ rows: first, total, filter, pageSize, filter
             <BuildingOffice2Icon className="size-3.5 text-muted" />
           </span>
           <span className="truncate font-medium text-primary">{r.organization.name}</span>
+          {r.organization.isParent ? <Tag className="shrink-0">Parent</Tag> : null}
         </span>
       ),
     },
+    ...(parentOrganizations.length ? [{ key: "parent", label: "Parent organization", render: (r) => r.parentName ?? <span className="text-faint">—</span> } satisfies Column<Row>] : []),
     {
       key: "domain",
       label: "Website",
@@ -76,6 +86,7 @@ export function OrganizationsView({ rows: first, total, filter, pageSize, filter
           <span className="text-faint">—</span>
         ),
     },
+    ...(rows.some((r) => labels.shown(r.organization.tags).length) ? [{ key: "labels", label: "Labels", render: (r) => <LabelChips names={r.organization.tags} max={2} /> } satisfies Column<Row>] : []),
     { key: "industry", label: "Industry", render: (r) => r.organization.industry ?? <span className="text-faint">—</span> },
     { key: "people", label: "People", sort: "people", align: "right", render: (r) => <span className="tabular-nums">{r.peopleCount || "—"}</span> },
     { key: "clients", label: "Client", render: (r) => (r.clientCategories.length ? <span className="flex gap-1">{(["current", "prospective", "past"] as const).filter((c) => r.clientCategories.includes(c)).map((c) => <CategoryBadge key={c} category={c} />)}</span> : <span className="text-faint">—</span>) },
@@ -99,6 +110,15 @@ export function OrganizationsView({ rows: first, total, filter, pageSize, filter
       <Toolbar>
         <SearchBox placeholder="Search name, website, industry" />
         <OwnerFilter />
+        <ParentFilter parentsOption />
+        {pickable.length ? (
+          <Select value={listParams.get("tag") ?? ""} onChange={(e) => listParams.set({ tag: e.target.value || null })} aria-label="Label" className="w-36 [&_select]:h-8 [&_select]:text-[13px]">
+            <option value="">Any label</option>
+            {pickable.map((l) => (
+              <option key={l.name}>{l.name}</option>
+            ))}
+          </Select>
+        ) : null}
       </Toolbar>
       <DataTable
         columns={columns}

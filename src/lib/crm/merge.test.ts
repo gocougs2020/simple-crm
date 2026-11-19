@@ -141,6 +141,14 @@ describe("combining duplicates", () => {
     assert.equal(mergeCustom({ size: 10 }, [{ size: 20 }]), null);
   });
 
+  it("keeps a merged parent organization's standing, and never leaves a parent with a parent", () => {
+    // A franchise merged into its parent's duplicate: the kept one becomes the parent and drops its own.
+    assert.deepEqual(planOrganizationMerge(org("a", 1, { parentId: "b" }), [org("b", 2, { isParent: true })]), { isParent: true, parentId: null });
+    // Two franchises: the kept one takes the other's parent when it has none.
+    assert.deepEqual(planOrganizationMerge(org("a", 1), [org("b", 2, { parentId: "p" })]), { parentId: "p" });
+    assert.deepEqual(planOrganizationMerge(org("a", 1, { parentId: "p" }), [org("b", 2, { parentId: "q" })]), {});
+  });
+
   it("keeps an organization's details and fills its gaps", () => {
     const patch = planOrganizationMerge(org("a", 1, { domain: "acme.com", archivedAt: day(9) }), [org("b", 2, { domain: "other.com", address: "1 Main St", lastActivityAt: day(20) })]);
     assert.deepEqual(patch, { address: "1 Main St", lastActivityAt: day(20), archivedAt: null });

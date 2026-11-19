@@ -269,6 +269,23 @@ export type BrandKit = {
 
 // ─── Records ─────────────────────────────────────────────────────────────
 
+/**
+ * What each label means. A label is the lowercase string in a record's
+ * `tags` (people, organizations, clients); this row gives it a description,
+ * shown on hover and given to the agent, and says whether it shows in the
+ * app. A label in use with no row here still works: it just has no
+ * description yet (Settings → Labels lists those too).
+ */
+export const labels = pgTable("labels", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  /** Hidden labels stay on their records and in the API, but the app doesn't show or offer them. */
+  hidden: boolean("hidden").notNull().default(false),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
 export const organizations = pgTable(
   "organizations",
   {
@@ -278,6 +295,16 @@ export const organizations = pgTable(
     phone: text("phone"),
     address: text("address"),
     industry: text("industry"),
+    /**
+     * Parent organizations group others under them (a franchisor and its
+     * franchises). Only an organization marked `isParent` can be picked as
+     * another's `parentId`, and a parent has no parent of its own, so the
+     * grouping is one level deep (src/lib/crm/service/records.ts keeps it so).
+     */
+    /** Labels, like people's and clients' `tags`. Everyone at the organization carries them too (src/lib/crm/labels.ts). */
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
+    isParent: boolean("is_parent").notNull().default(false),
+    parentId: uuid("parent_id").references((): AnyPgColumn => organizations.id, { onDelete: "set null" }),
     ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
     custom: jsonb("custom").$type<CustomValues>().notNull().default({}),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
@@ -289,6 +316,7 @@ export const organizations = pgTable(
   },
   (t) => [
     index("organizations_name_idx").on(t.name),
+    index("organizations_parent_idx").on(t.parentId),
     index("organizations_owner_idx").on(t.ownerId),
     index("organizations_phone_digits_idx").on(sql`right(regexp_replace(regexp_replace(${t.phone}, '\\s*(x|ext\\.?|extension|#)\\s*[0-9]+\\s*$', '', 'i'), '[^0-9]', '', 'g'), 10)`),
   ],
@@ -597,6 +625,30 @@ export const activities = pgTable(
 );
 
 /**
+ * Replies under a note, oldest first: a teammate answering a note they were
+ * mentioned in, or the agent answering one that called on it. They live on
+ * the note rather than as activities of their own, so a thread is one entry
+ * on the timeline and in every list (src/lib/crm/service/activities.ts).
+ */
+export const noteReplies = pgTable(
+  "note_replies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    activityId: uuid("activity_id")
+      .notNull()
+      .references(() => activities.id, { onDelete: "cascade" }),
+    /** Sanitized rich-text HTML, like a note's body. */
+    body: text("body").notNull(),
+    /** Who wrote it, and the key it came through (the agent's, for its answers). */
+    userId: uuid("user_id").references(() => users.id),
+    apiKeyId: uuid("api_key_id").references(() => apiKeys.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("note_replies_activity_idx").on(t.activityId, t.createdAt)],
+);
+
+/**
  * The record's change history: created, stage moved, won, owner changed, field
  * edited. Written by the server alongside each change, never by hand, so the
  * timeline can answer "who changed this and when".
@@ -701,6 +753,7 @@ export type CampaignAudience = {
   /** People connected to a client in one of these pipelines. */
   pipelineIds?: string[];
   ownerIds?: string[];
+  /** People at one of these organizations, or at an organization that is part of one (its parent organization). */
   organizationIds?: string[];
   /** People connected to a client in one of these categories (the client's contact, or anyone at its organization). */
   clientCategories?: ClientCategory[];

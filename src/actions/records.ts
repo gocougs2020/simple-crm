@@ -10,6 +10,7 @@ import { actionCan, actionEditor, actionUser } from "@/lib/auth";
 import { clientCategories, type EntityType } from "@/lib/constants";
 import { sessionActor } from "@/lib/crm/actor";
 import { recordEvent } from "@/lib/crm/events";
+import { ensureLabels } from "@/lib/crm/labels";
 import { id, optionalId, type orgInput, type personInput } from "@/lib/crm/schemas";
 import { globalSearch, listOrganizations, listPeople, lookup, pageSize } from "@/lib/crm/records";
 import * as svc from "@/lib/crm/service/records";
@@ -85,13 +86,14 @@ export async function addTag(personIds: string[], tag: string): Promise<Result<{
   return run(async () => {
     await actionCan("records:write");
     const list = z.array(id).min(1).max(500).parse(personIds);
-    const t = z.string().trim().toLowerCase().min(1, "Enter a tag.").max(40).parse(tag);
+    const t = z.string().trim().toLowerCase().min(1, "Pick a label.").max(40).parse(tag);
     const db = await getDb();
     const rows = await db
       .update(people)
       .set({ tags: sql`(select coalesce(jsonb_agg(distinct x), '[]'::jsonb) from jsonb_array_elements_text(${people.tags} || ${JSON.stringify([t])}::jsonb) x)` })
       .where(inArray(people.id, list))
       .returning({ id: people.id });
+    await ensureLabels([t]);
     refresh();
     return { count: rows.length };
   });
@@ -116,6 +118,10 @@ const listFilter = z.object({
   q: z.string().max(200).optional(),
   ownerId: z.string().max(40).optional(),
   tag: z.string().max(40).optional(),
+  /** People: at this organization, or at one that is part of it. */
+  organizationId: z.uuid().optional(),
+  /** Organizations: part of this parent organization, or "parents" for the parents themselves. */
+  parentId: z.union([z.uuid(), z.literal("parents")]).optional(),
   sort: z.string().max(40).optional(),
   dir: z.enum(["asc", "desc"]).optional(),
 });
