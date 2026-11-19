@@ -209,7 +209,7 @@ function EmailTab({ links, recipient: contact, contacts, who, onWho, draft, onDr
         {mode === "send" && !recipient?.email ? <span className="ml-2 text-[12px] text-muted">Add an email address to this person first.</span> : null}
       </div>
       {mode === "send" && recipient?.email ? (
-        <EmailComposer links={links} recipient={recipient} contacts={draft ? [] : contacts} draft={draft} onDraftSent={onDraftSent} />
+        <EmailComposer links={links} recipient={recipient} contacts={draft ? [] : contacts} draft={draft} onDraftSent={onDraftSent} startBlank={!contact && !draft} />
       ) : mode === "log" ? (
         <>
           <WhoSelect id="email-who" label="With" contacts={contacts} value={who?.personId ?? null} onChange={onWho} />
@@ -224,7 +224,9 @@ function EmailTab({ links, recipient: contact, contacts, who, onWho, draft, onDr
 function TextTab({ links, recipient, who, draft, onDraftSent }: { links: Links; recipient?: Recipient | null; /** The dropdown that picks who it's to, on a record with several people. */ who?: ReactNode } & DraftProps) {
   const { comms } = useApp();
   const canSend = comms.texting && !!recipient?.phone;
-  const [mode, setMode] = useState<"send" | "log">(canSend ? "send" : "log");
+  // Follows who's picked (sending when they have a phone) until the teammate chooses.
+  const [chosen, setMode] = useState<"send" | "log" | null>(null);
+  const mode = chosen ?? (canSend ? "send" : "log");
   // Logged on whoever is picked, like a sent one.
   const logLinks = who && recipient ? { ...links, personId: recipient.personId } : links;
   if (!comms.texting)
@@ -273,6 +275,7 @@ function CallNow({ links, recipient }: { links: Links; recipient: Recipient }) {
 
 function ActivityForm({ type, links, contacts }: { type: ActivityType; links: Links; /** Meetings: the people who can be put on it. */ contacts?: Contact[] }) {
   const { workspace, viewer, services, canEdit } = useApp();
+  // The teammate's own time zone (src/lib/time-zone.ts), so "now" reads as now to them wherever the workspace is set.
   const tz = workspace.timezone;
   // Background work (docs/AGENT.md): tasks can go to the agent, and a note can call on it with @Agent.
   const assistantWorks = services.ai.background && canEdit;
@@ -285,6 +288,17 @@ function ActivityForm({ type, links, contacts }: { type: ActivityType; links: Li
   // When it happened, or when it's due. Defaults: now for things that happened, tomorrow for tasks.
   const [day, setDay] = useState(() => (type === "task" ? dayFromToday(tz, 1) : dayFromToday(tz)));
   const [time, setTime] = useState(() => (type === "task" ? "" : timeKey(new Date(), tz)));
+  // A first visit is drawn in the workspace's zone until the browser says its own, then refreshes:
+  // the defaults move with it, unless they've already picked a day or time.
+  const [whenPicked, setWhenPicked] = useState(false);
+  const [defaultsTz, setDefaultsTz] = useState(tz);
+  if (defaultsTz !== tz) {
+    setDefaultsTz(tz);
+    if (!whenPicked) {
+      setDay(type === "task" ? dayFromToday(tz, 1) : dayFromToday(tz));
+      setTime(type === "task" ? "" : timeKey(new Date(), tz));
+    }
+  }
   const [assigneeId, setAssigneeId] = useState<string | null>(viewer.id);
   const [followUp, setFollowUp] = useState<number | null>(null);
   /** Meetings: who's on it. Nobody is fine: it's then simply a meeting with the client. */
@@ -304,6 +318,7 @@ function ActivityForm({ type, links, contacts }: { type: ActivityType; links: Li
   const label = forAssistant ? `Give to ${appConfig.agent.name}` : isTask ? "Add task" : planned ? `Schedule ${type}` : `Log ${activityLabels[type].toLowerCase()}`;
 
   const reset = () => {
+    setWhenPicked(false);
     editor.current?.clear();
     setBody("");
     setSubject("");
@@ -382,11 +397,30 @@ function ActivityForm({ type, links, contacts }: { type: ActivityType; links: Li
             <label className="sr-only" htmlFor={`${type}-day`}>
               {isTask ? "Due date" : "Date"}
             </label>
-            <Input id={`${type}-day`} type="date" value={day} onChange={(e) => setDay(e.target.value)} className="h-8 w-[9.5rem] text-[13px]" />
+            <Input
+              id={`${type}-day`}
+              type="date"
+              value={day}
+              onChange={(e) => {
+                setWhenPicked(true);
+                setDay(e.target.value);
+              }}
+              className="h-8 w-[9.5rem] text-[13px]"
+            />
             <label className="sr-only" htmlFor={`${type}-time`}>
               Time
             </label>
-            <Input id={`${type}-time`} type="time" value={time} onChange={(e) => setTime(e.target.value)} className="h-8 w-[7.5rem] text-[13px]" step={900} />
+            <Input
+              id={`${type}-time`}
+              type="time"
+              value={time}
+              onChange={(e) => {
+                setWhenPicked(true);
+                setTime(e.target.value);
+              }}
+              className="h-8 w-[7.5rem] text-[13px]"
+              step={900}
+            />
           </div>
           {type === "meeting" ? (
             <Input

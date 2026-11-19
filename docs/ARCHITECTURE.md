@@ -48,7 +48,7 @@ app.config.ts        product defaults (name, theme, layout), overridable per dep
 | `agent_schedules` | Scheduled jobs: work the agent does on a cadence as one teammate. A `workspace` row is an offer from an admin; a teammate who adds it gets their own copy (`from_id`). A run a job started points back at it (`agent_runs.schedule_id`). See [AGENT.md](AGENT.md#scheduled-jobs) |
 | `agent_drafts` | Emails and texts the agent wrote for a teammate to review and send. Private to that teammate; sending happens in the composer, never here |
 | `push_subscriptions`, `notifications` | Devices that get push notifications (one per browser or installed app, each with its own alert types), and every notification sent, deduplicated by key |
-| `workspace` | One row: name, currency, time zone, email brand kit |
+| `workspace` | One row: name, currency, time zone, email brand kit. The time zone is the clock background work keeps (agendas, reminders, scheduled jobs, the agent); on screen each teammate sees times in their own browser's zone (`src/lib/time-zone.ts`) |
 | `organizations`, `people`, `clients` | The records. Each has an owner, `custom` JSON for custom fields, `last_activity_at`, `archived_at` (soft delete), and an AI summary (`summary`, `summary_at`, `summary_started_at`) refreshed daily ([AGENT.md](AGENT.md#record-summaries)) |
 | `client_people` | People on a client besides its contact, added by hand on its page |
 | `activity_people` | Everyone else on an activity besides its own person: a meeting's other attendees, the other recipients of an email |

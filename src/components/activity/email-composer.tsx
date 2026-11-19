@@ -40,12 +40,15 @@ export function EmailComposer({
   contacts = [],
   draft,
   onDraftSent,
+  startBlank,
 }: {
   links: Links;
   recipient: EmailRecipient;
   contacts?: Contact[];
   draft?: { subject: string | null; body: string } | null;
   onDraftSent?: () => void;
+  /** Start with nobody on the To line: a record with no contact of its own (an organization), so the teammate picks who. */
+  startBlank?: boolean;
 }) {
   const editor = useRef<RichTextHandle>(null);
   const subjectRef = useRef<HTMLInputElement>(null);
@@ -54,15 +57,16 @@ export function EmailComposer({
   const [body, setBody] = useState(draft?.body ?? "");
   /** Everyone who can be picked: the record's people, with whoever it starts addressed to. */
   const everyone: Contact[] = contacts.some((c) => c.personId === recipient.personId) ? contacts : [recipient, ...contacts];
-  const several = everyone.length > 1;
-  const [pickedTo, setToIds] = useState<string[]>([recipient.personId]);
+  const startTo = startBlank ? [] : [recipient.personId];
+  const [pickedTo, setToIds] = useState<string[]>(startTo);
   const [pickedCc, setCcIds] = useState<string[]>([]);
   const [cc, setCc] = useState("");
   // Someone taken off the record while the email was being written comes off it too, so it never goes to a person who isn't shown.
+  // The To line can be emptied, even of the contact it started with, so someone else can go on it instead.
   const onRecord = (id: string) => everyone.some((c) => c.personId === id);
-  const toIds = pickedTo.some(onRecord) ? pickedTo.filter(onRecord) : [recipient.personId];
+  const toIds = pickedTo.filter(onRecord);
   const ccIds = pickedCc.filter((id) => onRecord(id) && !toIds.includes(id));
-  const first = everyone.find((c) => c.personId === toIds[0]) ?? recipient;
+  const first = everyone.find((c) => c.personId === toIds[0]) ?? null;
   const count = toIds.length + ccIds.length + splitAddresses(cc).length;
   const full = count >= MAX_EMAIL_RECIPIENTS;
   const [showCc, setShowCc] = useState(false);
@@ -106,6 +110,7 @@ export function EmailComposer({
 
   const send = () => {
     if (uploading) return void toast.error("Wait for the attachments to finish uploading.");
+    if (!first) return void toast.error("Add someone to the To line, then send.");
     if (count > MAX_EMAIL_RECIPIENTS) return void toast.error(`An email can go to ${MAX_EMAIL_RECIPIENTS} addresses at most, counting To and Cc. Take ${count - MAX_EMAIL_RECIPIENTS} off and send again.`);
     start(async () => {
       const ccList = splitAddresses(cc);
@@ -132,7 +137,7 @@ export function EmailComposer({
       setSubject("");
       setCc("");
       setCcIds([]);
-      setToIds([recipient.personId]);
+      setToIds(startTo);
       setAttachments([]);
       setReplyTo(viewer.email);
       setEditReplyTo(false);
@@ -161,23 +166,18 @@ export function EmailComposer({
           </Select>
         </div>
       ) : null}
-      <div className={several ? "flex items-start gap-2 text-[13px]" : "flex items-center gap-2 text-[13px]"}>
-        <span className={several ? "w-10 shrink-0 pt-1 text-muted" : "w-10 text-muted"}>To</span>
-        {several ? (
-          <PeopleChips contacts={everyone} value={toIds} onChange={setToIds} exclude={ccIds} unavailable={noEmail} full={full} min={1} addLabel="Add" menuLabel="Add to the To line" />
-        ) : (
-          <span className="min-w-0 flex-1 truncate text-primary">
-            {recipient.name} <span className="text-muted">&lt;{recipient.email}&gt;</span>
-          </span>
-        )}
+      {/* Everything on this line is 28px tall, so "To", the chips, "Cc" and "Template" sit on one line. */}
+      <div className="flex items-start gap-2 text-[13px]">
+        <span className="flex h-7 w-10 shrink-0 items-center text-muted">To</span>
+        <PeopleChips contacts={everyone} value={toIds} onChange={setToIds} exclude={ccIds} unavailable={noEmail} full={full} addLabel={toIds.length ? "Add" : "Add a recipient"} menuLabel="Add to the To line" />
         {!showCc ? (
-          <button type="button" className="text-[12.5px] text-muted hover:text-primary" onClick={() => setShowCc(true)}>
+          <button type="button" className="inline-flex h-7 shrink-0 items-center px-1 text-[12.5px] text-muted hover:text-primary" onClick={() => setShowCc(true)}>
             Cc
           </button>
         ) : null}
         <Menu>
           <MenuTrigger asChild>
-            <Button size="sm" variant="ghost" disabled={!templates?.length}>
+            <Button size="sm" variant="ghost" className="h-7 shrink-0" disabled={!templates?.length}>
               <DocumentDuplicateIcon />
               Template
             </Button>
@@ -203,19 +203,19 @@ export function EmailComposer({
       </div>
       {showCc ? (
         <div className="flex items-start gap-2 text-[13px]">
-          <label htmlFor="email-cc" className="w-10 shrink-0 pt-1.5 text-muted">
+          <label htmlFor="email-cc" className="flex h-7 w-10 shrink-0 items-center text-muted">
             Cc
           </label>
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-            {several ? <PeopleChips contacts={everyone} value={ccIds} onChange={setCcIds} exclude={toIds} unavailable={noEmail} full={full} addLabel="Add" menuLabel="Add to the Cc line" /> : null}
-            <Input id="email-cc" value={cc} onChange={(e) => setCc(e.target.value)} placeholder={several ? "Or type addresses: name@company.com, …" : "name@company.com, …"} className="h-8 text-[13px]" autoFocus={!several} />
+            {everyone.length > 1 ? <PeopleChips contacts={everyone} value={ccIds} onChange={setCcIds} exclude={toIds} unavailable={noEmail} full={full} addLabel="Add" menuLabel="Add to the Cc line" /> : null}
+            <Input id="email-cc" value={cc} onChange={(e) => setCc(e.target.value)} placeholder={everyone.length > 1 ? "Or type addresses: name@company.com, …" : "name@company.com, …"} className="h-8 text-[13px]" autoFocus={everyone.length < 2} />
           </div>
         </div>
       ) : null}
       {count > 1 ? (
         <p className={count > MAX_EMAIL_RECIPIENTS ? "text-[12px] text-error" : "text-fine"} role={count > MAX_EMAIL_RECIPIENTS ? "alert" : undefined}>
           {count} of {MAX_EMAIL_RECIPIENTS} recipients, counting To and Cc.
-          {toIds.length > 1 ? ` Everyone gets the same email, so merge tags like {{first_name}} fill in for ${first.name}.` : ""}
+          {toIds.length > 1 && first ? ` Everyone gets the same email, so merge tags like {{first_name}} fill in for ${first.name}.` : ""}
         </p>
       ) : null}
       <Input ref={subjectRef} value={subject} onChange={(e) => setSubject(e.target.value)} onFocus={() => setLastFocus("subject")} placeholder="Subject" aria-label="Subject" />
@@ -238,7 +238,7 @@ export function EmailComposer({
           <span className="hidden text-[11.5px] text-faint sm:inline">
             <Kbd>⌘</Kbd> <Kbd>↵</Kbd>
           </span>
-          <Button variant="primary" size="sm" loading={pending} disabled={uploading} onClick={send}>
+          <Button variant="primary" size="sm" loading={pending} disabled={uploading || !first} onClick={send}>
             Send email
           </Button>
         </div>

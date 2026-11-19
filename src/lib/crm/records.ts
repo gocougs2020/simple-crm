@@ -3,6 +3,8 @@ import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from "dri
 import { getDb, schema } from "@/db";
 import { clientCategoryLabels, monthlyPriceSql, type ClientCategory } from "@/lib/constants";
 import { effectiveTags } from "@/lib/crm/labels";
+import { orderPeople } from "@/lib/crm/people-order";
+import { personName } from "@/lib/format";
 
 const { people, organizations, clients, stages, personOrganizations } = schema;
 
@@ -355,10 +357,11 @@ export async function clientPeople(client: { id: string; personId: string | null
     // The contact and the people added by hand come first, so a very large organization can't crowd them out of the limit.
     .orderBy(...(client.personId ? [sql`${people.id} = ${client.personId} desc`] : []), sql`${added} desc`, desc(people.decisionMaker), asc(people.firstName), asc(people.lastName))
     .limit(200);
-  const rank = { contact: 0, added: 1, organization: 2 } as const;
-  return rows
-    .map((r) => ({ person: r.person, source: (r.person.id === client.personId ? "contact" : r.added ? "added" : "organization") as ClientPersonSource }))
-    .sort((x, y) => rank[x.source] - rank[y.source]);
+  // Shown the contact first, then decision makers A to Z, then everyone else A to Z (src/lib/crm/people-order.ts).
+  return orderPeople(
+    rows.map((r) => ({ person: r.person, source: (r.person.id === client.personId ? "contact" : r.added ? "added" : "organization") as ClientPersonSource })),
+    ({ person: p, source }) => ({ name: personName(p), contact: source === "contact", starred: p.decisionMaker }),
+  );
 }
 export type ClientPerson = Awaited<ReturnType<typeof clientPeople>>[number];
 

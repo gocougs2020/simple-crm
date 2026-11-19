@@ -17,6 +17,7 @@ import { Button, Spinner } from "@/components/ui/button";
 import { Checkbox, Input, Select, Textarea } from "@/components/ui/field";
 import type { schema } from "@/db";
 import { churnReasons, clientHealthLabels, clientHealths, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
+import { orderPeople } from "@/lib/crm/people-order";
 import { formatDateOnly, formatDay, formatPhoneInput, parseMoney, personName } from "@/lib/format";
 import { CustomFieldInput, formatCustomValue } from "./custom-field-input";
 import { InlineField, SideCard } from "./inline-field";
@@ -704,21 +705,19 @@ export function RelatedPeople({ people, organization }: { people: Person[]; orga
     >
       {people.length ? (
         <ul className="-mx-2">
-          {/* Decision makers first: they're who the account is won or lost with. */}
-          {[...people]
-            .sort((a, b) => Number(b.decisionMaker) - Number(a.decisionMaker))
-            .map((p) => (
-              <li key={p.id} className="group flex items-center rounded-md hover:bg-sunken">
-                <Link href={`/people/${p.id}`} className="flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pl-2">
-                  <Avatar name={personName(p)} size="sm" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-medium text-primary">{personName(p)}</span>
-                    <span className="block truncate text-[11.5px] text-muted">{p.title ?? p.email ?? ""}</span>
-                  </span>
-                </Link>
-                <StarToggle personId={p.id} starred={p.decisionMaker} name={p.firstName} className={clsx("mr-1", !p.decisionMaker && "opacity-0 group-hover:opacity-100 focus-visible:opacity-100")} />
-              </li>
-            ))}
+          {/* Decision makers first, A to Z: they're who the account is won or lost with. Then everyone else, A to Z. */}
+          {orderPeople(people, (p) => ({ name: personName(p), starred: p.decisionMaker })).map((p) => (
+            <li key={p.id} className="group flex items-center rounded-md hover:bg-sunken">
+              <Link href={`/people/${p.id}`} className="flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pl-2">
+                <Avatar name={personName(p)} size="sm" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium text-primary">{personName(p)}</span>
+                  <span className="block truncate text-[11.5px] text-muted">{p.title ?? p.email ?? ""}</span>
+                </span>
+              </Link>
+              <StarToggle personId={p.id} starred={p.decisionMaker} name={p.firstName} className={clsx("mr-1", !p.decisionMaker && "opacity-0 group-hover:opacity-100 focus-visible:opacity-100")} />
+            </li>
+          ))}
         </ul>
       ) : (
         <p className="py-1 text-[12.5px] text-muted">No people yet.</p>
