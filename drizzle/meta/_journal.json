@@ -222,22 +222,36 @@
     {
       "idx": 31,
       "version": "7",
-      "when": 1795134758483,
-      "tag": "0031_email-forwarding",
+      "when": 1795146067656,
+      "tag": "0031_stripe-accounts-and-sync",
       "breakpoints": true
     },
     {
       "idx": 32,
       "version": "7",
-      "when": 1795149335723,
-      "tag": "0032_shared-agent-address",
+      "when": 1795147711914,
+      "tag": "0032_keep-stripe-customer-id",
       "breakpoints": true
     },
     {
       "idx": 33,
       "version": "7",
-      "when": 1795149683950,
-      "tag": "0033_verified-forwards-only",
+      "when": 1795147900906,
+      "tag": "0033_stripe-discounts-and-collected",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1795151837274,
+      "tag": "0034_split-mention-alerts",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1795152359671,
+      "tag": "0035_email-forwarding",
       "breakpoints": true
     }
   ]

@@ -7,7 +7,7 @@ import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
 import { ActionError, actionUser } from "@/lib/auth";
-import { emailDigestKinds, notificationKinds } from "@/lib/constants";
+import { defaultNotificationKinds, emailDigestKinds, notificationKinds } from "@/lib/constants";
 import { sendAgenda } from "@/lib/notifications/agenda";
 import { rateLimit } from "@/lib/rate-limit";
 import { deviceLabel, isPushEndpoint } from "@/lib/push/device";
@@ -41,13 +41,13 @@ export async function subscribeDevice(input: z.input<typeof subscription>, opts:
     const label = deviceLabel((await headers()).get("user-agent"), !!opts.standalone);
     const [row] = await db
       .insert(subs)
-      .values({ userId: user.id, endpoint: data.endpoint, p256dh: data.keys.p256dh, auth: data.keys.auth, label, alerts: [...notificationKinds] })
+      .values({ userId: user.id, endpoint: data.endpoint, p256dh: data.keys.p256dh, auth: data.keys.auth, label, alerts: defaultNotificationKinds })
       // The same browser again (new keys, or someone else signed in on it): it's this teammate's now.
       .onConflictDoUpdate({
         target: subs.endpoint,
         set: {
           // Someone else signed in on this browser: their alert choices don't carry over.
-          alerts: sql`case when ${subs.userId} = ${user.id} then ${subs.alerts} else ${JSON.stringify([...notificationKinds])}::jsonb end`,
+          alerts: sql`case when ${subs.userId} = ${user.id} then ${subs.alerts} else ${JSON.stringify(defaultNotificationKinds)}::jsonb end`,
           userId: user.id,
           p256dh: data.keys.p256dh,
           auth: data.keys.auth,

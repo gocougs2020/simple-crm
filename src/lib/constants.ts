@@ -128,19 +128,48 @@ export const MAX_EMAIL_ATTACHMENTS = 10;
  * Notifications). Each one is about the teammate's own work, so nobody is
  * notified about something they did themselves.
  */
-export const notificationKinds = ["task_assigned", "task_due", "task_digest", "meeting_soon", "record_assigned", "inbound_email", "inbound_text", "agent_done", "mention"] as const;
+export const notificationKinds = [
+  "task_assigned",
+  "task_due",
+  "task_digest",
+  "meeting_soon",
+  "note_mention",
+  "note_reply",
+  "chat_mention",
+  "chat_message",
+  "record_assigned",
+  "owned_activity",
+  "client_stage",
+  "inbound_email",
+  "inbound_text",
+  "agent_done",
+] as const;
 export type NotificationKind = (typeof notificationKinds)[number];
 export const notificationLabels: Record<NotificationKind, { label: string; hint: string }> = {
   task_assigned: { label: "Tasks assigned to me", hint: "When a teammate (or their agent) gives you a task, call or meeting." },
   task_due: { label: "Tasks with a time", hint: "On the day, 15 minutes before a task or planned call with a time is due." },
   task_digest: { label: "Today's tasks, in the morning", hint: "One notification each morning for your tasks due today that have no time." },
   meeting_soon: { label: "Meetings", hint: "15 minutes before each of your meetings starts." },
+  note_mention: { label: "Mentioned in a note", hint: "When a teammate writes @ and your name in a note or a reply to one." },
+  note_reply: { label: "Replies to my notes", hint: "When someone replies to a note you wrote or already replied to." },
+  chat_mention: { label: "Mentioned in team chat", hint: "When a teammate writes @ and your name in the team chat." },
+  chat_message: { label: "Every team chat message", hint: "Each new message anyone posts in the team chat. Mentions still say so." },
   record_assigned: { label: "Records assigned to me", hint: "When a teammate makes you the owner of a client, person or organization." },
+  owned_activity: { label: "Notes and activity on my records", hint: "When a teammate adds a note, reply, call, meeting or task on a client, person or organization you own." },
+  client_stage: { label: "Stage changes on my clients", hint: "When a teammate moves a client you own to another stage, or signs, loses or wins it back." },
   inbound_email: { label: "Replies from my contacts", hint: "When email arrives in a connected inbox from a client, person or organization you own." },
   inbound_text: { label: "Texts from my contacts", hint: "When someone you own texts one of the team's phone numbers, or texts a number you look after." },
-  mention: { label: "Mentions and replies", hint: "When a teammate mentions you in a note or the team chat (@ and your name), or replies to a note you wrote or replied to." },
   agent_done: { label: "The agent finished", hint: "When background work you gave the agent is done, has a draft for you to approve, or couldn't finish." },
 };
+/** How Settings → Notifications groups the alerts. Every kind is in exactly one group. */
+export const notificationGroups: { title: string; kinds: NotificationKind[] }[] = [
+  { title: "Tasks and meetings", kinds: ["task_assigned", "task_due", "task_digest", "meeting_soon"] },
+  { title: "Mentions and team chat", kinds: ["note_mention", "note_reply", "chat_mention", "chat_message"] },
+  { title: "Records I own", kinds: ["record_assigned", "owned_activity", "client_stage"] },
+  { title: "Messages and the agent", kinds: ["inbound_email", "inbound_text", "agent_done"] },
+];
+/** What a newly added device gets. Every team chat message is opt-in: on a busy team it's a lot. */
+export const defaultNotificationKinds: NotificationKind[] = notificationKinds.filter((k) => k !== "chat_message");
 
 /** Where a background run of the agent came from (docs/AGENT.md). */
 export const agentRunSources = ["chat", "mention", "task", "bulk", "api", "schedule", "email"] as const;

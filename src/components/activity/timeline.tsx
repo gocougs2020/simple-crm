@@ -49,6 +49,7 @@ import type { ActivityRow, NoteReply, RecordFile, TimelineItem } from "@/lib/crm
 import { appConfig } from "@/app.config";
 import { deliveryLabels, deliveryTone } from "@/lib/email/delivery-status";
 import { activityLabels, agentRunStatusLabels, billingIntervalLabels, clientCategoryLabels, clientHealthLabels, interactionTypes, type ActivityType, type BillingInterval, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
+import { billingStatusLabels, type BillingStatus } from "@/lib/stripe/rules";
 import { dayKey, dueTone, formatBytes, formatDateTime, formatDay, formatFull, formatTime, senderName, timeKey, zonedTime } from "@/lib/format";
 import { formatPhone } from "@/lib/phone/numbers";
 import { formatCallDuration, textStatusLabels } from "@/lib/phone/rules";
@@ -802,12 +803,13 @@ const fieldText = (v: unknown, label: string | null | undefined, member: (id: st
 
 /** One line of history: who changed what, from what, to what. */
 /** History the CRM writes by itself, which reads as a sentence with no one in front. */
-const systemEvents = new Set(["email_bounced", "email_complained", "texts_opted_out", "texts_opted_in"]);
+const systemEvents = new Set(["email_bounced", "email_complained", "texts_opted_out", "texts_opted_in", "billing_changed"]);
 
 function EventItem({ event }: { event: { id: string; action: string; data: Record<string, unknown>; userId: string | null; apiKeyId: string | null; createdAt: Date } }) {
   const { workspace, member, money } = useApp();
   const tz = workspace.timezone;
   const d = event.data as {
+    account?: string;
     from?: string;
     to?: string;
     on?: string;
@@ -867,11 +869,26 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
       icon = <TrashIcon className="size-3.5" />;
       break;
     case "stripe_linked":
-      text = <>linked the Stripe customer {d.name ?? ""}</>;
+      text = (
+        <>
+          linked the Stripe customer {d.name ?? ""}
+          {d.account ? ` (${d.account})` : ""}
+        </>
+      );
       icon = <CreditCardIcon className="size-3.5" />;
       break;
     case "stripe_unlinked":
-      text = <>unlinked the Stripe customer</>;
+      text = <>took a Stripe customer off this client</>;
+      icon = <CreditCardIcon className="size-3.5" />;
+      break;
+    // Written by the Stripe sync, not by a person.
+    case "billing_changed":
+      text = (
+        <>
+          Billing in Stripe went from <strong className="font-medium text-secondary">{billingStatusLabels[d.from as BillingStatus] ?? "not a customer"}</strong> to{" "}
+          <strong className="font-medium text-secondary">{billingStatusLabels[d.to as BillingStatus] ?? "not a customer"}</strong>
+        </>
+      );
       icon = <CreditCardIcon className="size-3.5" />;
       break;
     // Written by Resend's delivery reports, not by a person.
@@ -998,7 +1015,9 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
 function ChangeGroup({ events }: { events: EventEntry[] }) {
   const { workspace, member, viewer, apiKey } = useApp();
   const [open, setOpen] = useState(false);
-  const people = [...new Set(events.map((e) => e.event.userId ?? e.event.apiKeyId))].map((id) =>
+  // Changes the CRM made by itself (a Stripe sync, a bounce) have no one to name.
+  const byPeople = events.filter((e) => !systemEvents.has(e.event.action));
+  const people = [...new Set(byPeople.map((e) => e.event.userId ?? e.event.apiKeyId))].map((id) =>
     id === viewer.id ? "You" : (member(id)?.name ?? apiKey(id)?.name ?? "Someone"),
   );
   const newest = events[0].event.createdAt;
@@ -1010,7 +1029,13 @@ function ChangeGroup({ events }: { events: EventEntry[] }) {
         </span>
         <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="flex min-w-0 flex-1 items-start gap-1 text-left text-[12.5px] leading-5 text-muted hover:text-secondary">
           <span>
-            <span className="font-medium text-primary">{people.length > 2 ? `${people.slice(0, 2).join(", ")} and others` : people.join(" and ")}</span> made {events.length} changes
+            {people.length ? (
+              <>
+                <span className="font-medium text-primary">{people.length > 2 ? `${people.slice(0, 2).join(", ")} and others` : people.join(" and ")}</span> made {events.length} changes
+              </>
+            ) : (
+              <>{events.length} automatic updates</>
+            )}
             <time className="ml-1.5 whitespace-nowrap text-faint" suppressHydrationWarning>
               · {formatDateTime(newest, workspace.timezone)}
             </time>

@@ -97,4 +97,6 @@ The code is public; the data and secrets never are. This page is how that holds.
 
 ## Stripe
 
-- Read-only: the CRM only ever calls `GET` endpoints. Use a restricted key with read access; it's never sent to the browser, and billing is fetched on the server per request.
+- Read-only: the CRM only ever calls `GET` endpoints. Use a restricted key with read access per Stripe account; keys are never sent to the browser, and billing is fetched on the server. Only the fields a page shows reach the browser.
+- Customers are matched to clients by email, so anyone who can edit a person's email can change which Stripe customer shows on a client. Billing is visible to everyone who can see the client, the same as before.
+- `STRIPE_API_URL` points the client at a local stand-in for tests. It's ignored on Vercel.
