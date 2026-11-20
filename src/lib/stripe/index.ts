@@ -90,7 +90,7 @@ export type StripePrice = {
   unit_amount: number | null;
   currency: string;
   product: string;
-  recurring: { interval: "day" | "week" | "month" | "year"; interval_count: number } | null;
+  recurring: { interval: "day" | "week" | "month" | "year"; interval_count: number; usage_type?: string | null } | null;
 };
 
 export type StripeSubscription = {

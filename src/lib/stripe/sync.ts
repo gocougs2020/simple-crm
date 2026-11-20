@@ -2,7 +2,7 @@ import "server-only";
 import { and, eq, lt, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { recordEvent } from "@/lib/crm/events";
-import { allCustomers, allSubscriptions, chargesSince, customersByEmail, openInvoices, productNames, stripeAccounts, subscriptionsOf, type StripeCharge, type StripeCustomer, type StripeInvoice, type StripeSubscription } from "@/lib/stripe";
+import { allCustomers, allSubscriptions, chargesSince, customersByEmail, openInvoices, productNames, stripeAccounts, stripeConfigured, subscriptionsOf, type StripeCharge, type StripeCustomer, type StripeInvoice, type StripeSubscription } from "@/lib/stripe";
 import { collected, discountShare, liveStatuses, monthlyAmount, netMonthly } from "./rules";
 
 /**
@@ -163,7 +163,7 @@ export async function syncStripe() {
       report.push({ account, error: (err as Error).message });
     }
   }
-  const changed = await refreshClientBilling();
+  const changed = await refreshClientBilling(undefined, { fresh: report.every((r) => !r.error) });
   return { accounts: report, clientsChanged: changed };
 }
 
@@ -190,13 +190,17 @@ function clientEmails(only?: string): SQL {
 /** The Stripe customers that belong to each client: matched by email or linked by hand, minus the ones marked as not theirs. */
 function clientCustomers(only?: string): SQL {
   const one = only ? sql`and l.client_id = ${only}` : sql``;
+  // Only accounts that are connected now: one whose key was removed keeps its copy, but stops counting.
+  const ids = stripeAccounts().map((a) => a.id);
+  const connected = (col: SQL) => (ids.length ? sql`${col} in (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})` : sql`false`);
   return sql`(
     select ce.client_id, sc.account, sc.customer_id, min(ce.email) as matched_email, false as by_hand
     from ${clientEmails(only)} ce join stripe_customers sc on sc.email = ce.email
-    where not exists (select 1 from client_stripe_links h where h.client_id = ce.client_id and h.account = sc.account and h.customer_id = sc.customer_id)
+    where ${connected(sql`sc.account`)}
+      and not exists (select 1 from client_stripe_links h where h.client_id = ce.client_id and h.account = sc.account and h.customer_id = sc.customer_id)
     group by ce.client_id, sc.account, sc.customer_id
     union all
-    select l.client_id, l.account, l.customer_id, null, true from client_stripe_links l where l.kind = 'linked' ${one}
+    select l.client_id, l.account, l.customer_id, null, true from client_stripe_links l where l.kind = 'linked' and ${connected(sql`l.account`)} ${one}
   )`;
 }
 
@@ -204,8 +208,7 @@ export type ClientCustomer = { account: string; customerId: string; matchedEmail
 
 /** One client's Stripe customers, in connected accounts only. */
 export async function customersOfClient(clientId: string): Promise<ClientCustomer[]> {
-  const accounts = stripeAccounts().map((a) => a.id);
-  if (!accounts.length) return [];
+  if (!stripeConfigured()) return [];
   const db = await getDb();
   const rows = rowsOf<{ account: string; customer_id: string; matched_email: string | null; by_hand: boolean; name: string | null; email: string | null; collected_month: string | number | null; collected_year: string | number | null }>(
     await db.execute(sql`
@@ -214,16 +217,18 @@ export async function customersOfClient(clientId: string): Promise<ClientCustome
       order by m.account, sc.name nulls last, m.customer_id
     `),
   );
-  return rows.filter((r) => accounts.includes(r.account)).map((r) => ({ account: r.account, customerId: r.customer_id, matchedEmail: r.matched_email, byHand: r.by_hand, name: r.name, email: r.email, collectedMonth: Number(r.collected_month ?? 0), collectedYear: Number(r.collected_year ?? 0) }));
+  return rows.map((r) => ({ account: r.account, customerId: r.customer_id, matchedEmail: r.matched_email, byHand: r.by_hand, name: r.name, email: r.email, collectedMonth: Number(r.collected_month ?? 0), collectedYear: Number(r.collected_year ?? 0) }));
 }
 
 /**
  * Rolls each client's matched subscriptions up onto the client, for one
- * client or all of them, and stamps when. A status
+ * client or all of them, and stamps when (unless told the data isn't fresh). A status
  * change is recorded in the client's history, except the first time a client
  * is seen, so connecting Stripe doesn't fill every timeline.
  */
-export async function refreshClientBilling(only?: string) {
+export async function refreshClientBilling(only?: string, opts: { fresh?: boolean } = {}) {
+  // `fresh: false` (Stripe didn't answer for an account) rolls up what's there without stamping it as up to date, so the next page view asks again.
+  const stamp = opts.fresh === false ? sql`c.stripe_synced_at` : sql`now()`;
   const db = await getDb();
   const live = sql.join(liveStatuses.map((s) => sql`${s}`), sql`, `);
   const one = only ? sql`and c.id = ${only}` : sql`and c.archived_at is null`;
@@ -258,7 +263,7 @@ export async function refreshClientBilling(only?: string) {
         group by c.id
       )
       update clients c
-      set stripe_status = x.status, stripe_mrr = x.mrr, stripe_discount = x.discount, stripe_collected = x.collected, stripe_owed = x.owed, stripe_credit = x.credit, stripe_products = x.products, stripe_synced_at = now()
+      set stripe_status = x.status, stripe_mrr = x.mrr, stripe_discount = x.discount, stripe_collected = x.collected, stripe_owed = x.owed, stripe_credit = x.credit, stripe_products = x.products, stripe_synced_at = ${stamp}
       from x join clients o on o.id = x.client_id
       where c.id = x.client_id
       returning c.id, o.stripe_status as before, c.stripe_status as after, o.stripe_synced_at as seen,
@@ -278,12 +283,14 @@ const MAX_EMAILS = 60;
 /**
  * One client, straight from Stripe: looks its people's emails up in every
  * account, refreshes those customers and their subscriptions, and rolls them
- * up. An account that fails is skipped; the daily run will catch it up.
+ * up. An account that fails is skipped, and the client isn't marked as up to
+ * date, so its next page view tries again.
  */
 export async function syncClient(clientId: string) {
   const db = await getDb();
   const emails = rowsOf<{ email: string }>(await db.execute(sql`select distinct email from ${clientEmails(clientId)} e limit ${MAX_EMAILS}`)).map((r) => r.email);
   const now = new Date();
+  let fresh = true;
   await Promise.all(
     stripeAccounts().map(async ({ id: account }) => {
       try {
@@ -303,9 +310,10 @@ export async function syncClient(clientId: string) {
         for (const id of known.filter((k) => !found.some((c) => c.id === k))) await db.update(stripeCustomers).set(money.get(id) ?? noMoney).where(and(eq(stripeCustomers.account, account), eq(stripeCustomers.customerId, id)));
         if (subs.length) await saveSubscriptions(account, subs, await productNames(account, [...new Set(subs.flatMap((s) => s.items.data.map((i) => i.price.product)))]), now);
       } catch (err) {
+        fresh = false;
         console.warn("[stripe] client sync", account, (err as Error).message);
       }
     }),
   );
-  await refreshClientBilling(clientId);
+  await refreshClientBilling(clientId, { fresh });
 }

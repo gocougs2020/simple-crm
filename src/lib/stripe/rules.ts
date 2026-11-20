@@ -4,11 +4,12 @@
  * the sync and the billing card.
  */
 
-type Recurring = { interval: "day" | "week" | "month" | "year"; interval_count: number } | null;
+type Recurring = { interval: "day" | "week" | "month" | "year"; interval_count: number; usage_type?: string | null } | null;
 
 /** How many of this billing period fit in a month. Every 4 weeks is 13 a year. */
 export function perMonth(r: Recurring) {
-  if (!r) return 0;
+  // A metered price's amount is per unit used, not per period: there's no fixed monthly amount to count.
+  if (!r || r.usage_type === "metered") return 0;
   const n = r.interval_count || 1;
   if (r.interval === "month") return 1 / n;
   if (r.interval === "year") return 1 / (12 * n);

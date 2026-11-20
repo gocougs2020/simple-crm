@@ -43,6 +43,10 @@ describe("Stripe subscriptions as a monthly amount", () => {
     assert.equal(monthlyAmount([item(120_000, "week", 4)]), 130_000);
   });
 
+  it("counts nothing for a metered price, even one with a unit amount", () => {
+    assert.equal(monthlyAmount([{ quantity: 1, price: { unit_amount: 500, recurring: { interval: "month", interval_count: 1, usage_type: "metered" } } }, item(10_000, "month")]), 10_000);
+  });
+
   it("multiplies by quantity, adds lines, and skips usage-based and one-time prices", () => {
     assert.equal(monthlyAmount([item(5_000, "month", 1, 3), item(1_000, "month"), item(null, "month"), { quantity: 1, price: { unit_amount: 99_900, recurring: null } }]), 16_000);
   });
