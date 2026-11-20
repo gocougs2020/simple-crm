@@ -11,7 +11,7 @@ import { getWorkspace } from "@/lib/workspace";
 import { withheldCategory } from "./config";
 import { internalDomains, isBlocked, isInternal, outsiders } from "./sync-rules";
 import { graph, graphPages, GraphError, ReconnectError, type ConnectedAccount } from "./graph";
-import { graphAddress, stripQuoted } from "./mail-text";
+import { graphAddress, outlookSensitivity, SENSITIVITY_PROPERTY, stripQuoted } from "./mail-text";
 import { screenEmail } from "./screen";
 
 const { syncedEmails, activities, outboundEmails } = schema;
@@ -91,14 +91,19 @@ type GraphMessage = {
   receivedDateTime?: string;
   sentDateTime?: string;
   body?: { contentType: string; content: string };
-  sensitivity?: "normal" | "personal" | "private" | "confidential";
+  /** Asked for with `SENSITIVITY`: Outlook's sensitivity label, which Graph has no named property for on a message. */
+  singleValueExtendedProperties?: { id: string; value: string }[];
   categories?: string[];
   isDraft?: boolean;
   /** In a delta read: the message left the folder. */
   "@removed"?: unknown;
 };
 
-const SELECT = "id,internetMessageId,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,sentDateTime,body,sensitivity,categories,isDraft";
+/**
+ * A message has no `sensitivity` property in Graph (only events do), so the
+ * label is read from the MAPI property behind it (`SENSITIVITY_PROPERTY`).
+ */
+const SELECT = `id,internetMessageId,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,sentDateTime,body,categories,isDraft&$expand=${encodeURIComponent(`singleValueExtendedProperties($filter=id eq '${SENSITIVITY_PROPERTY}')`)}`;
 /** Plain-text bodies read better on a timeline than sanitized Outlook HTML, and are what the screen reads. */
 const TEXT_BODY = { headers: { Prefer: 'outlook.body-content-type="text"' } };
 const TEXT_BODY_DELTA = { headers: { Prefer: 'outlook.body-content-type="text", odata.maxpagesize=50' } };
@@ -255,8 +260,9 @@ async function handleMessage(ctx: Ctx, m: GraphMessage, folder: SyncFolder) {
   };
 
   // Outlook's own sensitivity label is the sender's word for it: always kept out, before anything else, so no copy of it is ever stored.
-  if (m.sensitivity && m.sensitivity !== "normal") {
-    if (await save(base, "withheld", `Marked ${m.sensitivity} in Outlook`)) await markWithheld(account, m);
+  const sensitivity = outlookSensitivity(m.singleValueExtendedProperties);
+  if (sensitivity) {
+    if (await save(base, "withheld", `Marked ${sensitivity} in Outlook`)) await markWithheld(account, m);
     ctx.result.withheld++;
     return;
   }

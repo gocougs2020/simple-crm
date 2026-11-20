@@ -33,3 +33,15 @@ export function graphAddress(a: { emailAddress?: { name?: string | null; address
   const name = a?.emailAddress?.name?.trim();
   return { address, display: name && name.toLowerCase() !== address ? `${name} <${address}>` : address };
 }
+
+/** PidTagSensitivity: where Outlook keeps a message's Normal / Personal / Private / Confidential label. */
+export const SENSITIVITY_PROPERTY = "Integer 0x0036";
+const SENSITIVITY = ["normal", "personal", "private", "confidential"] as const;
+
+/** A message's Outlook sensitivity label when it's anything but Normal, from its extended properties. Null when it's normal or not set. */
+export function outlookSensitivity(props: { id: string; value: string }[] | null | undefined): "personal" | "private" | "confidential" | null {
+  // Graph may hand the id back without the leading zeros ("Integer 0x36").
+  const raw = props?.find((p) => /^integer\s+0x0*36$/i.test(p.id.trim()))?.value;
+  const label = SENSITIVITY[Number(raw)];
+  return label && label !== "normal" ? label : null;
+}
