@@ -11,7 +11,8 @@ import { createHash, createPublicKey, verify, type KeyObject } from "node:crypto
  * leave room to append content the signature doesn't cover.
  */
 
-export type DkimResult = { domain: string; selector: string; ok: boolean; reason?: string };
+/** One signature's outcome. `signed` lists the headers it covers (lowercase), so callers can tell which lines can be trusted. */
+export type DkimResult = { domain: string; selector: string; ok: boolean; reason?: string; signed?: string[] };
 /** Looks up the TXT record at `<selector>._domainkey.<domain>`, joined into one string, or null when there's none. */
 export type KeyLookup = (name: string) => Promise<string | null>;
 
@@ -133,7 +134,7 @@ async function checkSignature(sig: RawHeader, headers: RawHeader[], body: string
   const signature = Buffer.from(t.b, "base64");
   const bytes = Buffer.from(data, "latin1");
   const ok = algorithm === "rsa" ? verify("sha256", bytes, key, signature) : verify(null, createHash("sha256").update(bytes).digest(), key, signature);
-  return ok ? { domain, selector, ok: true } : fail("the signature doesn't match");
+  return ok ? { domain, selector, ok: true, signed } : fail("the signature doesn't match");
 }
 
 /** Every DKIM signature on the message and whether it holds. */

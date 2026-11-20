@@ -129,7 +129,7 @@ Some jobs take too long for a chat answer: researching a company on the web and 
 | **Mention it in a note** | A note that says `@Agent` (or `@` and whatever `agent.name` is) on a person, organization or client starts a run with the note as the request. So does a reply under a note: the reply is the request, and the note and its earlier replies go along as quoted context (information, not instructions), so a follow-up ("@Agent do the same for their Denver office") makes sense. | A reply under that note |
 | **Assign it a task** | In the task form, pick the agent under "Assigned to" (or pass `agent: true` to `create_task` / `update_task`). The task stays yours. | Added to the task, which is then marked done |
 | **Schedule it** | A [scheduled job](#scheduled-jobs) starts a run each time it's due. | Saved on the run, under "Background tasks", with a notification |
-| **Email it** | Forward an email to your private address, or Cc it on your own email in an internal thread. See [Email forwarding](#email-forwarding). | Emailed back to you as a reply, which you can answer |
+| **Email it** | Forward an email to the agent's address, or Cc it on a thread. See [Email forwarding](#email-forwarding). | Emailed back to whoever sent it, who can answer by replying |
 
 A fourth, for lists: `start_bulk_background_task` runs the same request on each of several records (every organization in a view, say), one run per record, a few at a time. The chat agent is told to try three records first and show the results before running the rest.
 
@@ -151,43 +151,50 @@ Reading the web is the job of a separate helper, the researcher. It has web sear
 
 ### Email forwarding
 
-Internal email about a client (two teammates discussing how an account is doing, say) never reaches the mailbox sync, because the client isn't on it. Forwarding it to the agent brings what matters into the CRM.
+Internal email about a client (two teammates discussing how an account is doing, say) never reaches the mailbox sync, because the client isn't on it. Sending it to the agent brings what matters into the CRM.
+
+The team shares one address: the agent's name (`agent.name`, lowercased) at `FORWARD_EMAIL_DOMAIN`, like `agent@email.yourdomain.com`. Whoever sends to it is who it works for, proven by their domain's DKIM signature, so it needs no secret and is easy to remember.
 
 **Setting it up (once, an admin):**
 
-1. Pick the domain the addresses go on: a subdomain of your company's, like `crm.yourdomain.com`, never the domain your mailboxes use (receiving needs its MX record, which would take your company mail away from Microsoft 365 or Google).
-   - If the CRM's website already lives on that name through a CNAME (Vercel's usual setup for a subdomain), it can't also have an MX record: DNS doesn't allow other records beside a CNAME. Either point the website there with the A records Vercel gives in Project → Settings → Domains instead of the CNAME, or put the addresses on another name, like `in.crm.yourdomain.com`.
-2. In Resend, add that domain, turn on receiving and add the MX record it shows. Sending is unaffected.
-3. Set `FORWARD_EMAIL_DOMAIN=crm.yourdomain.com` (or whichever name you picked) and redeploy. Each address is then `log-<24 random characters>@crm.yourdomain.com`.
+1. Pick the domain: a subdomain of your company's, like `email.yourdomain.com`, never the domain your mailboxes use (receiving needs its MX record, which would take your company mail away from Microsoft 365 or Google). If you already receive mail into Resend inboxes on a subdomain, use that one: the agent's address sits beside them, and nothing changes in DNS.
+   - A name that's a CNAME (Vercel's usual setup for a subdomain the website lives on) can't also have an MX record. Use another name, or point the website there with Vercel's A records instead.
+2. In Resend, add that domain if it isn't there yet, turn on receiving and add the MX record it shows. Don't create a Resend inbox with the agent's name on it: the address must stay free for the agent.
+3. Set `FORWARD_EMAIL_DOMAIN=email.yourdomain.com` and redeploy. Settings → Agent shows the address.
 4. Settings → Email domains → reconnect the webhook, so it also sends `email.received`.
-5. Check that your mail is DKIM-signed with your own domain, since that's how a forward proves it's from you. Send any email from your work mailbox to a Gmail address and open "Show original": it should say `DKIM: 'PASS' with domain yourdomain.com`. If it names another domain (Microsoft 365's default `….onmicrosoft.com`) or there's no DKIM line, turn on DKIM for your domain: in Microsoft 365, the Defender portal → Email authentication settings → DKIM (it asks for two CNAME records, `selector1._domainkey` and `selector2._domainkey`); in Google Workspace, Admin console → Gmail → Authenticate email.
+5. Check that your mail is DKIM-signed with your own domain, since that's how an email proves who sent it. Send any email from your work mailbox to a Gmail address and open "Show original": it should say `DKIM: 'PASS' with domain yourdomain.com`. If it names another domain (Microsoft 365's default `….onmicrosoft.com`) or there's no DKIM line, turn on DKIM for your domain: in Microsoft 365, the Defender portal → Email authentication settings → DKIM (it asks for two CNAME records, `selector1._domainkey` and `selector2._domainkey`); in Google Workspace, Admin console → Gmail → Authenticate email.
+6. Optional, Microsoft 365: in the Exchange admin center, Recipients → Contacts, add a mail contact for the address ("CRM Agent"), so everyone finds it by typing its name in Outlook.
 
-**Using it (each teammate):** Settings → Agent → Email forwarding → **Turn on** gives you a private address, `log-<24 random characters>@crm.yourdomain.com`. Save it as a contact. Forward an email to it, or Cc it on your own email in an internal thread, with a line at the top if you want something specific ("log this on Bolt and add a follow-up for me").
+**Using it (each teammate):** forward an email to the address, or Cc it on a thread, with a line at the top if you want something specific ("log this on Bolt and add a follow-up for me"). Any thread works, however old: a forward is a new email, dated when you send it. Settings → Agent lists what you sent lately and why anything was refused.
 
 **What happens:**
 
 | Step | |
 | --- | --- |
-| Checked | Before anything is read, the email must be provably from you: see [Who can use an address](#who-can-use-an-address). Anything that fails is listed under Recent emails in Settings, with why, and never answered |
-| Worked on | It becomes background work as you (source `email`, "From an email" under Background tasks). Unless you said otherwise, the agent works out which clients, people and organizations it's about, adds a note on each with the facts that matter (who said what, numbers, decisions, concerns, dated), logs performance numbers as client metrics, turns agreed follow-ups into tasks, and changes a field only when the email states the new value. History shows "Sam via Agent" |
-| Answered | The CRM emails the agent's answer back to you, threaded under your email, with links to each record it changed |
-| Unsure? | The agent saves what it's sure of and ends with one short question ("Bolt Denver or Bolt Austin?"). Reply to its email to answer. The reply address carries the conversation, so the next round gets the earlier emails and answers, and the agent adds only what's new. A conversation goes back and forth up to `agent.forwarding.maxRounds` (8) times |
+| Checked | Before anything is read, the email must be provably from a teammate: see [Who it accepts](#who-it-accepts). Anything that fails is listed under Recent emails in that teammate's Settings, with why, and never answered. Email that doesn't even claim to be from a teammate (a client's reply-all, spam) is dropped without being stored |
+| Worked on | It becomes background work as the sender (source `email`, "From an email" under Background tasks). Unless their top line says otherwise, the agent works out which clients, people and organizations it's about, adds a note on each with the facts that matter (who said what, numbers, decisions, concerns, dated), logs performance numbers as client metrics, turns agreed follow-ups into tasks, and changes a field only when the email states the new value. It reads each record's recent timeline first, so a thread that arrives twice (two teammates on it) adds only what's new. History shows "Sam via Agent" |
+| Answered | The CRM emails the agent's answer to the sender alone, never the thread, threaded under their email, with links to each record it changed |
+| Unsure? | The agent saves what it's sure of and ends with one short question ("Bolt Denver or Bolt Austin?"). Reply to its email to answer. Its reply address (`agent+<key>@…`) carries the conversation, so the next round gets the earlier emails and answers, and the agent adds only what's new. A conversation goes back and forth up to `agent.forwarding.maxRounds` (8) times |
 
-What it reads: the email's text (the plain-text part, or the HTML as text), up to `agent.forwarding.maxChars` (40,000 characters), with the newest email kept whole and earlier rounds shortened to fit. Replies are read without the quoted email below them. Attachments aren't read; forward a file to a record from the Files page instead.
+On a thread the agent is Cc'd on, every teammate's message counts, each as its sender, and each gets its own reply to that sender. Clients' messages are ignored; what they wrote still reaches the agent when a teammate's later message quotes it.
 
-#### Who can use an address
+What it reads: the email's text (the plain-text part, or the HTML as text), up to `agent.forwarding.maxChars` (40,000 characters), with the newest email kept whole and earlier rounds shortened to fit. A reply to the agent's own email is read without the quoted conversation it already has; anything else is read whole. Attachments aren't read; add a file to a record from the Files page instead.
 
-Three things must all hold, checked in this order (`processForward` in `src/lib/forwarding/inbound.ts`, rules in `src/lib/forwarding/rules.ts` and `dkim.ts`):
+#### Who it accepts
 
-1. **The address.** The 24 random characters (120 bits) name one teammate. **New address** replaces it at once (and stops replies to earlier emails); **Turn off** stops it. Deactivated teammates' addresses stop working.
-2. **The From line** names exactly one address, and it's that teammate's sign-in email. A teammate's reply-all to your Cc'd address is ignored; forward the thread instead.
-3. **The sender's domain signed it.** The CRM downloads the raw message from Resend and checks its DKIM signatures itself, looking the key up in DNS (rsa-sha256 and ed25519-sha256; signatures over part of the body, `l=`, are refused). One must come from the From domain or a domain aligned with it. Microsoft 365 and Google Workspace sign with your domain once DKIM is turned on for it; Settings shows which signatures were found when an email is refused. A receiver's own verdict counts only when the deployment lists it in `FORWARD_AUTHSERV_IDS`: then `dmarc=pass` with `header.from` naming the From domain, in the topmost Authentication-Results line (the receiving server's own), is enough. Lines below it, and lines from other receivers, are ignored, since a sender can write their own.
+All of these must hold, checked in this order (`handleReceived` and `processForward` in `src/lib/forwarding/inbound.ts`, rules in `src/lib/forwarding/rules.ts` and `dkim.ts`):
 
-Then: the teammate needs edit access, out-of-office replies and bounces are ignored (so the agent's own replies, marked `Auto-Submitted: auto-replied`, can't start a loop), and each address takes `agent.forwarding.perHour` (20) emails an hour. The webhook's signature is verified and the email is fetched back from Resend by id, so nothing in the webhook's body is trusted.
+1. **A teammate's address on the From line**, and only one address: an active teammate's sign-in email.
+2. **A person wrote it.** Out-of-office replies and bounces are ignored, so the agent's own replies (marked `Auto-Submitted: auto-replied`) can't start a loop.
+3. **Their domain signed it.** The CRM downloads the raw message from Resend and checks its DKIM signatures itself, looking the key up in DNS (rsa-sha256 and ed25519-sha256; signatures over part of the body, `l=`, are refused). One must come from the From domain or a domain aligned with it. Microsoft 365 and Google Workspace sign with your domain once DKIM is turned on for it; Settings shows which signatures were found when an email is refused. A receiver's own verdict counts only when the deployment lists it in `FORWARD_AUTHSERV_IDS`: then `dmarc=pass` with `header.from` naming the From domain, in the topmost Authentication-Results line (the receiving server's own), is enough. Lines below it, and lines from other receivers, are ignored, since a sender can write their own.
+4. **Written lately, and new.** Its own Date (covered by that signature) is at most `agent.forwarding.maxAgeDays` (3) days old, and the same email (by sender and Message-ID) is never read twice. Anyone who received a signed email from you could send it on to the agent unchanged and it would still pass the signature; these two checks mean only a recent one, and only once. Forwarding an old thread isn't affected, since the forward itself is new.
+5. **They can change records** (not a viewer), and they've sent fewer than `agent.forwarding.perHour` (20) in the last hour.
+
+The webhook's signature is verified and the email is fetched back from Resend by id, so nothing in the webhook's body is trusted.
 
 #### What the agent can do with it
 
-Exactly what any background run can, as you: no archiving, deleting, merging or sending (it writes drafts). The email's content is marked as data from the email, never instructions; only your own words at the top say what to do. The agent's replies go only to you. Forwarded text is kept on `email_forwards` for 30 days (yours alone, in Settings), then cleared; the notes the agent wrote stay. As with any background run, the request (here the email) is also on the run, which you and admins can open.
+Exactly what any background run can, as the sender: no archiving, deleting, merging or sending (it writes drafts). The email's content is marked as data from the email, never instructions; only the sender's own words at the top say what to do. Forwarded text is kept on `email_forwards` for 30 days (the sender's alone, in Settings), then cleared; the notes the agent wrote stay. As with any background run, the request (here the email) is also on the run, which the sender and admins can open.
 
 ### Models and cost
 
@@ -203,9 +210,10 @@ Exactly what any background run can, as you: no archiving, deleting, merging or 
 | `agent.background.maxConcurrentPerUser` | `3` | How many of one teammate's runs work at once. The rest wait their turn |
 | `agent.background.maxBulkRecords` | `50` | The most records one bulk request can cover |
 | `agent.forwarding.enabled` | `true` | [Email forwarding](#email-forwarding). Also needs `FORWARD_EMAIL_DOMAIN` |
-| `agent.forwarding.perHour` | `20` | The most emails one teammate's address accepts in an hour |
+| `agent.forwarding.perHour` | `20` | The most emails one teammate can send the agent in an hour |
 | `agent.forwarding.maxRounds` | `8` | How many times one forwarded conversation can go back and forth |
 | `agent.forwarding.maxChars` | `40000` | How much of a conversation the agent reads |
+| `agent.forwarding.maxAgeDays` | `3` | How old an email sent to the agent may be, by its own date (a forward is dated when it's sent, so old threads forwarded today are fine) |
 
 - Spend is what AI Gateway reports for each run's model calls, the researcher's included, saved on the run (`agent_runs.cost_micro_usd`). The month is the calendar month in UTC.
 - Web searches are billed by AI Gateway per search (about a cent each) and aren't part of that figure. The researcher is told to keep to a handful per question, and the per-run token limit bounds it.

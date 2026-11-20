@@ -5,14 +5,15 @@ import { aligned, canonBody, verifyDkim } from "./dkim";
 import {
   absoluteLinks,
   checkSender,
+  agentMailbox,
   forwardAddress,
   forwardDomain,
   forwardPrompt,
+  freshEnough,
   fromAddresses,
   isAutomatic,
   messageIds,
   newConversationKey,
-  newForwardToken,
   parseAuthResults,
   parseForwardAddress,
   replySubject,
@@ -61,6 +62,7 @@ describe("DKIM", () => {
     const [r] = await verifyDkim(signMessage(headers, body, { key: rsa.privateKey, d: "acme.com" }), lookup);
     assert.equal(r.ok, true, r.reason);
     assert.equal(r.domain, "acme.com");
+    assert.deepEqual(r.signed, ["from", "to", "subject", "date"]);
   });
 
   it("accepts ed25519-sha256", async () => {
@@ -128,8 +130,9 @@ describe("DKIM", () => {
 
 describe("the sender check", () => {
   const trusted = new Set(["mx.resend.example"]);
-  it("passes on an aligned DKIM signature we checked", () => {
-    assert.equal(checkSender({ fromDomain: "acme.com", dkim: [{ domain: "acme.com", selector: "s", ok: true }], authResults: [], trusted: new Set() }).ok, true);
+  it("passes on an aligned DKIM signature we checked, saying which headers it covers", () => {
+    const r = checkSender({ fromDomain: "acme.com", dkim: [{ domain: "acme.com", selector: "s", ok: true, signed: ["from", "date"] }], authResults: [], trusted: new Set() });
+    assert.deepEqual(r, { ok: true, how: "DKIM signature from acme.com", signed: ["from", "date"] });
   });
   it("doesn't pass on a valid signature from another domain", () => {
     const r = checkSender({ fromDomain: "acme.com", dkim: [{ domain: "mailer.com", selector: "s", ok: true }], authResults: [], trusted: new Set() });
@@ -154,18 +157,25 @@ describe("the sender check", () => {
 });
 
 describe("addresses", () => {
-  it("round-trips a teammate's address and a conversation's reply address", () => {
-    const token = newForwardToken();
+  it("names the address after the agent", () => {
+    assert.equal(agentMailbox("Agent"), "agent");
+    assert.equal(agentMailbox("Ada Lovelace"), "ada.lovelace");
+    assert.equal(agentMailbox("Zoë!"), "zoe");
+    assert.equal(agentMailbox("***"), "agent");
+    assert.equal(forwardAddress("email.recruitinginsight.net", null, "agent"), "agent@email.recruitinginsight.net");
+  });
+  it("round-trips the address and a conversation's reply address", () => {
     const key = newConversationKey();
-    assert.match(token, /^[a-z2-7]{24}$/);
-    assert.deepEqual(parseForwardAddress(forwardAddress(token, "in.crm.example"), "in.crm.example"), { token, conversationKey: null });
-    assert.deepEqual(parseForwardAddress(forwardAddress(token, "in.crm.example", key).toUpperCase(), "in.crm.example"), { token, conversationKey: key });
+    assert.deepEqual(parseForwardAddress(forwardAddress("email.acme.com", null, "agent"), "email.acme.com", "agent"), { conversationKey: null });
+    assert.deepEqual(parseForwardAddress(forwardAddress("email.acme.com", key, "agent").toUpperCase(), "email.acme.com", "agent"), { conversationKey: key });
   });
   it("ignores other addresses and other domains", () => {
-    const token = newForwardToken();
-    assert.equal(parseForwardAddress(`sales@in.crm.example`, "in.crm.example"), null);
-    assert.equal(parseForwardAddress(forwardAddress(token, "evil.example"), "in.crm.example"), null);
-    assert.equal(parseForwardAddress(`log-short@in.crm.example`, "in.crm.example"), null);
+    assert.equal(parseForwardAddress("sales@email.acme.com", "email.acme.com", "agent"), null);
+    assert.equal(parseForwardAddress("agent@evil.example", "email.acme.com", "agent"), null);
+    assert.equal(parseForwardAddress("agent+short@email.acme.com", "email.acme.com", "agent"), null);
+    assert.equal(parseForwardAddress("xagent@email.acme.com", "email.acme.com", "agent"), null);
+    // A dot in the name is literal, not "any character".
+    assert.equal(parseForwardAddress("adaxlovelace@email.acme.com", "email.acme.com", "ada.lovelace"), null);
   });
   it("reads the receiving domain from the environment", () => {
     assert.equal(forwardDomain(" In.Acme.com "), "in.acme.com");
@@ -179,6 +189,22 @@ describe("addresses", () => {
   it("reads message ids from threading headers", () => {
     assert.deepEqual(messageIds("<a@x> <b@y>\r\n <a@x>"), ["<a@x>", "<b@y>"]);
     assert.deepEqual(messageIds(null), []);
+  });
+});
+
+describe("how old an email may be", () => {
+  const now = new Date("2026-11-20T12:00:00Z");
+  it("reads an email written lately, whatever thread is inside it", () => {
+    assert.equal(freshEnough("Fri, 20 Nov 2026 04:00:00 -0700", now, 3).ok, true);
+    assert.equal(freshEnough("Tue, 17 Nov 2026 13:00:00 +0000", now, 3).ok, true);
+  });
+  it("refuses an old email sent again, a future date, or none", () => {
+    const old = freshEnough("Mon, 20 Jul 2026 10:00:00 +0000", now, 3);
+    assert.equal(old.ok, false);
+    assert.match(old.ok ? "" : old.reason, /press Forward/);
+    assert.equal(freshEnough("Sun, 22 Nov 2026 13:00:00 +0000", now, 3).ok, false);
+    assert.equal(freshEnough(undefined, now, 3).ok, false);
+    assert.equal(freshEnough("not a date", now, 3).ok, false);
   });
 });
 

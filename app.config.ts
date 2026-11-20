@@ -153,19 +153,25 @@ export type AppConfig = {
       maxBulkRecords: number;
     };
     /**
-     * Email forwarding: each teammate gets a private address to forward email to (or copy on a
-     * thread). The agent works out which records it's about, records what matters, and replies
-     * by email, asking when it's unsure. Needs background work and FORWARD_EMAIL_DOMAIN, a
-     * Resend domain with receiving turned on. See docs/AGENT.md#email-forwarding.
+     * Email forwarding: one address for the team, the agent's name at FORWARD_EMAIL_DOMAIN
+     * (agent@email.acme.com), to forward email to or copy on a thread. Whoever sent it (proven by
+     * their domain's DKIM signature) is who it works for. The agent works out which records it's
+     * about, records what matters, and replies by email, asking when it's unsure. Needs background
+     * work and a Resend domain with receiving turned on. See docs/AGENT.md#email-forwarding.
      */
     forwarding: {
       enabled: boolean;
-      /** The most emails one teammate's address accepts in an hour. More are refused (and listed in Settings), so a mail loop can't run up spend. */
+      /** The most emails one teammate can send the agent in an hour. More are refused (and listed in Settings), so a mail loop can't run up spend. */
       perHour: number;
       /** How many times one conversation can go back and forth before the agent asks for a fresh forward. */
       maxRounds: number;
       /** The most characters of a conversation the agent reads (the newest email first). */
       maxChars: number;
+      /**
+       * An email older than this many days (by its own Date, not the thread inside it) isn't read:
+       * a forward is dated when it's sent, so this only stops an old email being sent again unchanged.
+       */
+      maxAgeDays: number;
     };
   };
   notifications: {
@@ -335,6 +341,7 @@ const defaults = {
       perHour: 20,
       maxRounds: 8,
       maxChars: 40_000,
+      maxAgeDays: 3,
     },
   },
   notifications: {

@@ -1,13 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { CheckIcon, ClipboardDocumentIcon } from "@heroicons/react/20/solid";
-import { changeForwarding } from "@/actions/forwarding";
 import { appConfig } from "@/app.config";
 import { useApp } from "@/components/app-context";
 import { StatusBadge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { toast } from "@/components/ui/toast";
 import { emailForwardStatusLabels, type EmailForwardStatus } from "@/lib/constants";
 import { formatDateTime } from "@/lib/format";
 import { Section } from "./nav";
@@ -17,40 +15,25 @@ export type ForwardItem = { id: string; subject: string | null; fromAddress: str
 const tones: Record<EmailForwardStatus, Tone> = { received: "neutral", working: "info", answered: "success", refused: "warning", failed: "error" };
 
 /**
- * Settings → Agent → Email forwarding. The teammate's private address, and
- * what arrived at it lately with why anything was refused, so a domain
- * without DKIM or a forward from the wrong address is easy to spot.
+ * Settings → Agent → Email forwarding. The team's one address, and what this
+ * teammate sent to it lately with why anything was refused, so a domain
+ * without DKIM or an email sent from another address is easy to spot.
  */
 export function ForwardingSettings({ available, unavailableReason, address, recent }: { available: boolean; unavailableReason: string | null; address: string | null; recent: ForwardItem[] }) {
   const { canEdit, viewer, workspace } = useApp();
   const name = appConfig.agent.name;
-  const [pending, start] = useTransition();
   const [copied, setCopied] = useState(false);
-
-  const act = (action: "on" | "new" | "off", done: string) =>
-    start(async () => {
-      const r = await changeForwarding(action);
-      if (!r.ok) return void toast.error(r.error);
-      toast.success(done);
-    });
 
   return (
     <Section
       title="Email forwarding"
-      description={`Forward an email to ${name}, or Cc it on your own email in an internal thread, and it records what matters on the right clients, people and organizations, then replies to tell you what it did. When it isn't sure where something goes, it asks, and you answer by replying. Only email from ${viewer.email} with your domain's signature is accepted.`}
-      action={
-        available && canEdit && !address ? (
-          <Button size="sm" variant="outline" disabled={pending} onClick={() => act("on", "Forwarding turned on")}>
-            Turn on
-          </Button>
-        ) : null
-      }
+      description={`Forward an email to ${name}, or Cc ${name} on an internal thread, and it records what matters on the right clients, people and organizations, then replies to whoever sent it with what it did. When it isn't sure where something goes, it asks, and you answer by replying.`}
     >
-      {!available ? (
+      {!available || !address ? (
         <p className="px-4 py-6 text-center text-[13px] text-muted">{unavailableReason}</p>
-      ) : address ? (
+      ) : (
         <div className="px-4 py-3">
-          <p className="text-[12.5px] font-medium text-muted">Your address</p>
+          <p className="text-[12.5px] font-medium text-muted">{name}&apos;s address, for the whole team</p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <code className="min-w-0 break-all rounded bg-sunken px-2 py-1 font-mono text-[13px] text-primary">{address}</code>
             <Button
@@ -71,36 +54,15 @@ export function ForwardingSettings({ available, unavailableReason, address, rece
               <span aria-live="polite">{copied ? "Copied" : "Copy"}</span>
             </Button>
           </div>
-          <p className="mt-2 max-w-xl text-[12.5px] text-muted">
-            Keep it to yourself: anyone on a thread you Cc it on can see it. Cc it only on internal threads, or forward instead. Only your own emails are read; a teammate&apos;s reply-all is ignored, so forward the thread once the conversation has said what matters. Add a line at the top to say what you want (&quot;log this on Acme and add a task for me&quot;).
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {canEdit ? (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={pending}
-                onClick={() => {
-                  if (confirm("Replace your address? The current one stops working right away, including for replies to emails already sent.")) act("new", "New address ready");
-                }}
-              >
-                New address
-              </Button>
-            ) : null}
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={pending}
-              onClick={() => {
-                if (confirm("Turn forwarding off? Email to your address stops being read right away.")) act("off", "Forwarding turned off");
-              }}
-            >
-              Turn off
-            </Button>
-          </div>
+          <ul className="mt-2 max-w-xl list-disc space-y-1 pl-4 text-[12.5px] text-muted">
+            <li>
+              It works for whoever sends it: send from {viewer.email}, and it acts as you. On a thread, each teammate&apos;s message counts as theirs; clients&apos; replies are ignored.
+            </li>
+            <li>Add a line at the top to say what you want (&quot;log this on Acme and add a task for me&quot;).</li>
+            <li>Old threads are fine: press Forward on them. What isn&apos;t read is an old email sent again unchanged, or the same email twice.</li>
+            {canEdit ? null : <li>Your role is read-only, so {name} can&apos;t change records for you. Ask an admin for edit access.</li>}
+          </ul>
         </div>
-      ) : (
-        <p className="px-4 py-6 text-center text-[13px] text-muted">{canEdit ? "Off. Turn it on to get your private address." : "Forwarding changes records, so it needs edit access. Ask an admin."}</p>
       )}
 
       {available && recent.length ? (

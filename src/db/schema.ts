@@ -77,15 +77,9 @@ export const users = pgTable(
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     /** When they last had the team chat open. Messages after it from others are their unread count. */
     chatReadAt: timestamp("chat_read_at", { withTimezone: true }),
-    /**
-     * The secret part of their email forwarding address (log-<token>@FORWARD_EMAIL_DOMAIN,
-     * docs/AGENT.md#email-forwarding). Null while forwarding is off for them. Mail to it
-     * starts work only when it's also provably from their own address.
-     */
-    forwardToken: text("forward_token"),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("users_email_idx").on(t.email), uniqueIndex("users_forward_token_idx").on(t.forwardToken)],
+  (t) => [uniqueIndex("users_email_idx").on(t.email)],
 );
 
 /** Server-side record of each signed-in browser. Deleting a row signs that browser out even though its cookie is still validly signed. */
@@ -1261,9 +1255,10 @@ export const agentRuns = pgTable(
 );
 
 /**
- * Email that arrived at a teammate's forwarding address (docs/AGENT.md#email-forwarding):
+ * Email a teammate sent to the agent's address (docs/AGENT.md#email-forwarding):
  * what came in, whether it was accepted, the run it started and the reply sent back.
- * Private to that teammate (Settings → Agent). Rounds of one back-and-forth share a
+ * Private to that teammate (Settings → Agent). Mail that doesn't claim to be from a
+ * teammate isn't stored. Rounds of one back-and-forth share a
  * `conversationId` (the first email's id) and the first email's `conversationKey`,
  * which is in the reply address.
  */
@@ -1273,12 +1268,12 @@ export const emailForwards = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     /** Resend's id for the received email. Unique, so a repeated webhook does nothing. */
     resendEmailId: text("resend_email_id").notNull(),
-    /** The teammate whose address it was sent to. Null when the address matched nobody. */
+    /** The teammate it's from (claimed, until the checks prove it; `status` says whether they did). */
     userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     conversationId: uuid("conversation_id"),
     conversationKey: text("conversation_key"),
     round: integer("round").notNull().default(1),
-    /** The email's own Message-ID, so a reply that quotes it finds the conversation. */
+    /** The email's own Message-ID: a reply that quotes it finds the conversation, and the same email is never read twice. */
     messageId: text("message_id"),
     fromAddress: text("from_address"),
     subject: text("subject"),
@@ -1303,6 +1298,8 @@ export const emailForwards = pgTable(
     index("email_forwards_run_idx").on(t.runId),
     index("email_forwards_conversation_idx").on(t.conversationId),
     index("email_forwards_key_idx").on(t.conversationKey),
+    // The same email sent again (by anyone who received it) is ignored.
+    uniqueIndex("email_forwards_message_idx").on(t.userId, t.messageId),
   ],
 );
 

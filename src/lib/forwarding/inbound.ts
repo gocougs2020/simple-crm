@@ -1,6 +1,6 @@
 import "server-only";
 import { resolveTxt } from "node:dns/promises";
-import { and, asc, desc, eq, inArray, isNotNull, lt } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
 import DirectEmail from "@/emails/direct";
@@ -24,11 +24,11 @@ import {
   forwardAddress,
   forwardDomain,
   forwardPrompt,
+  freshEnough,
   fromAddresses,
   isAutomatic,
   messageIds,
   newConversationKey,
-  newForwardToken,
   parseForwardAddress,
   replySubject,
   stripQuoted,
@@ -37,16 +37,19 @@ import {
 } from "./rules";
 
 /**
- * Email forwarded to the agent (docs/AGENT.md#email-forwarding). Each
- * teammate has a private address; Resend receives mail for it and calls our
- * webhook. Before anything is read, the email must be provably from that
- * teammate: their own address on the From line, with a DKIM signature from
- * their domain that we check ourselves (or DMARC passing at a receiver the
- * deployment trusts). Then it becomes background work, as them, and the
- * answer goes back to them by email. Replies continue the conversation.
+ * Email forwarded to the agent (docs/AGENT.md#email-forwarding). The team
+ * shares one address, the agent's name at FORWARD_EMAIL_DOMAIN; Resend
+ * receives mail for it and calls our webhook. Who sent it decides whose work
+ * it is, so before anything is read the email must be provably from that
+ * teammate: their sign-in address alone on the From line, with a DKIM
+ * signature from their domain that we check ourselves (or DMARC passing at
+ * a receiver the deployment trusts), dated in the last few days, and never
+ * seen before. Then it becomes background work, as them, and the answer goes
+ * back to them by email. Replies continue the conversation.
  *
  * Mail that fails a check is never answered (a reply to a forged sender
  * would mail a stranger); it's listed in the teammate's Settings with why.
+ * Mail that doesn't even claim to be from a teammate isn't stored at all.
  */
 
 const forwards = schema.emailForwards;
@@ -69,8 +72,8 @@ export function forwardingAvailability(): ForwardingAvailability {
 
 // ─── Settings ────────────────────────────────────────────────────────────
 
-/** A teammate's address and their recent forwards, for Settings → Agent. Only ever their own. */
-export async function forwardingFor(user: Pick<User, "id" | "forwardToken">) {
+/** The team's address and this teammate's recent emails to it, for Settings → Agent. Only ever their own. */
+export async function forwardingFor(user: Pick<User, "id">) {
   const availability = forwardingAvailability();
   const db = await getDb();
   const recent = await db
@@ -81,23 +84,9 @@ export async function forwardingFor(user: Pick<User, "id" | "forwardToken">) {
     .limit(10);
   return {
     availability,
-    address: availability.on && user.forwardToken ? forwardAddress(user.forwardToken, availability.domain) : null,
+    address: availability.on ? forwardAddress(availability.domain) : null,
     recent: recent.map((r) => ({ ...r, receivedAt: r.receivedAt.toISOString() })),
   };
-}
-
-/** Turns a teammate's address on (or gives them a new one, which stops the old one at once), or off. */
-export async function setForwarding(user: Pick<User, "id" | "role">, action: "on" | "new" | "off") {
-  if (action !== "off") {
-    const availability = forwardingAvailability();
-    if (!availability.on) throw new ActionError(availability.reason);
-    if (!roleCan(user.role, "records:write")) throw new ActionError("Forwarding changes records, and your role is read-only. Ask an admin for edit access.");
-  }
-  const db = await getDb();
-  await db
-    .update(schema.users)
-    .set({ forwardToken: action === "off" ? null : newForwardToken() })
-    .where(eq(schema.users.id, user.id));
 }
 
 // ─── Receiving ───────────────────────────────────────────────────────────
@@ -120,16 +109,26 @@ export async function handleReceived(event: ReceivedEvent): Promise<boolean> {
   const hit = recipients.map((a) => parseForwardAddress(a, availability.domain)).find((x) => !!x);
   if (!hit) return false;
 
+  // A first, cheap filter before anything is fetched or stored: it must at least claim to be from an active
+  // teammate. Mail from anyone else (a client's reply-all, spam) is dropped here. The claim is proven below.
   const db = await getDb();
+  const claimed = addressOf(event.from);
+  const [user] = await db
+    .select()
+    .from(schema.users)
+    .where(and(sql`lower(${schema.users.email}) = ${claimed}`, isNull(schema.users.deactivatedAt)))
+    .limit(1);
+  if (!user) return true;
+
   const [row] = await db
     .insert(forwards)
-    .values({ resendEmailId: event.email_id, fromAddress: addressOf(event.from).slice(0, 320), subject: event.subject?.slice(0, 300) ?? null, messageId: bracketed(event.message_id) })
-    .onConflictDoNothing({ target: forwards.resendEmailId })
+    .values({ resendEmailId: event.email_id, userId: user.id, fromAddress: claimed.slice(0, 320), subject: event.subject?.slice(0, 300) ?? null, messageId: bracketed(event.message_id) })
+    // Unique on Resend's id (a repeated webhook) and on the teammate and Message-ID (the same email sent again): either way it's read once.
+    .onConflictDoNothing()
     .returning();
-  // Seen already: a repeated webhook.
   if (!row) return true;
   try {
-    await processForward(row, hit);
+    await processForward(row, hit, user);
   } catch (err) {
     if (err instanceof RetryLater) {
       // Nothing started yet, so let Resend's retry begin again from the top.
@@ -145,11 +144,11 @@ export async function handleReceived(event: ReceivedEvent): Promise<boolean> {
 type Forward = typeof forwards.$inferSelect;
 type Header = { name: string; value: string };
 
-async function refuse(row: Forward, reason: string, opts: { userId?: string | null; reply?: User } = {}) {
+async function refuse(row: Forward, reason: string, opts: { reply?: User } = {}) {
   const db = await getDb();
   const [updated] = await db
     .update(forwards)
-    .set({ status: "refused", reason, ...(opts.userId !== undefined ? { userId: opts.userId } : {}) })
+    .set({ status: "refused", reason })
     .where(eq(forwards.id, row.id))
     .returning();
   // Only mail that proved it's from the teammate is ever answered.
@@ -196,21 +195,18 @@ const dnsLookup = async (name: string) => {
   }
 };
 
-async function processForward(row: Forward, hit: { token: string; conversationKey: string | null }) {
+async function processForward(row: Forward, hit: { conversationKey: string | null }, user: User) {
   const db = await getDb();
-  const [user] = await db.select().from(schema.users).where(eq(schema.users.forwardToken, hit.token));
-  if (!user || user.deactivatedAt) return refuse(row, "This address doesn't belong to anyone now: it was turned off or replaced.", { userId: user?.id ?? null });
-  await db.update(forwards).set({ userId: user.id }).where(eq(forwards.id, row.id));
-  // Before anything is fetched: mail to an address someone else learned can't pile up without limit.
+  // Before anything is fetched: email claiming to be from them can't pile up without limit.
   const arriving = await rateLimit("forward-in", user.id, { limit: cfg().perHour * 5, windowMs: 3_600_000 });
-  if (arriving.limited) return refuse(row, "Too many emails arrived at your address in the last hour, so this one wasn't read. If you didn't send them, get a new address in Settings → Agent.");
+  if (arriving.limited) return refuse(row, "Too many emails claiming to be from you arrived in the last hour, so this one wasn't read.");
 
   const resend = getResend();
   if (!resend) throw new RetryLater("Resend isn't connected");
   const { data: email, error } = await resend.emails.receiving.get(row.resendEmailId);
   if (error || !email) throw new RetryLater(error?.message ?? "no email");
   const raw = email.raw?.download_url ? await fetchRaw(email.raw.download_url) : null;
-  if (email.raw?.download_url && !raw) return refuse(row, "It's too large to read. Forward it without the attachments.", { userId: user.id });
+  if (email.raw?.download_url && !raw) return refuse(row, "It's too large to read. Forward it without the attachments.");
   const headers: Header[] = raw
     ? splitMessage(raw).headers.map((h) => ({ name: h.name, value: headerValue(h) }))
     : Object.entries(email.headers ?? {}).map(([name, value]) => ({ name: name.toLowerCase(), value: String(value) }));
@@ -220,7 +216,7 @@ async function processForward(row: Forward, hit: { token: string; conversationKe
   const fromLines = headers.filter((h) => h.name === "from");
   const from = fromLines.length === 1 ? fromAddresses(fromLines[0].value) : [];
   if (from.length !== 1) return refuse(row, "Its From line doesn't name exactly one sender, so it can't be trusted.");
-  if (from[0] !== user.email.toLowerCase()) return refuse(row, `It came from ${from[0]}, not ${user.email}, the address you sign in with. Forward from that address.`);
+  if (from[0] !== user.email.toLowerCase()) return refuse(row, `Its From line says ${from[0]}, not ${user.email}, so it can't be trusted.`);
   // 2. A person wrote it: out-of-office replies and bounces never start work, so nothing can loop.
   if (isAutomatic(headers, subject)) return refuse(row, "It's an automatic reply, so it was ignored.");
   // 3. Provably sent by their domain, not just claiming to be.
@@ -233,12 +229,17 @@ async function processForward(row: Forward, hit: { token: string; conversationKe
     trusted: trustedAuthservIds(),
   });
   if (!sender.ok) return refuse(row, sender.reason);
+  // 4. Written lately, so an old email of theirs can't be sent again by someone who received it. Only meaningful
+  // when the signature covers the date; a forward is dated when it's sent, so old threads forwarded today pass.
+  if (sender.signed && !sender.signed.includes("date")) return refuse(row, "Its signature doesn't cover its date, so it can't be told apart from an old email sent again.");
+  const fresh = freshEnough(headers.find((h) => h.name === "date")?.value);
+  if (!fresh.ok) return refuse(row, fresh.reason);
   await db.update(forwards).set({ verifiedBy: sender.how }).where(eq(forwards.id, row.id));
 
   // From here on it's certainly them, so a refusal is answered.
   if (!roleCan(user.role, "records:write")) return refuse(row, "Your role is read-only, so the agent can't change records for you. Ask an admin for edit access.", { reply: user });
   const limit = await rateLimit("forward", user.id, { limit: cfg().perHour, windowMs: 3_600_000 });
-  if (limit.limited) return refuse(row, `Your address took ${cfg().perHour} emails in the last hour, the most it accepts. Forward this one again later.`);
+  if (limit.limited) return refuse(row, `You sent ${appConfig.agent.name} ${cfg().perHour} emails in the last hour, the most it takes. Forward this one again later.`);
 
   // Which conversation: the key in the reply address, else the threading headers.
   const refs = messageIds([headers.find((h) => h.name === "in-reply-to")?.value, headers.find((h) => h.name === "references")?.value].join(" "));
@@ -270,7 +271,9 @@ async function processForward(row: Forward, hit: { token: string; conversationKe
   if (round > cfg().maxRounds) return refuse(row, `This conversation has gone back and forth ${cfg().maxRounds} times, the most one can. Forward the email again to start fresh.`, { reply: user });
 
   const body = email.text?.trim() ? email.text : htmlToText(sanitizeHtml(email.html));
-  const text = (round > 1 ? stripQuoted(body) : body.trim()).slice(0, cfg().maxChars);
+  // A reply to the agent's own email drops the quoted conversation it already has. Anything else (a later
+  // message in a thread it was copied on) is kept whole: what's quoted may be news to it.
+  const text = (hit.conversationKey && root ? stripQuoted(body) : body.trim()).slice(0, cfg().maxChars);
   if (!text) return refuse(row, "There was no text in it to read. Forward it again with the email in the body.", { reply: user });
   const date = new Date(email.created_at).toISOString();
   const earlier: Exchange[] = earlierRows.map((r) => ({
@@ -281,7 +284,7 @@ async function processForward(row: Forward, hit: { token: string; conversationKe
 
   const [working] = await db
     .update(forwards)
-    .set({ conversationId, conversationKey: root?.conversationKey ?? newConversationKey(), round, text, subject, messageId: bracketed(email.message_id) ?? row.messageId, status: "working" })
+    .set({ conversationId, conversationKey: root?.conversationKey ?? newConversationKey(), round, text, subject, status: "working" })
     .where(eq(forwards.id, row.id))
     .returning();
   try {
@@ -312,12 +315,12 @@ async function sendReply(forward: Forward, user: User, html: string) {
   const ids = [...new Set([...thread.map((t) => t.messageId), forward.messageId].filter((m): m is string => !!m && /^<[^<>\s]+>$/.test(m)))];
   const origin = await siteOrigin();
   const name = appConfig.agent.name;
-  const footer = `Reply to this email to answer ${name} or correct it. What it changed is in each record's history, and under Background tasks in the ${name} panel. Your forwarding address and recent emails: ${origin}/settings/agent`;
+  const footer = `Reply to this email to answer ${name} or correct it. What it changed is in each record's history, and under Background tasks in the ${name} panel. Your recent emails to ${name}: ${origin}/settings/agent`;
   const brand = await emailBrand();
   const { id } = await sendEmail({
     to: user.email,
     from: fromAs(name),
-    ...(domain && user.forwardToken && forward.conversationKey ? { replyTo: forwardAddress(user.forwardToken, domain, forward.conversationKey) } : {}),
+    ...(domain && forward.conversationKey ? { replyTo: forwardAddress(domain, forward.conversationKey) } : {}),
     subject: replySubject(forward.subject),
     react: DirectEmail({ brand, html: absoluteLinks(sanitizeHtml(html), origin), preview: htmlToText(html).slice(0, 120), signature: footer }),
     headers: {
