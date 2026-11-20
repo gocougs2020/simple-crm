@@ -14,7 +14,7 @@ const POLL_MS = 4_000;
 /** Finished tasks stay in the list this long. */
 const KEEP_MS = 7 * 86_400_000;
 
-const sourceLabels: Record<AgentTask["source"], string> = { chat: "From chat", mention: "From a note", task: "From a task", bulk: "Bulk request", api: "From a connected app", schedule: "Scheduled job" };
+const sourceLabels: Record<AgentTask["source"], string> = { chat: "From chat", mention: "From a note", task: "From a task", bulk: "Bulk request", api: "From a connected app", schedule: "Scheduled job", email: "From an email" };
 
 function StatusIcon({ status }: { status: AgentRunStatus }) {
   if (status === "running") return <ArrowPathIcon className="size-4 shrink-0 animate-spin text-accent" aria-hidden />;

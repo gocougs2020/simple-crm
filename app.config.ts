@@ -152,6 +152,21 @@ export type AppConfig = {
       /** The most records one bulk request can cover. */
       maxBulkRecords: number;
     };
+    /**
+     * Email forwarding: each teammate gets a private address to forward email to (or copy on a
+     * thread). The agent works out which records it's about, records what matters, and replies
+     * by email, asking when it's unsure. Needs background work and FORWARD_EMAIL_DOMAIN, a
+     * Resend domain with receiving turned on. See docs/AGENT.md#email-forwarding.
+     */
+    forwarding: {
+      enabled: boolean;
+      /** The most emails one teammate's address accepts in an hour. More are refused (and listed in Settings), so a mail loop can't run up spend. */
+      perHour: number;
+      /** How many times one conversation can go back and forth before the agent asks for a fresh forward. */
+      maxRounds: number;
+      /** The most characters of a conversation the agent reads (the newest email first). */
+      maxChars: number;
+    };
   };
   notifications: {
     /** The hour (0–23, workspace time zone) the morning push summary and agenda emails go out. */
@@ -314,6 +329,12 @@ const defaults = {
       maxRunMinutes: 20,
       maxConcurrentPerUser: 3,
       maxBulkRecords: 50,
+    },
+    forwarding: {
+      enabled: true,
+      perHour: 20,
+      maxRounds: 8,
+      maxChars: 40_000,
     },
   },
   notifications: {

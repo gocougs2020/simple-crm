@@ -10,6 +10,7 @@ import { emailDomainsScoped, getResend, inEmailScope } from "@/lib/email";
 import { sanitizeHtml } from "@/lib/safe-html";
 import { deliveryEvents } from "./delivery-status";
 import { inboundEmail } from "@/lib/push/triggers";
+import { forwardingAvailability } from "@/lib/forwarding/inbound";
 
 const { inboxThreads, inboxMessages, inboxSends, activities, outboundEmails } = schema;
 
@@ -344,7 +345,8 @@ type WebhookEventName = Parameters<Resend["webhooks"]["create"]>[0]["events"][nu
  * app.config.ts). Settings asks to reconnect when the connected list differs.
  */
 export function webhookEvents(): WebhookEventName[] {
-  return ["inbox.email.received", "inbox.email.sent", "inbox.thread.created", "inbox.thread.folder.updated", "inbox.deleted", ...deliveryEvents(appConfig.email)] as WebhookEventName[];
+  const forwarding = forwardingAvailability().on ? ["email.received"] : [];
+  return ["inbox.email.received", "inbox.email.sent", "inbox.thread.created", "inbox.thread.folder.updated", "inbox.deleted", ...deliveryEvents(appConfig.email), ...forwarding] as WebhookEventName[];
 }
 
 /** Whether a connected webhook's events differ from what this deployment needs (connected before delivery reports, or tracking was turned on or off since). */

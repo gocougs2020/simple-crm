@@ -129,6 +129,7 @@ Some jobs take too long for a chat answer: researching a company on the web and 
 | **Mention it in a note** | A note that says `@Agent` (or `@` and whatever `agent.name` is) on a person, organization or client starts a run with the note as the request. So does a reply under a note: the reply is the request, and the note and its earlier replies go along as quoted context (information, not instructions), so a follow-up ("@Agent do the same for their Denver office") makes sense. | A reply under that note |
 | **Assign it a task** | In the task form, pick the agent under "Assigned to" (or pass `agent: true` to `create_task` / `update_task`). The task stays yours. | Added to the task, which is then marked done |
 | **Schedule it** | A [scheduled job](#scheduled-jobs) starts a run each time it's due. | Saved on the run, under "Background tasks", with a notification |
+| **Email it** | Forward an email to your private address, or Cc it on your own email in an internal thread. See [Email forwarding](#email-forwarding). | Emailed back to you as a reply, which you can answer |
 
 A fourth, for lists: `start_bulk_background_task` runs the same request on each of several records (every organization in a view, say), one run per record, a few at a time. The chat agent is told to try three records first and show the results before running the rest.
 
@@ -148,6 +149,43 @@ A run works for one teammate: whoever asked in chat, wrote the note or assigned 
 
 Reading the web is the job of a separate helper, the researcher. It has web search and page fetch and nothing else: no CRM connection, no way to write. It reports what it found with source links, and the main worker decides what to save, through the same MCP tools and the same permission checks. So a web page that tries to give instructions has nothing to act with. The main worker has no web access of its own, and both are told to treat what they read as information, never instructions.
 
+### Email forwarding
+
+Internal email about a client (two teammates discussing how an account is doing, say) never reaches the mailbox sync, because the client isn't on it. Forwarding it to the agent brings what matters into the CRM.
+
+**Setting it up (once, an admin):**
+
+1. In Resend, add a domain for receiving only, ideally a subdomain like `in.acme.com`, turn on receiving and add its MX record. Your company mail stays where it is.
+2. Set `FORWARD_EMAIL_DOMAIN=in.acme.com` and redeploy.
+3. Settings → Email domains → reconnect the webhook, so it also sends `email.received`.
+
+**Using it (each teammate):** Settings → Agent → Email forwarding → **Turn on** gives you a private address, `log-<24 random characters>@in.acme.com`. Save it as a contact. Forward an email to it, or Cc it on your own email in an internal thread, with a line at the top if you want something specific ("log this on Bolt and add a follow-up for me").
+
+**What happens:**
+
+| Step | |
+| --- | --- |
+| Checked | Before anything is read, the email must be provably from you: see [Who can use an address](#who-can-use-an-address). Anything that fails is listed under Recent emails in Settings, with why, and never answered |
+| Worked on | It becomes background work as you (source `email`, "From an email" under Background tasks). Unless you said otherwise, the agent works out which clients, people and organizations it's about, adds a note on each with the facts that matter (who said what, numbers, decisions, concerns, dated), logs performance numbers as client metrics, turns agreed follow-ups into tasks, and changes a field only when the email states the new value. History shows "Sam via Agent" |
+| Answered | The CRM emails the agent's answer back to you, threaded under your email, with links to each record it changed |
+| Unsure? | The agent saves what it's sure of and ends with one short question ("Bolt Denver or Bolt Austin?"). Reply to its email to answer. The reply address carries the conversation, so the next round gets the earlier emails and answers, and the agent adds only what's new. A conversation goes back and forth up to `agent.forwarding.maxRounds` (8) times |
+
+What it reads: the email's text (the plain-text part, or the HTML as text), up to `agent.forwarding.maxChars` (40,000 characters), with the newest email kept whole and earlier rounds shortened to fit. Replies are read without the quoted email below them. Attachments aren't read; forward a file to a record from the Files page instead.
+
+#### Who can use an address
+
+Three things must all hold, checked in this order (`processForward` in `src/lib/forwarding/inbound.ts`, rules in `src/lib/forwarding/rules.ts` and `dkim.ts`):
+
+1. **The address.** The 24 random characters (120 bits) name one teammate. **New address** replaces it at once (and stops replies to earlier emails); **Turn off** stops it. Deactivated teammates' addresses stop working.
+2. **The From line** names exactly one address, and it's that teammate's sign-in email. A teammate's reply-all to your Cc'd address is ignored; forward the thread instead.
+3. **The sender's domain signed it.** The CRM downloads the raw message from Resend and checks its DKIM signatures itself, looking the key up in DNS (rsa-sha256 and ed25519-sha256; signatures over part of the body, `l=`, are refused). One must come from the From domain or a domain aligned with it. Microsoft 365 and Google Workspace sign with your domain once DKIM is turned on for it; Settings shows which signatures were found when an email is refused. A receiver's own verdict counts only when the deployment lists it in `FORWARD_AUTHSERV_IDS`: then `dmarc=pass` for the From domain in that receiver's Authentication-Results line is enough. Lines from any other receiver are ignored, since a sender can write their own.
+
+Then: the teammate needs edit access, out-of-office replies and bounces are ignored (so the agent's own replies, marked `Auto-Submitted: auto-replied`, can't start a loop), and each address takes `agent.forwarding.perHour` (20) emails an hour. The webhook's signature is verified and the email is fetched back from Resend by id, so nothing in the webhook's body is trusted.
+
+#### What the agent can do with it
+
+Exactly what any background run can, as you: no archiving, deleting, merging or sending (it writes drafts). The email's content is marked as data from the email, never instructions; only your own words at the top say what to do. The agent's replies go only to you. Forwarded text is kept on `email_forwards` for 30 days (yours alone, in Settings), then cleared; the notes the agent wrote stay. As with any background run, the request (here the email) is also on the run, which you and admins can open.
+
 ### Models and cost
 
 | Key | Default | Used for |
@@ -161,6 +199,10 @@ Reading the web is the job of a separate helper, the researcher. It has web sear
 | `agent.background.maxRunMinutes` | `20` | A run still going after this long is cancelled |
 | `agent.background.maxConcurrentPerUser` | `3` | How many of one teammate's runs work at once. The rest wait their turn |
 | `agent.background.maxBulkRecords` | `50` | The most records one bulk request can cover |
+| `agent.forwarding.enabled` | `true` | [Email forwarding](#email-forwarding). Also needs `FORWARD_EMAIL_DOMAIN` |
+| `agent.forwarding.perHour` | `20` | The most emails one teammate's address accepts in an hour |
+| `agent.forwarding.maxRounds` | `8` | How many times one forwarded conversation can go back and forth |
+| `agent.forwarding.maxChars` | `40000` | How much of a conversation the agent reads |
 
 - Spend is what AI Gateway reports for each run's model calls, the researcher's included, saved on the run (`agent_runs.cost_micro_usd`). The month is the calendar month in UTC.
 - Web searches are billed by AI Gateway per search (about a cent each) and aren't part of that figure. The researcher is told to keep to a handful per question, and the per-run token limit bounds it.
@@ -272,6 +314,10 @@ src/lib/agent/
   skill-rules.ts  their limits, and how they appear in the agent's instructions (pure)
   schedules.ts    scheduled jobs: saving, sharing, and starting the ones that are due
   schedule-rules.ts  their cadence: validation, the next run, the cadence in words (pure)
+src/lib/forwarding/
+  inbound.ts      email forwarding: the address, receiving, the checks, starting the run, the reply
+  rules.ts        the address format, the sender check, auto-reply spotting, what the agent reads (pure)
+  dkim.ts         DKIM signature checks from the raw message (pure, apart from the key lookup)
   attachments.ts  files attached in chat: what's allowed, limits, how the model reads them (pure)
   docx.ts         the text of a Word document, without a library (pure)
   markdown.ts     the agent's markdown answer as note HTML (pure)

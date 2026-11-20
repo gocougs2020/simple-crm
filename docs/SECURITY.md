@@ -82,6 +82,14 @@ The code is public; the data and secrets never are. This page is how that holds.
 - A note calls on the agent only when a teammate wrote it in the browser. Notes written through a key, a connected app or the agent itself never start work.
 - Spend is capped per run, per month and by run time (`agent.background.*`), on top of the AI Gateway key's own budget.
 
+## Email forwarding
+
+- Each teammate's forwarding address holds 120 random bits; replacing or turning it off takes effect at once. The address alone isn't enough: the From line must be exactly that teammate's sign-in address, and the message must carry a DKIM signature from that domain (or an aligned one) that the CRM verifies itself, from the raw message and the key in DNS. Authentication-Results lines are ignored unless they come from a receiver the deployment lists in `FORWARD_AUTHSERV_IDS`, since anyone can write one. Signatures with `l=` and messages with more than one From line are refused.
+- The Resend webhook's signature is checked, and the email is fetched back from Resend by id; nothing in the webhook body is trusted. The raw download must be https and at most 30 MB. A repeated webhook does nothing (unique on Resend's id).
+- Mail that fails a check is never answered, so a forged sender can't make the CRM email anyone. Refusals are listed only for the address's own teammate. Answers go only to that teammate's sign-in address.
+- The run is ordinary background work as the teammate: their role, no archive, delete, merge or sending. The email is marked as data, never instructions. Out-of-office replies and bounces are ignored and the CRM's replies are marked `Auto-Submitted`, so mail can't loop; each address takes 20 verified emails an hour (and reads none past 100 arriving an hour), and a conversation ends after 8 rounds.
+- Forwarded text is private to the teammate and cleared after 30 days; rows go after 180.
+
 ## Knowledge source
 
 - Optional and read-only: `GET` only, to paths under `KNOWLEDGE_API_URL` (https). Paths that could climb out of the base (`..`, `;`, encoded slashes, dots or semicolons, backslashes, another host) are refused before anything is fetched, and redirects aren't followed, so the key is never sent anywhere else. It's never returned in a result or an error. Use a read-only key, and a base that excludes anything holding personal data. `KNOWLEDGE_FIXED_QUERY` and `KNOWLEDGE_BLOCKED_PATHS` keep unpublished content out when the key can see it; they match the decoded, lowercased path, so case and percent-encoding don't get around them. See [KNOWLEDGE.md](KNOWLEDGE.md).

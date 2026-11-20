@@ -3,13 +3,15 @@ import { sweepRuns } from "@/lib/agent/runs";
 import { runDueJobs } from "@/lib/agent/schedules";
 import { cronAuthorized } from "@/lib/cron";
 import { describeBacklog } from "@/lib/file-describe";
+import { pruneForwards } from "@/lib/forwarding/inbound";
 
 export const maxDuration = 300;
 
 /**
  * Vercel Cron, on the quarter hour: starts the agent's scheduled jobs whose
  * time has come, stops background runs that have gone on too long, starts
- * any left waiting, and describes a few files nobody has described yet.
+ * any left waiting, describes a few files nobody has described yet, and
+ * forgets the text of forwarded emails older than 30 days.
  */
 export async function GET(request: Request) {
   await connection();
@@ -23,5 +25,9 @@ export async function GET(request: Request) {
     console.error("[files] describe backlog", err);
     return { described: 0, embedded: 0 };
   });
-  return NextResponse.json({ ...swept, scheduled: jobs.started, ...described });
+  const forwarded = await pruneForwards().catch((err) => {
+    console.error("[forwarding] prune", err);
+    return { cleared: 0 };
+  });
+  return NextResponse.json({ ...swept, scheduled: jobs.started, ...described, forwardsCleared: forwarded.cleared });
 }

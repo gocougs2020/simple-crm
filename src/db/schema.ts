@@ -17,6 +17,7 @@ import type {
   ClientHealth,
   CustomFieldType,
   EmailDigestKind,
+  EmailForwardStatus,
   EntityType,
   NotificationKind,
   UserRole,
@@ -76,9 +77,15 @@ export const users = pgTable(
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     /** When they last had the team chat open. Messages after it from others are their unread count. */
     chatReadAt: timestamp("chat_read_at", { withTimezone: true }),
+    /**
+     * The secret part of their email forwarding address (log-<token>@FORWARD_EMAIL_DOMAIN,
+     * docs/AGENT.md#email-forwarding). Null while forwarding is off for them. Mail to it
+     * starts work only when it's also provably from their own address.
+     */
+    forwardToken: text("forward_token"),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("users_email_idx").on(t.email)],
+  (t) => [uniqueIndex("users_email_idx").on(t.email), uniqueIndex("users_forward_token_idx").on(t.forwardToken)],
 );
 
 /** Server-side record of each signed-in browser. Deleting a row signs that browser out even though its cookie is still validly signed. */
@@ -1250,6 +1257,52 @@ export const agentRuns = pgTable(
     index("agent_runs_activity_idx").on(t.activityId),
     // The month's spend, for the budget check.
     index("agent_runs_created_idx").on(t.createdAt),
+  ],
+);
+
+/**
+ * Email that arrived at a teammate's forwarding address (docs/AGENT.md#email-forwarding):
+ * what came in, whether it was accepted, the run it started and the reply sent back.
+ * Private to that teammate (Settings → Agent). Rounds of one back-and-forth share a
+ * `conversationId` (the first email's id) and the first email's `conversationKey`,
+ * which is in the reply address.
+ */
+export const emailForwards = pgTable(
+  "email_forwards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Resend's id for the received email. Unique, so a repeated webhook does nothing. */
+    resendEmailId: text("resend_email_id").notNull(),
+    /** The teammate whose address it was sent to. Null when the address matched nobody. */
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id"),
+    conversationKey: text("conversation_key"),
+    round: integer("round").notNull().default(1),
+    /** The email's own Message-ID, so a reply that quotes it finds the conversation. */
+    messageId: text("message_id"),
+    fromAddress: text("from_address"),
+    subject: text("subject"),
+    /** What the agent read (cleared after 30 days; the record notes it wrote stay). */
+    text: text("text"),
+    /** received → working → answered, or refused / failed with `reason`. */
+    status: text("status").$type<EmailForwardStatus>().notNull().default("received"),
+    /** Why it was refused or didn't finish, in a sentence. */
+    reason: text("reason"),
+    /** How the sender was verified (which DKIM signature or receiver). */
+    verifiedBy: text("verified_by"),
+    runId: uuid("run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+    /** Resend's id for the reply the CRM sent back. */
+    replyId: text("reply_id"),
+    repliedAt: timestamp("replied_at", { withTimezone: true }),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("email_forwards_resend_idx").on(t.resendEmailId),
+    index("email_forwards_user_idx").on(t.userId, t.createdAt),
+    index("email_forwards_run_idx").on(t.runId),
+    index("email_forwards_conversation_idx").on(t.conversationId),
+    index("email_forwards_key_idx").on(t.conversationKey),
   ],
 );
 

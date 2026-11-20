@@ -17,6 +17,7 @@ src/
                      (v1/[...path]), MCP (mcp) and the agent (agent: chat, transcribe, voice)
     manifest.ts, icon.tsx, apple-icon.tsx   the installable app: manifest and generated icons
     developers/      the public API and MCP docs, generated from the operation list
+    developers.md/   the same docs as one Markdown document (the page's "Copy as Markdown")
     unsubscribe/     the campaign unsubscribe page and RFC 8058 one-click endpoint
     share/           public file links: the page and the file, no sign-in
   actions/           server actions, one file per area ("use server")
@@ -47,6 +48,7 @@ app.config.ts        product defaults (name, theme, layout), overridable per dep
 | `agent_runs` | Work the agent does in the background for a teammate: who asked, how (chat, a mention, an assigned task, a bulk request, the API), the request, its status, its answer and what it cost. An activity it was handed points at its run (`activities.agent_run_id`) |
 | `agent_skills` | Instructions saved for the agent: a teammate's own (`personal`) or shared with everyone by an admin (`workspace`), always on or read when relevant. See [AGENT.md](AGENT.md#skills) |
 | `agent_schedules` | Scheduled jobs: work the agent does on a cadence as one teammate. A `workspace` row is an offer from an admin; a teammate who adds it gets their own copy (`from_id`). A run a job started points back at it (`agent_runs.schedule_id`). See [AGENT.md](AGENT.md#scheduled-jobs) |
+| `email_forwards` | Email that arrived at a teammate's forwarding address: whether it was accepted and why not, how the sender was verified, the run it started, the reply sent back, and the conversation it belongs to. Private to that teammate; its text is cleared after 30 days. `users.forward_token` is the secret part of each address. See [AGENT.md](AGENT.md#email-forwarding) |
 | `agent_drafts` | Emails and texts the agent wrote for a teammate to review and send. Private to that teammate; sending happens in the composer, never here |
 | `push_subscriptions`, `notifications` | Devices that get push notifications (one per browser or installed app, each with its own alert types), and every notification sent, deduplicated by key |
 | `workspace` | One row: name, currency, time zone, email brand kit. The time zone is the clock background work keeps (agendas, reminders, scheduled jobs, the agent); on screen each teammate sees times in their own browser's zone (`src/lib/time-zone.ts`) |
@@ -163,7 +165,7 @@ Twilio numbers, managed in Settings → Phone numbers. Calls are placed from the
 
 ## The agent
 
-Record pages open with an AI summary of the record, shared by the team and rewritten once a day. A chat panel in the bottom right corner that reads and changes records as the signed-in teammate, with their role, through the same operations as MCP. Threads are saved per teammate; it can talk (speech to speech) and take dictation. Longer jobs (web research, adding an organization's people, cleanups across a list) run in the background on an eve agent in `agent/`, started from chat, by mentioning the agent in a note, by assigning it a task or by a scheduled job. Teammates attach spreadsheets, Word documents and text files in chat (read in the browser; only the text is sent), and save skills and scheduled jobs for it in Settings → Agent, where admins share some with the whole team. A run acts as the teammate who asked, through the same MCP tools and role checks, and its changes read "Sam via Agent". It never sends email or texts: it writes drafts the teammate reviews and sends. Everything runs through Vercel AI Gateway. See [AGENT.md](AGENT.md).
+Record pages open with an AI summary of the record, shared by the team and rewritten once a day. A chat panel in the bottom right corner that reads and changes records as the signed-in teammate, with their role, through the same operations as MCP. Threads are saved per teammate; it can talk (speech to speech) and take dictation. Longer jobs (web research, adding an organization's people, cleanups across a list) run in the background on an eve agent in `agent/`, started from chat, by mentioning the agent in a note, by assigning it a task or by a scheduled job. Teammates attach spreadsheets, Word documents and text files in chat (read in the browser; only the text is sent), and save skills and scheduled jobs for it in Settings → Agent, where admins share some with the whole team. A run acts as the teammate who asked, through the same MCP tools and role checks, and its changes read "Sam via Agent". It never sends email or texts: it writes drafts the teammate reviews and sends. Each teammate can also forward email to a private address: the agent records what matters on the right records and the CRM emails its answer back, so a back-and-forth works by reply ([AGENT.md](AGENT.md#email-forwarding)). Everything runs through Vercel AI Gateway. See [AGENT.md](AGENT.md).
 
 ## Phone app and notifications
 

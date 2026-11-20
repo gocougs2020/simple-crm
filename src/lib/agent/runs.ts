@@ -18,7 +18,7 @@ import { assistantActor } from "./actor";
 import { aiFeatures, aiOffMessage } from "./config";
 import { markdownToHtml } from "./markdown";
 import { MAX_STORED_CHARS } from "./messages";
-import { budgetRefusal, budgetUsedUp, MAX_RUN_PROMPT, MAX_RUN_RESULT, monthStart, runFailure, runMessage, runTitle, usdToMicro, type RunRecord } from "./run-rules";
+import { budgetRefusal, budgetUsedUp, MAX_RUN_RESULT, promptLimit, monthStart, runFailure, runMessage, runTitle, usdToMicro, type RunRecord } from "./run-rules";
 import { signRunToken, type RunClaims } from "./run-token";
 import { cadenceLabel } from "./schedule-rules";
 import { labelsSection } from "@/lib/crm/label-rules";
@@ -112,8 +112,8 @@ export async function assertCanStart(actor: Actor, wanted = 1) {
   return user;
 }
 
-function cleanPrompt(prompt: string) {
-  const text = prompt.trim().slice(0, MAX_RUN_PROMPT);
+function cleanPrompt(prompt: string, source: AgentRunSource) {
+  const text = prompt.trim().slice(0, promptLimit(source));
   if (!text) throw new ActionError("Say what the agent should do.");
   return text;
 }
@@ -153,7 +153,7 @@ export async function startRuns(actor: Actor, inputs: StartRunInput[]): Promise<
     .insert(runs)
     .values(
       inputs.map((input) => {
-        const prompt = cleanPrompt(input.prompt);
+        const prompt = cleanPrompt(input.prompt, input.source);
         return {
           userId: user.id,
           source: input.source,
@@ -482,9 +482,20 @@ async function postToActivity(run: Run) {
   await activities.replyToNote(actor, source.id, { body: run.status === "done" ? answer : `<p><strong>${appConfig.agent.name} couldn't finish.</strong></p>${answer}` }, { handOff: false });
 }
 
+/** Emails the answer back to whoever forwarded the email (src/lib/forwarding/inbound.ts). */
+async function postToEmail(run: Run) {
+  if (run.source !== "email") return;
+  const { deliverForwardReply } = await import("@/lib/forwarding/inbound");
+  await deliverForwardReply(run);
+}
+
 /** Saves a final run's answer where the teammate asked for it and tells them it's ready. */
 async function deliver(run: Run) {
-  await Promise.all([postToThread(run).catch((err) => console.error("[agent] thread", err)), postToActivity(run).catch((err) => console.error("[agent] activity", err))]);
+  await Promise.all([
+    postToThread(run).catch((err) => console.error("[agent] thread", err)),
+    postToActivity(run).catch((err) => console.error("[agent] activity", err)),
+    postToEmail(run).catch((err) => console.error("[agent] email", err)),
+  ]);
   // One notification for a bulk request, when its last record is done, instead of one per record.
   if (run.batchId) {
     const db = await getDb();
