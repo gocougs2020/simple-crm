@@ -486,6 +486,13 @@ export const clients = pgTable(
     /** Current clients: how the account is doing. */
     health: text("health").$type<ClientHealth>(),
     /**
+     * No longer read: customers are matched by email, and ones linked by hand
+     * are in `client_stripe_links`. The column stays for now because a
+     * deployment still running the previous version selects it, and
+     * migrations run before that version is replaced.
+     */
+    stripeCustomerId: text("stripe_customer_id"),
+    /**
      * What Stripe says about this client, rolled up from the subscriptions of
      * its matched customers by the Stripe sync (src/lib/stripe/sync.ts), so
      * lists can filter and sort on it. Null status: no customer in Stripe.

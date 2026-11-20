@@ -225,6 +225,13 @@
       "when": 1795146067656,
       "tag": "0031_stripe-accounts-and-sync",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1795147711914,
+      "tag": "0032_keep-stripe-customer-id",
+      "breakpoints": true
     }
   ]
 }

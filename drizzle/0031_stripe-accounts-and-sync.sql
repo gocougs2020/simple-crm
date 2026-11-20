@@ -48,5 +48,5 @@ CREATE INDEX "stripe_customers_email_idx" ON "stripe_customers" USING btree ("em
 CREATE INDEX "stripe_subscriptions_customer_idx" ON "stripe_subscriptions" USING btree ("account","customer_id");--> statement-breakpoint
 CREATE INDEX "clients_stripe_status_idx" ON "clients" USING btree ("stripe_status");--> statement-breakpoint
 -- Customers linked by hand before accounts had names stay linked, in the account STRIPE_SECRET_KEY names ("default").
-INSERT INTO "client_stripe_links" ("client_id", "account", "customer_id", "kind") SELECT "id", 'default', "stripe_customer_id", 'linked' FROM "clients" WHERE "stripe_customer_id" IS NOT NULL;--> statement-breakpoint
-ALTER TABLE "clients" DROP COLUMN "stripe_customer_id";
+INSERT INTO "client_stripe_links" ("client_id", "account", "customer_id", "kind") SELECT "id", 'default', "stripe_customer_id", 'linked' FROM "clients" WHERE "stripe_customer_id" IS NOT NULL;
+-- The column itself stays (see 0032): a deployment still running the previous version selects it while this migration runs.
