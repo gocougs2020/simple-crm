@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { graphAddress, stripQuoted } from "./mail-text";
+import { graphAddress, outlookSensitivity, stripQuoted } from "./mail-text";
 import { Experimental_DecisionMockModelV4 as MockDecisionModel } from "ai/test";
 import { decideSensitive } from "./screen-decide";
 import { screenQuestion, screenState } from "./screen-prompt";
@@ -19,6 +19,17 @@ describe("synced mail text", () => {
   it("keeps forwards and plain emails whole", () => {
     assert.equal(stripQuoted("FYI\n\n---------- Forwarded message ---------\nFrom: X"), "FYI\n\n---------- Forwarded message ---------\nFrom: X");
     assert.equal(stripQuoted("Just a note.\nSecond line."), "Just a note.\nSecond line.");
+  });
+
+  it("reads Outlook's sensitivity label from the extended property", () => {
+    assert.equal(outlookSensitivity([{ id: "Integer 0x36", value: "2" }]), "private");
+    assert.equal(outlookSensitivity([{ id: "Integer 0x0037", value: "2" }]), null);
+    assert.equal(outlookSensitivity([{ id: "Integer 0x0036", value: "2" }]), "private");
+    assert.equal(outlookSensitivity([{ id: "integer 0x0036", value: "3" }]), "confidential");
+    assert.equal(outlookSensitivity([{ id: "Integer 0x0036", value: "1" }]), "personal");
+    assert.equal(outlookSensitivity([{ id: "Integer 0x0036", value: "0" }]), null);
+    assert.equal(outlookSensitivity(undefined), null);
+    assert.equal(outlookSensitivity([]), null);
   });
 
   it("reads Graph addresses", () => {
