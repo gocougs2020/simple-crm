@@ -406,7 +406,16 @@ export async function retryReplies(now = new Date()) {
     .from(forwards)
     .innerJoin(schema.agentRuns, eq(schema.agentRuns.id, forwards.runId))
     .innerJoin(schema.users, eq(schema.users.id, forwards.userId))
-    .where(and(inArray(forwards.status, ["answered", "failed"]), isNull(forwards.repliedAt), gte(forwards.receivedAt, new Date(now.getTime() - 86_400_000)), isNull(schema.users.deactivatedAt)))
+    .where(
+      and(
+        inArray(forwards.status, ["answered", "failed"]),
+        isNull(forwards.repliedAt),
+        // Only runs that have ended: a row marked failed while its run still works waits for the run's own answer.
+        inArray(schema.agentRuns.status, ["done", "failed", "cancelled"]),
+        gte(forwards.receivedAt, new Date(now.getTime() - 86_400_000)),
+        isNull(schema.users.deactivatedAt),
+      ),
+    )
     .limit(20);
   let sent = 0;
   for (const { forward, run, user } of owed) {
