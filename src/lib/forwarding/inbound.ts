@@ -231,7 +231,12 @@ async function processForward(row: Forward, hit: { conversationKey: string | nul
   if (!sender.ok) return refuse(row, sender.reason);
   // 4. Written lately, so an old email of theirs can't be sent again by someone who received it. Only meaningful
   // when the signature covers the date; a forward is dated when it's sent, so old threads forwarded today pass.
-  if (sender.signed && !sender.signed.includes("date")) return refuse(row, "Its signature doesn't cover its date, so it can't be told apart from an old email sent again.");
+  // The same goes for the Message-ID the never-twice rule keys on: it must be signed, and be the one this row was stored under.
+  if (sender.signed && !(sender.signed.includes("date") && sender.signed.includes("message-id"))) {
+    return refuse(row, "Its signature doesn't cover its date and Message-ID, so it can't be told apart from an old email sent again.");
+  }
+  const messageLines = headers.filter((h) => h.name === "message-id");
+  if (messageLines.length !== 1 || !row.messageId || bracketed(messageLines[0].value) !== row.messageId) return refuse(row, "Its Message-ID is missing or doesn't match, so it can't be checked against emails already read.");
   const fresh = freshEnough(headers.find((h) => h.name === "date")?.value);
   if (!fresh.ok) return refuse(row, fresh.reason);
   await db.update(forwards).set({ verifiedBy: sender.how }).where(eq(forwards.id, row.id));
