@@ -15,6 +15,7 @@ describe("links in the agent's answers", () => {
     assert.equal(inAppPath("https://example.org/clients/abc", origin), null);
     assert.equal(inAppPath("http://crm.example.com/clients/abc", origin), null);
     assert.equal(inAppPath("//example.org/x", origin), null);
+    assert.equal(inAppPath("https://crm.example.com//example.org/x", origin), null);
     assert.equal(inAppPath("/\\example.org", origin), null);
     assert.equal(inAppPath("https://crm.example.com/api/files/abc", origin), null);
     assert.equal(inAppPath("/api/files/abc", origin), null);

@@ -17,6 +17,7 @@ export function inAppPath(href: string | undefined, origin: string): string | nu
       return null;
     }
   }
-  // Endpoints (a file's download, say) aren't pages.
+  // "//host" would leave this site, and endpoints (a file's download, say) aren't pages.
+  if (!/^\/(?!\/)/.test(path) || path.includes("\\")) return null;
   return /^\/api(\/|$)/i.test(path) ? null : path;
 }
