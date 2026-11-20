@@ -592,9 +592,13 @@ export async function clearPanelRuns(actor: Actor, opts: { ids?: string[]; batch
   const db = await getDb();
   const mine = eq(runs.userId, actor.user.id);
   const named = opts.ids?.length ? inArray(runs.id, opts.ids) : opts.batchId ? eq(runs.batchId, opts.batchId) : undefined;
-  if (named) {
+  if (opts.ids?.length) {
     const going = await db.select({ id: runs.id }).from(runs).where(and(mine, named, inArray(runs.status, [...ACTIVE])));
     for (const r of going) await cancelRun(actor, r.id);
+  } else if (opts.batchId) {
+    // All at once: stopping them one by one would let each stop start the next one waiting in the same request.
+    const going = await db.select({ id: runs.id }).from(runs).where(and(mine, named, inArray(runs.status, [...ACTIVE]))).limit(1);
+    if (going.length) await cancelBatch(actor, opts.batchId);
   }
   const now = new Date();
   const cleared = await db
