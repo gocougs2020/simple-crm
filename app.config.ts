@@ -346,7 +346,7 @@ const defaults = {
       maxRunMinutes: 20,
       maxConcurrentPerUser: 3,
       maxBulkRecords: 50,
-      clearAfterMinutes: 60,
+      clearAfterMinutes: 15,
     },
     forwarding: {
       enabled: true,

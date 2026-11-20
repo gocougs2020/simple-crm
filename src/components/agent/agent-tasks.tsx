@@ -149,12 +149,13 @@ export function AgentTasks({ open, threadId, refreshKey, onAnswer, onNavigate }:
     return () => window.clearInterval(timer);
   }, [active, load]);
 
-  // A finished task leaves the list on its own; with nothing going there's no poll, so drop it here when its time comes.
+  // A finished task leaves the list on its own when its time comes. The time is already here, so this asks the server nothing.
   useEffect(() => {
-    if (!open || active || !tasks.length) return;
-    const timer = window.setInterval(() => void load(), 5 * 60_000);
-    return () => window.clearInterval(timer);
-  }, [open, active, tasks.length, load]);
+    const next = Math.min(...tasks.flatMap((t) => (t.hideAt ? [new Date(t.hideAt).getTime()] : [])));
+    if (!Number.isFinite(next)) return;
+    const timer = window.setTimeout(() => setTasks((list) => list.filter((t) => !t.hideAt || new Date(t.hideAt).getTime() > Date.now())), Math.max(0, next - Date.now()) + 250);
+    return () => window.clearTimeout(timer);
+  }, [tasks]);
 
   const stop = async (key: string, work: () => Promise<{ ok: true } | { ok: false; error: string }>) => {
     setStopping(key);

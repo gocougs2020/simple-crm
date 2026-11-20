@@ -135,7 +135,7 @@ Some jobs take too long for a chat answer: researching a company on the web and 
 
 A fourth, for lists: `start_bulk_background_task` runs the same request on each of several records (every organization in a view, say), one run per record, a few at a time. The chat agent is told to try three records first and show the results before running the rest.
 
-**The list in the panel keeps itself short.** "Background tasks" shows what's going and what finished lately. A finished task (done, stopped or one that couldn't finish) leaves the list `agent.background.clearAfterMinutes` (60) after the teammate's open panel first listed it finished, so work that ended overnight is still there in the morning and then goes an hour later. Each task has a button that takes it off the list, stopping it first when it's still going, and "Clear all" removes everything finished. Clearing only tidies the list (`agent_runs.hide_at`): the run, its changes and its spend stay, and the API and MCP still list it. A finished task nobody looked at drops off after 7 days. There's no pausing a run to resume later: Stop ends it, and what it changed so far stays.
+**The list in the panel keeps itself short.** "Background tasks" shows what's going and what finished lately. A finished task (done, stopped or one that couldn't finish) leaves the list `agent.background.clearAfterMinutes` (15) after the teammate's open panel first listed it finished, so work that ended overnight is still there in the morning and then goes 15 minutes later. Each task has a button that takes it off the list, stopping it first when it's still going, and "Clear all" removes everything finished. Clearing only tidies the list (`agent_runs.hide_at`): the run, its changes and its spend stay, and the API and MCP still list it. A finished task nobody looked at drops off after 7 days. There's no pausing a run to resume later: Stop ends it, and what it changed so far stays.
 
 While a task is going, the page behind the panel checks for changes every few seconds, panel open or closed, so records the agent is filling in update as it works ([live updates](ARCHITECTURE.md#live-updates)).
 
@@ -215,7 +215,7 @@ Exactly what any background run can, as the sender: no archiving, deleting, merg
 | `agent.background.maxRunMinutes` | `20` | A run still going after this long is cancelled |
 | `agent.background.maxConcurrentPerUser` | `3` | How many of one teammate's runs work at once. The rest wait their turn |
 | `agent.background.maxBulkRecords` | `50` | The most records one bulk request can cover |
-| `agent.background.clearAfterMinutes` | `60` | How long a finished task stays under "Background tasks" once the teammate's open panel has listed it |
+| `agent.background.clearAfterMinutes` | `15` | How long a finished task stays under "Background tasks" once the teammate's open panel has listed it |
 | `agent.forwarding.enabled` | `true` | [Email forwarding](#email-forwarding). Also needs `FORWARD_EMAIL_DOMAIN` |
 | `agent.forwarding.perHour` | `20` | The most emails one teammate can send the agent in an hour |
 | `agent.forwarding.maxRounds` | `8` | How many times one forwarded conversation can go back and forth |

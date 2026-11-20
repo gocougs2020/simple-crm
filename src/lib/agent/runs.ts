@@ -577,6 +577,7 @@ export async function listPanelRuns(actor: Actor, opts: { seen?: boolean } = {})
       .update(runs)
       .set({ hideAt, updatedAt: sql`${runs.updatedAt}` })
       .where(and(inArray(runs.id, fresh), isNull(runs.hideAt), notInArray(runs.status, [...ACTIVE])));
+    return rows.map((r) => (fresh.includes(r.id) ? { ...r, hideAt } : r));
   }
   return rows;
 }

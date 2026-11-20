@@ -97,6 +97,8 @@ export type AgentTask = {
   url: string | null;
   createdAt: string;
   finishedAt: string | null;
+  /** When it leaves the panel's list: set once the open panel has listed it finished. */
+  hideAt: string | null;
 };
 
 const toTask = (r: Run): AgentTask => ({
@@ -111,6 +113,7 @@ const toTask = (r: Run): AgentTask => ({
   url: r.clientId ? `/clients/${r.clientId}` : r.personId ? `/people/${r.personId}` : r.organizationId ? `/organizations/${r.organizationId}` : null,
   createdAt: r.createdAt.toISOString(),
   finishedAt: r.finishedAt?.toISOString() ?? null,
+  hideAt: r.hideAt?.toISOString() ?? null,
 });
 
 /**
