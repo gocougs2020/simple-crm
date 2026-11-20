@@ -75,7 +75,8 @@ describe("DKIM", () => {
   });
 
   it("refuses a changed body", async () => {
-    const msg = signMessage(headers, body, { key: rsa.privateKey, d: "acme.com" }).replace("42", "4200");
+    // Only the body: the base64 signature on top can contain "42" too.
+    const msg = signMessage(headers, body, { key: rsa.privateKey, d: "acme.com" }).replace("were 42 in", "were 4200 in");
     const [r] = await verifyDkim(msg, lookup);
     assert.equal(r.ok, false);
     assert.match(r.reason ?? "", /body was changed/);
@@ -134,11 +135,16 @@ describe("the sender check", () => {
     const r = checkSender({ fromDomain: "acme.com", dkim: [{ domain: "mailer.com", selector: "s", ok: true }], authResults: [], trusted: new Set() });
     assert.equal(r.ok, false);
   });
-  it("trusts DMARC only from a listed receiver", () => {
+  it("trusts DMARC only from a listed receiver, in the topmost line", () => {
     const line = "mx.resend.example; spf=pass smtp.mailfrom=acme.com; dkim=fail; dmarc=pass (p=quarantine) header.from=acme.com";
+    const failed = "mx.resend.example; dmarc=fail header.from=acme.com";
     assert.equal(checkSender({ fromDomain: "acme.com", dkim: [], authResults: [line], trusted }).ok, true);
     assert.equal(checkSender({ fromDomain: "acme.com", dkim: [], authResults: [line.replace("mx.resend.example", "attacker.example")], trusted }).ok, false);
     assert.equal(checkSender({ fromDomain: "acme.com", dkim: [], authResults: [line.replace("header.from=acme.com", "header.from=evil.com")], trusted }).ok, false);
+    // A line that names the domain is required.
+    assert.equal(checkSender({ fromDomain: "acme.com", dkim: [], authResults: [line.replace(" header.from=acme.com", "")], trusted }).ok, false);
+    // A forged pass below the receiver's own fail doesn't count.
+    assert.equal(checkSender({ fromDomain: "acme.com", dkim: [], authResults: [failed, line], trusted }).ok, false);
   });
   it("parses Authentication-Results", () => {
     const ar = parseAuthResults("mx.example.com; dkim=pass header.d=acme.com header.s=s1; dmarc=pass header.from=Acme.com");

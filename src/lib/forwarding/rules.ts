@@ -103,18 +103,21 @@ export type SenderCheck = { ok: true; how: string } | { ok: false; reason: strin
 
 /**
  * Whether the message provably comes from the From domain: a DKIM signature
- * we checked ourselves from a domain aligned with it, or DMARC passing in an
- * Authentication-Results line from a receiver the deployment trusts. Lines
- * from other receivers are ignored, since a sender can write their own.
+ * we checked ourselves from a domain aligned with it, or DMARC passing in the
+ * topmost Authentication-Results line, when that line is from a receiver the
+ * deployment trusts. Only the topmost line counts: it's the one the receiving
+ * server added last, while any line below it may have come with the message
+ * (a sender can write one with any receiver's id). The caller passes the
+ * lines in message order, from the raw message.
  */
 export function checkSender(input: { fromDomain: string; dkim: DkimResult[]; authResults: string[]; trusted: Set<string> }): SenderCheck {
   const good = input.dkim.find((d) => d.ok && aligned(input.fromDomain, d.domain));
   if (good) return { ok: true, how: `DKIM signature from ${good.domain}` };
-  for (const line of input.authResults) {
-    const ar = parseAuthResults(line);
-    if (!input.trusted.has(ar.authservId)) continue;
+  const top = input.authResults[0];
+  if (top) {
+    const ar = parseAuthResults(top);
     const dmarc = ar.methods.find((m) => m.method === "dmarc");
-    if (dmarc?.result === "pass" && (!dmarc.props["header.from"] || dmarc.props["header.from"] === input.fromDomain)) return { ok: true, how: `DMARC pass reported by ${ar.authservId}` };
+    if (input.trusted.has(ar.authservId) && dmarc?.result === "pass" && dmarc.props["header.from"] === input.fromDomain) return { ok: true, how: `DMARC pass reported by ${ar.authservId}` };
   }
   const seen = input.dkim.length ? input.dkim.map((d) => `${d.domain || "unknown"}: ${d.ok ? (aligned(input.fromDomain, d.domain) ? "valid" : `valid but not ${input.fromDomain}`) : d.reason}`).join("; ") : "none";
   const others = [...new Set(input.authResults.map((l) => parseAuthResults(l).authservId).filter(Boolean))];

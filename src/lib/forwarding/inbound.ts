@@ -228,7 +228,8 @@ async function processForward(row: Forward, hit: { token: string; conversationKe
   const sender = checkSender({
     fromDomain,
     dkim: raw ? await verifyDkim(raw, dnsLookup) : [],
-    authResults: headers.filter((h) => h.name === "authentication-results").map((h) => h.value),
+    // In message order, so the topmost (the receiver's own) comes first. Without the raw message the order is lost, so none count.
+    authResults: raw ? headers.filter((h) => h.name === "authentication-results").map((h) => h.value) : [],
     trusted: trustedAuthservIds(),
   });
   if (!sender.ok) return refuse(row, sender.reason);
