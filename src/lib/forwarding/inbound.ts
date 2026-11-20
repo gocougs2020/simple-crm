@@ -16,7 +16,7 @@ import { siteOrigin } from "@/lib/origin";
 import { roleCan } from "@/lib/permissions";
 import { rateLimit } from "@/lib/rate-limit";
 import { htmlToText, sanitizeHtml } from "@/lib/safe-html";
-import { headerValue, LOOKUP_FAILED, splitMessage, verifyDkim } from "./dkim";
+import { aligned, headerValue, LOOKUP_FAILED, splitMessage, verifyDkim } from "./dkim";
 import {
   absoluteLinks,
   addressOf,
@@ -243,8 +243,10 @@ async function processForward(row: Forward, hit: { conversationKey: string | nul
     trusted: trustedAuthservIds(),
   });
   if (!sender.ok) {
-    // DNS didn't answer for a key: that's on the way, not the sender. Retry rather than refuse a real email.
-    if (dkim.some((d) => d.reason === LOOKUP_FAILED)) throw new RetryLater("DKIM key lookup failed");
+    // DNS didn't answer for the key of a signature that would have counted (from the sender's own domain):
+    // that's on the way, not the sender, so Resend retries rather than a real email being refused. A failing
+    // lookup for any other domain is refused as usual, so a bogus extra signature can't keep it retrying.
+    if (dkim.some((d) => d.reason === LOOKUP_FAILED && aligned(fromDomain, d.domain))) throw new RetryLater("DKIM key lookup failed");
     return refuse(row, sender.reason);
   }
   // 4. Written lately, so an old email of theirs can't be sent again by someone who received it. Only meaningful
