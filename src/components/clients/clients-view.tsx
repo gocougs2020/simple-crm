@@ -16,16 +16,19 @@ import { DataTable, type Column } from "@/components/table/data-table";
 import { OwnerFilter, SearchBox, Toolbar } from "@/components/table/toolbar";
 import { useListParams } from "@/components/table/use-params";
 import { BulkAddLabels, LabelChips, useLabels } from "@/components/records/labels";
-import { Tag } from "@/components/ui/badge";
+import { StatusBadge, Tag, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Select } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
 import { churnReasons, clientCategories, clientCategoryLabels, clientHealthLabels, clientHealths, type ClientCategory } from "@/lib/constants";
+import { billingStatusLabels, billingStatuses, type BillingStatus } from "@/lib/stripe/rules";
 import type { ClientRow } from "@/lib/crm/records";
 import { formatDateOnly } from "@/lib/format";
 import { ClientsBoard } from "./board";
 import { HealthBadge } from "./client-controls";
+
+const billingTone: Record<BillingStatus, Tone> = { past_due: "error", active: "success", trialing: "info", paused: "warning", canceled: "neutral", customer: "neutral" };
 
 export function ClientsView({
   rows,
@@ -34,6 +37,7 @@ export function ClientsView({
   pipelineId,
   counts,
   tags,
+  stripeProducts,
 }: {
   rows: ClientRow[];
   view: "board" | "table";
@@ -41,8 +45,10 @@ export function ClientsView({
   pipelineId: string | null;
   counts: Partial<Record<ClientCategory, number>>;
   tags: string[];
+  /** Stripe products clients are subscribed to now, for the filter. Empty when Stripe isn't connected. */
+  stripeProducts: string[];
 }) {
-  const { pipelines, money, viewer, customFields, member, team, catalog, workspace, canEdit } = useApp();
+  const { pipelines, money, viewer, customFields, member, team, catalog, workspace, canEdit, services: connected } = useApp();
   const labels = useLabels();
   const shownTags = labels.shown(tags);
   const tz = workspace.timezone;
@@ -85,6 +91,34 @@ export function ClientsView({
     render: (r) => (r.personFirstName ? <Link href={`/people/${r.client.personId}`} className="hover:underline">{[r.personFirstName, r.personLastName].filter(Boolean).join(" ")}</Link> : <span className="text-faint">—</span>),
   };
   const stage: Column<ClientRow> = { key: "stage", label: "Stage", sort: "stage", render: (r) => <span className="whitespace-nowrap">{r.stageName}</span> };
+  /** What Stripe says: the status, the monthly amount and the products, from the daily sync. */
+  const billing: Column<ClientRow> = {
+    key: "billing",
+    label: "Stripe",
+    sort: "stripeMrr",
+    className: "max-w-64",
+    render: (r) =>
+      r.client.stripeStatus ? (
+        <span className="flex flex-wrap items-center gap-1">
+          <StatusBadge tone={billingTone[r.client.stripeStatus]}>{billingStatusLabels[r.client.stripeStatus]}</StatusBadge>
+          {r.client.stripeMrr ? <span className="text-[12.5px] text-secondary tabular-nums">{money(r.client.stripeMrr)}/mo</span> : null}
+          {r.client.stripeOwed ? <span className="text-[12.5px] text-warning tabular-nums">{money(r.client.stripeOwed)} owed</span> : null}
+          {r.client.stripeProducts.map((p) => (
+            <Tag key={p}>{p}</Tag>
+          ))}
+        </span>
+      ) : (
+        <span className="text-faint">—</span>
+      ),
+  };
+  /** What they actually paid through Stripe in the last 12 months, less refunds. */
+  const collectedCol: Column<ClientRow> = {
+    key: "collected",
+    label: "Collected, 12 mo",
+    sort: "stripeCollected",
+    align: "right",
+    render: (r) => (r.client.stripeCollected ? <span className="tabular-nums">{money(r.client.stripeCollected)}</span> : <span className="text-faint">—</span>),
+  };
   const services = (active: boolean): Column<ClientRow> => ({
     key: "services",
     label: active ? "Services" : "Had",
@@ -93,8 +127,9 @@ export function ClientsView({
       const list = r.services.filter((s) => s.active === active);
       return list.length ? (
         <span className="flex flex-wrap gap-1">
-          {list.map((s) => (
-            <Tag key={s.name}>{s.name}</Tag>
+          {/* The same service twice (two plans of it) shows once. */}
+          {[...new Set(list.map((s) => s.name))].map((name) => (
+            <Tag key={name}>{name}</Tag>
           ))}
         </span>
       ) : (
@@ -130,12 +165,13 @@ export function ClientsView({
   });
 
   const byCategory: Record<ClientCategory, Column<ClientRow>[]> = {
-    prospective: [name, { key: "value", label: "Potential value", sort: "value", align: "right", render: (r) => <span className="tabular-nums">{money(r.client.value)}</span> }, contact, stage, next, date("expectedCloseDate", "Expected to sign", "expectedClose"), owner, last],
-    current: [name, monthly("mrr", "Monthly"), services(true), { key: "health", label: "Health", render: (r) => (r.client.health ? <HealthBadge health={r.client.health} /> : <span className="text-faint">—</span>) }, stage, next, date("startedOn", "Client since", "startedOn"), owner, last],
+    prospective: [name, { key: "value", label: "Potential value", sort: "value", align: "right", render: (r) => <span className="tabular-nums">{money(r.client.value)}</span> }, contact, ...(connected.stripe ? [billing, collectedCol] : []), stage, next, date("expectedCloseDate", "Expected to sign", "expectedClose"), owner, last],
+    current: [name, monthly("mrr", "Monthly"), services(true), ...(connected.stripe ? [billing, collectedCol] : []), { key: "health", label: "Health", render: (r) => (r.client.health ? <HealthBadge health={r.client.health} /> : <span className="text-faint">—</span>) }, stage, next, date("startedOn", "Client since", "startedOn"), owner, last],
     past: [
       name,
       monthly("formerMrr", "Was paying"),
       services(false),
+      ...(connected.stripe ? [billing, collectedCol] : []),
       { key: "reason", label: "Why they left", className: "max-w-56", render: (r) => (r.client.churnReason ? <span className="truncate">{r.client.churnReason}</span> : <span className="text-faint">—</span>) },
       { key: "return", label: "Win back", render: (r) => (r.client.openToReturn ? <span className="text-secondary">Open</span> : <span className="text-faint">Not interested</span>) },
       stage,
@@ -179,7 +215,7 @@ export function ClientsView({
             key={c}
             type="button"
             aria-current={c === category ? "page" : undefined}
-            onClick={() => set({ category: c === "prospective" ? null : c, pipeline: null, health: null, service: null, reason: null, sort: null, dir: null })}
+            onClick={() => set({ category: c === "prospective" ? null : c, pipeline: null, health: null, service: null, reason: null, billing: null, product: null, sort: null, dir: null })}
             className={clsx("-mb-px border-b-2 px-2.5 py-2.5 text-[13.5px] font-medium", c === category ? "border-accent text-primary" : "border-transparent text-muted hover:text-secondary")}
           >
             {clientCategoryLabels[c].many}
@@ -219,6 +255,8 @@ export function ClientsView({
         {category === "current" ? filterSelect("health", "Any health", [...clientHealths.map((h) => ({ value: h, label: clientHealthLabels[h] })), { value: "none", label: "Not set" }]) : null}
         {category !== "prospective" && catalog.length ? filterSelect("service", "Any service", catalog.map((s) => ({ value: s.id, label: s.name }))) : null}
         {category === "past" ? filterSelect("reason", "Any reason", churnReasons.map((r) => ({ value: r, label: r }))) : null}
+        {connected.stripe ? filterSelect("billing", "Any billing", [...billingStatuses.map((b) => ({ value: b, label: billingStatusLabels[b] })), { value: "none", label: "Not in Stripe" }]) : null}
+        {stripeProducts.length ? filterSelect("product", "Any Stripe product", stripeProducts.map((p) => ({ value: p, label: p }))) : null}
         {shownTags.length ? filterSelect("tag", "Any label", shownTags.map((t) => ({ value: t, label: t }))) : null}
       </Toolbar>
       {!options.length ? (

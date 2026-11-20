@@ -311,7 +311,6 @@ export type ClientFields = {
   endedOn: string | null;
   churnReason: string | null;
   health: ClientHealth | null;
-  stripeCustomerId: string | null;
   tags: string[];
   personId: string | null;
   organizationId: string | null;
@@ -359,7 +358,7 @@ export function planClientMerge(survivor: ClientFields, donors: ClientFields[]) 
   const same = donors.filter((d) => d.category === survivor.category);
   const patch: Partial<ClientFields> = {
     ...fillGaps(survivor, same, ["expectedCloseDate", "endedOn", "churnReason", "health"] as const),
-    ...fillGaps(survivor, donors, ["stripeCustomerId", "personId", "organizationId", "ownerId"] as const),
+    ...fillGaps(survivor, donors, ["personId", "organizationId", "ownerId"] as const),
   };
   if (!survivor.value) {
     const value = same.find((d) => d.value)?.value;

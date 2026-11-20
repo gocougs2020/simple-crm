@@ -127,13 +127,11 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
               organizationName={organization?.name ?? null}
               people={associated.map(({ person: p, source }) => ({ id: p.id, name: personName(p), title: p.title, email: p.email, decisionMaker: p.decisionMaker, source }))}
             />
-            {c !== "prospective" ? (
-              <ServicesCard clientId={id} category={c} rows={services}>
-                <Suspense fallback={<Skeleton className="mt-3 h-16 rounded-lg" />}>
-                  <BillingCard clientId={id} customerId={client.stripeCustomerId} suggest={person?.email ?? organization?.name ?? client.name} />
-                </Suspense>
-              </ServicesCard>
-            ) : null}
+            {c !== "prospective" ? <ServicesCard clientId={id} category={c} rows={services} /> : null}
+            {/* Billing shows on every client, prospects included: someone can be paying for one product while being sold another. */}
+            <Suspense fallback={<Skeleton className="h-28 rounded-xl" />}>
+              <BillingCard clientId={id} syncedAt={client.stripeSyncedAt} suggest={person?.email ?? organization?.name ?? client.name} />
+            </Suspense>
             {c === "current" || metrics.length ? <PerformanceCard clientId={id} metrics={metrics} readOnly={c !== "current"} /> : null}
             <FilesCard files={tl.files} emailFiles={tl.emailFiles} links={{ clientId: id, personId: client.personId, organizationId: client.organizationId }} />
           </>

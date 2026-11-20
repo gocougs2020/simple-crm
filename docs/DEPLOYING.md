@@ -19,7 +19,8 @@ Import the repository in Vercel. `vercel.json` sets the build command (`pnpm db:
 | `RESEND_FROM` | A sender on a domain verified in Resend, e.g. `Acme <crm@acme.com>` |
 | `RESEND_DOMAINS` | Optional. The Resend domains this CRM manages, comma-separated, e.g. `mail.acme.com`. Set it when the Resend account is shared with another app: the CRM then never lists, syncs, sends from or removes the other domains and their inboxes. Unset means every domain in the account |
 | `CRON_SECRET` | Any long random string. Vercel sends it to the cron endpoints |
-| `STRIPE_SECRET_KEY` | Optional. A **restricted** key with read access to Customers, Subscriptions, Invoices, Charges and Products. Shows billing on current and past clients |
+| `STRIPE_SECRET_KEY` | Optional. A **restricted** key with read access to Customers, Subscriptions, Invoices, Charges, Products, Prices and Payment Methods. Shows billing on every client, matched by the emails of the client's people |
+| `STRIPE_SECRET_KEY_<NAME>`, `STRIPE_ACCOUNT_LABEL_<NAME>` | Optional. One more Stripe account per key (`STRIPE_SECRET_KEY_A`, `STRIPE_SECRET_KEY_B`), each with the label the app shows for it. `<NAME>` is letters, digits and underscores; lowercased, it's the account's id in the database, so keep it once set |
 | `RESEND_WEBHOOK_SECRET` | Optional. Only if you create the Resend webhook yourself; otherwise Settings → Email domains → Connect webhook creates it and stores its secret. A webhook you create yourself needs the `inbox.*` events and, for delivery tracking, `email.sent`, `email.delivered`, `email.delivery_delayed`, `email.bounced`, `email.complained`, `email.failed` and `email.suppressed` |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Optional, for push notifications. Generate once with `pnpm dlx web-push generate-vapid-keys` and keep them: changing them turns notifications off on every device until people turn them on again |
 | `VAPID_SUBJECT` | Optional. A `mailto:` or `https:` contact for push services, e.g. `mailto:it@acme.com`. Defaults to `NEXT_PUBLIC_SITE_URL` |
@@ -36,7 +37,7 @@ Import the repository in Vercel. `vercel.json` sets the build command (`pnpm db:
 
 The three `NEXT_PUBLIC_*` values are compiled into the page, so they need a redeploy to change and must never hold secrets.
 
-Mark `AUTH_SECRET`, `RESEND_API_KEY`, `CRON_SECRET`, `STRIPE_SECRET_KEY`, `RESEND_WEBHOOK_SECRET`, `VAPID_PRIVATE_KEY`, `AI_GATEWAY_API_KEY`, `MICROSOFT_CLIENT_SECRET`, `TWILIO_API_KEY_SECRET`, `TWILIO_WEBHOOK_SECRET`, `TWILIO_AUTH_TOKEN` (if used), `TOKEN_ENCRYPTION_KEY` and `KNOWLEDGE_API_KEY` as **Sensitive**. The Resend key needs full access, so the CRM can manage domains, inboxes and webhooks. Preview deployments should use their own Neon branch (Neon's Vercel integration can create one per preview) so previews never touch production data.
+Mark `AUTH_SECRET`, `RESEND_API_KEY`, `CRON_SECRET`, `STRIPE_SECRET_KEY` (and every `STRIPE_SECRET_KEY_<NAME>`), `RESEND_WEBHOOK_SECRET`, `VAPID_PRIVATE_KEY`, `AI_GATEWAY_API_KEY`, `MICROSOFT_CLIENT_SECRET`, `TWILIO_API_KEY_SECRET`, `TWILIO_WEBHOOK_SECRET`, `TWILIO_AUTH_TOKEN` (if used), `TOKEN_ENCRYPTION_KEY` and `KNOWLEDGE_API_KEY` as **Sensitive**. The Resend key needs full access, so the CRM can manage domains, inboxes and webhooks. Preview deployments should use their own Neon branch (Neon's Vercel integration can create one per preview) so previews never touch production data.
 
 ## 4. Set up email domains and inboxes
 
