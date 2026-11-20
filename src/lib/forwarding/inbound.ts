@@ -197,10 +197,8 @@ const dnsLookup = async (name: string) => {
 
 async function processForward(row: Forward, hit: { conversationKey: string | null }, user: User) {
   const db = await getDb();
-  // Before anything is fetched: unproven mail can't pile up without limit. One bucket for the team, not the
-  // teammate named, so forged mail in someone's name can't use up their own allowance and lock them out.
-  const arriving = await rateLimit("forward-in", "team", { limit: cfg().perHour * 25, windowMs: 3_600_000 });
-  if (arriving.limited) return refuse(row, `More emails than ${appConfig.agent.name} reads in an hour arrived for the whole team, so this one wasn't read. Forward it again later.`);
+  // No limit before the checks: anything that refuses unproven mail would let forged mail lock real senders out.
+  // Checking costs a Resend lookup and a DNS query; the hourly limit below counts only mail that passed.
 
   const resend = getResend();
   if (!resend) throw new RetryLater("Resend isn't connected");
