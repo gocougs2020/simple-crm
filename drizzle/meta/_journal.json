@@ -218,6 +218,27 @@
       "when": 1795124211164,
       "tag": "0030_private-mail-block-list-folders",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1795146067656,
+      "tag": "0031_stripe-accounts-and-sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1795147711914,
+      "tag": "0032_keep-stripe-customer-id",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1795147900906,
+      "tag": "0033_stripe-discounts-and-collected",
+      "breakpoints": true
     }
   ]
 }

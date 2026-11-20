@@ -2,8 +2,8 @@
 
 import clsx from "clsx";
 import { useState, useTransition, type ReactNode } from "react";
-import { ArrowDownRightIcon, ArrowUpRightIcon, EllipsisHorizontalIcon, LinkIcon, PlusIcon, TrashIcon } from "@heroicons/react/20/solid";
-import { addClientService, deleteClientMetric, findStripeCustomers, linkStripeCustomer, logClientMetric, removeClientService, updateClientService } from "@/actions/clients";
+import { ArrowDownRightIcon, ArrowUpRightIcon, EllipsisHorizontalIcon, PlusIcon, TrashIcon } from "@heroicons/react/20/solid";
+import { addClientService, deleteClientMetric, logClientMetric, removeClientService, updateClientService } from "@/actions/clients";
 import { useApp } from "@/components/app-context";
 import { SideCard } from "@/components/records/inline-field";
 import { Button } from "@/components/ui/button";
@@ -409,83 +409,3 @@ function LogMetric({ clientId, label: initial, labels, onClose }: { clientId: st
 }
 
 // ─── Stripe ──────────────────────────────────────────────────────────────
-
-/** Finds a Stripe customer by email, name or ID and links it, so their billing shows here. */
-export function StripeLinker({ clientId, suggest, linked }: { clientId: string; suggest: string | null; linked: string | null }) {
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState(suggest ?? "");
-  const [results, setResults] = useState<{ id: string; name: string | null; email: string | null }[] | null>(null);
-  const [pending, start] = useTransition();
-  const search = () =>
-    start(async () => {
-      const r = await findStripeCustomers(q);
-      if (!r.ok) return void toast.error(r.error);
-      setResults(r.data);
-    });
-  const link = (id: string | null) =>
-    start(async () => {
-      const r = await linkStripeCustomer(clientId, id);
-      if (!r.ok) return void toast.error(r.error);
-      toast.success(id ? "Stripe customer linked" : "Stripe customer unlinked");
-      setOpen(false);
-    });
-  return (
-    <>
-      {linked ? (
-        <Menu>
-          <MenuTrigger asChild>
-            <Button size="sm" variant="ghost" className="-mr-2" loading={pending}>
-              <LinkIcon />
-              Linked
-            </Button>
-          </MenuTrigger>
-          <MenuContent className="w-48">
-            <MenuItem onSelect={() => setOpen(true)}>Link another customer</MenuItem>
-            <MenuItem destructive onSelect={() => link(null)}>
-              Unlink
-            </MenuItem>
-          </MenuContent>
-        </Menu>
-      ) : (
-        <Button size="sm" variant="ghost" className="-mr-2" onClick={() => setOpen(true)}>
-          <LinkIcon />
-          Link customer
-        </Button>
-      )}
-      {open ? (
-        <Dialog open onOpenChange={(o) => !o && setOpen(false)} title="Link a Stripe customer" description="Search by email, name, or paste a customer ID (cus_…)." size="sm">
-          <form
-            className="flex gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              search();
-            }}
-          >
-            <Input value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="billing@acme.com" aria-label="Search Stripe customers" />
-            <Button type="submit" variant="outline" loading={pending}>
-              Search
-            </Button>
-          </form>
-          {results ? (
-            results.length ? (
-              <ul className="-mx-2 mt-3">
-                {results.map((c) => (
-                  <li key={c.id}>
-                    <button type="button" onClick={() => link(c.id)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-sunken" disabled={pending}>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] font-medium text-primary">{c.name ?? c.email ?? c.id}</span>
-                        <span className="block truncate text-[11.5px] text-muted">{[c.email, c.id].filter(Boolean).join(" · ")}</span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-3 text-[13px] text-muted">No customers match. Try their billing email or paste the ID from Stripe.</p>
-            )
-          ) : null}
-        </Dialog>
-      ) : null}
-    </>
-  );
-}

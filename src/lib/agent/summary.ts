@@ -8,7 +8,8 @@ import { getAppData } from "@/lib/crm/context";
 import { clientsOfOrganization, getClient, getOrganization, getPerson, metricsOf, peopleOf, servicesOf } from "@/lib/crm/records";
 import { formatMoney, personName } from "@/lib/format";
 import { htmlToText } from "@/lib/safe-html";
-import { billingFor, stripeConfigured } from "@/lib/stripe";
+import { billingFor, stripeAccounts, stripeConfigured } from "@/lib/stripe";
+import { customersOfClient } from "@/lib/stripe/sync";
 import { getWorkspace } from "@/lib/workspace";
 import { aiGateway } from "./gateway";
 import { activityLine, cleanSummary, isFresh, SUMMARY_LOCK_MS, summaryInstructions, type SummaryEntity } from "./summary-prompt";
@@ -161,7 +162,7 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
       for (const m of metrics) latest.set(m.label, m);
       sections.push(["## Performance (latest)", ...[...latest.values()].map((m) => `${m.label}: ${m.value} (${d(m.period)})`)].join("\n"));
     }
-    if (client.stripeCustomerId) sections.push(await billingSection([client.stripeCustomerId], d));
+    sections.push(await billingSection(await customersOfClient(id), d));
     const peopleIds = [...new Set([client.personId, ...accountPeople.map((p) => p.id)].filter((x): x is string => !!x))].slice(0, MAX_PEOPLE);
     if (accountPeople.length) sections.push(["## People at the account", ...accountPeople.slice(0, MAX_PEOPLE).map((p) => `${personName(p)}${p.title ? `, ${p.title}` : ""}`)].join("\n"));
     scope = or(eq(a.clientId, id), peopleIds.length ? inArray(a.personId, peopleIds) : undefined, client.organizationId ? eq(a.organizationId, client.organizationId) : undefined);
@@ -169,10 +170,7 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
     const org = await getOrganization(id);
     if (!org) throw new Error("Organization not found.");
     const [people, clients] = await Promise.all([peopleOf(id), clientsOfOrganization(id)]);
-    const db = await getDb();
-    const stripeIds = clients.length
-      ? (await db.select({ id: schema.clients.stripeCustomerId }).from(schema.clients).where(inArray(schema.clients.id, clients.map((c) => c.id)))).map((r) => r.id).filter((x): x is string => !!x)
-      : [];
+    const stripeIds = stripeConfigured() ? (await Promise.all(clients.slice(0, 3).map((c) => customersOfClient(c.id)))).flat() : [];
     sections.push(
       ["## Organization", line("Name", org.name), line("Website", org.domain), line("Industry", org.industry), line("Labels", labeled(org.tags)), line("Owner", member(org.ownerId)), line("Other fields", custom(org.custom))].filter(Boolean).join("\n"),
     );
@@ -273,12 +271,14 @@ async function activitySection(scope: SQL | undefined, d: (x: Date | null) => st
 }
 
 /** What Stripe says, briefly: subscriptions, unpaid invoices, failed payments. A Stripe outage leaves it out rather than failing the summary. */
-async function billingSection(customerIds: string[], d: (x: Date | null) => string | null) {
+async function billingSection(customers: { account: string; customerId: string }[], d: (x: Date | null) => string | null) {
   if (!stripeConfigured()) return "";
   const lines: string[] = [];
-  for (const cid of customerIds) {
+  const several = stripeAccounts().length > 1;
+  for (const { account, customerId } of customers.slice(0, 4)) {
     try {
-      const b = await billingFor(cid);
+      const b = await billingFor(account, customerId);
+      if (several || customers.length > 1) lines.push(`Customer ${b.customer.name ?? b.customer.email ?? customerId}${several ? ` (${b.accountLabel})` : ""}:`);
       const cur = (n: number, c: string) => formatMoney(n, c.toUpperCase());
       if (b.customer.delinquent) lines.push("Stripe marks this customer as delinquent (a payment failed).");
       if (b.customer.balance) lines.push(`Account balance: ${cur(b.customer.balance, b.customer.currency ?? "usd")}`);

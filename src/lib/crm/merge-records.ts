@@ -205,6 +205,8 @@ export async function mergeClientsInto(t: MergeDatabase, o: { keep: ClientFields
   // So are their contacts.
   await t.execute(sql`insert into client_people (client_id, person_id) select ${keep}, c.person_id from clients c where c.id = any(${uuids(ids)}) and c.person_id is not null on conflict do nothing`);
   await t.execute(sql`delete from client_people cp using clients c where cp.client_id = c.id and c.id = ${keep} and cp.person_id = c.person_id`);
+  // Stripe customers linked by hand, or marked as not theirs, carry over; where both said something, the kept client's word stands.
+  await t.execute(sql`insert into client_stripe_links (client_id, account, customer_id, kind, created_by, created_at) select distinct on (l.account, l.customer_id) ${keep}, l.account, l.customer_id, l.kind, l.created_by, l.created_at from client_stripe_links l where l.client_id = any(${uuids(ids)}) order by l.account, l.customer_id, l.created_at on conflict do nothing`);
   await moveHistory(t, "client", ids, keep);
   await t
     .update(schema.clients)

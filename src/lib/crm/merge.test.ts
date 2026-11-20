@@ -56,7 +56,6 @@ const client = (id: string, n: number, extra: Partial<ClientFields> = {}): Clien
   endedOn: null,
   churnReason: null,
   health: null,
-  stripeCustomerId: null,
   tags: [],
   personId: null,
   organizationId: "org1",
@@ -223,14 +222,14 @@ describe("merging clients", () => {
       client("old-prospect", 1, { value: 500_00, expectedCloseDate: "2024-06-01", tags: ["referral"] }),
       client("current", 2, { category: "current", startedOn: "2023-05-01" }),
       client("past", 3, { category: "past", startedOn: "2021-01-01", churnReason: "Price", health: "at_risk" as ClientFields["health"] }),
-      client("archived-current", 0, { category: "current", archivedAt: day(9), stripeCustomerId: "cus_1" }),
+      client("archived-current", 0, { category: "current", archivedAt: day(9) }),
     ]);
     assert.equal(survivor.id, "current");
     assert.deepEqual(
       donors.map((d) => d.id),
       ["past", "old-prospect", "archived-current"],
     );
-    assert.deepEqual(planClientMerge(survivor, donors), { stripeCustomerId: "cus_1", startedOn: "2021-01-01", tags: ["referral"] });
+    assert.deepEqual(planClientMerge(survivor, donors), { startedOn: "2021-01-01", tags: ["referral"] });
   });
 
   it("among prospects, keeps the one in the stage with the higher win probability", () => {
