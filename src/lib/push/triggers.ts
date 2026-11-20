@@ -1,8 +1,10 @@
 import "server-only";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { actorUserId, type Actor } from "@/lib/crm/actor";
-import { notify } from "./notify";
+import type { ActivityType, ClientCategory } from "@/lib/constants";
+import { notify, notifyEach, type Notice } from "./notify";
+import { activityTargets, activityVerb, noteTargets, stageTitle, type Owner } from "./routing";
 
 /**
  * What notifies whom. Each function is called from the service that made the
@@ -14,22 +16,23 @@ const actorName = (a: Actor) => (a.kind === "user" ? a.user.name.split(" ")[0] :
 type Links = { personId?: string | null; organizationId?: string | null; clientId?: string | null };
 const recordUrl = (l: Links) => (l.clientId ? `/clients/${l.clientId}` : l.personId ? `/people/${l.personId}` : l.organizationId ? `/organizations/${l.organizationId}` : "/activities");
 
-/** A task (or a planned call or meeting) given to someone other than whoever made the change. */
+/** "Sam gave you a task": for a task, or a planned call or meeting, given to someone. */
+function taskNotice(a: Actor, task: { id: string; subject: string | null; type: string; assigneeId: string } & Links): Notice {
+  return {
+    kind: "task_assigned",
+    title: `${actorName(a)} gave you a ${task.type === "task" ? "task" : task.type}`,
+    body: task.subject || "Open it to see the details.",
+    url: recordUrl(task),
+    // Per assignment, not per task and person: handing a task back to someone who had it before tells them again.
+    // The minute stops a double-submitted form from notifying twice.
+    dedupeKey: `task_assigned:${task.id}:${task.assigneeId}:${Math.floor(Date.now() / 60_000)}`,
+  };
+}
+
+/** A task (or a planned call or meeting) reassigned to someone other than whoever made the change. New ones go through activityLogged. */
 export function taskAssigned(a: Actor, task: { id: string; subject: string | null; type: string; assigneeId: string | null; completedAt?: Date | null } & Links) {
   if (!task.assigneeId || task.completedAt) return;
-  notify(
-    [task.assigneeId],
-    {
-      kind: "task_assigned",
-      title: `${actorName(a)} gave you a ${task.type === "task" ? "task" : task.type}`,
-      body: task.subject || "Open it to see the details.",
-      url: recordUrl(task),
-      // Per assignment, not per task and person: handing a task back to someone who had it before tells them again.
-      // The minute stops a double-submitted form from notifying twice.
-      dedupeKey: `task_assigned:${task.id}:${task.assigneeId}:${Math.floor(Date.now() / 60_000)}`,
-    },
-    { except: actorUserId(a) },
-  );
+  notify([task.assigneeId], taskNotice(a, { ...task, assigneeId: task.assigneeId }), { except: actorUserId(a) });
 }
 
 const entityPath = { client: "clients", person: "people", organization: "organizations" } as const;
@@ -75,18 +78,90 @@ export async function inboundEmail(message: { id: string; from: string; subject:
 }
 
 /**
- * A note or a reply mentions teammates ("@Sam"), and a reply reaches whoever
- * is already in the thread: the note's author and everyone who replied.
- * Someone both mentioned and in the thread hears once, as a mention.
+ * Whoever owns each record an activity is on, with the name and page of the
+ * record they own: its client, its contact, its organization, then the other
+ * people on it (a meeting's other attendees, an email's other recipients).
  */
-export function noteMentioned(a: Actor, note: { id: string; replyId?: string } & Links, text: string, mentioned: string[], thread: (string | null)[] = []) {
-  const body = text.replace(/\s+/g, " ").trim().slice(0, 140) || "Open it to read the note.";
+async function ownersOf(l: Links, people: string[] = []) {
+  const db = await getDb();
+  const [client] = l.clientId ? await db.select({ ownerId: schema.clients.ownerId, name: schema.clients.name }).from(schema.clients).where(eq(schema.clients.id, l.clientId)) : [];
+  const [person] = l.personId
+    ? await db.select({ ownerId: schema.people.ownerId, firstName: schema.people.firstName, lastName: schema.people.lastName }).from(schema.people).where(eq(schema.people.id, l.personId))
+    : [];
+  const [org] = l.organizationId ? await db.select({ ownerId: schema.organizations.ownerId, name: schema.organizations.name }).from(schema.organizations).where(eq(schema.organizations.id, l.organizationId)) : [];
+  const found = [
+    client && { userId: client.ownerId, name: client.name, url: `/clients/${l.clientId}` },
+    person && { userId: person.ownerId, name: [person.firstName, person.lastName].filter(Boolean).join(" "), url: `/people/${l.personId}` },
+    org && { userId: org.ownerId, name: org.name, url: `/organizations/${l.organizationId}` },
+  ];
+  const more = people.filter((id) => id !== l.personId);
+  if (more.length) {
+    const rows = await db
+      .select({ id: schema.people.id, ownerId: schema.people.ownerId, firstName: schema.people.firstName, lastName: schema.people.lastName })
+      .from(schema.people)
+      .where(inArray(schema.people.id, more));
+    for (const p of rows) found.push({ userId: p.ownerId, name: [p.firstName, p.lastName].filter(Boolean).join(" "), url: `/people/${p.id}` });
+  }
+  const owners: Owner[] = [];
+  for (const o of found) if (o && o.userId && !owners.some((x) => x.userId === o.userId)) owners.push({ userId: o.userId, name: o.name, url: o.url });
+  return owners;
+}
+
+const snippet = (text: string, fallback: string) => text.replace(/\s+/g, " ").trim().slice(0, 140) || fallback;
+
+/**
+ * A note or a reply was written. Teammates it mentions ("@Sam") hear first;
+ * a reply also reaches whoever is already in the thread (the note's author
+ * and everyone who replied); and the owners of the records it's on hear about
+ * it too. Each of them gets one alert: the most specific one they want.
+ */
+export function noteWritten(a: Actor, note: { id: string; replyId?: string; people?: string[] } & Links, text: string, mentioned: string[], thread: (string | null)[] = []) {
+  const who = actorName(a);
+  const body = snippet(text, "Open it to read the note.");
   const url = recordUrl(note);
-  const key = note.replyId ?? note.id;
-  notify(mentioned, { kind: "mention", title: `${actorName(a)} mentioned you in a note`, body, url, dedupeKey: `mention:${key}` }, { except: actorUserId(a) });
+  const dedupeKey = `note:${note.replyId ?? note.id}`;
+  notifyEach(async () => noteTargets({ who, body, url, dedupeKey, reply: !!note.replyId, mentioned, thread, owners: await ownersOf(note, note.people) }), {
+    except: actorUserId(a),
+  });
+}
+
+/**
+ * An activity was logged or planned. An open one tells its assignee "gave you
+ * a task"; a call, email, text, meeting or task also tells the owners of the
+ * records it's on (notes go through noteWritten). An assignee who owns the
+ * record hears once: the task if their device wants it, else the activity.
+ */
+export function activityLogged(a: Actor, activity: { id: string; type: ActivityType; subject: string | null; text: string; done: boolean; assigneeId: string | null; people?: string[] } & Links) {
+  const task = !activity.done && activity.assigneeId ? taskNotice(a, { ...activity, assigneeId: activity.assigneeId }) : null;
+  if (!task && activity.type === "note") return;
+  const who = actorName(a);
+  const verb = activityVerb(activity.type, activity.done);
+  const body = activity.subject?.trim() || snippet(activity.text, "Open it to see the details.");
+  notifyEach(
+    async () =>
+      activityTargets({
+        assigneeId: activity.assigneeId,
+        task,
+        owners: activity.type === "note" ? [] : await ownersOf(activity, activity.people),
+        owned: (o, dedupeKey) => ({ kind: "owned_activity", title: `${who} ${verb} on ${o.name}`, body, url: o.url, dedupeKey: dedupeKey ?? `activity:${activity.id}` }),
+      }),
+    { except: actorUserId(a) },
+  );
+}
+
+/** Someone else moved a client to another stage, or into another category (signed, lost, won back). Its owner hears. */
+export function clientStageChanged(a: Actor, client: { id: string; name: string; ownerId: string | null; stage: string; category?: ClientCategory }) {
+  if (!client.ownerId) return;
   notify(
-    thread.filter((id) => !id || !mentioned.includes(id)),
-    { kind: "mention", title: `${actorName(a)} replied to a note`, body, url, dedupeKey: `reply:${key}` },
+    [client.ownerId],
+    {
+      kind: "client_stage",
+      title: stageTitle(actorName(a), client.name, client.stage, client.category),
+      body: client.category ? `Now in ${client.stage}.` : "Open the client to see where it stands.",
+      url: `/clients/${client.id}`,
+      // Per stage, per minute: dragging a card back and forth sends one per stage it lands on, not a flood.
+      dedupeKey: `client_stage:${client.id}:${client.stage}:${Math.floor(Date.now() / 60_000)}`,
+    },
     { except: actorUserId(a) },
   );
 }

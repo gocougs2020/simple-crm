@@ -239,6 +239,13 @@
       "when": 1795147900906,
       "tag": "0033_stripe-discounts-and-collected",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1795151837274,
+      "tag": "0034_split-mention-alerts",
+      "breakpoints": true
     }
   ]
 }

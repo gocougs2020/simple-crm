@@ -64,7 +64,44 @@ Open the deployment. The first visit goes to **Set up your CRM**: the person who
 - **Calling and texting:** set the `TWILIO_*` variables, then Settings → Phone numbers → Set up calling, and Get a number by area code. See [PHONE.md](PHONE.md).
 - **The AI features** (assistant, voice, dictation, summaries) need `AI_GATEWAY_API_KEY`; they never fall back to the deployment's OIDC token, so the key's budget is the ceiling on AI spend. Each can be turned off with `agent.*` in `NEXT_PUBLIC_APP_CONFIG` (see [AGENT.md](AGENT.md#configure-your-deployment)).
 - **The agent's background work** (research, cleanups, tasks assigned to it) runs on an eve agent that deploys with the app as a second service of the same project. It needs the project's Node.js version set to 24.x (Project → Settings → Build and Deployment) and `AI_GATEWAY_API_KEY`. Its models and spending limits are `agent.background.*` in `app.config.ts`. Turn it off with `NEXT_PUBLIC_APP_CONFIG='{"agent":{"background":{"enabled":false}}}'`. See [AGENT.md](AGENT.md#background-work).
-- **On phones:** open the CRM in Safari (iPhone, iPad) and tap Share → Add to Home Screen, or in Chrome (Android) tap Install app. Then Settings → Notifications → Turn on notifications on that device. iPhones and iPads only allow notifications for the installed app. The same page turns on the daily and weekly agenda emails, which need Resend (`RESEND_API_KEY`, `RESEND_FROM`).
+- **Push notifications:** see [Set up push notifications](#set-up-push-notifications) below.
 - **Custom domain:** add it in Vercel, then update `NEXT_PUBLIC_SITE_URL`.
 - **Deployment protection:** the app has its own login, but you can also turn on Vercel Authentication for preview deployments.
 - **Analytics and Speed Insights** load automatically on Vercel; enable them in the project to see data.
+
+## Set up push notifications
+
+Push alerts (tasks, meetings, mentions, team chat, activity on your records) use Web Push, which needs a VAPID key pair: a public key the browser uses to sign up and a private key the server signs every alert with. Locally (`pnpm dev`) a pair is made for you in `.data/vapid.json`. A deployment needs its own, set once.
+
+1. **Make a key pair**, on your own computer:
+
+   ```bash
+   pnpm dlx web-push generate-vapid-keys
+   ```
+
+   It prints a public key and a private key (URL-safe base64; the public one is about 87 characters, the private one about 43). Keep them somewhere safe, like your password manager.
+2. **Add them in Vercel** → Project → Settings → Environment Variables, for Production (and Preview, if you test push there; previews can share the pair):
+   - `VAPID_PUBLIC_KEY`: the public key.
+   - `VAPID_PRIVATE_KEY`: the private key. Mark it **Sensitive**.
+   - `VAPID_SUBJECT`: optional, a contact the push services can reach you at, such as `mailto:it@acme.com`. Without it, `NEXT_PUBLIC_SITE_URL` is used.
+
+   Or from a terminal with the Vercel CLI linked to the project (each command asks for the value; then mark the private key Sensitive in the dashboard):
+
+   ```bash
+   vercel env add VAPID_PUBLIC_KEY production
+   ```
+
+   ```bash
+   vercel env add VAPID_PRIVATE_KEY production
+   ```
+
+   ```bash
+   vercel env add VAPID_SUBJECT production
+   ```
+3. **Redeploy**, so the new variables are picked up.
+4. **Turn it on, per device.** Settings → Notifications shows whether push is on for the device you're on. Tap **Turn on notifications** and allow them when the browser asks, then pick which alerts that device gets. **Send a test** checks one arrives.
+   - **Android:** works in Chrome straight away. Installing the CRM (Chrome menu → Install app) makes alerts open it full screen.
+   - **iPhone and iPad** (iOS 16.4 or later): notifications only work in the installed app. In Safari, tap Share → Add to Home Screen, open the CRM from its new icon, sign in, then turn notifications on there.
+   - **Desktop:** Chrome, Edge, Firefox and Safari all work. If the page says notifications are blocked, allow them in the browser's site settings (the icon left of the address) and reload.
+
+Set the keys once and keep them. New keys sign every device out of notifications, and everyone has to turn them on again. Until the keys are set, the notifications page says push isn't set up, and the notifications cron skips push (agenda emails still go out). The same page turns on the daily and weekly agenda emails, which need Resend (`RESEND_API_KEY`, `RESEND_FROM`).

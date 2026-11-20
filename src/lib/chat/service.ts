@@ -7,14 +7,16 @@ import { onAnyRecord } from "@/lib/crm/files";
 import { mentionedTeammates } from "@/lib/crm/mentions";
 import { removeStoredBytes } from "@/lib/crm/service/files";
 import { ActionError, ForbiddenError, NotFoundError } from "@/lib/errors";
-import { notify } from "@/lib/push/notify";
+import { notifyEach, type Notice } from "@/lib/push/notify";
+import { chatTargets } from "@/lib/push/routing";
 import { MAX_CHAT_FILES, MAX_CHAT_LENGTH } from "./format";
 
 /**
  * The team chat: one thread for everyone who can sign in. Viewers can read
  * and post, but not attach files.
  * Messages are plain text; mentioning a teammate ("@Sam") sends them the
- * "Mentions and replies" push. Attachments are ordinary files uploaded with
+ * "Mentioned in team chat" push, and teammates who chose "Every team chat
+ * message" hear about the rest. Attachments are ordinary files uploaded with
  * `origin: "chat"` and claimed by the message they're posted with.
  */
 
@@ -80,9 +82,34 @@ async function mentionsIn(text: string) {
   );
 }
 
-function tellMentioned(a: Actor, messageId: string, text: string, ids: string[]) {
+/**
+ * A new message: teammates it mentions hear "mentioned you", and everyone who
+ * wants every message hears the rest. An edit only tells the teammates it
+ * newly mentions.
+ */
+function tellTeam(a: Actor, messageId: string, text: string, mentioned: string[], o: { files?: number; everyone?: boolean } = {}) {
   const who = a.kind === "user" ? a.user.name.split(" ")[0] : a.keyName;
-  notify(ids, { kind: "mention", title: `${who} mentioned you in team chat`, body: text.replace(/\s+/g, " ").trim().slice(0, 140) || "Open the chat to read it.", url: `/chat#m-${messageId}`, dedupeKey: `chat:${messageId}` }, { except: actorUserId(a) });
+  const body = text.replace(/\s+/g, " ").trim().slice(0, 140) || (o.files ? (o.files === 1 ? "Sent a file." : `Sent ${o.files} files.`) : "Open the chat to read it.");
+  const base = { body, url: `/chat#m-${messageId}`, dedupeKey: `chat:${messageId}` };
+  const mention: Notice = { kind: "chat_mention", title: `${who} mentioned you in team chat`, ...base };
+  const message: Notice = { kind: "chat_message", title: `${who} in team chat`, ...base };
+  notifyEach(
+    async () => {
+      if (!o.everyone) return mentioned.map((userId) => ({ userId, notices: [mention] }));
+      // Only teammates with a device that wants every message: no point asking about the others.
+      const db = await getDb();
+      const listeners = await db
+        .selectDistinct({ userId: schema.pushSubscriptions.userId })
+        .from(schema.pushSubscriptions)
+        .where(sql`${schema.pushSubscriptions.alerts} @> ${JSON.stringify(["chat_message"])}::jsonb`);
+      return chatTargets(
+        mentioned,
+        listeners.map((l) => l.userId),
+        { mention, message },
+      );
+    },
+    { except: actorUserId(a) },
+  );
 }
 
 /** Posts a message, with any files the poster just uploaded for it. Text, files or both. */
@@ -110,7 +137,7 @@ export async function postChatMessage(a: Actor, input: { body: string; fileIds?:
   // Claimed only while still unclaimed, so a double-submitted message can't take another's files.
   if (fileIds.length) await db.update(files).set({ chatMessageId: row.id }).where(and(inArray(files.id, fileIds), isNull(files.chatMessageId)));
   await db.update(users).set({ chatReadAt: row.createdAt }).where(eq(users.id, user.id));
-  tellMentioned(a, row.id, body, mentions);
+  tellTeam(a, row.id, body, mentions, { files: fileIds.length, everyone: true });
   return row;
 }
 
@@ -133,7 +160,7 @@ export async function editChatMessage(a: Actor, messageId: string, input: { body
   if (body === m.body) return;
   const mentions = await mentionsIn(body);
   await db.update(chatMessages).set({ body, mentions, editedAt: new Date() }).where(eq(chatMessages.id, m.id));
-  tellMentioned(
+  tellTeam(
     a,
     m.id,
     body,

@@ -1,14 +1,15 @@
 "use client";
 
+import clsx from "clsx";
 import { useEffect, useState, useTransition } from "react";
-import { BellAlertIcon, DevicePhoneMobileIcon, ComputerDesktopIcon } from "@heroicons/react/24/outline";
+import { BellAlertIcon, BellSlashIcon, ComputerDesktopIcon, DevicePhoneMobileIcon } from "@heroicons/react/24/outline";
 import { removeDevice, sendAgendaPreview, sendTestNotification, setDeviceAlerts, setEmailDigests, subscribeDevice } from "@/actions/notifications";
 import { useApp } from "@/components/app-context";
-import { StatusBadge } from "@/components/ui/badge";
+import { StatusBadge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
-import { emailDigestKinds, emailDigestLabels, notificationKinds, notificationLabels, type EmailDigestKind, type NotificationKind } from "@/lib/constants";
+import { emailDigestKinds, emailDigestLabels, notificationGroups, notificationKinds, notificationLabels, type EmailDigestKind, type NotificationKind } from "@/lib/constants";
 import { formatAgo } from "@/lib/format";
 import { morningHour } from "@/lib/notifications/schedule";
 import { currentSubscription, isIos, isStandalone, keyBytes, pushSupported, registerServiceWorker } from "@/lib/push/client";
@@ -18,11 +19,12 @@ type Device = { id: string; endpoint: string; label: string; alerts: Notificatio
 type Support = "checking" | "unsupported" | "ios-install" | "denied" | "ready";
 
 /**
- * Settings → Notifications: turn push on for this browser or installed app,
- * pick which alerts each device gets, send a test, and remove old devices.
+ * Settings → Notifications: whether push is on for this browser or installed
+ * app (and a button to ask the browser for permission), which alerts each
+ * device gets, a test, and removing old devices.
  */
 export function NotificationSettings({ publicKey, devices }: { publicKey: string | null; devices: Device[] }) {
-  const { workspace } = useApp();
+  const { workspace, isAdmin } = useApp();
   const [support, setSupport] = useState<Support>("checking");
   const [endpoint, setEndpoint] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -60,7 +62,7 @@ export function NotificationSettings({ publicKey, devices }: { publicKey: string
         const r = await subscribeDevice(json, { standalone: isStandalone() });
         if (!r.ok) return void toast.error(r.error);
         setEndpoint(sub.endpoint);
-        toast.success("Notifications are on for this device");
+        toast.success("Notifications are on for this device. Pick the alerts you want below.");
       } catch (err) {
         console.error("[push] subscribe", err);
         toast.error("This device couldn't sign up for notifications. Reload the page and try again.");
@@ -79,13 +81,6 @@ export function NotificationSettings({ publicKey, devices }: { publicKey: string
       else toast.success(device.endpoint === endpoint ? "Notifications are off for this device" : `Removed ${device.label}`);
     });
 
-  const toggle = (device: Device, kind: NotificationKind, on: boolean) =>
-    start(async () => {
-      const next = on ? [...new Set([...device.alerts, kind])] : device.alerts.filter((k) => k !== kind);
-      const r = await setDeviceAlerts(device.id, next);
-      if (!r.ok) toast.error(r.error);
-    });
-
   const test = () =>
     start(async () => {
       const r = await sendTestNotification();
@@ -94,81 +89,192 @@ export function NotificationSettings({ publicKey, devices }: { publicKey: string
     });
 
   const others = devices.filter((d) => d !== thisDevice);
+  const status = deviceStatus(support, !!publicKey, !!thisDevice);
 
   return (
     <>
-      <EmailDigests />
-      <Section
-        title="Push on this device"
-        description={`Get alerts from ${workspace.name}'s CRM on this browser, or on your phone once it's installed. Each device has its own alerts.`}
-        action={devices.length ? <Button size="sm" onClick={test} loading={pending}>Send a test</Button> : null}
-      >
+      <Section title="Push notifications" description={`Alerts from ${workspace.name}'s CRM on this browser, or on your phone once the CRM is installed there. Each device has its own on/off and its own alerts.`}>
         <div className="flex flex-col gap-3 p-5">
-          {support === "checking" ? <p className="text-[13.5px] text-muted">Checking this browser…</p> : null}
-          {support === "unsupported" ? <p className="text-[13.5px] text-secondary">This browser can&apos;t receive push notifications. Recent Chrome, Edge, Firefox and Safari can.</p> : null}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-2.5">
+              {thisDevice ? <BellAlertIcon className="mt-0.5 size-5 shrink-0 text-accent" aria-hidden /> : <BellSlashIcon className="mt-0.5 size-5 shrink-0 text-muted" aria-hidden />}
+              <div className="min-w-0">
+                <p className="flex flex-wrap items-center gap-2 text-[14px] font-medium text-primary">
+                  On this device
+                  <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+                </p>
+                <p className="mt-0.5 text-[13px] text-secondary" aria-live="polite">
+                  {status.detail(isAdmin)}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {thisDevice ? (
+                <>
+                  <Button size="sm" onClick={test} loading={pending}>
+                    Send a test
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => turnOff(thisDevice)} disabled={pending}>
+                    Turn off
+                  </Button>
+                </>
+              ) : support === "ready" && publicKey ? (
+                <Button variant="primary" onClick={turnOn} loading={pending}>
+                  <BellAlertIcon aria-hidden />
+                  Turn on notifications
+                </Button>
+              ) : null}
+            </div>
+          </div>
           {support === "ios-install" ? (
-            <div className="text-[13.5px] text-secondary">
-              <p className="font-medium text-primary">Add the CRM to your Home Screen first</p>
-              <p className="mt-1">On iPhone and iPad, notifications only work in the installed app. In Safari, tap Share, then Add to Home Screen. Open the CRM from its new icon and come back here.</p>
-            </div>
+            <ol className="ml-7 list-decimal pl-4 text-[13px] text-secondary">
+              <li>In Safari, tap Share, then Add to Home Screen.</li>
+              <li>Open the CRM from its new icon and sign in.</li>
+              <li>Come back to Settings → Notifications and tap Turn on notifications.</li>
+            </ol>
           ) : null}
-          {support === "denied" ? <p className="text-[13.5px] text-secondary">Notifications are blocked for this site. Allow them in your browser&apos;s site settings, then reload this page.</p> : null}
-          {support === "ready" && !thisDevice ? (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-[13.5px] text-secondary">Notifications are off on this device.</p>
-              <Button variant="primary" onClick={turnOn} loading={pending}>
-                <BellAlertIcon aria-hidden />
-                Turn on notifications
-              </Button>
-            </div>
+          {support === "ready" && !thisDevice && publicKey && !isIos() && /Android/.test(navigator.userAgent) && !isStandalone() ? (
+            <p className="ml-7 text-[12.5px] text-muted">Tip: install the CRM from your browser&apos;s menu (Install app or Add to Home screen), so alerts open it full screen.</p>
           ) : null}
-          {support === "ready" && thisDevice ? <DeviceRow device={thisDevice} current pending={pending} tz={workspace.timezone} onToggle={toggle} onRemove={turnOff} /> : null}
         </div>
+        {thisDevice ? (
+          <div className="border-t border-line p-5">
+            <DeviceAlerts key={thisDevice.alerts.join()} device={thisDevice} />
+          </div>
+        ) : null}
       </Section>
 
       {others.length ? (
-        <Section title="Push on other devices" description="Browsers and phones where you turned notifications on. Remove the ones you don't use anymore.">
+        <Section title="Other devices" description="Browsers and phones where you turned notifications on. Each keeps its own alerts. Remove the ones you don't use anymore.">
           <ul className="divide-y divide-line">
             {others.map((d) => (
               <li key={d.id} className="p-5">
-                <DeviceRow device={d} pending={pending} tz={workspace.timezone} onToggle={toggle} onRemove={turnOff} />
+                <OtherDevice device={d} pending={pending} tz={workspace.timezone} onRemove={turnOff} />
               </li>
             ))}
           </ul>
         </Section>
       ) : null}
+
+      <EmailDigests />
     </>
   );
 }
 
-function DeviceRow({ device, current, pending, tz, onToggle, onRemove }: { device: Device; current?: boolean; pending: boolean; tz: string; onToggle: (d: Device, k: NotificationKind, on: boolean) => void; onRemove: (d: Device) => void }) {
+type Status = { label: string; tone: Tone; detail: (isAdmin: boolean) => string };
+
+function deviceStatus(support: Support, configured: boolean, on: boolean): Status {
+  if (support === "checking") return { label: "Checking", tone: "neutral", detail: () => "Checking this browser…" };
+  if (on) return { label: "On", tone: "success", detail: () => "This device gets the alerts you pick below." };
+  if (support === "unsupported") return { label: "Not available", tone: "neutral", detail: () => "This browser can't receive push notifications. Recent Chrome, Edge, Firefox and Safari can." };
+  if (support === "ios-install") return { label: "Install first", tone: "info", detail: () => "On iPhone and iPad, notifications only work in the CRM installed on your Home Screen." };
+  if (support === "denied") return { label: "Blocked", tone: "error", detail: () => "Notifications are blocked for this site. Allow them in your browser's site settings, then reload this page." };
+  if (!configured)
+    return {
+      label: "Not set up",
+      tone: "warning",
+      detail: (admin) => (admin ? "Push needs VAPID keys on this deployment. Add VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY (docs/DEPLOYING.md), then redeploy." : "Push isn't set up on this deployment yet. Ask an admin to add it."),
+    };
+  return { label: "Off", tone: "neutral", detail: () => "Turn it on and your browser will ask whether to allow notifications." };
+}
+
+/** A device's alerts, grouped, each a switch. Saved as soon as it's flipped. Keyed by its saved alerts, so it starts over when they change elsewhere. */
+function DeviceAlerts({ device }: { device: Device }) {
+  const [alerts, setAlerts] = useState(device.alerts);
+  const [pending, start] = useTransition();
+
+  const save = (next: NotificationKind[]) => {
+    const before = alerts;
+    setAlerts(next);
+    start(async () => {
+      const r = await setDeviceAlerts(device.id, next);
+      if (!r.ok) {
+        setAlerts(before);
+        toast.error(r.error);
+      }
+    });
+  };
+  const toggle = (kind: NotificationKind, on: boolean) => save(on ? [...new Set([...alerts, kind])] : alerts.filter((k) => k !== kind));
+  const setGroup = (kinds: NotificationKind[], on: boolean) => save(on ? [...new Set([...alerts, ...kinds])] : alerts.filter((k) => !kinds.includes(k)));
+
+  return (
+    <div className="flex flex-col gap-5" aria-busy={pending}>
+      {notificationGroups.map((g) => {
+        const allOn = g.kinds.every((k) => alerts.includes(k));
+        return (
+          <fieldset key={g.title}>
+            <div className="mb-1.5 flex items-center justify-between gap-3">
+              <legend className="text-[12.5px] font-semibold tracking-wide text-muted uppercase">{g.title}</legend>
+              <button type="button" className="text-[12.5px] font-medium text-accent hover:underline" onClick={() => setGroup(g.kinds, !allOn)}>
+                {allOn ? "Turn all off" : "Turn all on"}
+              </button>
+            </div>
+            <ul className="divide-y divide-line rounded-lg border border-line">
+              {g.kinds.map((k) => (
+                <li key={k}>
+                  <AlertSwitch id={`${device.id}-${k}`} kind={k} on={alerts.includes(k)} onChange={(on) => toggle(k, on)} />
+                </li>
+              ))}
+            </ul>
+          </fieldset>
+        );
+      })}
+    </div>
+  );
+}
+
+function AlertSwitch({ id, kind, on, onChange }: { id: string; kind: NotificationKind; on: boolean; onChange: (on: boolean) => void }) {
+  const { label, hint } = notificationLabels[kind];
+  return (
+    <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
+      <div className="min-w-0">
+        <p id={`${id}-label`} className="text-[14px] text-primary">
+          {label}
+        </p>
+        <p id={`${id}-hint`} className="mt-0.5 text-[12px] text-muted">
+          {hint}
+        </p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        aria-labelledby={`${id}-label`}
+        aria-describedby={`${id}-hint`}
+        onClick={() => onChange(!on)}
+        className={clsx("relative h-5 w-9 shrink-0 rounded-full border transition-colors before:absolute before:-inset-2.5 before:content-['']", on ? "border-accent bg-accent" : "border-line-strong bg-sunken")}
+      >
+        <span className={clsx("absolute top-0.5 size-3.5 rounded-full bg-surface shadow-sm transition-[left]", on ? "left-[1.125rem]" : "left-0.5")} />
+      </button>
+    </div>
+  );
+}
+
+function OtherDevice({ device, pending, tz, onRemove }: { device: Device; pending: boolean; tz: string; onRemove: (d: Device) => void }) {
   const Icon = /iPhone|iPad|Android/.test(device.label) ? DevicePhoneMobileIcon : ComputerDesktopIcon;
+  const n = device.alerts.length;
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
           <Icon className="size-5 shrink-0 text-muted" aria-hidden />
           <div className="min-w-0">
-            <p className="flex items-center gap-2 text-[14px] font-medium text-primary">
-              {device.label}
-              {current ? <StatusBadge tone="success">On</StatusBadge> : null}
+            <p className="text-[14px] font-medium text-primary">{device.label}</p>
+            <p className="text-[12.5px] text-muted">
+              {n === 0 ? "No alerts" : n === notificationKinds.length ? "All alerts" : `${n} of ${notificationKinds.length} alerts`} · {device.lastSentAt ? `last alert ${formatAgo(device.lastSentAt, tz)}` : `added ${formatAgo(device.createdAt, tz)}`}
             </p>
-            <p className="text-[12.5px] text-muted">{device.lastSentAt ? `Last alert ${formatAgo(device.lastSentAt, tz)}` : `Added ${formatAgo(device.createdAt, tz)}`}</p>
           </div>
         </div>
         <Button size="sm" variant="ghost" onClick={() => onRemove(device)} disabled={pending}>
-          {current ? "Turn off" : "Remove"}
+          Remove
         </Button>
       </div>
-      <fieldset className="grid gap-2.5 sm:grid-cols-2" disabled={pending}>
-        <legend className="sr-only">Alerts on {device.label}</legend>
-        {notificationKinds.map((k) => (
-          <div key={k}>
-            <Checkbox label={notificationLabels[k].label} checked={device.alerts.includes(k)} onChange={(e) => onToggle(device, k, e.target.checked)} />
-            <p className="mt-0.5 pl-6 text-[12px] text-muted">{notificationLabels[k].hint}</p>
-          </div>
-        ))}
-      </fieldset>
+      <details className="group">
+        <summary className="cursor-pointer text-[13px] font-medium text-accent select-none">Choose alerts for this device</summary>
+        <div className="mt-3">
+          <DeviceAlerts key={device.alerts.join()} device={device} />
+        </div>
+      </details>
     </div>
   );
 }

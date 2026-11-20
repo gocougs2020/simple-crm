@@ -1,5 +1,5 @@
 import "server-only";
-import { recordAssigned } from "@/lib/push/triggers";
+import { clientStageChanged, recordAssigned } from "@/lib/push/triggers";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
@@ -175,6 +175,7 @@ export async function moveClient(a: Actor, clientId: string, stageId: string, pl
   if (changedStage) {
     const [from] = await db.select({ name: stages.name }).from(stages).where(eq(stages.id, client.stageId));
     await recordEvent({ entityType: "client", entityId: client.id, action: "stage_changed", data: { from: from?.name ?? null, to: stage.name }, ...stamp(a) });
+    clientStageChanged(a, { id: client.id, name: client.name, ownerId: client.ownerId, stage: stage.name });
   }
   return { id: client.id };
 }
@@ -221,6 +222,7 @@ export async function changeClientCategory(a: Actor, clientId: string, input: z.
     data: { from: client.category, to: data.category, on, reason: data.category === "past" ? data.churnReason : undefined, stage: target.stage.name },
     ...stamp(a),
   });
+  clientStageChanged(a, { id: client.id, name: client.name, ownerId: client.ownerId, stage: target.stage.name, category: data.category });
   return { id: client.id };
 }
 
