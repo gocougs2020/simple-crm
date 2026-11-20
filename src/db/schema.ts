@@ -1342,6 +1342,12 @@ export const agentRuns = pgTable(
     outputTokens: integer("output_tokens").notNull().default(0),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
+    /**
+     * When the agent panel stops listing it under Background tasks: set a while ahead the first time
+     * the teammate's open panel lists it finished, or to now when they clear it. The run itself stays
+     * (history, the budget, the API).
+     */
+    hideAt: timestamp("hide_at", { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt().$onUpdate(() => new Date()),
   },

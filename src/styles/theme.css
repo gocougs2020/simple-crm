@@ -55,6 +55,12 @@
   --note-surface: #fefce8;
   --note-border: #fde68a;
 
+  /* The agent's panel on a desktop: how solid it is. Under 100% the page shows faintly through it, blurred. */
+  --agent-panel-opacity: 80%;
+  /* What just changed on an open page (the agent or a teammate did something) glows in this for a moment. */
+  --live-highlight: color-mix(in srgb, var(--accent) 9%, transparent);
+  --live-highlight-ring: color-mix(in srgb, var(--accent) 24%, transparent);
+
   /* Toasts sit on a dark background, so their success icon needs a lighter green. */
   --toast-success-icon: #4ade80;
 }

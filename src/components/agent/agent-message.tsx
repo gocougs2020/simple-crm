@@ -6,6 +6,7 @@ import type { AnchorHTMLAttributes } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { UIMessage } from "ai";
+import { inAppPath } from "@/lib/agent/links";
 import { ArrowPathIcon, CheckIcon, ExclamationTriangleIcon, NoSymbolIcon } from "@heroicons/react/24/outline";
 
 /** How a tool shows in the conversation: "Create task", "Search". */
@@ -30,13 +31,14 @@ const nameOf = (p: ToolPart) => p.toolName ?? p.type.slice("tool-".length);
 const outputError = (o: unknown) => (o && typeof o === "object" && "error" in o && typeof (o as { error: unknown }).error === "string" ? (o as { error: string }).error : null);
 
 /**
- * Links in answers are model output. Paths on this site navigate in place;
- * anything else opens in a new tab without access to this one.
+ * Links in answers are model output. Pages of this site (a record, a draft, a list) open in place,
+ * in this tab; anything else opens in a new tab without access to this one.
  */
 function MarkdownLink({ href, children, onNavigate, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { onNavigate?: () => void }) {
-  if (href && /^\/(?!\/)/.test(href) && !href.includes("\\"))
+  const path = inAppPath(href, window.location.origin);
+  if (path)
     return (
-      <Link href={href} onClick={onNavigate} {...props}>
+      <Link href={path} onClick={onNavigate} {...props}>
         {children}
       </Link>
     );

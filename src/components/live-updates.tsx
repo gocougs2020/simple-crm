@@ -1,9 +1,10 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useTransition } from "react";
 import { appConfig } from "@/app.config";
 import { liveCheckDue } from "@/lib/live-rules";
+import { watchArrivals } from "./live-highlight";
 
 const CHANGED_EVENT = "crm:changed";
 
@@ -27,6 +28,8 @@ export function checkForChanges() {
  *   typed in the last `live.idleMinutes`; a tab left open overnight stops,
  *   so the database can sleep. The team chat asks every `live.chatPollSeconds`
  *   instead, so messages show up quickly.
+ * What a refresh adds or changes on the page glows for a moment (live-highlight.ts),
+ * so the agent's work is seen as it lands.
  */
 export function LiveUpdates() {
   const router = useRouter();
@@ -34,6 +37,31 @@ export function LiveUpdates() {
   const state = useRef({ version: null as string | null, lastCheck: 0, lastActive: 0, inFlight: false, again: false });
   const { pollSeconds: everyPage, chatPollSeconds } = appConfig.live;
   const pollRef = useRef(everyPage);
+  // While a refresh is on its way, what it changes in the page is highlighted.
+  const [refreshing, startRefresh] = useTransition();
+  const refreshRef = useRef(startRefresh);
+  const stopWatching = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    refreshRef.current = startRefresh;
+  });
+  useEffect(() => {
+    if (refreshing) {
+      const main = document.getElementById("main");
+      if (main && !stopWatching.current) stopWatching.current = watchArrivals(main);
+      return;
+    }
+    // The new page has rendered; give its last pieces a moment to land, then stop watching.
+    const t = window.setTimeout(() => {
+      stopWatching.current?.();
+      stopWatching.current = null;
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [refreshing]);
+  // Going to another page changes everything: that's not news.
+  useEffect(() => {
+    stopWatching.current?.();
+    stopWatching.current = null;
+  }, [pathname]);
   useEffect(() => {
     pollRef.current = pathname.startsWith("/chat") && chatPollSeconds > 0 ? chatPollSeconds : everyPage;
   }, [pathname, chatPollSeconds, everyPage]);
@@ -57,7 +85,7 @@ export function LiveUpdates() {
         if (typeof v !== "string") return;
         const before = s.version;
         s.version = v;
-        if (before !== null && before !== v) router.refresh();
+        if (before !== null && before !== v) refreshRef.current(() => router.refresh());
       } catch {
         // Offline or a deploy in progress: the next check catches up.
       } finally {

@@ -36,6 +36,7 @@ What [`app.config.ts`](../app.config.ts) controls:
 | `email.trackOpens` | `false` | Record and show when people open emails (timeline, campaign report, campaign list). Off by default: tracking pixels can hurt deliverability and opens are approximate. Also turn on open tracking for the sending domain in Resend, then reconnect the webhook in Settings → Email domains |
 | `email.trackClicks` | `false` | Record and show link clicks. Same trade-off: Resend rewrites links through its tracking domain. Also turn on click tracking in Resend, then reconnect the webhook |
 | `agent.enabled` | `true` | The agent's button in the bottom right corner. See [AGENT.md](AGENT.md#configure-your-deployment) |
+| `agent.freshChatMinutes` | `5` | Opening the agent panel this many minutes after the last message or answer starts on a new chat. The old one stays in the chat menu |
 | `agent.voice`, `agent.dictation`, `agent.summaries` | `true` | Voice chat, the dictation microphones and record summaries, each on or off. Off hides it and its route refuses it |
 | `agent.name` | `"Agent"` | The agent's name in its panel, its replies and history |
 | `agent.chatModel`, `agent.titleModel`, `agent.voiceModel`, `agent.transcriptionModel` | GPT-6.1 Sol, Claude Haiku 5.5, Grok Voice 3.0, Grok STT | AI Gateway model ids (`creator/model`) for chat, thread titles, voice chat and dictation |
@@ -46,12 +47,13 @@ What [`app.config.ts`](../app.config.ts) controls:
 | `agent.background.model`, `agent.background.reasoning`, `agent.background.researchModel` | GPT-6.1 Sol, `"low"`, GPT-6 Luna | The model that plans and changes records, its reasoning effort, and the smaller model that reads the web |
 | `agent.background.maxRunUsd`, `agent.background.monthlyBudgetUsd` | `0.75`, `30` | Spending limits in US dollars: for one run, and for the workspace per month |
 | `agent.background.maxRunMinutes`, `agent.background.maxConcurrentPerUser`, `agent.background.maxBulkRecords` | `20`, `3`, `50` | How long one run may take, how many of a teammate's runs work at once, and the most records one bulk request covers |
+| `agent.background.clearAfterMinutes` | `15` | A finished background task leaves the panel's list this long after the teammate's open panel first listed it |
 | `agent.forwarding.enabled` | `true` | Email forwarding: the team's one address (the agent's name at `FORWARD_EMAIL_DOMAIN`) that the agent reads and answers. Also needs background work. See [AGENT.md](AGENT.md#email-forwarding) |
 | `agent.forwarding.perHour`, `agent.forwarding.maxRounds`, `agent.forwarding.maxChars`, `agent.forwarding.maxAgeDays` | `20`, `8`, `40000`, `3` | The most emails one teammate can send it an hour, how many times one conversation can go back and forth, how many characters of it the agent reads, and how old an email may be by its own date (forwards are dated when sent, so old threads are fine) |
 | `agent.suggestions`, `agent.viewerSuggestions` | 4 prompts each | Suggested actions on a new chat, for teammates who can edit and for viewers. A prompt ending in `…` fills the composer instead of sending |
 | `notifications.morningHour` | `7` | The hour (0–23, workspace time zone) the morning push summary and the agenda emails go out |
 | `live.pollSeconds` | `30` | How often an open page asks whether anything changed (calls, texts and email coming in, teammates' edits) and refreshes if so. Only while the tab is visible and in use. `0` turns it off; pages still catch up when the tab comes back into view and after the agent changes something. See [ARCHITECTURE.md](ARCHITECTURE.md#live-updates) |
-| `live.idleMinutes` | `10` | Minutes without a click or key press after which open pages stop asking, so the database can sleep overnight |
+| `live.idleMinutes` | `2` | Minutes without a click or key press after which open pages stop asking, so the database can sleep soon after someone steps away. Pages catch up on the next click or when the tab comes back into view |
 | `live.chatPollSeconds` | `5` | How often the team chat page asks for new messages while it's open, visible and in use (the same idle rule applies). `0` falls back to `live.pollSeconds` |
 | `records.keyContactLabel` | `"Decision maker"` | What a starred person at an organization is called (the star's tooltip, their page and the audience filter) |
 | `microsoft.*` | | Microsoft 365: sync frequency, the mail screen (decision model, what counts as sensitive, threshold), the Outlook category for kept-out mail, which activities go on calendars. See [MICROSOFT.md](MICROSOFT.md#settings-per-deployment) |
@@ -84,6 +86,8 @@ Edit [`src/styles/theme.css`](../src/styles/theme.css) for every deployment of y
 | `--success`, `--warning`, `--error`, `--info`, `--neutral` (+ `-surface`, `-border`) | Status badges. Keep their meaning; adjust shades if needed |
 | `--note-surface`, `--note-border` | The soft yellow behind a note's icon on a timeline |
 | `--toast-success-icon` | The check in a success toast (it sits on a dark background) |
+| `--agent-panel-opacity` | How solid the agent's panel is on a desktop (`80%`). `100%` makes it opaque; lower shows more of the page behind it |
+| `--live-highlight`, `--live-highlight-ring` | The glow on whatever just appeared or changed on an open page. A tint of the accent by default |
 
 Example: a blue brand.
 
