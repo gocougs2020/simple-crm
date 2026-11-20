@@ -498,8 +498,16 @@ export const clients = pgTable(
      * lists can filter and sort on it. Null status: no customer in Stripe.
      */
     stripeStatus: text("stripe_status").$type<BillingStatus>(),
-    /** Monthly amount of the subscriptions still running, in cents, at list price. */
+    /** Monthly amount of the subscriptions still running, in cents, after discounts. */
     stripeMrr: bigint("stripe_mrr", { mode: "number" }).notNull().default(0),
+    /** What discounts take off those subscriptions a month: list price is `stripeMrr` plus this. */
+    stripeDiscount: bigint("stripe_discount", { mode: "number" }).notNull().default(0),
+    /** What they actually paid in the last 365 days, less refunds. */
+    stripeCollected: bigint("stripe_collected", { mode: "number" }).notNull().default(0),
+    /** Left to pay on invoices that were sent. */
+    stripeOwed: bigint("stripe_owed", { mode: "number" }).notNull().default(0),
+    /** Credit sitting on their Stripe customers, applied to their next invoices. */
+    stripeCredit: bigint("stripe_credit", { mode: "number" }).notNull().default(0),
     /** Names of the Stripe products they're subscribed to now. */
     stripeProducts: jsonb("stripe_products").$type<string[]>().notNull().default([]),
     stripeSyncedAt: timestamp("stripe_synced_at", { withTimezone: true }),
@@ -548,6 +556,13 @@ export const stripeCustomers = pgTable(
     balance: bigint("balance", { mode: "number" }).notNull().default(0),
     currency: text("currency"),
     delinquent: boolean("delinquent").notNull().default(false),
+    /** What they actually paid, less refunds, in the last 30 days and the last 365, in cents. */
+    collectedMonth: bigint("collected_month", { mode: "number" }).notNull().default(0),
+    collectedYear: bigint("collected_year", { mode: "number" }).notNull().default(0),
+    lastPaidAt: timestamp("last_paid_at", { withTimezone: true }),
+    /** Left to pay on invoices that were sent, and how many of those are past due. */
+    owed: bigint("owed", { mode: "number" }).notNull().default(0),
+    overdue: integer("overdue").notNull().default(0),
     customerSince: timestamp("customer_since", { withTimezone: true }),
     syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -568,6 +583,8 @@ export const stripeSubscriptions = pgTable(
     currency: text("currency").notNull().default("usd"),
     /** Its price lines as a monthly amount, in cents, at list price. */
     monthly: bigint("monthly", { mode: "number" }).notNull().default(0),
+    /** The monthly amount after discounts: what they're actually billed, going by the latest invoice. */
+    net: bigint("net", { mode: "number" }).notNull().default(0),
     items: jsonb("items").$type<StripeItem[]>().notNull().default([]),
     cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
     startedAt: timestamp("started_at", { withTimezone: true }),

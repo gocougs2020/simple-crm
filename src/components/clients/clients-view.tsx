@@ -102,6 +102,7 @@ export function ClientsView({
         <span className="flex flex-wrap items-center gap-1">
           <StatusBadge tone={billingTone[r.client.stripeStatus]}>{billingStatusLabels[r.client.stripeStatus]}</StatusBadge>
           {r.client.stripeMrr ? <span className="text-[12.5px] text-secondary tabular-nums">{money(r.client.stripeMrr)}/mo</span> : null}
+          {r.client.stripeOwed ? <span className="text-[12.5px] text-warning tabular-nums">{money(r.client.stripeOwed)} owed</span> : null}
           {r.client.stripeProducts.map((p) => (
             <Tag key={p}>{p}</Tag>
           ))}
@@ -109,6 +110,14 @@ export function ClientsView({
       ) : (
         <span className="text-faint">—</span>
       ),
+  };
+  /** What they actually paid through Stripe in the last 12 months, less refunds. */
+  const collectedCol: Column<ClientRow> = {
+    key: "collected",
+    label: "Collected, 12 mo",
+    sort: "stripeCollected",
+    align: "right",
+    render: (r) => (r.client.stripeCollected ? <span className="tabular-nums">{money(r.client.stripeCollected)}</span> : <span className="text-faint">—</span>),
   };
   const services = (active: boolean): Column<ClientRow> => ({
     key: "services",
@@ -156,13 +165,13 @@ export function ClientsView({
   });
 
   const byCategory: Record<ClientCategory, Column<ClientRow>[]> = {
-    prospective: [name, { key: "value", label: "Potential value", sort: "value", align: "right", render: (r) => <span className="tabular-nums">{money(r.client.value)}</span> }, contact, ...(connected.stripe ? [billing] : []), stage, next, date("expectedCloseDate", "Expected to sign", "expectedClose"), owner, last],
-    current: [name, monthly("mrr", "Monthly"), services(true), ...(connected.stripe ? [billing] : []), { key: "health", label: "Health", render: (r) => (r.client.health ? <HealthBadge health={r.client.health} /> : <span className="text-faint">—</span>) }, stage, next, date("startedOn", "Client since", "startedOn"), owner, last],
+    prospective: [name, { key: "value", label: "Potential value", sort: "value", align: "right", render: (r) => <span className="tabular-nums">{money(r.client.value)}</span> }, contact, ...(connected.stripe ? [billing, collectedCol] : []), stage, next, date("expectedCloseDate", "Expected to sign", "expectedClose"), owner, last],
+    current: [name, monthly("mrr", "Monthly"), services(true), ...(connected.stripe ? [billing, collectedCol] : []), { key: "health", label: "Health", render: (r) => (r.client.health ? <HealthBadge health={r.client.health} /> : <span className="text-faint">—</span>) }, stage, next, date("startedOn", "Client since", "startedOn"), owner, last],
     past: [
       name,
       monthly("formerMrr", "Was paying"),
       services(false),
-      ...(connected.stripe ? [billing] : []),
+      ...(connected.stripe ? [billing, collectedCol] : []),
       { key: "reason", label: "Why they left", className: "max-w-56", render: (r) => (r.client.churnReason ? <span className="truncate">{r.client.churnReason}</span> : <span className="text-faint">—</span>) },
       { key: "return", label: "Win back", render: (r) => (r.client.openToReturn ? <span className="text-secondary">Open</span> : <span className="text-faint">Not interested</span>) },
       stage,

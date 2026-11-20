@@ -30,6 +30,8 @@ const priceOf = (s: CustomerBilling["subscriptions"][number]) =>
     .map((i) => (i.amount != null ? `${money(i.amount * i.quantity, i.currency)}${every(i)}` : null))
     .filter(Boolean)
     .join(" + ");
+/** What a subscription is billed after its discounts, when it has any: "$1,215/mo after discounts". */
+const netOf = (s: CustomerBilling["subscriptions"][number]) => (s.discount ? `${money(s.monthly - s.discount, s.currency)}/mo after discounts` : null);
 const whenOf = (s: CustomerBilling["subscriptions"][number]) => (s.endedAt ? `ended ${day(s.endedAt)}` : s.cancelAt ? `ends ${day(s.cancelAt)}` : s.cancelAtPeriodEnd && s.periodEnd ? `ends ${day(s.periodEnd)}` : s.periodEnd ? `renews ${day(s.periodEnd)}` : "");
 
 function SubBadge({ s }: { s: CustomerBilling["subscriptions"][number] }) {
@@ -68,7 +70,11 @@ export function BillingView({
   const subs = customers.flatMap((c) => c.subscriptions.map((s) => ({ ...s, customer: c })));
   const live = subs.filter(isLive);
   const currency = live[0]?.currency ?? customers[0]?.customer.currency ?? customers[0]?.invoices[0]?.currency ?? "usd";
-  const monthly = live.filter((s) => s.status !== "paused").reduce((sum, s) => sum + s.monthly, 0);
+  const running = live.filter((s) => s.status !== "paused");
+  const discount = running.reduce((sum, s) => sum + s.discount, 0);
+  const monthly = running.reduce((sum, s) => sum + s.monthly, 0) - discount;
+  const collectedYear = customers.reduce((sum, c) => sum + c.collectedYear, 0);
+  const credit = customers.reduce((sum, c) => sum + Math.max(0, -c.customer.balance), 0);
   const open = customers.flatMap((c) => c.invoices.filter((i) => i.status === "open"));
   const owed = open.reduce((sum, i) => sum + i.remaining, 0);
   const overdue = open.filter((i) => i.overdue).length;
@@ -124,7 +130,8 @@ export function BillingView({
           <dl className="grid grid-cols-2 gap-x-2 gap-y-2.5">
             <div>
               <dt className="text-[11.5px] text-muted">Subscriptions</dt>
-              <dd className="text-[14px] font-semibold text-primary tabular-nums">{monthly ? `${money(monthly, currency)}/mo` : "None running"}</dd>
+              <dd className="text-[14px] font-semibold text-primary tabular-nums">{running.length ? `${money(monthly, currency)}/mo` : "None running"}</dd>
+              {discount ? <dd className="text-[11.5px] text-muted tabular-nums">after {money(discount, currency)}/mo in discounts</dd> : null}
             </div>
             <div>
               <dt className="text-[11.5px] text-muted">Open invoices</dt>
@@ -133,6 +140,16 @@ export function BillingView({
                 {overdue ? <span className="ml-1 text-[11.5px] font-medium text-error">{overdue} overdue</span> : null}
               </dd>
             </div>
+            <div>
+              <dt className="text-[11.5px] text-muted">Collected, last 12 months</dt>
+              <dd className="text-[14px] font-semibold text-primary tabular-nums">{money(collectedYear, currency)}</dd>
+            </div>
+            {credit ? (
+              <div>
+                <dt className="text-[11.5px] text-muted">Credit on account</dt>
+                <dd className="text-[14px] font-semibold text-primary tabular-nums">{money(credit, currency)}</dd>
+              </div>
+            ) : null}
           </dl>
           {delinquent ? <p className="text-[12px] text-error">Stripe marks a customer here as delinquent: a recent payment failed.</p> : null}
 
@@ -144,7 +161,7 @@ export function BillingView({
                     <span className="min-w-0 flex-1 truncate font-medium text-primary">{s.items.map((i) => i.name).join(", ")}</span>
                     <SubBadge s={s} />
                   </div>
-                  <p className="truncate text-[11.5px] text-muted tabular-nums">{[priceOf(s), whenOf(s), several ? s.customer.accountLabel : null].filter(Boolean).join(" · ")}</p>
+                  <p className="truncate text-[11.5px] text-muted tabular-nums">{[priceOf(s), netOf(s), whenOf(s), several ? s.customer.accountLabel : null].filter(Boolean).join(" · ")}</p>
                 </li>
               ))}
             </ul>
@@ -202,7 +219,7 @@ function BillingDetails({ clientId, customers, several, canEdit, onClose }: { cl
       onClose();
     });
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()} title="Billing" description="Read from Stripe just now. Nothing here changes anything in Stripe." size="xl">
+    <Dialog open onOpenChange={(o) => !o && onClose()} title="Billing" description="Read from Stripe just now; collected totals are from the last sync. Nothing here changes anything in Stripe." size="xl">
       {customers.length > 1 ? (
         <div className="mb-4 flex flex-wrap gap-1" role="tablist" aria-label="Stripe customers">
           {customers.map((x, i) => (
@@ -233,7 +250,15 @@ function BillingDetails({ clientId, customers, several, canEdit, onClose }: { cl
             </p>
             <p className="text-[12px] text-faint">{c.byHand ? "Linked by hand" : c.matchedEmail ? `Matched on ${c.matchedEmail}` : ""}</p>
           </div>
-          <dl className="flex gap-6">
+          <dl className="flex flex-wrap gap-x-6 gap-y-2">
+            <div>
+              <dt className="text-[11.5px] text-muted">Collected, 12 months</dt>
+              <dd className="text-[14px] font-semibold text-primary tabular-nums">{money(c.collectedYear, c.customer.currency)}</dd>
+            </div>
+            <div>
+              <dt className="text-[11.5px] text-muted">Last 30 days</dt>
+              <dd className="text-[14px] font-semibold text-primary tabular-nums">{money(c.collectedMonth, c.customer.currency)}</dd>
+            </div>
             <div>
               <dt className="text-[11.5px] text-muted">{c.customer.balance < 0 ? "Credit" : "Balance"}</dt>
               <dd className="text-[14px] font-semibold text-primary tabular-nums">{money(Math.abs(c.customer.balance), c.customer.currency)}</dd>
@@ -278,7 +303,10 @@ function BillingDetails({ clientId, customers, several, canEdit, onClose }: { cl
                     <span className="block text-[12px] text-muted tabular-nums">{[`Started ${day(s.started)}`, whenOf(s), s.trialEnd && s.status === "trialing" ? `trial ends ${day(s.trialEnd)}` : null].filter(Boolean).join(" · ")}</span>
                   </span>
                   <SubBadge s={s} />
-                  <span className="w-40 text-right text-primary tabular-nums">{priceOf(s) || "Usage based"}</span>
+                  <span className="w-48 text-right tabular-nums">
+                    <span className="block text-primary">{priceOf(s) || "Usage based"}</span>
+                    {s.discount ? <span className="block text-[12px] text-muted">{netOf(s)}</span> : null}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -315,6 +343,7 @@ function BillingDetails({ clientId, customers, several, canEdit, onClose }: { cl
                       <th className="py-1 pr-3 font-medium">Date</th>
                       <th className="py-1 pr-3 font-medium">Invoice</th>
                       <th className="py-1 pr-3 font-medium">Status</th>
+                      <th className="py-1 pr-3 text-right font-medium">Discount</th>
                       <th className="py-1 pr-3 text-right font-medium">Total</th>
                       <th className="py-1 pr-3 text-right font-medium">Owed</th>
                       <th className="py-1 font-medium">
@@ -331,6 +360,7 @@ function BillingDetails({ clientId, customers, several, canEdit, onClose }: { cl
                           {i.status ? <StatusBadge tone={invoiceTone[i.status]}>{i.overdue ? "Overdue" : i.status[0].toUpperCase() + i.status.slice(1)}</StatusBadge> : null}
                           {i.status === "open" && i.dueDate ? <span className="ml-1.5 text-[12px] text-muted">due {day(i.dueDate)}</span> : null}
                         </td>
+                        <td className="py-1.5 pr-3 text-right text-muted tabular-nums">{i.discount ? `−${money(i.discount, i.currency)}` : <span className="text-faint">—</span>}</td>
                         <td className="py-1.5 pr-3 text-right text-primary tabular-nums">{money(i.total, i.currency)}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{i.remaining ? money(i.remaining, i.currency) : <span className="text-faint">—</span>}</td>
                         <td className="py-1.5 text-right whitespace-nowrap">

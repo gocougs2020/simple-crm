@@ -1,6 +1,6 @@
 import "server-only";
 import { billingFor, type Billing } from "@/lib/stripe";
-import { monthlyAmount } from "./rules";
+import { monthlyAmount, netMonthly } from "./rules";
 import { customersOfClient, syncClient } from "./sync";
 import type { CustomerBilling } from "./types";
 
@@ -10,13 +10,15 @@ const STALE_MS = 26 * 60 * 60 * 1000;
 const MAX_CUSTOMERS = 8;
 
 /** Only what the page shows goes to the browser: Stripe's objects are many times larger. */
-function slim(b: Billing, c: { matchedEmail: string | null; byHand: boolean }): CustomerBilling {
+function slim(b: Billing, c: { matchedEmail: string | null; byHand: boolean; collectedMonth: number; collectedYear: number }): CustomerBilling {
   return {
     account: b.account,
     accountLabel: b.accountLabel,
     dashboardUrl: b.dashboardUrl,
     matchedEmail: c.matchedEmail,
     byHand: c.byHand,
+    collectedMonth: c.collectedMonth,
+    collectedYear: c.collectedYear,
     customer: { id: b.customer.id, name: b.customer.name, email: b.customer.email, balance: b.customer.balance, currency: b.customer.currency, delinquent: !!b.customer.delinquent, created: b.customer.created },
     subscriptions: b.subscriptions.map((s) => ({
       id: s.id,
@@ -29,9 +31,10 @@ function slim(b: Billing, c: { matchedEmail: string | null; byHand: boolean }): 
       trialEnd: s.trial_end,
       periodEnd: s.periodEnd,
       monthly: monthlyAmount(s.items),
+      discount: monthlyAmount(s.items) - netMonthly(monthlyAmount(s.items), s.discountShare),
       items: s.items.map((i) => ({ name: i.name, amount: i.price.unit_amount, quantity: i.quantity ?? 1, currency: i.price.currency, interval: i.price.recurring?.interval ?? null, intervalCount: i.price.recurring?.interval_count ?? 1 })),
     })),
-    invoices: b.invoices.map((i) => ({ id: i.id, number: i.number, status: i.status, overdue: i.overdue, total: i.total, remaining: i.amount_remaining, currency: i.currency, created: i.created, dueDate: i.due_date, url: i.hosted_invoice_url, pdf: i.invoice_pdf ?? null })),
+    invoices: b.invoices.map((i) => ({ id: i.id, number: i.number, status: i.status, overdue: i.overdue, total: i.total, discount: (i.total_discount_amounts ?? []).reduce((sum, d) => sum + d.amount, 0), remaining: i.amount_remaining, currency: i.currency, created: i.created, dueDate: i.due_date, url: i.hosted_invoice_url, pdf: i.invoice_pdf ?? null })),
     charges: b.charges.map((c) => ({
       id: c.id,
       amount: c.amount,

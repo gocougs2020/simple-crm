@@ -291,6 +291,7 @@ export async function listClients(f: ClientFilter = {}) {
     value: sql`${clients.value}`,
     mrr: sql`${mrr}`,
     stripeMrr: sql`${clients.stripeMrr}`,
+    stripeCollected: sql`${clients.stripeCollected}`,
     formerMrr: sql`${formerMrr}`,
     stage: sql`${stages.position}`,
     expectedClose: sql`${clients.expectedCloseDate}`,
@@ -301,7 +302,7 @@ export async function listClients(f: ClientFilter = {}) {
     organization: sql`lower(${organizations.name})`,
   };
   const order = f.sort ? (sorts[f.sort] ?? sorts.created) : null;
-  const dir = f.dir ?? (["value", "mrr", "stripeMrr", "formerMrr", "startedOn", "endedOn", "lastActivity", "created"].includes(f.sort ?? "") ? "desc" : "asc");
+  const dir = f.dir ?? (["value", "mrr", "stripeMrr", "stripeCollected", "formerMrr", "startedOn", "endedOn", "lastActivity", "created"].includes(f.sort ?? "") ? "desc" : "asc");
   return db
     .select({
       client: clients,

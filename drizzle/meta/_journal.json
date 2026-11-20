@@ -232,6 +232,13 @@
       "when": 1795147711914,
       "tag": "0032_keep-stripe-customer-id",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1795147900906,
+      "tag": "0033_stripe-discounts-and-collected",
+      "breakpoints": true
     }
   ]
 }

@@ -2,8 +2,8 @@ import "server-only";
 import { and, eq, lt, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { recordEvent } from "@/lib/crm/events";
-import { allCustomers, allSubscriptions, customersByEmail, productNames, stripeAccounts, subscriptionsOf, type StripeCustomer, type StripeSubscription } from "@/lib/stripe";
-import { liveStatuses, monthlyAmount } from "./rules";
+import { allCustomers, allSubscriptions, chargesSince, customersByEmail, openInvoices, productNames, stripeAccounts, subscriptionsOf, type StripeCharge, type StripeCustomer, type StripeInvoice, type StripeSubscription } from "@/lib/stripe";
+import { collected, discountShare, liveStatuses, monthlyAmount, netMonthly } from "./rules";
 
 /**
  * Stripe is the source of truth for billing; this keeps a copy the CRM can
@@ -29,7 +29,37 @@ const { stripeCustomers, stripeSubscriptions } = schema;
 const rowsOf = <T>(r: unknown) => ((r as { rows?: T[] }).rows ?? (r as T[])) as T[];
 const at = (unix: number | null | undefined) => (unix ? new Date(unix * 1000) : null);
 
-async function saveCustomers(account: string, list: StripeCustomer[], now: Date) {
+/** What a customer paid and still owes, added up from their payments and open invoices. */
+type Money = { collectedMonth: number; collectedYear: number; lastPaidAt: Date | null; owed: number; overdue: number };
+
+const DAY = 86_400;
+
+/** Adds up a year of payments and the open invoices, per customer. */
+function moneyByCustomer(charges: StripeCharge[], invoices: StripeInvoice[], now: Date) {
+  const out = new Map<string, Money>();
+  const of = (id: string) => out.get(id) ?? out.set(id, { collectedMonth: 0, collectedYear: 0, lastPaidAt: null, owed: 0, overdue: 0 }).get(id)!;
+  const t = Math.floor(now.getTime() / 1000);
+  for (const c of charges) {
+    const got = collected(c);
+    if (!c.customer || !got || c.created < t - 365 * DAY) continue;
+    const m = of(c.customer);
+    m.collectedYear += got;
+    if (c.created >= t - 30 * DAY) m.collectedMonth += got;
+    if (!m.lastPaidAt || c.created * 1000 > m.lastPaidAt.getTime()) m.lastPaidAt = new Date(c.created * 1000);
+  }
+  for (const i of invoices) {
+    if (!i.customer || i.status !== "open") continue;
+    const m = of(i.customer);
+    m.owed += i.amount_remaining;
+    if (i.due_date && i.due_date < t) m.overdue += 1;
+  }
+  return out;
+}
+
+const noMoney: Money = { collectedMonth: 0, collectedYear: 0, lastPaidAt: null, owed: 0, overdue: 0 };
+
+/** Saves customers. With `money`, what each paid and owes is saved too (a customer missing from it paid and owes nothing); without, those stay as they were. */
+async function saveCustomers(account: string, list: StripeCustomer[], now: Date, money?: Map<string, Money>) {
   const db = await getDb();
   for (let i = 0; i < list.length; i += 500) {
     const values = list.slice(i, i + 500).map((c) => ({
@@ -42,13 +72,23 @@ async function saveCustomers(account: string, list: StripeCustomer[], now: Date)
       delinquent: !!c.delinquent,
       customerSince: at(c.created),
       syncedAt: now,
+      ...(money ? (money.get(c.id) ?? noMoney) : {}),
     }));
     await db
       .insert(stripeCustomers)
       .values(values)
       .onConflictDoUpdate({
         target: [stripeCustomers.account, stripeCustomers.customerId],
-        set: { email: sql`excluded.email`, name: sql`excluded.name`, balance: sql`excluded.balance`, currency: sql`excluded.currency`, delinquent: sql`excluded.delinquent`, customerSince: sql`excluded.customer_since`, syncedAt: sql`excluded.synced_at` },
+        set: {
+          email: sql`excluded.email`,
+          name: sql`excluded.name`,
+          balance: sql`excluded.balance`,
+          currency: sql`excluded.currency`,
+          delinquent: sql`excluded.delinquent`,
+          customerSince: sql`excluded.customer_since`,
+          syncedAt: sql`excluded.synced_at`,
+          ...(money ? { collectedMonth: sql`excluded.collected_month`, collectedYear: sql`excluded.collected_year`, lastPaidAt: sql`excluded.last_paid_at`, owed: sql`excluded.owed`, overdue: sql`excluded.overdue` } : {}),
+        },
       });
   }
 }
@@ -66,6 +106,7 @@ async function saveSubscriptions(account: string, list: StripeSubscription[], na
       status: s.status,
       currency: s.currency,
       monthly: monthlyAmount(s.items.data),
+      net: netMonthly(monthlyAmount(s.items.data), discountShare(typeof s.latest_invoice === "object" ? s.latest_invoice : null)),
       items: s.items.data.map((it) => ({
         product: it.price.product,
         name: names.get(it.price.product) ?? it.price.nickname ?? "Subscription",
@@ -90,6 +131,7 @@ async function saveSubscriptions(account: string, list: StripeSubscription[], na
           status: sql`excluded.status`,
           currency: sql`excluded.currency`,
           monthly: sql`excluded.monthly`,
+          net: sql`excluded.net`,
           items: sql`excluded.items`,
           cancelAtPeriodEnd: sql`excluded.cancel_at_period_end`,
           startedAt: sql`excluded.started_at`,
@@ -108,8 +150,9 @@ export async function syncStripe() {
   for (const { id: account } of stripeAccounts()) {
     const started = new Date();
     try {
-      const [names, customers, subscriptions] = await Promise.all([productNames(account), allCustomers(account), allSubscriptions(account)]);
-      await saveCustomers(account, customers, started);
+      const since = Math.floor(started.getTime() / 1000) - 365 * DAY;
+      const [names, customers, subscriptions, charges, unpaid] = await Promise.all([productNames(account), allCustomers(account), allSubscriptions(account), chargesSince(account, since), openInvoices(account)]);
+      await saveCustomers(account, customers, started, moneyByCustomer(charges, unpaid, started));
       await saveSubscriptions(account, subscriptions, names, started);
       // Whatever this run didn't see was deleted in Stripe.
       await db.delete(stripeCustomers).where(and(eq(stripeCustomers.account, account), lt(stripeCustomers.syncedAt, started)));
@@ -157,21 +200,21 @@ function clientCustomers(only?: string): SQL {
   )`;
 }
 
-export type ClientCustomer = { account: string; customerId: string; matchedEmail: string | null; byHand: boolean; name: string | null; email: string | null };
+export type ClientCustomer = { account: string; customerId: string; matchedEmail: string | null; byHand: boolean; name: string | null; email: string | null; collectedMonth: number; collectedYear: number };
 
 /** One client's Stripe customers, in connected accounts only. */
 export async function customersOfClient(clientId: string): Promise<ClientCustomer[]> {
   const accounts = stripeAccounts().map((a) => a.id);
   if (!accounts.length) return [];
   const db = await getDb();
-  const rows = rowsOf<{ account: string; customer_id: string; matched_email: string | null; by_hand: boolean; name: string | null; email: string | null }>(
+  const rows = rowsOf<{ account: string; customer_id: string; matched_email: string | null; by_hand: boolean; name: string | null; email: string | null; collected_month: string | number | null; collected_year: string | number | null }>(
     await db.execute(sql`
-      select m.account, m.customer_id, m.matched_email, m.by_hand, sc.name, sc.email
+      select m.account, m.customer_id, m.matched_email, m.by_hand, sc.name, sc.email, sc.collected_month, sc.collected_year
       from ${clientCustomers(clientId)} m left join stripe_customers sc on sc.account = m.account and sc.customer_id = m.customer_id
       order by m.account, sc.name nulls last, m.customer_id
     `),
   );
-  return rows.filter((r) => accounts.includes(r.account)).map((r) => ({ account: r.account, customerId: r.customer_id, matchedEmail: r.matched_email, byHand: r.by_hand, name: r.name, email: r.email }));
+  return rows.filter((r) => accounts.includes(r.account)).map((r) => ({ account: r.account, customerId: r.customer_id, matchedEmail: r.matched_email, byHand: r.by_hand, name: r.name, email: r.email, collectedMonth: Number(r.collected_month ?? 0), collectedYear: Number(r.collected_year ?? 0) }));
 }
 
 /**
@@ -198,7 +241,11 @@ export async function refreshClientBilling(only?: string) {
             when count(s.subscription_id) > 0 then 'canceled'
             else 'customer'
           end as status,
-          coalesce(sum(s.monthly) filter (where s.status in (${live}) and s.status <> 'paused'), 0)::bigint as mrr,
+          coalesce(sum(s.net) filter (where s.status in (${live}) and s.status <> 'paused'), 0)::bigint as mrr,
+          coalesce(sum(s.monthly - s.net) filter (where s.status in (${live}) and s.status <> 'paused'), 0)::bigint as discount,
+          coalesce((select sum(sc.collected_year) from m m3 join stripe_customers sc on sc.account = m3.account and sc.customer_id = m3.customer_id where m3.client_id = c.id), 0)::bigint as collected,
+          coalesce((select sum(sc.owed) from m m3 join stripe_customers sc on sc.account = m3.account and sc.customer_id = m3.customer_id where m3.client_id = c.id), 0)::bigint as owed,
+          coalesce((select sum(greatest(-sc.balance, 0)) from m m3 join stripe_customers sc on sc.account = m3.account and sc.customer_id = m3.customer_id where m3.client_id = c.id), 0)::bigint as credit,
           coalesce((
             select jsonb_agg(distinct i ->> 'name' order by i ->> 'name')
             from m m2 join stripe_subscriptions s2 on s2.account = m2.account and s2.customer_id = m2.customer_id cross join lateral jsonb_array_elements(s2.items) i
@@ -211,11 +258,11 @@ export async function refreshClientBilling(only?: string) {
         group by c.id
       )
       update clients c
-      set stripe_status = x.status, stripe_mrr = x.mrr, stripe_products = x.products, stripe_synced_at = now()
+      set stripe_status = x.status, stripe_mrr = x.mrr, stripe_discount = x.discount, stripe_collected = x.collected, stripe_owed = x.owed, stripe_credit = x.credit, stripe_products = x.products, stripe_synced_at = now()
       from x join clients o on o.id = x.client_id
       where c.id = x.client_id
       returning c.id, o.stripe_status as before, c.stripe_status as after, o.stripe_synced_at as seen,
-        (o.stripe_status is distinct from x.status or o.stripe_mrr <> x.mrr or o.stripe_products <> x.products) as changed
+        (o.stripe_status is distinct from x.status or o.stripe_mrr <> x.mrr or o.stripe_collected <> x.collected or o.stripe_owed <> x.owed or o.stripe_products <> x.products) as changed
     `),
   );
   for (const r of rows) {
@@ -243,9 +290,17 @@ export async function syncClient(clientId: string) {
         const found = emails.length ? await customersByEmail(account, emails) : [];
         // Customers linked by hand, or matched by an earlier run, are refreshed too.
         const known = (await customersOfClient(clientId)).filter((c) => c.account === account).map((c) => c.customerId);
-        if (found.length) await saveCustomers(account, found, now);
         const ids = [...new Set([...found.map((c) => c.id), ...known])].slice(0, 25);
-        const subs = (await Promise.all(ids.map((id) => subscriptionsOf(account, id)))).flat();
+        const since = Math.floor(now.getTime() / 1000) - 365 * DAY;
+        const [subs, charges, unpaid] = await Promise.all([
+          Promise.all(ids.map((id) => subscriptionsOf(account, id))).then((x) => x.flat()),
+          Promise.all(ids.map((id) => chargesSince(account, since, id))).then((x) => x.flat()),
+          Promise.all(ids.map((id) => openInvoices(account, id))).then((x) => x.flat()),
+        ]);
+        const money = moneyByCustomer(charges, unpaid, now);
+        if (found.length) await saveCustomers(account, found, now, money);
+        // Customers this run didn't read (linked by hand, or matched earlier) still get what they paid and owe.
+        for (const id of known.filter((k) => !found.some((c) => c.id === k))) await db.update(stripeCustomers).set(money.get(id) ?? noMoney).where(and(eq(stripeCustomers.account, account), eq(stripeCustomers.customerId, id)));
         if (subs.length) await saveSubscriptions(account, subs, await productNames(account, [...new Set(subs.flatMap((s) => s.items.data.map((i) => i.price.product)))]), now);
       } catch (err) {
         console.warn("[stripe] client sync", account, (err as Error).message);

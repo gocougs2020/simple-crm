@@ -86,7 +86,11 @@ export const Client = z.object({
   billing: z
     .object({
       status: z.enum(billingStatuses).nullable().describe("Rolled up from the client's Stripe subscriptions: past_due, active, trialing, paused, canceled, or customer (in Stripe with no subscription). Null: no Stripe customer matches."),
-      mrr: z.number().int().describe("Monthly amount of the Stripe subscriptions still running, in cents, at list price."),
+      mrr: z.number().int().describe("Monthly amount of the Stripe subscriptions still running, in cents, after discounts."),
+      discount: z.number().int().describe("What discounts take off those subscriptions a month, in cents. List price is mrr plus this."),
+      collectedLastYear: z.number().int().describe("What they actually paid through Stripe in the last 365 days, less refunds, in cents."),
+      owed: z.number().int().describe("Left to pay on invoices that were sent, in cents."),
+      credit: z.number().int().describe("Credit on their Stripe customers, applied to their next invoices, in cents."),
       products: z.array(z.string()).describe("Names of the Stripe products they're subscribed to now."),
       syncedAt: ts.nullable(),
     })

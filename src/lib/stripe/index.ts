@@ -1,5 +1,6 @@
 import "server-only";
 import { parseStripeAccounts, type StripeAccount } from "./accounts";
+import { discountShare } from "./rules";
 
 /**
  * Read-only Stripe, for one or more Stripe accounts. Plain REST with a
@@ -105,6 +106,8 @@ export type StripeSubscription = {
   ended_at: number | null;
   trial_end: number | null;
   current_period_end?: number;
+  /** Expanded where the list asks for it: what was last billed, for discounts. */
+  latest_invoice?: string | { id: string; subtotal?: number | null; total?: number | null; total_discount_amounts?: { amount: number }[] | null } | null;
   items: { data: { id: string; quantity: number | null; current_period_end?: number; price: StripePrice }[] };
 };
 
@@ -116,6 +119,9 @@ export type StripeInvoice = {
   amount_paid: number;
   amount_remaining: number;
   total: number;
+  subtotal?: number | null;
+  total_discount_amounts?: { amount: number }[] | null;
+  customer?: string | null;
   currency: string;
   created: number;
   due_date: number | null;
@@ -128,6 +134,8 @@ export type StripeCharge = {
   id: string;
   amount: number;
   amount_refunded: number;
+  amount_captured?: number | null;
+  customer?: string | null;
   currency: string;
   status: "succeeded" | "pending" | "failed";
   refunded: boolean;
@@ -197,8 +205,15 @@ export async function customersByEmail(accountId: string, emails: string[]): Pro
 // ─── Everything in an account, for the sync ──────────────────────────────
 
 export const allCustomers = (accountId: string) => listAll<StripeCustomer>(accountId, "customers");
-export const allSubscriptions = (accountId: string) => listAll<StripeSubscription>(accountId, "subscriptions", { status: "all" });
-export const subscriptionsOf = (accountId: string, customerId: string) => listAll<StripeSubscription>(accountId, "subscriptions", { status: "all", customer: customerId }, 100);
+/** Each subscription comes with its latest invoice, which says what its discounts take off. */
+const withInvoice = { status: "all", "expand[]": ["data.latest_invoice"] };
+export const allSubscriptions = (accountId: string) => listAll<StripeSubscription>(accountId, "subscriptions", withInvoice);
+export const subscriptionsOf = (accountId: string, customerId: string) => listAll<StripeSubscription>(accountId, "subscriptions", { ...withInvoice, customer: customerId }, 100);
+
+/** Payments since a time (unix seconds), for one customer or the whole account: what was actually collected. */
+export const chargesSince = (accountId: string, since: number, customerId?: string) => listAll<StripeCharge>(accountId, "charges", { "created[gte]": since, customer: customerId }, 200_000);
+/** Invoices sent and not yet paid, for one customer or the whole account. */
+export const openInvoices = (accountId: string, customerId?: string) => listAll<StripeInvoice>(accountId, "invoices", { status: "open", customer: customerId });
 
 /** Product names by id. With `ids`, only those (100 at a time); without, every product in the account. */
 export async function productNames(accountId: string, ids?: string[]) {
@@ -217,7 +232,7 @@ export const INVOICE_HISTORY = 60;
 export async function billingFor(accountId: string, customerId: string) {
   const [customer, subs, invoices, charges, methods] = await Promise.all([
     getCustomer(accountId, customerId),
-    get<List<StripeSubscription>>(accountId, "subscriptions", { customer: customerId, status: "all", limit: 20 }),
+    get<List<StripeSubscription>>(accountId, "subscriptions", { customer: customerId, status: "all", limit: 20, "expand[]": ["data.latest_invoice"] }),
     get<List<StripeInvoice>>(accountId, "invoices", { customer: customerId, limit: INVOICE_HISTORY }),
     get<List<StripeCharge>>(accountId, "charges", { customer: customerId, limit: 25 }),
     get<List<StripePaymentMethod>>(accountId, `customers/${encodeURIComponent(customerId)}/payment_methods`, { limit: 20 }).catch(() => null),
@@ -232,6 +247,8 @@ export async function billingFor(accountId: string, customerId: string) {
       ...s,
       items: s.items.data.map((i) => ({ ...i, name: names.get(i.price.product) ?? i.price.nickname ?? "Subscription" })),
       periodEnd: s.current_period_end ?? s.items.data.map((i) => i.current_period_end).find(Boolean) ?? null,
+      /** How much of the list price discounts take off, 0 to 1. */
+      discountShare: discountShare(typeof s.latest_invoice === "object" ? s.latest_invoice : null),
     })),
     invoices: invoices.data.filter((i) => i.status !== "draft").map((i) => ({ ...i, overdue: i.status === "open" && !!i.due_date && i.due_date * 1000 < Date.now() })),
     charges: charges.data,

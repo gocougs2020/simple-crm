@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseStripeAccounts } from "./accounts";
-import { monthlyAmount, perMonth, rollUpStatus } from "./rules";
+import { collected, discountShare, monthlyAmount, netMonthly, perMonth, rollUpStatus } from "./rules";
 
 describe("Stripe accounts from the environment", () => {
   it("reads one account per STRIPE_SECRET_KEY variable, named by its suffix", () => {
@@ -63,5 +63,31 @@ describe("One billing status per client", () => {
 
   it("calls a customer with no subscriptions a customer", () => {
     assert.equal(rollUpStatus([]), "customer");
+  });
+});
+
+describe("Discounts and what was collected", () => {
+  it("reads the discount off the latest invoice, as a share of its subtotal", () => {
+    assert.equal(discountShare({ subtotal: 135_000, total_discount_amounts: [{ amount: 13_500 }] }), 0.1);
+    assert.equal(discountShare({ subtotal: 100_000, total_discount_amounts: [{ amount: 20_000 }, { amount: 5_000 }] }), 0.25);
+    assert.equal(netMonthly(146_250, 0.1), 131_625);
+  });
+
+  it("counts no discount when there's no invoice, no subtotal or none applied", () => {
+    assert.equal(discountShare(null), 0);
+    assert.equal(discountShare({ subtotal: 0, total_discount_amounts: [{ amount: 500 }] }), 0);
+    assert.equal(discountShare({ subtotal: 50_000, total_discount_amounts: null }), 0);
+  });
+
+  it("never takes off more than the whole price", () => {
+    assert.equal(discountShare({ subtotal: 10_000, total_discount_amounts: [{ amount: 25_000 }] }), 1);
+    assert.equal(netMonthly(10_000, 1), 0);
+  });
+
+  it("counts a payment as what was captured, less refunds, and nothing for failed ones", () => {
+    assert.equal(collected({ status: "succeeded", amount: 135_000, amount_captured: 135_000, amount_refunded: 0 }), 135_000);
+    assert.equal(collected({ status: "succeeded", amount: 135_000, amount_refunded: 35_000 }), 100_000);
+    assert.equal(collected({ status: "failed", amount: 135_000 }), 0);
+    assert.equal(collected({ status: "pending", amount: 135_000 }), 0);
   });
 });

@@ -21,6 +21,27 @@ export function monthlyAmount(items: { quantity: number | null; price: { unit_am
   return Math.round(items.reduce((sum, i) => sum + (i.price.unit_amount ?? 0) * (i.quantity ?? 1) * perMonth(i.price.recurring), 0));
 }
 
+/**
+ * How much of a subscription's list price its discounts take off, from 0 to 1,
+ * read off its latest invoice: what Stripe actually billed says more than
+ * working coupons out by hand, and covers every kind of discount. Zero when
+ * there's no invoice yet.
+ */
+export function discountShare(invoice: { subtotal?: number | null; total_discount_amounts?: { amount: number }[] | null } | null | undefined) {
+  if (!invoice?.subtotal || invoice.subtotal <= 0) return 0;
+  const off = (invoice.total_discount_amounts ?? []).reduce((sum, d) => sum + d.amount, 0);
+  return Math.min(1, Math.max(0, off / invoice.subtotal));
+}
+
+/** The monthly amount after discounts. */
+export const netMonthly = (monthly: number, share: number) => Math.round(monthly * (1 - share));
+
+/** What a payment brought in: what was captured, less what was refunded. Failed and pending payments bring in nothing. */
+export function collected(charge: { status: string; amount: number; amount_captured?: number | null; amount_refunded?: number | null }) {
+  if (charge.status !== "succeeded") return 0;
+  return Math.max(0, (charge.amount_captured ?? charge.amount) - (charge.amount_refunded ?? 0));
+}
+
 /** Subscriptions that are still running, whether or not the last payment went through. */
 export const liveStatuses = ["active", "trialing", "past_due", "unpaid", "paused"] as const;
 
