@@ -253,6 +253,13 @@
       "when": 1795152359671,
       "tag": "0035_email-forwarding",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1795193861644,
+      "tag": "0036_hide-finished-agent-runs",
+      "breakpoints": true
     }
   ]
 }

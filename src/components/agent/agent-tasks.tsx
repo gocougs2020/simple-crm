@@ -3,16 +3,21 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowPathIcon, CheckCircleIcon, ChevronDownIcon, ClockIcon, ExclamationTriangleIcon, NoSymbolIcon } from "@heroicons/react/24/outline";
-import { cancelAgentBatch, cancelAgentTask, listAgentTasks, type AgentTask } from "@/actions/agent";
+import { ArrowPathIcon, CheckCircleIcon, ChevronDownIcon, ClockIcon, ExclamationTriangleIcon, NoSymbolIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { cancelAgentBatch, cancelAgentTask, clearAgentTasks, listAgentTasks, type AgentTask } from "@/actions/agent";
+import { appConfig } from "@/app.config";
 import { checkForChanges } from "@/components/live-updates";
 import { agentRunActive, agentRunStatusLabels, type AgentRunStatus } from "@/lib/constants";
 import { Markdown } from "./agent-message";
 
 /** How often the list is read again while something is still going. */
 const POLL_MS = 4_000;
-/** Finished tasks stay in the list this long. */
-const KEEP_MS = 7 * 86_400_000;
+
+/** "an hour", "30 minutes": how long a finished task stays listed. */
+function keepLabel() {
+  const m = appConfig.agent.background.clearAfterMinutes;
+  return m === 60 ? "an hour" : m % 60 === 0 ? `${m / 60} hours` : `${m} minutes`;
+}
 
 const sourceLabels: Record<AgentTask["source"], string> = { chat: "From chat", mention: "From a note", task: "From a task", bulk: "Bulk request", api: "From a connected app", schedule: "Scheduled job", email: "From an email" };
 
@@ -24,6 +29,7 @@ function StatusIcon({ status }: { status: AgentRunStatus }) {
   return <NoSymbolIcon className="size-4 shrink-0 text-muted" aria-hidden />;
 }
 
+const removeButton = "inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted hover:bg-sunken hover:text-primary disabled:opacity-50";
 const stopButton = "shrink-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] font-medium text-primary hover:bg-sunken disabled:opacity-50";
 
 /** One bulk request (its tasks share a batch), or a task on its own. */
@@ -48,8 +54,8 @@ function entriesOf(tasks: AgentTask[]): Entry[] {
   return out;
 }
 
-/** A task's line: status, title, a Stop button while it's going, and its answer when opened. */
-function TaskRow({ task, nested, open, onToggle, onStop, stopping, onNavigate }: { task: AgentTask; nested?: boolean; open: boolean; onToggle: () => void; onStop: () => void; stopping: boolean; onNavigate?: () => void }) {
+/** A task's line: status, title, a Stop button while it's going, a button that takes it off the list, and its answer when opened. */
+function TaskRow({ task, nested, open, onToggle, onStop, onRemove, stopping, onNavigate }: { task: AgentTask; nested?: boolean; open: boolean; onToggle: () => void; onStop: () => void; onRemove: () => void; stopping: boolean; onNavigate?: () => void }) {
   const going = agentRunActive(task.status);
   const detail = task.status === "done" ? task.result : task.error;
   return (
@@ -68,6 +74,11 @@ function TaskRow({ task, nested, open, onToggle, onStop, stopping, onNavigate }:
         {going && !nested ? (
           <button type="button" onClick={onStop} disabled={stopping} className={stopButton}>
             {stopping ? "Stopping…" : "Stop"}
+          </button>
+        ) : null}
+        {!nested ? (
+          <button type="button" onClick={onRemove} disabled={stopping} className={removeButton} aria-label={going ? `Stop and remove ${task.title}` : `Remove ${task.title}`} title={going ? "Stop and remove" : "Remove from this list"}>
+            <XMarkIcon className="size-3.5" aria-hidden />
           </button>
         ) : null}
       </div>
@@ -101,37 +112,49 @@ export function AgentTasks({ open, threadId, refreshKey, onAnswer, onNavigate }:
   const wasActive = useRef(new Set<string>());
   const threadRef = useRef(threadId);
   const answerRef = useRef(onAnswer);
+  const openRef = useRef(open);
   useEffect(() => {
     threadRef.current = threadId;
     answerRef.current = onAnswer;
+    openRef.current = open;
   });
 
   const load = useCallback(async () => {
-    const res = await listAgentTasks();
+    // With the panel open the teammate can see what finished, which starts the time it stays listed.
+    const res = await listAgentTasks(openRef.current);
     if (!res.ok) return;
-    const cutoff = Date.now() - KEEP_MS;
-    const list = res.data.filter((t) => agentRunActive(t.status) || !t.finishedAt || new Date(t.finishedAt).getTime() > cutoff);
+    const list = res.data;
     // Something that was going has finished: the page behind the panel may have changed, and its answer may be in this chat.
     const finished = list.filter((t) => !agentRunActive(t.status) && wasActive.current.has(t.id));
     wasActive.current = new Set(list.filter((t) => agentRunActive(t.status)).map((t) => t.id));
     setTasks(list);
+    // While a task is going, the page behind the panel follows what it changes; when one finishes it catches up once more.
+    if (finished.length || wasActive.current.size) checkForChanges();
     if (finished.length) {
-      checkForChanges();
       if (finished.some((t) => t.threadId === threadRef.current)) answerRef.current();
     }
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- loads the list from the server when the panel opens or an answer ends
     if (open) void load();
   }, [open, refreshKey, load]);
 
+  // Work that's going is followed with the panel closed too, so the page shows its changes as they land.
   const active = tasks.filter((t) => agentRunActive(t.status)).length;
   useEffect(() => {
-    if (!open || !active) return;
-    const timer = window.setInterval(() => void load(), POLL_MS);
+    if (!active) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, POLL_MS);
     return () => window.clearInterval(timer);
-  }, [open, active, load]);
+  }, [active, load]);
+
+  // A finished task leaves the list on its own; with nothing going there's no poll, so drop it here when its time comes.
+  useEffect(() => {
+    if (!open || active || !tasks.length) return;
+    const timer = window.setInterval(() => void load(), 5 * 60_000);
+    return () => window.clearInterval(timer);
+  }, [open, active, tasks.length, load]);
 
   const stop = async (key: string, work: () => Promise<{ ok: true } | { ok: false; error: string }>) => {
     setStopping(key);
@@ -142,12 +165,25 @@ export function AgentTasks({ open, threadId, refreshKey, onAnswer, onNavigate }:
     void load();
   };
 
+  /** Takes one task, one bulk request or (with no key) everything finished off the list. */
+  const clear = async (key: string | null, which: { id?: string; batchId?: string }) => {
+    setStopping(key ?? "all");
+    setError("");
+    const gone = (t: AgentTask) => (which.id ? t.id === which.id : which.batchId ? t.batchId === which.batchId : !agentRunActive(t.status));
+    const res = await clearAgentTasks(which);
+    setStopping(null);
+    if (res.ok) setTasks((list) => list.filter((t) => !gone(t)));
+    else setError(res.error);
+    void load();
+  };
+
   if (!tasks.length) return null;
   const entries = entriesOf(tasks);
+  const finishedCount = tasks.length - active;
   const summary = active ? `Working on ${active} ${active === 1 ? "task" : "tasks"} in the background` : `Background tasks (${entries.length})`;
 
   return (
-    <div className="border-b border-line bg-sunken text-primary">
+    <div className="border-b border-line bg-sunken/80 text-primary">
       <button type="button" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] font-medium hover:bg-line/40">
         {active ? <ArrowPathIcon className="size-3.5 shrink-0 animate-spin text-accent" aria-hidden /> : <CheckCircleIcon className="size-3.5 shrink-0 text-muted" aria-hidden />}
         <span className="min-w-0 flex-1 truncate">{summary}</span>
@@ -155,11 +191,23 @@ export function AgentTasks({ open, threadId, refreshKey, onAnswer, onNavigate }:
       </button>
       {expanded ? (
         <ul className="scroll-thin max-h-72 overflow-y-auto border-t border-line bg-surface" aria-label="Background tasks">
-          {error ? <li className="px-3 py-2 text-[12.5px] text-error">{error}</li> : null}
+          {finishedCount ? (
+            <li className="sticky top-0 z-[1] flex items-center justify-between gap-2 border-b border-line bg-sunken py-1.5 pr-3 pl-3 text-[12px] text-muted">
+              <span className="min-w-0">Finished tasks leave this list after {keepLabel()}.</span>
+              <button type="button" onClick={() => void clear(null, {})} disabled={stopping === "all"} className={stopButton}>
+                {stopping === "all" ? "Clearing…" : "Clear all"}
+              </button>
+            </li>
+          ) : null}
+          {error ? (
+            <li className="px-3 py-2 text-[12.5px] text-error" role="alert">
+              {error}
+            </li>
+          ) : null}
           {entries.map((entry) => {
             if (!entry.batch) {
               const t = entry.task;
-              return <TaskRow key={entry.key} task={t} open={openId === t.id} onToggle={() => setOpenId(openId === t.id ? null : t.id)} onStop={() => void stop(t.id, () => cancelAgentTask(t.id))} stopping={stopping === t.id} onNavigate={onNavigate} />;
+              return <TaskRow key={entry.key} task={t} open={openId === t.id} onToggle={() => setOpenId(openId === t.id ? null : t.id)} onStop={() => void stop(t.id, () => cancelAgentTask(t.id))} onRemove={() => void clear(t.id, { id: t.id })} stopping={stopping === t.id} onNavigate={onNavigate} />;
             }
             const batch = entry.batch;
             const going = batch.filter((t) => agentRunActive(t.status)).length;
@@ -184,11 +232,14 @@ export function AgentTasks({ open, threadId, refreshKey, onAnswer, onNavigate }:
                       {stopping === entry.key ? "Stopping…" : "Stop all"}
                     </button>
                   ) : null}
+                  <button type="button" onClick={() => void clear(entry.key, { batchId: entry.key })} disabled={stopping === entry.key} className={removeButton} aria-label={going ? `Stop and remove ${what}` : `Remove ${what}`} title={going ? "Stop and remove" : "Remove from this list"}>
+                    <XMarkIcon className="size-3.5" aria-hidden />
+                  </button>
                 </div>
                 {shown ? (
                   <ul className="border-t border-line" aria-label="Records in this request">
                     {batch.map((t) => (
-                      <TaskRow key={t.id} task={t} nested open={openId === t.id} onToggle={() => setOpenId(openId === t.id ? entry.key : t.id)} onStop={() => {}} stopping={false} onNavigate={onNavigate} />
+                      <TaskRow key={t.id} task={t} nested open={openId === t.id} onToggle={() => setOpenId(openId === t.id ? entry.key : t.id)} onStop={() => {}} onRemove={() => {}} stopping={false} onNavigate={onNavigate} />
                     ))}
                   </ul>
                 ) : null}

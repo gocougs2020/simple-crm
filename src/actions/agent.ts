@@ -8,7 +8,7 @@ import { cleanTranscript } from "@/lib/agent/messages";
 import { deleteThread, ensureThread, getThread, listThreads, renameThread, saveMessages } from "@/lib/agent/threads";
 import { ActionError, actionCan, actionUser } from "@/lib/auth";
 import { aiFeatures, aiOffMessage } from "@/lib/agent/config";
-import { cancelBatch, cancelRun, listRuns, type Run } from "@/lib/agent/runs";
+import { cancelBatch, cancelRun, clearPanelRuns, listPanelRuns, type Run } from "@/lib/agent/runs";
 import { ensureSummary, type Summary } from "@/lib/agent/summary";
 import { sessionActor } from "@/lib/crm/actor";
 import type { AgentRunSource, AgentRunStatus } from "@/lib/constants";
@@ -113,12 +113,27 @@ const toTask = (r: Run): AgentTask => ({
   finishedAt: r.finishedAt?.toISOString() ?? null,
 });
 
-/** The signed-in teammate's background tasks, newest first: what the agent is working on for them and what it finished. */
-export async function listAgentTasks(): Promise<Result<AgentTask[]>> {
+/**
+ * The signed-in teammate's background tasks, newest first: what the agent is working on for them and
+ * what it finished lately. `seen` says the panel is open, which starts the hour a finished task stays listed.
+ */
+export async function listAgentTasks(seen = false): Promise<Result<AgentTask[]>> {
   return run(async () => {
     const user = await actionUser();
     if (!aiFeatures().background) return [];
-    return (await listRuns(sessionActor(user), { limit: 100 })).map(toTask);
+    return (await listPanelRuns(sessionActor(user), { seen: seen === true })).map(toTask);
+  });
+}
+
+/**
+ * Takes tasks off the panel's list: one task, one bulk request, or (with nothing named) every
+ * finished one. A task still going is stopped first. Nothing it changed is undone.
+ */
+export async function clearAgentTasks(which: { id?: string; batchId?: string } = {}): Promise<Result<{ cleared: number }>> {
+  return run(async () => {
+    const user = await actionUser();
+    const { id, batchId } = z.object({ id: z.uuid("That task doesn't exist.").optional(), batchId: z.uuid("That request doesn't exist.").optional() }).parse(which ?? {});
+    return clearPanelRuns(sessionActor(user), { ids: id ? [id] : undefined, batchId });
   });
 }
 

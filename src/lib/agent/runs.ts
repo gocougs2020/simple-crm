@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { Client } from "eve/client";
 import { z } from "zod";
 import { appConfig } from "@/app.config";
@@ -543,6 +543,65 @@ export async function listRuns(actor: Actor, opts: { active?: boolean; batchId?:
     .where(and(eq(runs.userId, actor.user.id), opts.active ? inArray(runs.status, [...ACTIVE]) : undefined, opts.batchId ? eq(runs.batchId, opts.batchId) : undefined))
     .orderBy(desc(runs.createdAt))
     .limit(Math.min(opts.limit ?? 30, 100));
+}
+
+/** Finished tasks nobody has looked at stay listable this long. */
+const PANEL_KEEP_MS = 7 * 86_400_000;
+
+/**
+ * The teammate's tasks as the agent panel lists them: everything still going, and what finished
+ * and hasn't left the list yet. With `seen` (the panel is open), a finished task starts its
+ * `agent.background.clearAfterMinutes`, so it goes on its own once they've had the chance to read it,
+ * however long after it finished they came back.
+ */
+export async function listPanelRuns(actor: Actor, opts: { seen?: boolean } = {}) {
+  if (actor.kind !== "user") throw new ForbiddenError("Background work belongs to a teammate. Use a personal key or a connected app.");
+  assertCan(actor, "records:read");
+  const db = await getDb();
+  const now = new Date();
+  const rows = await db
+    .select()
+    .from(runs)
+    .where(
+      and(
+        eq(runs.userId, actor.user.id),
+        or(inArray(runs.status, [...ACTIVE]), gt(runs.hideAt, now), and(isNull(runs.hideAt), or(isNull(runs.finishedAt), gt(runs.finishedAt, new Date(now.getTime() - PANEL_KEEP_MS))))),
+      ),
+    )
+    .orderBy(desc(runs.createdAt))
+    .limit(100);
+  const fresh = opts.seen ? rows.filter((r) => !agentRunActive(r.status) && !r.hideAt).map((r) => r.id) : [];
+  if (fresh.length) {
+    const hideAt = new Date(now.getTime() + appConfig.agent.background.clearAfterMinutes * 60_000);
+    await db
+      .update(runs)
+      .set({ hideAt, updatedAt: sql`${runs.updatedAt}` })
+      .where(and(inArray(runs.id, fresh), isNull(runs.hideAt), notInArray(runs.status, [...ACTIVE])));
+  }
+  return rows;
+}
+
+/**
+ * Takes the teammate's tasks off the panel's list: the ones named, or every finished one. A task
+ * still going is stopped first (what it changed stays). The runs are kept: this only tidies the list.
+ */
+export async function clearPanelRuns(actor: Actor, opts: { ids?: string[]; batchId?: string } = {}) {
+  if (actor.kind !== "user") throw new ForbiddenError("Background work belongs to a teammate. Use a personal key or a connected app.");
+  assertCan(actor, "records:read");
+  const db = await getDb();
+  const mine = eq(runs.userId, actor.user.id);
+  const named = opts.ids?.length ? inArray(runs.id, opts.ids) : opts.batchId ? eq(runs.batchId, opts.batchId) : undefined;
+  if (named) {
+    const going = await db.select({ id: runs.id }).from(runs).where(and(mine, named, inArray(runs.status, [...ACTIVE])));
+    for (const r of going) await cancelRun(actor, r.id);
+  }
+  const now = new Date();
+  const cleared = await db
+    .update(runs)
+    .set({ hideAt: now, updatedAt: sql`${runs.updatedAt}` })
+    .where(and(mine, named, notInArray(runs.status, [...ACTIVE]), or(isNull(runs.hideAt), gt(runs.hideAt, now))))
+    .returning({ id: runs.id });
+  return { cleared: cleared.length };
 }
 
 async function stopSession(run: Run) {

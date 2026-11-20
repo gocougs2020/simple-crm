@@ -91,6 +91,11 @@ export type AppConfig = {
      */
     /** The agent: its button in the bottom right corner and the chat panel. */
     enabled: boolean;
+    /**
+     * Opening the panel this many minutes after the last thing that happened in its chat (a message,
+     * an answer) starts on a new chat instead of the old conversation, which stays in the chat menu.
+     */
+    freshChatMinutes: number;
     /** Live voice chat in the agent panel (speech to speech). */
     voice: boolean;
     /** Microphones that dictate into the agent's composer and the CRM's text boxes. */
@@ -151,6 +156,11 @@ export type AppConfig = {
       maxConcurrentPerUser: number;
       /** The most records one bulk request can cover. */
       maxBulkRecords: number;
+      /**
+       * A finished task leaves "Background tasks" in the panel this many minutes after the teammate's
+       * open panel first listed it finished, so the list doesn't pile up. The run stays in history.
+       */
+      clearAfterMinutes: number;
     };
     /**
      * Email forwarding: one address for the team, the agent's name at FORWARD_EMAIL_DOMAIN
@@ -309,6 +319,7 @@ const defaults = {
   },
   agent: {
     enabled: true,
+    freshChatMinutes: 5,
     voice: true,
     dictation: true,
     summaries: true,
@@ -335,6 +346,7 @@ const defaults = {
       maxRunMinutes: 20,
       maxConcurrentPerUser: 3,
       maxBulkRecords: 50,
+      clearAfterMinutes: 60,
     },
     forwarding: {
       enabled: true,

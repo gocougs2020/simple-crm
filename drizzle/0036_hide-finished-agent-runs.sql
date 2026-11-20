@@ -1,0 +1,1 @@
+ALTER TABLE "agent_runs" ADD COLUMN "hide_at" timestamp with time zone;

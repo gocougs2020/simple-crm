@@ -86,6 +86,8 @@ Conversations are saved per teammate in `agent_threads` (messages as the AI SDK'
 
 - The browser sends only the new message; the server loads the thread, merges it in and saves the answer (`mergeIncoming` in `src/lib/agent/messages.ts`). So the browser can't rewrite what the agent said or what a tool returned: an edited message replaces that turn and everything after it, and a confirm answer only changes the approval on the stored copy.
 - A new thread is named after its first message straight away, then by the title model after the answer has streamed.
+- The panel opens on the chat the teammate was in while something happened in it in the last `agent.freshChatMinutes` (5): a message, an answer, a background task reporting back. After that it opens on a new chat, on first load and each time it's opened again, so an old conversation isn't what greets them; the old one stays in the chat menu. Something half written in the composer, or an answer still coming, is left where it is.
+- Links in answers to pages of the CRM (a record, a draft on a person's page) open in the tab the teammate is in, whether the agent wrote a path or the full address its tools return (`inAppPath` in `src/lib/agent/links.ts`). Other sites and file downloads open in a new tab.
 - Threads are trimmed from the oldest turn when they pass about 800 KB.
 - Voice chats are saved into the thread as text when the call ends ("Said in voice chat").
 
@@ -132,6 +134,10 @@ Some jobs take too long for a chat answer: researching a company on the web and 
 | **Email it** | Forward an email to the agent's address, or Cc it on a thread. See [Email forwarding](#email-forwarding). | Emailed back to whoever sent it, who can answer by replying |
 
 A fourth, for lists: `start_bulk_background_task` runs the same request on each of several records (every organization in a view, say), one run per record, a few at a time. The chat agent is told to try three records first and show the results before running the rest.
+
+**The list in the panel keeps itself short.** "Background tasks" shows what's going and what finished lately. A finished task (done, stopped or one that couldn't finish) leaves the list `agent.background.clearAfterMinutes` (60) after the teammate's open panel first listed it finished, so work that ended overnight is still there in the morning and then goes an hour later. Each task has a button that takes it off the list, stopping it first when it's still going, and "Clear all" removes everything finished. Clearing only tidies the list (`agent_runs.hide_at`): the run, its changes and its spend stay, and the API and MCP still list it. A finished task nobody looked at drops off after 7 days. There's no pausing a run to resume later: Stop ends it, and what it changed so far stays.
+
+While a task is going, the page behind the panel checks for changes every few seconds, panel open or closed, so records the agent is filling in update as it works ([live updates](ARCHITECTURE.md#live-updates)).
 
 The timeline shows a badge on the note or task while the agent works on it ("Agent: working", then "done"), and each teammate gets a push notification when their work finishes ("The agent finished" in Settings → Notifications).
 
@@ -209,6 +215,7 @@ Exactly what any background run can, as the sender: no archiving, deleting, merg
 | `agent.background.maxRunMinutes` | `20` | A run still going after this long is cancelled |
 | `agent.background.maxConcurrentPerUser` | `3` | How many of one teammate's runs work at once. The rest wait their turn |
 | `agent.background.maxBulkRecords` | `50` | The most records one bulk request can cover |
+| `agent.background.clearAfterMinutes` | `60` | How long a finished task stays under "Background tasks" once the teammate's open panel has listed it |
 | `agent.forwarding.enabled` | `true` | [Email forwarding](#email-forwarding). Also needs `FORWARD_EMAIL_DOMAIN` |
 | `agent.forwarding.perHour` | `20` | The most emails one teammate can send the agent in an hour |
 | `agent.forwarding.maxRounds` | `8` | How many times one forwarded conversation can go back and forth |
@@ -277,6 +284,7 @@ Unknown keys, wrong types and reasoning levels that don't exist fail the build w
 | Key | Default | Used for |
 | --- | --- | --- |
 | `agent.enabled` | `true` | The agent: its button and chat panel. `false` hides it everywhere (voice chat goes with it) |
+| `agent.freshChatMinutes` | `5` | Opening the panel this long after the last message or answer starts on a new chat |
 | `agent.voice` | `true` | Voice chat in the agent panel |
 | `agent.dictation` | `true` | The microphones in the agent's composer and the CRM's text boxes |
 | `agent.summaries` | `true` | The AI summary on client, person and organization pages. `false` also hides summaries already written |
@@ -353,4 +361,4 @@ src/components/agent/   the button, panel, messages, attachments, dictation and 
 src/components/settings/agent.tsx  the skills and scheduled jobs page
 ```
 
-The panel (threads menu, suggestions, dictation, voice stage, copy, feedback and edit) is styled with this app's theme tokens. It loads the first time someone opens it, so pages don't carry its code. Every `/api/agent` route checks the session cookie and refuses requests from other sites' pages.
+The panel (threads menu, suggestions, dictation, voice stage, copy, feedback and edit) is styled with this app's theme tokens. On a desktop it's slightly see-through, with the page blurred behind it (`--agent-panel-opacity`); on a phone, where it covers the screen, it's solid. It loads the first time someone opens it, so pages don't carry its code. Every `/api/agent` route checks the session cookie and refuses requests from other sites' pages.

@@ -82,19 +82,22 @@ function suggestionsFor(pathname: string, canEdit: boolean) {
   return [...here, ...base].slice(0, 5);
 }
 
-function readLastThread() {
+/** A chat nothing has happened in for this long is old news: the panel opens on a new one. */
+const FRESH_AFTER_MS = appConfig.agent.freshChatMinutes * 60_000;
+
+/** The chat to open on: the last one, while something happened in it lately. `at` is when. */
+function readLastThread(): { id: string; at: number } | null {
   try {
     const saved = JSON.parse(window.localStorage.getItem(LAST_THREAD_KEY) ?? "null") as { id?: string; at?: number } | null;
-    // Pick up where they left off within a working day; after that, start fresh.
-    return saved?.id && saved.at && Date.now() - saved.at < 12 * 3600_000 ? saved.id : null;
+    return saved?.id && saved.at && Date.now() - saved.at < FRESH_AFTER_MS ? { id: saved.id, at: saved.at } : null;
   } catch {
     return null;
   }
 }
 
-function rememberThread(id: string) {
+function rememberThread(id: string, at: number) {
   try {
-    window.localStorage.setItem(LAST_THREAD_KEY, JSON.stringify({ id, at: Date.now() }));
+    window.localStorage.setItem(LAST_THREAD_KEY, JSON.stringify({ id, at }));
   } catch {
     // Private mode or storage full: nothing to remember.
   }
@@ -113,7 +116,10 @@ export function AgentPanel({ configured }: { configured: boolean }) {
   const pathname = usePathname();
   const name = appConfig.agent.name;
 
-  const [threadId, setThreadId] = useState(() => readLastThread() ?? crypto.randomUUID());
+  const [resumed] = useState(readLastThread);
+  const [threadId, setThreadId] = useState(() => resumed?.id ?? crypto.randomUUID());
+  /** When something last happened in this chat: a message, an answer, a call, switching to it. */
+  const lastActive = useRef(resumed?.at ?? 0);
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [tasksKey, setTasksKey] = useState(0);
   const [loadingThread, setLoadingThread] = useState(false);
@@ -177,6 +183,23 @@ export function AgentPanel({ configured }: { configured: boolean }) {
   useEffect(() => {
     busyRef.current = busy;
   });
+  const threadIdRef = useRef(threadId);
+  useEffect(() => {
+    threadIdRef.current = threadId;
+  }, [threadId]);
+
+  /** Something happened in this chat: it's the one to come back to for the next few minutes. */
+  const touch = useCallback(() => {
+    lastActive.current = Date.now();
+    rememberThread(threadIdRef.current, lastActive.current);
+  }, []);
+  // An answer starting, streaming and ending all count, so the minutes run from when it finished.
+  const lastStatus = useRef(status);
+  useEffect(() => {
+    if (lastStatus.current === status) return;
+    lastStatus.current = status;
+    touch();
+  }, [status, touch]);
   const voiceLive = !!voiceConfig;
 
   // A tool finished while the agent is answering: the page behind the panel catches up right away,
@@ -204,7 +227,7 @@ export function AgentPanel({ configured }: { configured: boolean }) {
   }, [open, refreshThreads]);
 
   useEffect(() => {
-    rememberThread(threadId);
+    if (lastActive.current) rememberThread(threadId, lastActive.current);
     if (fresh.current.has(threadId)) return;
     let current = true;
     setLoadingThread(true);
@@ -222,9 +245,11 @@ export function AgentPanel({ configured }: { configured: boolean }) {
   const showBackgroundAnswer = useCallback(() => {
     if (busyRef.current) return;
     void loadAgentThread(threadId).then((res) => {
-      if (res.ok && !busyRef.current) setMessages(res.data.messages as UIMessage[]);
+      if (!res.ok || busyRef.current) return;
+      setMessages(res.data.messages as UIMessage[]);
+      touch();
     });
-  }, [threadId, setMessages]);
+  }, [threadId, setMessages, touch]);
 
   // Something asked the agent a question ("Ask about this client"): put it in the composer.
   const [seenSeq, setSeenSeq] = useState(0);
@@ -350,14 +375,10 @@ export function AgentPanel({ configured }: { configured: boolean }) {
       if (!res.ok || !res.data.saved) return;
       const loaded = await loadAgentThread(id);
       if (loaded.ok && id === threadIdRef.current) setMessages(loaded.data.messages as UIMessage[]);
+      if (id === threadIdRef.current) touch();
       void refreshThreads();
     });
   };
-  const threadIdRef = useRef(threadId);
-  useEffect(() => {
-    threadIdRef.current = threadId;
-  }, [threadId]);
-
   // ── Threads ───────────────────────────────────────────────────────────
 
   const resetComposer = () => {
@@ -374,6 +395,7 @@ export function AgentPanel({ configured }: { configured: boolean }) {
     if (voiceConfig || voiceStarting) endVoice();
     if (busy) void stop();
     resetComposer();
+    lastActive.current = Date.now();
     setThreadId(id);
   };
 
@@ -389,6 +411,22 @@ export function AgentPanel({ configured }: { configured: boolean }) {
     await deleteAgentThread(id);
     if (id === threadId) newChat();
   };
+
+  // Opened again after a while with nothing happening: the old conversation is no longer what they're here for,
+  // so they get a new chat (the old one stays in the menu). Something half written, or an answer still coming, stays put.
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    const opened = open && !wasOpen.current;
+    wasOpen.current = open;
+    if (!opened || busy || voiceLive || voiceStarting || editingId || files.length) return;
+    if (!messages.length || Date.now() - lastActive.current < FRESH_AFTER_MS) return;
+    // A question handed over with the click ("Ask about this client") comes along; anything else in the composer is theirs.
+    if (input && input !== prompt) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reacts to the panel opening, which happens outside this component
+    newChat();
+    if (prompt) setInput(prompt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the panel opens
+  }, [open]);
 
   const close = () => {
     if (voiceConfig || voiceStarting) endVoice();
@@ -417,6 +455,7 @@ export function AgentPanel({ configured }: { configured: boolean }) {
     if ((!trimmed && !attached.length) || busy || readingFiles || dictation.recording || !configured) return;
     fresh.current.delete(threadId);
     resetComposer();
+    touch();
     void sendMessage({
       text: trimmed || `Attached ${attached.map((f) => f.name).join(", ")}.`,
       ...(attached.length ? { metadata: { files: attached } } : {}),
@@ -512,10 +551,10 @@ export function AgentPanel({ configured }: { configured: boolean }) {
       aria-modal="false"
       aria-labelledby="agent-title"
       hidden={!open}
-      className="fixed inset-0 z-40 flex flex-col overflow-hidden bg-surface sm:inset-auto sm:right-4 sm:bottom-4 sm:h-[min(42rem,calc(100dvh-2rem))] sm:w-[25rem] sm:rounded-xl sm:border sm:border-line sm:shadow-lg"
+      className="fixed inset-0 z-40 flex flex-col overflow-hidden bg-surface sm:inset-auto sm:bg-surface/[var(--agent-panel-opacity)] sm:backdrop-blur-sm sm:right-4 sm:bottom-4 sm:h-[min(42rem,calc(100dvh-2rem))] sm:w-[25rem] sm:rounded-xl sm:border sm:border-line sm:shadow-lg"
     >
       {/* Header: name, new chat, thread menu, minimize */}
-      <div className="flex items-center justify-between gap-2 bg-accent px-3 pt-[max(0.625rem,env(safe-area-inset-top))] pb-2.5 text-accent-foreground sm:pt-2.5">
+      <div className="flex items-center justify-between gap-2 bg-accent px-3 sm:bg-accent/[var(--agent-panel-opacity)] pt-[max(0.625rem,env(safe-area-inset-top))] pb-2.5 text-accent-foreground sm:pt-2.5">
         <h2 id="agent-title" className="flex min-w-0 items-center gap-2 text-[14px] font-semibold text-accent-foreground">
           <SparklesIcon className="size-[18px] shrink-0" aria-hidden />
           <span className="truncate">{name}</span>

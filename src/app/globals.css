@@ -272,6 +272,19 @@
   animation: slide-up 200ms var(--ease-out);
 }
 
+/* Something that just arrived or changed on an open page (src/components/live-highlight.ts): a glow that fades back to how it looks at rest. */
+@keyframes live-arrived {
+  from,
+  35% {
+    background-color: var(--live-highlight);
+    box-shadow: 0 0 0 2px var(--live-highlight-ring);
+  }
+}
+.live-arrived {
+  animation: live-arrived 2.2s ease-out;
+  border-radius: var(--radius-md);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
