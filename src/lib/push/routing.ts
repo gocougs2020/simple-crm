@@ -28,6 +28,21 @@ export function noteTargets(n: { who: string; body: string; url: string; dedupeK
   });
 }
 
+/**
+ * A logged or planned activity: an open one's assignee hears "gave you a
+ * task" first, falling back to the activity if they own the record; the
+ * other owners hear about the activity.
+ */
+export function activityTargets(n: { assigneeId: string | null; task: Notice | null; owners: Owner[]; owned: (o: Owner, dedupeKey?: string) => Notice }): Target[] {
+  const targets: Target[] = [];
+  if (n.task && n.assigneeId) {
+    const own = n.owners.find((o) => o.userId === n.assigneeId);
+    targets.push({ userId: n.assigneeId, notices: [n.task, ...(own ? [n.owned(own, n.task.dedupeKey)] : [])] });
+  }
+  for (const o of n.owners) if (!targets.some((t) => t.userId === o.userId)) targets.push({ userId: o.userId, notices: [n.owned(o)] });
+  return targets;
+}
+
 const withArticle = (type: ActivityType) => `${/^[aeiou]/.test(type) ? "an" : "a"} ${type}`;
 
 /** "logged a call", "planned a meeting", "added a task". */

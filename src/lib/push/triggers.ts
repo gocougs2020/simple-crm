@@ -3,8 +3,8 @@ import { eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { actorUserId, type Actor } from "@/lib/crm/actor";
 import type { ActivityType, ClientCategory } from "@/lib/constants";
-import { notify, notifyEach } from "./notify";
-import { activityVerb, noteTargets, stageTitle, type Owner } from "./routing";
+import { notify, notifyEach, type Notice } from "./notify";
+import { activityTargets, activityVerb, noteTargets, stageTitle, type Owner } from "./routing";
 
 /**
  * What notifies whom. Each function is called from the service that made the
@@ -16,22 +16,23 @@ const actorName = (a: Actor) => (a.kind === "user" ? a.user.name.split(" ")[0] :
 type Links = { personId?: string | null; organizationId?: string | null; clientId?: string | null };
 const recordUrl = (l: Links) => (l.clientId ? `/clients/${l.clientId}` : l.personId ? `/people/${l.personId}` : l.organizationId ? `/organizations/${l.organizationId}` : "/activities");
 
-/** A task (or a planned call or meeting) given to someone other than whoever made the change. */
+/** "Sam gave you a task": for a task, or a planned call or meeting, given to someone. */
+function taskNotice(a: Actor, task: { id: string; subject: string | null; type: string; assigneeId: string } & Links): Notice {
+  return {
+    kind: "task_assigned",
+    title: `${actorName(a)} gave you a ${task.type === "task" ? "task" : task.type}`,
+    body: task.subject || "Open it to see the details.",
+    url: recordUrl(task),
+    // Per assignment, not per task and person: handing a task back to someone who had it before tells them again.
+    // The minute stops a double-submitted form from notifying twice.
+    dedupeKey: `task_assigned:${task.id}:${task.assigneeId}:${Math.floor(Date.now() / 60_000)}`,
+  };
+}
+
+/** A task (or a planned call or meeting) reassigned to someone other than whoever made the change. New ones go through activityLogged. */
 export function taskAssigned(a: Actor, task: { id: string; subject: string | null; type: string; assigneeId: string | null; completedAt?: Date | null } & Links) {
   if (!task.assigneeId || task.completedAt) return;
-  notify(
-    [task.assigneeId],
-    {
-      kind: "task_assigned",
-      title: `${actorName(a)} gave you a ${task.type === "task" ? "task" : task.type}`,
-      body: task.subject || "Open it to see the details.",
-      url: recordUrl(task),
-      // Per assignment, not per task and person: handing a task back to someone who had it before tells them again.
-      // The minute stops a double-submitted form from notifying twice.
-      dedupeKey: `task_assigned:${task.id}:${task.assigneeId}:${Math.floor(Date.now() / 60_000)}`,
-    },
-    { except: actorUserId(a) },
-  );
+  notify([task.assigneeId], taskNotice(a, { ...task, assigneeId: task.assigneeId }), { except: actorUserId(a) });
 }
 
 const entityPath = { client: "clients", person: "people", organization: "organizations" } as const;
@@ -76,8 +77,12 @@ export async function inboundEmail(message: { id: string; from: string; subject:
   });
 }
 
-/** Whoever owns each record an activity is on, with the name and page of the record they own (a client before its contact before its organization). */
-async function ownersOf(l: Links) {
+/**
+ * Whoever owns each record an activity is on, with the name and page of the
+ * record they own: its client, its contact, its organization, then the other
+ * people on it (a meeting's other attendees, an email's other recipients).
+ */
+async function ownersOf(l: Links, people: string[] = []) {
   const db = await getDb();
   const [client] = l.clientId ? await db.select({ ownerId: schema.clients.ownerId, name: schema.clients.name }).from(schema.clients).where(eq(schema.clients.id, l.clientId)) : [];
   const [person] = l.personId
@@ -89,6 +94,14 @@ async function ownersOf(l: Links) {
     person && { userId: person.ownerId, name: [person.firstName, person.lastName].filter(Boolean).join(" "), url: `/people/${l.personId}` },
     org && { userId: org.ownerId, name: org.name, url: `/organizations/${l.organizationId}` },
   ];
+  const more = people.filter((id) => id !== l.personId);
+  if (more.length) {
+    const rows = await db
+      .select({ id: schema.people.id, ownerId: schema.people.ownerId, firstName: schema.people.firstName, lastName: schema.people.lastName })
+      .from(schema.people)
+      .where(inArray(schema.people.id, more));
+    for (const p of rows) found.push({ userId: p.ownerId, name: [p.firstName, p.lastName].filter(Boolean).join(" "), url: `/people/${p.id}` });
+  }
   const owners: Owner[] = [];
   for (const o of found) if (o && o.userId && !owners.some((x) => x.userId === o.userId)) owners.push({ userId: o.userId, name: o.name, url: o.url });
   return owners;
@@ -102,31 +115,36 @@ const snippet = (text: string, fallback: string) => text.replace(/\s+/g, " ").tr
  * and everyone who replied); and the owners of the records it's on hear about
  * it too. Each of them gets one alert: the most specific one they want.
  */
-export function noteWritten(a: Actor, note: { id: string; replyId?: string } & Links, text: string, mentioned: string[], thread: (string | null)[] = []) {
+export function noteWritten(a: Actor, note: { id: string; replyId?: string; people?: string[] } & Links, text: string, mentioned: string[], thread: (string | null)[] = []) {
   const who = actorName(a);
   const body = snippet(text, "Open it to read the note.");
   const url = recordUrl(note);
   const dedupeKey = `note:${note.replyId ?? note.id}`;
-  notifyEach(async () => noteTargets({ who, body, url, dedupeKey, reply: !!note.replyId, mentioned, thread, owners: await ownersOf(note) }), {
+  notifyEach(async () => noteTargets({ who, body, url, dedupeKey, reply: !!note.replyId, mentioned, thread, owners: await ownersOf(note, note.people) }), {
     except: actorUserId(a),
   });
 }
 
 /**
- * A call, email, text, meeting or task was logged or planned on a record
- * someone else owns. Notes go through noteWritten. An open task's assignee
- * isn't told twice: "gave you a task" covers them.
+ * An activity was logged or planned. An open one tells its assignee "gave you
+ * a task"; a call, email, text, meeting or task also tells the owners of the
+ * records it's on (notes go through noteWritten). An assignee who owns the
+ * record hears once: the task if their device wants it, else the activity.
  */
-export function activityLogged(a: Actor, activity: { id: string; type: ActivityType; subject: string | null; text: string; done: boolean; assigneeId: string | null } & Links) {
-  if (activity.type === "note") return;
+export function activityLogged(a: Actor, activity: { id: string; type: ActivityType; subject: string | null; text: string; done: boolean; assigneeId: string | null; people?: string[] } & Links) {
+  const task = !activity.done && activity.assigneeId ? taskNotice(a, { ...activity, assigneeId: activity.assigneeId }) : null;
+  if (!task && activity.type === "note") return;
   const who = actorName(a);
   const verb = activityVerb(activity.type, activity.done);
   const body = activity.subject?.trim() || snippet(activity.text, "Open it to see the details.");
   notifyEach(
     async () =>
-      (await ownersOf(activity))
-        .filter((o) => activity.done || o.userId !== activity.assigneeId)
-        .map((o) => ({ userId: o.userId, notices: [{ kind: "owned_activity" as const, title: `${who} ${verb} on ${o.name}`, body, url: o.url, dedupeKey: `activity:${activity.id}` }] })),
+      activityTargets({
+        assigneeId: activity.assigneeId,
+        task,
+        owners: activity.type === "note" ? [] : await ownersOf(activity, activity.people),
+        owned: (o, dedupeKey) => ({ kind: "owned_activity", title: `${who} ${verb} on ${o.name}`, body, url: o.url, dedupeKey: dedupeKey ?? `activity:${activity.id}` }),
+      }),
     { except: actorUserId(a) },
   );
 }

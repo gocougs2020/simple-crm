@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { deviceLabel, isPushEndpoint } from "./device";
 import { keyBytes } from "./client";
-import { activityVerb, chatTargets, noteTargets, stageTitle } from "./routing";
+import { activityTargets, activityVerb, chatTargets, noteTargets, stageTitle } from "./routing";
 import { defaultNotificationKinds, notificationGroups, notificationKinds } from "@/lib/constants";
 
 describe("push devices", () => {
@@ -43,6 +43,17 @@ describe("who hears about what", () => {
   it("tells a record's owner about a new note that mentions nobody", () => {
     const t = noteTargets({ who: "Sam", body: "Hi", url: "/clients/c1", dedupeKey: "note:n1", reply: false, mentioned: [], thread: [], owners });
     assert.deepEqual(t, [{ userId: "owner", notices: [{ kind: "owned_activity", title: "Sam added a note on Acme", body: "Hi", url: "/clients/c1", dedupeKey: "note:n1" }] }]);
+  });
+
+  it("tells an open task's assignee about the task first, falling back to the activity on a record they own", () => {
+    const task = { kind: "task_assigned" as const, title: "Sam gave you a task", url: "/clients/c1", dedupeKey: "task_assigned:t1" };
+    const owned = (o: { userId: string; name: string; url: string }, dedupeKey?: string) => ({ kind: "owned_activity" as const, title: `on ${o.name}`, url: o.url, dedupeKey: dedupeKey ?? "activity:t1" });
+    const t = activityTargets({ assigneeId: "owner", task, owners: [...owners, { userId: "lee", name: "Jo Bloggs", url: "/people/p2" }], owned });
+    assert.deepEqual(kinds(t, "owner"), ["task_assigned", "owned_activity"]);
+    assert.ok(t.find((x) => x.userId === "owner")?.notices.every((n) => n.dedupeKey === "task_assigned:t1"));
+    assert.deepEqual(kinds(t, "lee"), ["owned_activity"]);
+    assert.equal(t.length, 2);
+    assert.deepEqual(kinds(activityTargets({ assigneeId: "pat", task: null, owners, owned }), "pat"), undefined, "a logged call tells no assignee");
   });
 
   it("words logged and planned activity", () => {
