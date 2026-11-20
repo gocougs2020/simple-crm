@@ -1,8 +1,10 @@
 import "server-only";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { actorUserId, type Actor } from "@/lib/crm/actor";
-import { notify } from "./notify";
+import type { ActivityType, ClientCategory } from "@/lib/constants";
+import { notify, notifyEach } from "./notify";
+import { activityVerb, noteTargets, stageTitle, type Owner } from "./routing";
 
 /**
  * What notifies whom. Each function is called from the service that made the
@@ -74,19 +76,74 @@ export async function inboundEmail(message: { id: string; from: string; subject:
   });
 }
 
+/** Whoever owns each record an activity is on, with the name and page of the record they own (a client before its contact before its organization). */
+async function ownersOf(l: Links) {
+  const db = await getDb();
+  const [client] = l.clientId ? await db.select({ ownerId: schema.clients.ownerId, name: schema.clients.name }).from(schema.clients).where(eq(schema.clients.id, l.clientId)) : [];
+  const [person] = l.personId
+    ? await db.select({ ownerId: schema.people.ownerId, firstName: schema.people.firstName, lastName: schema.people.lastName }).from(schema.people).where(eq(schema.people.id, l.personId))
+    : [];
+  const [org] = l.organizationId ? await db.select({ ownerId: schema.organizations.ownerId, name: schema.organizations.name }).from(schema.organizations).where(eq(schema.organizations.id, l.organizationId)) : [];
+  const found = [
+    client && { userId: client.ownerId, name: client.name, url: `/clients/${l.clientId}` },
+    person && { userId: person.ownerId, name: [person.firstName, person.lastName].filter(Boolean).join(" "), url: `/people/${l.personId}` },
+    org && { userId: org.ownerId, name: org.name, url: `/organizations/${l.organizationId}` },
+  ];
+  const owners: Owner[] = [];
+  for (const o of found) if (o && o.userId && !owners.some((x) => x.userId === o.userId)) owners.push({ userId: o.userId, name: o.name, url: o.url });
+  return owners;
+}
+
+const snippet = (text: string, fallback: string) => text.replace(/\s+/g, " ").trim().slice(0, 140) || fallback;
+
 /**
- * A note or a reply mentions teammates ("@Sam"), and a reply reaches whoever
- * is already in the thread: the note's author and everyone who replied.
- * Someone both mentioned and in the thread hears once, as a mention.
+ * A note or a reply was written. Teammates it mentions ("@Sam") hear first;
+ * a reply also reaches whoever is already in the thread (the note's author
+ * and everyone who replied); and the owners of the records it's on hear about
+ * it too. Each of them gets one alert: the most specific one they want.
  */
-export function noteMentioned(a: Actor, note: { id: string; replyId?: string } & Links, text: string, mentioned: string[], thread: (string | null)[] = []) {
-  const body = text.replace(/\s+/g, " ").trim().slice(0, 140) || "Open it to read the note.";
+export function noteWritten(a: Actor, note: { id: string; replyId?: string } & Links, text: string, mentioned: string[], thread: (string | null)[] = []) {
+  const who = actorName(a);
+  const body = snippet(text, "Open it to read the note.");
   const url = recordUrl(note);
-  const key = note.replyId ?? note.id;
-  notify(mentioned, { kind: "mention", title: `${actorName(a)} mentioned you in a note`, body, url, dedupeKey: `mention:${key}` }, { except: actorUserId(a) });
+  const dedupeKey = `note:${note.replyId ?? note.id}`;
+  notifyEach(async () => noteTargets({ who, body, url, dedupeKey, reply: !!note.replyId, mentioned, thread, owners: await ownersOf(note) }), {
+    except: actorUserId(a),
+  });
+}
+
+/**
+ * A call, email, text, meeting or task was logged or planned on a record
+ * someone else owns. Notes go through noteWritten. An open task's assignee
+ * isn't told twice: "gave you a task" covers them.
+ */
+export function activityLogged(a: Actor, activity: { id: string; type: ActivityType; subject: string | null; text: string; done: boolean; assigneeId: string | null } & Links) {
+  if (activity.type === "note") return;
+  const who = actorName(a);
+  const verb = activityVerb(activity.type, activity.done);
+  const body = activity.subject?.trim() || snippet(activity.text, "Open it to see the details.");
+  notifyEach(
+    async () =>
+      (await ownersOf(activity))
+        .filter((o) => activity.done || o.userId !== activity.assigneeId)
+        .map((o) => ({ userId: o.userId, notices: [{ kind: "owned_activity" as const, title: `${who} ${verb} on ${o.name}`, body, url: o.url, dedupeKey: `activity:${activity.id}` }] })),
+    { except: actorUserId(a) },
+  );
+}
+
+/** Someone else moved a client to another stage, or into another category (signed, lost, won back). Its owner hears. */
+export function clientStageChanged(a: Actor, client: { id: string; name: string; ownerId: string | null; stage: string; category?: ClientCategory }) {
+  if (!client.ownerId) return;
   notify(
-    thread.filter((id) => !id || !mentioned.includes(id)),
-    { kind: "mention", title: `${actorName(a)} replied to a note`, body, url, dedupeKey: `reply:${key}` },
+    [client.ownerId],
+    {
+      kind: "client_stage",
+      title: stageTitle(actorName(a), client.name, client.stage, client.category),
+      body: client.category ? `Now in ${client.stage}.` : "Open the client to see where it stands.",
+      url: `/clients/${client.id}`,
+      // Per stage, per minute: dragging a card back and forth sends one per stage it lands on, not a flood.
+      dedupeKey: `client_stage:${client.id}:${client.stage}:${Math.floor(Date.now() / 60_000)}`,
+    },
     { except: actorUserId(a) },
   );
 }

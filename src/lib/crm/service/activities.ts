@@ -12,7 +12,7 @@ import { ActionError, ForbiddenError, NotFoundError } from "@/lib/errors";
 import { calendarChanged, calendarRemoved } from "@/lib/microsoft/calendar";
 import { calendarTypes } from "@/lib/microsoft/config";
 import { mentionedTeammates } from "@/lib/crm/mentions";
-import { noteMentioned, taskAssigned } from "@/lib/push/triggers";
+import { activityLogged, noteWritten, taskAssigned } from "@/lib/push/triggers";
 import { mentionsAgent } from "@/lib/agent/run-rules";
 import { htmlToText, sanitizeHtml, textToHtml } from "@/lib/safe-html";
 
@@ -130,7 +130,8 @@ export async function logActivity(a: Actor, input: ActivityInput, opts: { requir
     taskAssigned(a, { id: row.id, subject: data.subject ?? null, type: data.type, assigneeId, ...links });
     if (onCalendar(data.type)) calendarChanged(row.id);
   }
-  if (data.type === "note") noteMentioned(a, { id: row.id, ...links }, htmlToText(body), await mentionedIn(body));
+  if (data.type === "note") noteWritten(a, { id: row.id, ...links }, htmlToText(body), await mentionedIn(body));
+  else activityLogged(a, { id: row.id, type: data.type, subject: data.subject ?? null, text: htmlToText(body), done, assigneeId, ...links });
   const handed = { id: row.id, type: data.type, subject: data.subject ?? null, body, ...links };
   if (forAssistant) await (await handoff()).handOff(a, handed, "task");
   else if (opts.handOff !== false && calledOn(a, data.type, body)) await (await handoff()).handOffMention(a, handed);
@@ -180,7 +181,7 @@ export async function replyToNote(a: Actor, activityId: string, input: z.input<t
   // Open pages pick the reply up through the note's updated time (src/lib/live.ts).
   await db.update(activities).set({ updatedAt: now }).where(eq(activities.id, note.id));
   await touch(note, now);
-  noteMentioned(a, { ...note, replyId: row.id }, htmlToText(body), await mentionedIn(body), [note.userId, ...before.map((r) => r.userId)]);
+  noteWritten(a, { ...note, replyId: row.id }, htmlToText(body), await mentionedIn(body), [note.userId, ...before.map((r) => r.userId)]);
   if (opts.handOff !== false && calledOn(a, "note", body)) {
     // Only this teammate's reply is the request. The note and the earlier replies may have been written by
     // someone else, a script or the agent itself, so they go along as quoted context, never as instructions.
