@@ -1298,8 +1298,9 @@ export const emailForwards = pgTable(
     index("email_forwards_run_idx").on(t.runId),
     index("email_forwards_conversation_idx").on(t.conversationId),
     index("email_forwards_key_idx").on(t.conversationKey),
-    // The same email sent again (by anyone who received it) is ignored.
-    uniqueIndex("email_forwards_message_idx").on(t.userId, t.messageId),
+    // The same email sent again (by anyone who received it) is read once. Only verified rows hold a slot,
+    // so a forged copy with the same Message-ID can't take the real one's place.
+    uniqueIndex("email_forwards_message_idx").on(t.userId, t.messageId).where(sql`${t.verifiedBy} is not null`),
   ],
 );
 

@@ -1,0 +1,2 @@
+DROP INDEX "email_forwards_message_idx";--> statement-breakpoint
+CREATE UNIQUE INDEX "email_forwards_message_idx" ON "email_forwards" USING btree ("user_id","message_id") WHERE "email_forwards"."verified_by" is not null;

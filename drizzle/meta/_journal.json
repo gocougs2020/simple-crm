@@ -232,6 +232,13 @@
       "when": 1795149335723,
       "tag": "0032_shared-agent-address",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1795149683950,
+      "tag": "0033_verified-forwards-only",
+      "breakpoints": true
     }
   ]
 }

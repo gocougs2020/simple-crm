@@ -123,8 +123,8 @@ export async function handleReceived(event: ReceivedEvent): Promise<boolean> {
   const [row] = await db
     .insert(forwards)
     .values({ resendEmailId: event.email_id, userId: user.id, fromAddress: claimed.slice(0, 320), subject: event.subject?.slice(0, 300) ?? null, messageId: bracketed(event.message_id) })
-    // Unique on Resend's id (a repeated webhook) and on the teammate and Message-ID (the same email sent again): either way it's read once.
-    .onConflictDoNothing()
+    // A repeated webhook (same Resend id) does nothing. The same email sent again is caught once it's verified, below.
+    .onConflictDoNothing({ target: forwards.resendEmailId })
     .returning();
   if (!row) return true;
   try {
@@ -197,9 +197,10 @@ const dnsLookup = async (name: string) => {
 
 async function processForward(row: Forward, hit: { conversationKey: string | null }, user: User) {
   const db = await getDb();
-  // Before anything is fetched: email claiming to be from them can't pile up without limit.
-  const arriving = await rateLimit("forward-in", user.id, { limit: cfg().perHour * 5, windowMs: 3_600_000 });
-  if (arriving.limited) return refuse(row, "Too many emails claiming to be from you arrived in the last hour, so this one wasn't read.");
+  // Before anything is fetched: unproven mail can't pile up without limit. One bucket for the team, not the
+  // teammate named, so forged mail in someone's name can't use up their own allowance and lock them out.
+  const arriving = await rateLimit("forward-in", "team", { limit: cfg().perHour * 25, windowMs: 3_600_000 });
+  if (arriving.limited) return refuse(row, `More emails than ${appConfig.agent.name} reads in an hour arrived for the whole team, so this one wasn't read. Forward it again later.`);
 
   const resend = getResend();
   if (!resend) throw new RetryLater("Resend isn't connected");
@@ -235,11 +236,24 @@ async function processForward(row: Forward, hit: { conversationKey: string | nul
   if (sender.signed && !(sender.signed.includes("date") && sender.signed.includes("message-id"))) {
     return refuse(row, "Its signature doesn't cover its date and Message-ID, so it can't be told apart from an old email sent again.");
   }
+  // Exactly one of each: the signature covers the last instance of a header, so a second Date or Message-ID
+  // added on top would otherwise be what's read here.
   const messageLines = headers.filter((h) => h.name === "message-id");
-  if (messageLines.length !== 1 || !row.messageId || bracketed(messageLines[0].value) !== row.messageId) return refuse(row, "Its Message-ID is missing or doesn't match, so it can't be checked against emails already read.");
-  const fresh = freshEnough(headers.find((h) => h.name === "date")?.value);
+  if (messageLines.length !== 1 || !row.messageId || bracketed(messageLines[0].value) !== row.messageId) return refuse(row, "Its Message-ID is missing, repeated or doesn't match, so it can't be checked against emails already read.");
+  const dateLines = headers.filter((h) => h.name === "date");
+  if (dateLines.length !== 1) return refuse(row, "It has no date, or more than one, so it can't be told apart from an old email sent again.");
+  const fresh = freshEnough(dateLines[0].value);
   if (!fresh.ok) return refuse(row, fresh.reason);
-  await db.update(forwards).set({ verifiedBy: sender.how }).where(eq(forwards.id, row.id));
+  // Marking it verified claims its (sender, Message-ID) slot; only verified emails hold one, so a forged copy
+  // that arrived first can't take the real email's place. If the slot is taken, it's been read already.
+  try {
+    await db.update(forwards).set({ verifiedBy: sender.how }).where(eq(forwards.id, row.id));
+  } catch (err) {
+    if ((err as { code?: string; cause?: { code?: string } }).code === "23505" || (err as { cause?: { code?: string } }).cause?.code === "23505") {
+      return refuse(row, "This exact email was already read once, so it wasn't read again.");
+    }
+    throw err;
+  }
 
   // From here on it's certainly them, so a refusal is answered.
   if (!roleCan(user.role, "records:write")) return refuse(row, "Your role is read-only, so the agent can't change records for you. Ask an admin for edit access.", { reply: user });
