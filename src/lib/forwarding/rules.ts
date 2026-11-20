@@ -219,11 +219,15 @@ export function forwardInstructions(name = appConfig.agent.name) {
 /**
  * The request a forwarded email becomes: what to do with it, any earlier
  * rounds of this conversation (each email and the agent's answer), then the
- * newest email. Earlier rounds are cut short first, so the newest fits.
+ * newest email. The newest gets the whole budget when it's the only one, and
+ * at least 60% when there are earlier rounds, which are cut short first. A
+ * cut is marked, so the agent can say it didn't read everything.
  */
 export function forwardPrompt(earlier: Exchange[], latest: ForwardedEmail, max = cfg().maxChars) {
   const head = forwardInstructions();
-  const newest = block(latest, latest.text.slice(0, Math.max(2_000, Math.floor(max * 0.6))));
+  const budget = Math.max(2_000, earlier.length ? Math.floor(max * 0.6) : max - head.length - 300);
+  const cut = latest.text.length > budget;
+  const newest = block(latest, cut ? `${latest.text.slice(0, budget)}\n[The email continues; the rest was left out to fit. Say so in your answer.]` : latest.text);
   let room = Math.max(0, max - head.length - newest.length - 200);
   const rounds: string[] = [];
   for (const [i, x] of earlier.entries()) {

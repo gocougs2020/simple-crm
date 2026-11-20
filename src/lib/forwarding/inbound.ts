@@ -1,6 +1,6 @@
 import "server-only";
 import { resolveTxt } from "node:dns/promises";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
 import DirectEmail from "@/emails/direct";
@@ -16,7 +16,7 @@ import { siteOrigin } from "@/lib/origin";
 import { roleCan } from "@/lib/permissions";
 import { rateLimit } from "@/lib/rate-limit";
 import { htmlToText, sanitizeHtml } from "@/lib/safe-html";
-import { headerValue, splitMessage, verifyDkim } from "./dkim";
+import { headerValue, LOOKUP_FAILED, splitMessage, verifyDkim } from "./dkim";
 import {
   absoluteLinks,
   addressOf,
@@ -166,13 +166,25 @@ const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
 /** The raw message from Resend's short-lived download link: https only, and no bigger than an email can be. */
 async function fetchRaw(url: string) {
   if (!/^https:\/\//i.test(url)) throw new RetryLater("raw link isn't https");
-  const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+  let res: Response;
+  try {
+    res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+  } catch (err) {
+    // A timeout or dropped connection: Resend retries the webhook, and this starts over.
+    throw new RetryLater(`raw download: ${(err as Error).message}`);
+  }
   if (!res.ok || !res.body) throw new RetryLater(`raw download ${res.status}`);
   const chunks: Uint8Array[] = [];
   let size = 0;
   const reader = res.body.getReader();
   for (;;) {
-    const { done, value } = await reader.read();
+    let next: ReadableStreamReadResult<Uint8Array>;
+    try {
+      next = await reader.read();
+    } catch (err) {
+      throw new RetryLater(`raw download: ${(err as Error).message}`);
+    }
+    const { done, value } = next;
     if (done) break;
     size += value.byteLength;
     if (size > MAX_RAW_BYTES) {
@@ -202,7 +214,9 @@ async function processForward(row: Forward, hit: { conversationKey: string | nul
 
   const resend = getResend();
   if (!resend) throw new RetryLater("Resend isn't connected");
-  const { data: email, error } = await resend.emails.receiving.get(row.resendEmailId);
+  const { data: email, error } = await resend.emails.receiving.get(row.resendEmailId).catch((err: Error) => {
+    throw new RetryLater(`Resend: ${err.message}`);
+  });
   if (error || !email) throw new RetryLater(error?.message ?? "no email");
   const raw = email.raw?.download_url ? await fetchRaw(email.raw.download_url) : null;
   if (email.raw?.download_url && !raw) return refuse(row, "It's too large to read. Forward it without the attachments.");
@@ -220,14 +234,19 @@ async function processForward(row: Forward, hit: { conversationKey: string | nul
   if (isAutomatic(headers, subject)) return refuse(row, "It's an automatic reply, so it was ignored.");
   // 3. Provably sent by their domain, not just claiming to be.
   const fromDomain = from[0].split("@")[1] ?? "";
+  const dkim = raw ? await verifyDkim(raw, dnsLookup) : [];
   const sender = checkSender({
     fromDomain,
-    dkim: raw ? await verifyDkim(raw, dnsLookup) : [],
+    dkim,
     // In message order, so the topmost (the receiver's own) comes first. Without the raw message the order is lost, so none count.
     authResults: raw ? headers.filter((h) => h.name === "authentication-results").map((h) => h.value) : [],
     trusted: trustedAuthservIds(),
   });
-  if (!sender.ok) return refuse(row, sender.reason);
+  if (!sender.ok) {
+    // DNS didn't answer for a key: that's on the way, not the sender. Retry rather than refuse a real email.
+    if (dkim.some((d) => d.reason === LOOKUP_FAILED)) throw new RetryLater("DKIM key lookup failed");
+    return refuse(row, sender.reason);
+  }
   // 4. Written lately, so an old email of theirs can't be sent again by someone who received it. Only meaningful
   // when the signature covers the date; a forward is dated when it's sent, so old threads forwarded today pass.
   // The same goes for the Message-ID the never-twice rule keys on: it must be signed, and be the one this row was stored under.
@@ -368,8 +387,37 @@ export async function deliverForwardReply(run: Run) {
     .where(and(eq(forwards.id, forward.id), eq(forwards.status, "working")))
     .returning();
   if (!claimed) return;
-  const html = done ? markdownToHtml(run.result ?? "") : `<p><strong>${appConfig.agent.name} couldn't finish.</strong> ${escapeHtml(run.error ?? "")}</p>`;
-  await sendReply(claimed, user, html);
+  // If Resend is down this throws and replied_at stays empty; retryReplies (the agent cron) sends it later.
+  await sendReply(claimed, user, answerHtml(run));
+}
+
+const answerHtml = (run: Pick<Run, "status" | "result" | "error">) =>
+  run.status === "done" ? markdownToHtml(run.result ?? "") : `<p><strong>${appConfig.agent.name} couldn't finish.</strong> ${escapeHtml(run.error ?? "")}</p>`;
+
+/**
+ * From the agent cron: sends answers that didn't go out when their run ended
+ * (Resend was down, say), for up to a day. The idempotency key per email
+ * means a reply that did go out, just unrecorded, isn't sent twice.
+ */
+export async function retryReplies(now = new Date()) {
+  const db = await getDb();
+  const owed = await db
+    .select({ forward: forwards, run: schema.agentRuns, user: schema.users })
+    .from(forwards)
+    .innerJoin(schema.agentRuns, eq(schema.agentRuns.id, forwards.runId))
+    .innerJoin(schema.users, eq(schema.users.id, forwards.userId))
+    .where(and(inArray(forwards.status, ["answered", "failed"]), isNull(forwards.repliedAt), gte(forwards.receivedAt, new Date(now.getTime() - 86_400_000)), isNull(schema.users.deactivatedAt)))
+    .limit(20);
+  let sent = 0;
+  for (const { forward, run, user } of owed) {
+    try {
+      await sendReply(forward, user, answerHtml(run));
+      sent++;
+    } catch (err) {
+      console.error("[forwarding] reply retry", forward.id, err);
+    }
+  }
+  return { sent };
 }
 
 /** From the agent cron: forget what old forwarded emails said, and drop the rows after half a year. The notes the agent wrote from them stay on the records. */

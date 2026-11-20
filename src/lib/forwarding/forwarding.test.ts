@@ -238,6 +238,16 @@ describe("what the agent reads", () => {
     assert.equal(p.split("</email>").length - 1, 2);
   });
 
+  it("gives a lone email the whole budget, and marks a cut", () => {
+    const e = { from: "sam@acme.com", date: "2026-11-19", subject: "Bolt", text: `${"x".repeat(30_000)}END` };
+    const whole = forwardPrompt([], e, 40_000);
+    assert.match(whole, /xEND/);
+    assert.doesNotMatch(whole, /left out to fit/);
+    const cut = forwardPrompt([], { ...e, text: "y".repeat(50_000) }, 40_000);
+    assert.ok(cut.length <= 40_500, String(cut.length));
+    assert.match(cut, /the rest was left out to fit/);
+  });
+
   it("fits a long conversation in the limit, newest first", () => {
     const long = "x".repeat(20_000);
     const e = { from: "sam@acme.com", date: "2026-11-19", subject: "Bolt", text: long };

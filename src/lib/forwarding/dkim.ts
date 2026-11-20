@@ -13,6 +13,9 @@ import { createHash, createPublicKey, verify, type KeyObject } from "node:crypto
 
 /** One signature's outcome. `signed` lists the headers it covers (lowercase), so callers can tell which lines can be trusted. */
 export type DkimResult = { domain: string; selector: string; ok: boolean; reason?: string; signed?: string[] };
+/** The reason given when DNS didn't answer for a key, so the caller can try again later instead of refusing. */
+export const LOOKUP_FAILED = "its public key couldn't be looked up";
+
 /** Looks up the TXT record at `<selector>._domainkey.<domain>`, joined into one string, or null when there's none. */
 export type KeyLookup = (name: string) => Promise<string | null>;
 
@@ -121,7 +124,7 @@ async function checkSignature(sig: RawHeader, headers: RawHeader[], body: string
   try {
     record = await lookup(`${selector}._domainkey.${domain}`);
   } catch {
-    return fail("its public key couldn't be looked up");
+    return fail(LOOKUP_FAILED);
   }
   if (!record) return fail("its public key isn't published");
   let key: KeyObject | null;
