@@ -361,7 +361,7 @@ const defaults = {
   },
   live: {
     pollSeconds: 30,
-    idleMinutes: 10,
+    idleMinutes: 2,
     chatPollSeconds: 5,
   },
   records: {

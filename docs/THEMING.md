@@ -53,7 +53,7 @@ What [`app.config.ts`](../app.config.ts) controls:
 | `agent.suggestions`, `agent.viewerSuggestions` | 4 prompts each | Suggested actions on a new chat, for teammates who can edit and for viewers. A prompt ending in `…` fills the composer instead of sending |
 | `notifications.morningHour` | `7` | The hour (0–23, workspace time zone) the morning push summary and the agenda emails go out |
 | `live.pollSeconds` | `30` | How often an open page asks whether anything changed (calls, texts and email coming in, teammates' edits) and refreshes if so. Only while the tab is visible and in use. `0` turns it off; pages still catch up when the tab comes back into view and after the agent changes something. See [ARCHITECTURE.md](ARCHITECTURE.md#live-updates) |
-| `live.idleMinutes` | `10` | Minutes without a click or key press after which open pages stop asking, so the database can sleep overnight |
+| `live.idleMinutes` | `2` | Minutes without a click or key press after which open pages stop asking, so the database can sleep soon after someone steps away. Pages catch up on the next click or when the tab comes back into view |
 | `live.chatPollSeconds` | `5` | How often the team chat page asks for new messages while it's open, visible and in use (the same idle rule applies). `0` falls back to `live.pollSeconds` |
 | `records.keyContactLabel` | `"Decision maker"` | What a starred person at an organization is called (the star's tooltip, their page and the audience filter) |
 | `microsoft.*` | | Microsoft 365: sync frequency, the mail screen (decision model, what counts as sensitive, threshold), the Outlook category for kept-out mail, which activities go on calendars. See [MICROSOFT.md](MICROSOFT.md#settings-per-deployment) |
