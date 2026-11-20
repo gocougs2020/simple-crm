@@ -155,11 +155,14 @@ Internal email about a client (two teammates discussing how an account is doing,
 
 **Setting it up (once, an admin):**
 
-1. In Resend, add a domain for receiving only, ideally a subdomain like `in.acme.com`, turn on receiving and add its MX record. Your company mail stays where it is.
-2. Set `FORWARD_EMAIL_DOMAIN=in.acme.com` and redeploy.
-3. Settings → Email domains → reconnect the webhook, so it also sends `email.received`.
+1. Pick the domain the addresses go on: a subdomain of your company's, like `crm.yourdomain.com`, never the domain your mailboxes use (receiving needs its MX record, which would take your company mail away from Microsoft 365 or Google).
+   - If the CRM's website already lives on that name through a CNAME (Vercel's usual setup for a subdomain), it can't also have an MX record: DNS doesn't allow other records beside a CNAME. Either point the website there with the A records Vercel gives in Project → Settings → Domains instead of the CNAME, or put the addresses on another name, like `in.crm.yourdomain.com`.
+2. In Resend, add that domain, turn on receiving and add the MX record it shows. Sending is unaffected.
+3. Set `FORWARD_EMAIL_DOMAIN=crm.yourdomain.com` (or whichever name you picked) and redeploy. Each address is then `log-<24 random characters>@crm.yourdomain.com`.
+4. Settings → Email domains → reconnect the webhook, so it also sends `email.received`.
+5. Check that your mail is DKIM-signed with your own domain, since that's how a forward proves it's from you. Send any email from your work mailbox to a Gmail address and open "Show original": it should say `DKIM: 'PASS' with domain yourdomain.com`. If it names another domain (Microsoft 365's default `….onmicrosoft.com`) or there's no DKIM line, turn on DKIM for your domain: in Microsoft 365, the Defender portal → Email authentication settings → DKIM (it asks for two CNAME records, `selector1._domainkey` and `selector2._domainkey`); in Google Workspace, Admin console → Gmail → Authenticate email.
 
-**Using it (each teammate):** Settings → Agent → Email forwarding → **Turn on** gives you a private address, `log-<24 random characters>@in.acme.com`. Save it as a contact. Forward an email to it, or Cc it on your own email in an internal thread, with a line at the top if you want something specific ("log this on Bolt and add a follow-up for me").
+**Using it (each teammate):** Settings → Agent → Email forwarding → **Turn on** gives you a private address, `log-<24 random characters>@crm.yourdomain.com`. Save it as a contact. Forward an email to it, or Cc it on your own email in an internal thread, with a line at the top if you want something specific ("log this on Bolt and add a follow-up for me").
 
 **What happens:**
 
