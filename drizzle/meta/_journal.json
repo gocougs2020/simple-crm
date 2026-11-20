@@ -246,6 +246,13 @@
       "when": 1795151837274,
       "tag": "0034_split-mention-alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1795152359671,
+      "tag": "0035_email-forwarding",
+      "breakpoints": true
     }
   ]
 }

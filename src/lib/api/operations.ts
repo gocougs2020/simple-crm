@@ -23,6 +23,8 @@ const linkFields = {
   organizationId: z.uuid().nullable().optional(),
   clientId: z.uuid().nullable().optional().describe("Linking a client also links its contact and organization; linking a person also links their organization."),
 };
+/** Find-or-create for integrations: a duplicate answers with the record that's already there instead of a 409. */
+const ifExists = z.enum(["error", "return"]).optional();
 const pinned = z.boolean().optional().describe("Pinned activity stays at the top of the record's timeline.");
 
 const taskBody = z.object({
@@ -147,7 +149,20 @@ export const operations = {
     list: true,
     tool: "list_people",
   }),
-  createPerson: op({ method: "POST", path: "/people", tag: "People", summary: "Create a person", permission: "records:write", body: personInput, response: "Person", status: 201, tool: "create_person", example: { firstName: "Sam", lastName: "Lee", email: "sam@acme.com", title: "Head of growth", organizationId: "9b1d…", tags: ["referral"] } }),
+  createPerson: op({
+    method: "POST",
+    path: "/people",
+    tag: "People",
+    summary: "Create a person",
+    description: "Emails are unique among people who aren't archived; a duplicate returns 409 with the existing id. Send ifExists=return to get the existing person back instead, which makes this a find-or-create (for Zapier, Make and form tools).",
+    permission: "records:write",
+    query: z.object({ ifExists: ifExists.describe("What to do when someone already has this email. error (the default) answers 409 with existingId; return answers with that person, unchanged.") }),
+    body: personInput,
+    response: "Person",
+    status: 201,
+    tool: "create_person",
+    example: { firstName: "Sam", lastName: "Lee", email: "sam@acme.com", title: "Head of growth", organizationId: "9b1d…", tags: ["referral"] },
+  }),
   getPerson: people.get,
   updatePerson: op({
     method: "PATCH",
@@ -190,8 +205,9 @@ export const operations = {
     path: "/organizations",
     tag: "Organizations",
     summary: "Create an organization",
-    description: "Names are unique (ignoring case) among organizations that aren't archived; a duplicate returns 409 with the existing id.",
+    description: "Names are unique (ignoring case) among organizations that aren't archived; a duplicate returns 409 with the existing id. Send ifExists=return to get the existing organization back instead, which makes this a find-or-create.",
     permission: "records:write",
+    query: z.object({ ifExists: ifExists.describe("What to do when an organization already has this name. error (the default) answers 409 with existingId; return answers with that organization, unchanged.") }),
     body: orgInput,
     response: "Organization",
     status: 201,

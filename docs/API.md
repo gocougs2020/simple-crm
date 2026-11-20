@@ -2,7 +2,11 @@
 
 The CRM has a REST API for integrations and scripts, and an MCP server so each teammate's AI agent can work in it. Both cover people, organizations, clients, tasks, notes and every other kind of activity, and both write the same history the app does.
 
-The full reference (every endpoint, field, model and tool, with curl examples) is generated from the code and served by each deployment at **`/developers`**. The OpenAPI 3.1 document is at **`/api/v1/openapi.json`**. This page covers how the pieces fit.
+The full reference (every endpoint, field, model and tool, with curl examples) is generated from the code and served by each deployment at **`/developers`**, and as one Markdown document at **`/developers.md`** (the page's "Copy as Markdown" button copies it: authorization, the Zapier guide, every endpoint, model and tool). The OpenAPI 3.1 document is at **`/api/v1/openapi.json`**. This page covers how the pieces fit.
+
+## Zapier, Make and scheduling tools
+
+`/developers#integrations` walks through connecting a no-code tool, with Calendly as the example: an admin makes a workspace key named after the tool, the tool sends `POST` requests with it as a bearer token, `POST /people?ifExists=return` finds or creates the person (a duplicate email returns the existing person instead of a 409, so a Zap doesn't stop), and `POST /activities` logs the booking as a planned meeting. The guide's text is data in `src/lib/api/integrations.ts`, so the page and the Markdown say the same thing. Tools whose webhooks can't send an Authorization header (Calendly's own) go through Zapier, Make or a small function.
 
 ## Keys
 
@@ -127,6 +131,8 @@ src/lib/api/
   key-format.ts   key generation, hashing and parsing (pure)
   openapi.ts      the OpenAPI document (pure)
   docs.ts         field tables and curl examples for /developers (pure)
+  markdown.ts     the whole reference as Markdown, for /developers.md (pure)
+  integrations.ts the Zapier, Make and Calendly guide, shared by the page and the Markdown (pure)
 src/lib/mcp/
   protocol.ts     JSON-RPC handling and tools from operations (pure)
   server.ts       the /api/mcp request cycle
@@ -149,7 +155,7 @@ src/app/developers/page.tsx               the docs page (public, static)
 - Tasks created without `dueAt` are due today (date only), so they show as open in the CRM.
 - Tasks and notes can stand alone. Calls, emails, texts and meetings need a link to a person, organization or client.
 - Bodies accept the rich-text HTML the app uses (sanitized by the same allow-list) or plain text, where blank lines start paragraphs.
-- Duplicates (a person's email, an organization's name) return 409 with `existingId`.
+- Duplicates (a person's email, an organization's name) return 409 with `existingId`. `POST /people` and `POST /organizations` take `?ifExists=return` to answer with the existing record instead (unchanged), for find-or-create from integrations.
 - Each key can make 300 requests a minute across the API and MCP (`src/lib/api/limits.ts`), counted in Postgres. Every tool call in an MCP batch counts as a request, batches hold at most 20 messages and run one at a time.
 - Request bodies are capped at 1 MB, counted in bytes as they stream in (a missing or wrong Content-Length doesn't get around it).
 - Changing an activity's `type` needs its author or an admin, even for tasks, so retyping can't be used to unlock editing someone else's activity.

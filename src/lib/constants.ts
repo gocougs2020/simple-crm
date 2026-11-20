@@ -172,11 +172,15 @@ export const notificationGroups: { title: string; kinds: NotificationKind[] }[] 
 export const defaultNotificationKinds: NotificationKind[] = notificationKinds.filter((k) => k !== "chat_message");
 
 /** Where a background run of the agent came from (docs/AGENT.md). */
-export const agentRunSources = ["chat", "mention", "task", "bulk", "api", "schedule"] as const;
+export const agentRunSources = ["chat", "mention", "task", "bulk", "api", "schedule", "email"] as const;
 export type AgentRunSource = (typeof agentRunSources)[number];
 /** queued: accepted, not started. running: the agent is working. The rest are final. */
 export const agentRunStatuses = ["queued", "running", "done", "failed", "cancelled"] as const;
 export type AgentRunStatus = (typeof agentRunStatuses)[number];
+/** Email at a teammate's forwarding address: received, then working (a run started), then answered (the reply went out); or refused, or failed. */
+export const emailForwardStatuses = ["received", "refused", "working", "answered", "failed"] as const;
+export type EmailForwardStatus = (typeof emailForwardStatuses)[number];
+export const emailForwardStatusLabels: Record<EmailForwardStatus, string> = { received: "Checking", refused: "Refused", working: "Working", answered: "Answered", failed: "Couldn't finish" };
 export const agentRunStatusLabels: Record<AgentRunStatus, string> = { queued: "Starting", running: "Working", done: "Done", failed: "Couldn't finish", cancelled: "Cancelled" };
 /** Messages the agent writes for a teammate to review and send. */
 export const agentDraftKinds = ["email", "text"] as const;

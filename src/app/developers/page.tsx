@@ -3,9 +3,11 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { appConfig } from "@/app.config";
 import { CodeBlock, SiteUrl } from "@/components/developers/code";
+import { CopyMarkdown } from "@/components/developers/copy-markdown";
 import { StatusBadge, type Tone } from "@/components/ui/badge";
 import { curlFor, fieldsOf, modelFields, type FieldDoc } from "@/lib/api/docs";
 import { permissionLabels } from "@/lib/api/docs-text";
+import { codeSpans, integrationIntro, integrationSteps } from "@/lib/api/integrations";
 import { API_RATE_LIMIT_PER_MINUTE } from "@/lib/api/limits";
 import { models } from "@/lib/api/models";
 import { operationList, tags } from "@/lib/api/operations";
@@ -27,6 +29,7 @@ const tools = operationList.filter((o) => o.tool);
 const guides = [
   { id: "start", label: "Quick start" },
   { id: "keys", label: "Keys and access" },
+  { id: "integrations", label: "Zapier, Make and others" },
   { id: "mcp", label: "MCP for agents" },
   { id: "conventions", label: "Conventions" },
   { id: "errors", label: "Errors and limits" },
@@ -42,6 +45,9 @@ export default function DevelopersPage() {
           <span className="text-faint">/</span>
           <span className="text-[14px] text-secondary">API and MCP</span>
           <nav className="ml-auto flex items-center gap-4 text-[13.5px]">
+            <a href="/developers.md" className="text-secondary hover:text-primary">
+              Markdown
+            </a>
             <a href="/api/v1/openapi.json" className="text-secondary hover:text-primary">
               OpenAPI
             </a>
@@ -99,9 +105,15 @@ export default function DevelopersPage() {
               </ul>
             </nav>
           </details>
-          <h1 className="text-[28px] font-semibold tracking-tight text-primary">API and MCP</h1>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h1 className="text-[28px] font-semibold tracking-tight text-primary">API and MCP</h1>
+            <CopyMarkdown />
+          </div>
           <p className="mt-2 text-[15.5px]">
             Read and change {name} from your own code with the REST API, or let an AI agent work in it through MCP. Both cover people, organizations, clients, tasks, notes and every other kind of activity, and both write the same history as the app.
+          </p>
+          <p className="mt-2 text-[13.5px] text-muted">
+            Everything on this page is also one Markdown document at <a href="/developers.md" className="text-primary underline underline-offset-2">/developers.md</a>, to paste into a doc, a ticket or an AI tool.
           </p>
 
           <Guide id="start" title="Quick start">
@@ -124,15 +136,19 @@ export default function DevelopersPage() {
 
           <Guide id="keys" title="Keys and access">
             <div className="overflow-x-auto">
-              <Table head={["", "Personal key (crm_pk_…)", "Workspace key (crm_ws_…)"]}>
-                <Row cells={["Who makes it", "Any teammate, for themselves", "Admins"]} />
-                <Row cells={["Acts as", "The teammate who made it", "The workspace, with no person behind it"]} />
-                <Row cells={["Can do", "What that teammate's role allows, checked on every request", "Everything"]} />
-                <Row cells={["Works with MCP", "Yes", "No, so an agent never has more access than its person"]} />
-                <Row cells={["History shows", "The teammate, via the key", "The key's name"]} />
+              <Table head={["", "Personal key (crm_pk_…)", "Workspace key (crm_ws_…)", "Connected app (OAuth)"]}>
+                <Row cells={["Who makes it", "Any teammate, for themselves", "Admins", "A teammate approving an app in the browser"]} />
+                <Row cells={["Acts as", "The teammate who made it", "The workspace, with no person behind it", "The teammate who approved it"]} />
+                <Row cells={["Can do", "What that teammate's role allows, checked on every request", "Everything", "Their role, or read-only if they chose that"]} />
+                <Row cells={["Works with MCP", "Yes", "No, so an agent never has more access than its person", "Yes"]} />
+                <Row cells={["History shows", "The teammate, via the key", "The key's name", "The teammate, via the app"]} />
+                <Row cells={["Best for", "Your own scripts, agents that take a header", "Zapier, Make, server-to-server integrations", "Claude, ChatGPT and agents that sign in"]} />
               </Table>
             </div>
-            <p className="mt-4">A personal key follows its teammate: change their role and the key changes with it; deactivate them and it stops working. Keys can expire, and revoking one takes effect at once.</p>
+            <p className="mt-4">
+              Send it as <C>Authorization: Bearer &lt;key&gt;</C> (or <C>X-API-Key</C>). The API never accepts the browser&apos;s session cookie. Keys are shown once; only a hash is stored.
+            </p>
+            <p className="mt-2">A personal key follows its teammate: change their role and the key changes with it; deactivate them and it stops working. Keys can expire, and revoking one takes effect at once.</p>
             <h3 className="mt-6 mb-2 text-[15px] font-semibold text-primary">Roles</h3>
             <ul className="space-y-1.5">
               {userRoles.map((r) => (
@@ -141,6 +157,25 @@ export default function DevelopersPage() {
                 </li>
               ))}
             </ul>
+          </Guide>
+
+          <Guide id="integrations" title="Connect Zapier, Make and other tools">
+            {integrationIntro.map((p) => (
+              <p key={p} className="mb-3">
+                <Spans text={p} />
+              </p>
+            ))}
+            {integrationSteps.map((step) => (
+              <div key={step.title} className="mt-5">
+                <h3 className="mb-1 text-[15px] font-semibold text-primary">{step.title}</h3>
+                {step.text.map((t) => (
+                  <p key={t} className="mt-1.5">
+                    <Spans text={t} />
+                  </p>
+                ))}
+                {step.code ? <CodeBlock label={step.code.label} code={step.code.code} /> : null}
+              </div>
+            ))}
           </Guide>
 
           <Guide id="mcp" title="MCP for agents">
@@ -382,6 +417,15 @@ function Row({ cells }: { cells: string[] }) {
         </td>
       ))}
     </tr>
+  );
+}
+
+/** Guide text with `code` spans. `$CRM_URL` stays a placeholder here; code blocks swap in the site's address. */
+function Spans({ text }: { text: string }) {
+  return (
+    <>
+      {codeSpans(text).map((part, i) => (part.code ? <C key={i}>{part.text}</C> : <span key={i}>{part.text}</span>))}
+    </>
   );
 }
 

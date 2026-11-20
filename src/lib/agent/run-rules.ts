@@ -11,6 +11,10 @@ import { localNow } from "./prompt";
 
 /** What the teammate asked for, at most. Longer requests are cut here. */
 export const MAX_RUN_PROMPT = 8_000;
+/** A forwarded email carries a whole thread, so it may be longer (agent.forwarding.maxChars, capped here). */
+export const MAX_EMAIL_PROMPT = 60_000;
+/** The longest request a run from this source keeps. */
+export const promptLimit = (source: AgentRunSource) => (source === "email" ? Math.min(MAX_EMAIL_PROMPT, appConfig.agent.forwarding.maxChars + 4_000) : MAX_RUN_PROMPT);
 /** A stored answer, at most. */
 export const MAX_RUN_RESULT = 60_000;
 
@@ -119,6 +123,7 @@ const answerGoes: Record<AgentRunSource, string> = {
   task: "Your answer is saved on the task, and the task is then marked done. Don't complete or edit the task yourself.",
   bulk: "Your answer is saved on this record's run and listed with the others. Keep it to a few lines.",
   schedule: "Your answer is saved on the run, and they're notified that it's ready. Lead with what changed or needs them since last time. If there's nothing to report, say so in one line.",
+  email: "Your answer is emailed back to them as a reply, and they can answer it by replying. So unlike other background work, you may end with one short question when you need them to decide something; the next round brings you this conversation again with their answer.",
 };
 
 const asked: Record<AgentRunSource, string> = {
@@ -128,6 +133,7 @@ const asked: Record<AgentRunSource, string> = {
   task: "They assigned you a task.",
   bulk: "This is one record of a request that covers several. Work on this record only.",
   schedule: "This is a scheduled job they set up. Nobody asked just now.",
+  email: "They emailed you at their private forwarding address.",
 };
 
 /** The first message of a run: who it's for, the context a chat would have had, and the request. */
@@ -148,7 +154,7 @@ export function runMessage(c: RunMessageContext) {
     c.labels ? `\n${c.labels}` : "",
     c.skills ? `\n${c.skills}` : "",
     "\n## The request",
-    c.prompt.slice(0, MAX_RUN_PROMPT).trim(),
+    c.prompt.slice(0, promptLimit(c.source)).trim(),
   ];
   return lines.filter(Boolean).join("\n");
 }

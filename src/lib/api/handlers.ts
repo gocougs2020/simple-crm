@@ -19,7 +19,7 @@ import { fileText } from "@/lib/file-text";
 import { folderLabel } from "@/lib/folder-tree";
 import * as merging from "@/lib/crm/service/merge";
 import * as records from "@/lib/crm/service/records";
-import { NotFoundError } from "@/lib/errors";
+import { ConflictError, NotFoundError } from "@/lib/errors";
 import { fetchKnowledge } from "@/lib/knowledge/source";
 import { permissions } from "@/lib/permissions";
 import { getWorkspace } from "@/lib/workspace";
@@ -42,6 +42,17 @@ const deleted = (id: string) => ({ id, deleted: true as const });
 async function archive(a: Actor, entity: "person" | "organization" | "client", id: string, archived: boolean) {
   const { count } = await records.setArchived(a, entity, [id], archived);
   if (!count) throw new NotFoundError(`There's no ${entity} with that id.`);
+}
+
+/** Creates a record, or with ifExists=return hands back the one a duplicate points at (find-or-create for integrations). */
+async function orExisting(ifExists: "error" | "return" | undefined, create: () => Promise<{ id: string }>) {
+  try {
+    return (await create()).id;
+  } catch (err) {
+    const existing = err instanceof ConflictError ? (err.cause as { id?: string } | undefined)?.id : undefined;
+    if (ifExists === "return" && existing) return existing;
+    throw err;
+  }
 }
 
 /** Tasks without a due date land on today, so they show as open in the CRM. */
@@ -107,8 +118,8 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
 
   // People
   listPeople: (a, { query }, ctx) => q.listPeople(a, ctx, query),
-  async createPerson(a, { body }, ctx) {
-    const { id } = await records.createPerson(a, body);
+  async createPerson(a, { body, query }, ctx) {
+    const id = await orExisting(query.ifExists, () => records.createPerson(a, body));
     return q.getPerson(ctx, id);
   },
   getPerson: (_a, { params }, ctx) => q.getPerson(ctx, params.id),
@@ -132,8 +143,8 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
 
   // Organizations
   listOrganizations: (a, { query }, ctx) => q.listOrganizations(a, ctx, query),
-  async createOrganization(a, { body }, ctx) {
-    const { id } = await records.createOrganization(a, body);
+  async createOrganization(a, { body, query }, ctx) {
+    const id = await orExisting(query.ifExists, () => records.createOrganization(a, body));
     return q.getOrganization(ctx, id);
   },
   getOrganization: (_a, { params }, ctx) => q.getOrganization(ctx, params.id),

@@ -4,6 +4,7 @@ import { getDb, schema } from "@/db";
 import { getResend } from "@/lib/email";
 import { recordEmailEvent, type EmailEvent } from "@/lib/email/delivery";
 import { syncThread } from "@/lib/email/inbox";
+import { handleReceived } from "@/lib/forwarding/inbound";
 
 export const maxDuration = 60;
 
@@ -31,6 +32,17 @@ export async function POST(request: Request) {
     event = resend.webhooks.verify({ payload, headers: { id: h("id"), timestamp: h("timestamp"), signature: h("signature") }, webhookSecret: secret });
   } catch {
     return new NextResponse("Invalid signature", { status: 401 });
+  }
+
+  // Mail to a teammate's forwarding address (docs/AGENT.md#email-forwarding). Every check happens on the email fetched back from Resend.
+  if (event.type === "email.received") {
+    try {
+      const handled = await handleReceived(event.data);
+      return NextResponse.json({ ok: true, handled });
+    } catch (err) {
+      console.error("[resend webhook] email.received", err);
+      return new NextResponse("Couldn't read the email. Retry later.", { status: 500 });
+    }
   }
 
   if (event.type.startsWith("email.")) {
