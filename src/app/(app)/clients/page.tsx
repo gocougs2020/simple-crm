@@ -6,7 +6,7 @@ import { PageSkeleton } from "@/components/ui/skeleton";
 import { requireUser } from "@/lib/auth";
 import { clientCategories, type ClientCategory } from "@/lib/constants";
 import { getAppData } from "@/lib/crm/context";
-import { allClientTags, clientCounts, listClients } from "@/lib/crm/records";
+import { allClientTags, allStripeProducts, clientCounts, listClients } from "@/lib/crm/records";
 
 export const metadata: Metadata = { title: "Clients" };
 
@@ -31,7 +31,7 @@ async function Clients({ searchParams }: Pick<PageProps<"/clients">, "searchPara
   // The board shows one pipeline; the table can show them all.
   const pipelineId = options.find((p) => p.id === (asked ?? user.prefs.clientPipelines?.[category]))?.id ?? (view === "table" && !asked ? null : (options[0]?.id ?? null));
   const owner = one(sp.owner);
-  const [rows, counts, tags] = await Promise.all([
+  const [rows, counts, tags, stripeProducts] = await Promise.all([
     options.length
       ? listClients({
           category,
@@ -41,6 +41,8 @@ async function Clients({ searchParams }: Pick<PageProps<"/clients">, "searchPara
           health: one(sp.health),
           serviceId: one(sp.service),
           churnReason: one(sp.reason),
+          billing: one(sp.billing),
+          stripeProduct: one(sp.product),
           tag: one(sp.tag),
           sort: view === "table" ? one(sp.sort) : undefined,
           dir: one(sp.dir) as "asc" | "desc" | undefined,
@@ -48,6 +50,7 @@ async function Clients({ searchParams }: Pick<PageProps<"/clients">, "searchPara
       : [],
     clientCounts(),
     allClientTags(),
+    app.services.stripe ? allStripeProducts() : [],
   ]);
-  return <ClientsView rows={rows} view={view} category={category} pipelineId={pipelineId} counts={counts} tags={tags} />;
+  return <ClientsView rows={rows} view={view} category={category} pipelineId={pipelineId} counts={counts} tags={tags} stripeProducts={stripeProducts} />;
 }

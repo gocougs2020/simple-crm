@@ -270,7 +270,7 @@ function toClient(ctx: Ctx, r: ClientRow) {
     churnReason: c.churnReason,
     openToReturn: c.openToReturn,
     health: c.health,
-    stripeCustomerId: c.stripeCustomerId,
+    billing: { status: c.stripeStatus, mrr: Number(c.stripeMrr), products: c.stripeProducts, syncedAt: iso(c.stripeSyncedAt) },
     tags: c.tags,
     personId: c.personId,
     person: c.personId && r.personFirstName ? { id: c.personId, name: fullName(r.personFirstName, r.personLastName) } : null,

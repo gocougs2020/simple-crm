@@ -21,6 +21,7 @@ import type {
   NotificationKind,
   UserRole,
 } from "@/lib/constants";
+import type { BillingStatus } from "@/lib/stripe/rules";
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
@@ -484,8 +485,17 @@ export const clients = pgTable(
     openToReturn: boolean("open_to_return").notNull().default(true),
     /** Current clients: how the account is doing. */
     health: text("health").$type<ClientHealth>(),
-    /** The Stripe customer (cus_…) whose subscriptions and invoices show on the record. */
-    stripeCustomerId: text("stripe_customer_id"),
+    /**
+     * What Stripe says about this client, rolled up from the subscriptions of
+     * its matched customers by the Stripe sync (src/lib/stripe/sync.ts), so
+     * lists can filter and sort on it. Null status: no customer in Stripe.
+     */
+    stripeStatus: text("stripe_status").$type<BillingStatus>(),
+    /** Monthly amount of the subscriptions still running, in cents, at list price. */
+    stripeMrr: bigint("stripe_mrr", { mode: "number" }).notNull().default(0),
+    /** Names of the Stripe products they're subscribed to now. */
+    stripeProducts: jsonb("stripe_products").$type<string[]>().notNull().default([]),
+    stripeSyncedAt: timestamp("stripe_synced_at", { withTimezone: true }),
     /** Free-form labels for organizing and campaign audiences ("2024 cohort", "referral"). */
     tags: jsonb("tags").$type<string[]>().notNull().default([]),
     personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
@@ -510,8 +520,75 @@ export const clients = pgTable(
     index("clients_person_idx").on(t.personId),
     index("clients_org_idx").on(t.organizationId),
     index("clients_owner_idx").on(t.ownerId),
-    index("clients_stripe_idx").on(t.stripeCustomerId),
+    index("clients_stripe_status_idx").on(t.stripeStatus),
   ],
+);
+
+/**
+ * A copy of every customer in the connected Stripe accounts, refreshed by the
+ * daily sync. Clients match them by email: a customer belongs to a client
+ * when its email is one of the client's people's (src/lib/stripe/sync.ts).
+ */
+export const stripeCustomers = pgTable(
+  "stripe_customers",
+  {
+    /** Which connected account: the lowercased suffix of its STRIPE_SECRET_KEY variable. */
+    account: text("account").notNull(),
+    customerId: text("customer_id").notNull(),
+    /** Lowercased, so it joins to people's emails. */
+    email: text("email"),
+    name: text("name"),
+    balance: bigint("balance", { mode: "number" }).notNull().default(0),
+    currency: text("currency"),
+    delinquent: boolean("delinquent").notNull().default(false),
+    customerSince: timestamp("customer_since", { withTimezone: true }),
+    syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.account, t.customerId] }), index("stripe_customers_email_idx").on(t.email)],
+);
+
+/** One priced line of a Stripe subscription, as the sync stores it. */
+export type StripeItem = { product: string; name: string; amount: number | null; quantity: number; interval: string | null; intervalCount: number | null };
+
+/** A copy of every subscription in the connected Stripe accounts, canceled ones included, refreshed by the daily sync. */
+export const stripeSubscriptions = pgTable(
+  "stripe_subscriptions",
+  {
+    account: text("account").notNull(),
+    subscriptionId: text("subscription_id").notNull(),
+    customerId: text("customer_id").notNull(),
+    status: text("status").notNull(),
+    currency: text("currency").notNull().default("usd"),
+    /** Its price lines as a monthly amount, in cents, at list price. */
+    monthly: bigint("monthly", { mode: "number" }).notNull().default(0),
+    items: jsonb("items").$type<StripeItem[]>().notNull().default([]),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    periodEnd: timestamp("period_end", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.account, t.subscriptionId] }), index("stripe_subscriptions_customer_idx").on(t.account, t.customerId)],
+);
+
+/**
+ * Corrections to the email matching, made on a client's page: a customer
+ * linked by hand (`linked`, for one whose email isn't on any of the client's
+ * people) or a match that isn't theirs (`hidden`).
+ */
+export const clientStripeLinks = pgTable(
+  "client_stripe_links",
+  {
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    account: text("account").notNull(),
+    customerId: text("customer_id").notNull(),
+    kind: text("kind").$type<"linked" | "hidden">().notNull(),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.clientId, t.account, t.customerId] })],
 );
 
 /** What the workspace sells. Managed in Settings → Services; clients are linked to the ones they use. */

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { activityTypes, agentDraftKinds, agentDraftStatuses, agentRunSources, agentRunStatuses, agentScopes, agentSkillModes, apiKeyKinds, billingIntervals, clientCategories, clientHealths, customFieldTypes, entityTypes, scheduleEvery, userRoles } from "@/lib/constants";
 import { permissions } from "@/lib/permissions";
+import { billingStatuses } from "@/lib/stripe/rules";
 
 /**
  * The shapes the API returns, for the OpenAPI document and the docs page.
@@ -82,7 +83,14 @@ export const Client = z.object({
   churnReason: z.string().nullable(),
   openToReturn: z.boolean(),
   health: z.enum(clientHealths).nullable(),
-  stripeCustomerId: z.string().nullable(),
+  billing: z
+    .object({
+      status: z.enum(billingStatuses).nullable().describe("Rolled up from the client's Stripe subscriptions: past_due, active, trialing, paused, canceled, or customer (in Stripe with no subscription). Null: no Stripe customer matches."),
+      mrr: z.number().int().describe("Monthly amount of the Stripe subscriptions still running, in cents, at list price."),
+      products: z.array(z.string()).describe("Names of the Stripe products they're subscribed to now."),
+      syncedAt: ts.nullable(),
+    })
+    .describe("What Stripe says, matched by the emails of the client's people and refreshed daily."),
   tags: z.array(z.string()),
   personId: uuid.nullable(),
   person: ref.nullable(),

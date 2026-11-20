@@ -257,6 +257,10 @@ export type ClientFilter = {
   serviceId?: string;
   health?: string;
   churnReason?: string;
+  /** A billing status from Stripe, or "none" for clients with no Stripe customer. */
+  billing?: string;
+  /** The name of a Stripe product they're subscribed to now. */
+  stripeProduct?: string;
   sort?: string;
   dir?: "asc" | "desc";
 };
@@ -273,6 +277,8 @@ export async function listClients(f: ClientFilter = {}) {
   if (f.health) where.push(f.health === "none" ? isNull(clients.health) : eq(clients.health, f.health as never));
   if (f.churnReason) where.push(eq(clients.churnReason, f.churnReason));
   if (f.serviceId) where.push(sql`exists (select 1 from client_services cs where cs.client_id = ${clients.id} and cs.service_id = ${f.serviceId})`);
+  if (f.billing) where.push(f.billing === "none" ? isNull(clients.stripeStatus) : eq(clients.stripeStatus, f.billing as never));
+  if (f.stripeProduct) where.push(sql`${clients.stripeProducts} ? ${f.stripeProduct}`);
   if (f.q?.trim()) {
     const t = likeTerm(f.q);
     where.push(or(ilike(clients.name, t), ilike(organizations.name, t), ilike(sql`${people.firstName} || ' ' || coalesce(${people.lastName}, '')`, t))!);
@@ -284,6 +290,7 @@ export async function listClients(f: ClientFilter = {}) {
     name: sql`lower(${clients.name})`,
     value: sql`${clients.value}`,
     mrr: sql`${mrr}`,
+    stripeMrr: sql`${clients.stripeMrr}`,
     formerMrr: sql`${formerMrr}`,
     stage: sql`${stages.position}`,
     expectedClose: sql`${clients.expectedCloseDate}`,
@@ -294,7 +301,7 @@ export async function listClients(f: ClientFilter = {}) {
     organization: sql`lower(${organizations.name})`,
   };
   const order = f.sort ? (sorts[f.sort] ?? sorts.created) : null;
-  const dir = f.dir ?? (["value", "mrr", "formerMrr", "startedOn", "endedOn", "lastActivity", "created"].includes(f.sort ?? "") ? "desc" : "asc");
+  const dir = f.dir ?? (["value", "mrr", "stripeMrr", "formerMrr", "startedOn", "endedOn", "lastActivity", "created"].includes(f.sort ?? "") ? "desc" : "asc");
   return db
     .select({
       client: clients,
@@ -382,6 +389,13 @@ export async function allIndustries() {
     .where(and(isNull(organizations.archivedAt), sql`coalesce(${organizations.industry}, '') <> ''`))
     .orderBy(organizations.industry);
   return rows.map((r) => r.industry!);
+}
+
+/** Every Stripe product a client is subscribed to now, for the Clients filter. */
+export async function allStripeProducts() {
+  const db = await getDb();
+  const rows = await db.execute<{ name: string }>(sql`select distinct jsonb_array_elements_text(stripe_products) as name from clients where archived_at is null order by 1`);
+  return ((rows as unknown as { rows?: { name: string }[] }).rows ?? (rows as unknown as { name: string }[])).map((r) => r.name);
 }
 
 export async function allClientTags() {
