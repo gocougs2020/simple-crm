@@ -103,8 +103,8 @@ The browser asks for microphone access the first time. The site's `Permissions-P
 
 Client, person and organization pages open with a short AI snapshot above the "Next" line: who this is and where things stand, the latest thing that matters, and what needs attention. Two lines on a desktop (click to read it all).
 
-- **What it reads** (`recordContext` in `src/lib/agent/summary.ts`): for a client, the whole account: its details, stage, services, performance numbers, Stripe billing (subscriptions, unpaid invoices, failed payments), its people, and every note, call, email, text, meeting and task logged on the client, its contact, the people at its organization and the organization itself, both done and planned. An organization reads the same across all its clients and people. A person reads only their own record and activity. Campaign emails are left out; the newest 60 history items and 25 planned ones go in.
-- **One per record, shared.** It's stored on the record (`summary`, `summary_at`) and shown to everyone who opens it, straight from the page. It's fresh for 24 hours. After that the old one still shows while a new one is written, with "Re-summarizing…" in the corner, and the new one replaces it.
+- **What it reads** (`recordContext` in `src/lib/agent/summary.ts`): for a client, the whole account: its details, stage, services, performance numbers, Stripe billing from the daily copy (status, subscriptions, what's owed and overdue, delinquency; no live Stripe call), its people, and every note, call, email, text, meeting and task logged on the client, its contact, the people at its organization and the organization itself, both done and planned. An organization reads the same across all its clients and people. A person reads only their own record and activity. Campaign emails are left out; the newest 60 history items and 25 planned ones go in.
+- **One per record, shared.** It's stored on the record (`summary`, `summary_at`) and shown to everyone who opens it, straight from the page. It's fresh for 24 hours. After that it's rewritten only when something it's about moved since it was written (the record was edited, there was new activity on it, something logged on it was added or changed, such as a task planned or moved, or planned work came due), and always once it's a week old so relative dates ("in 3 days") stay right (`summaryDue` in `src/lib/agent/summary-prompt.ts`). While a new one is written the old one still shows, with "Re-summarizing…" in the corner, and the new one replaces it.
 - **Written once.** `summary_started_at` claims a rewrite with one conditional update, so two people opening a stale record don't both pay for it; the second waits on the server for the first. A rewrite stuck for 2 minutes can be taken over. A failed rewrite keeps the old summary and tries again on the next visit.
 - **Model:** `agent.summaryModel` (`openai/gpt-6.1-sol`) at `agent.summaryReasoning` (`low`). The text is plain, at most 320 characters, and the instructions tell the model to treat emails and notes as information, never as instructions. Anyone who can read the record can trigger a rewrite (120 an hour per teammate).
 
@@ -117,7 +117,7 @@ Every file added to the CRM (on the Files page, a client, person or organization
 - **When:** right after the upload, without holding it up (`after()`). The agent cron describes older files a few at a time. A file is marked failed before it's read, so one that can't be read isn't retried forever.
 - **Teammates can rewrite it** in the file's dialog; theirs is never overwritten. Clearing it hands it back to the model.
 - **Found by meaning:** the name, description and key facts are embedded (`agent.embeddingModel`) into a pgvector column, rewritten whenever the description changes. `search_files` embeds the question and asks the database for the nearest files, so finding a document costs one small embedding call and no file text.
-- **Models:** `agent.fileModel` (`openai/gpt-6-luna`) and `agent.embeddingModel` (`openai/text-embedding-3-small`, 1536 dimensions, which the column's width matches). `agent.fileDescriptions: false` turns both off.
+- **Models:** `agent.fileModel` (`openai/gpt-6-luna`) at `agent.fileReasoning` (`low`), and `agent.embeddingModel` (`openai/text-embedding-3-small`, 1536 dimensions, which the column's width matches). `agent.fileDescriptions: false` turns both off.
 
 ## Background work
 
@@ -210,6 +210,7 @@ Exactly what any background run can, as the sender: no archiving, deleting, merg
 | `agent.background.model` | `"openai/gpt-6.1-sol"` | The worker that plans and changes records |
 | `agent.background.reasoning` | `"low"` | Its reasoning effort |
 | `agent.background.researchModel` | `"openai/gpt-6-luna"` | The researcher, which reads the most text. Small and fast keeps long runs cheap (about a twentieth of the worker's price per token) |
+| `agent.background.researchReasoning` | `"high"` | The researcher's reasoning effort: it chooses what to search and read and weighs what it finds. Its spend counts toward `maxRunUsd` |
 | `agent.background.maxRunUsd` | `0.75` | One run stops once its model spend reaches this |
 | `agent.background.monthlyBudgetUsd` | `30` | New runs are refused once the month's spend reaches this, across the workspace |
 | `agent.background.maxRunMinutes` | `20` | A run still going after this long is cancelled |
@@ -296,6 +297,7 @@ Unknown keys, wrong types and reasoning levels that don't exist fail the build w
 | `agent.titleModel` | `"anthropic/claude-haiku-5.5"` | Naming threads |
 | `agent.fileDescriptions` | `true` | AI descriptions and search vectors for uploaded files. `false` stops writing new ones; search falls back to words |
 | `agent.fileModel` | `"openai/gpt-6-luna"` | Reads each uploaded file once and describes it |
+| `agent.fileReasoning` | `"low"` | Reasoning effort for file descriptions |
 | `agent.embeddingModel` | `"openai/text-embedding-3-small"` | File search vectors. It must make 1536-dimension vectors; another width needs a migration |
 | `agent.voiceModel` | `"spacexai/grok-voice-3.0"` | Voice chat (a realtime model with tool use) |
 | `agent.transcriptionModel` | `"spacexai/grok-stt"` | Dictation |

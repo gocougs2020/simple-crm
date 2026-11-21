@@ -114,13 +114,15 @@ export type AppConfig = {
     chatModel: string;
     /** How hard the chat model thinks before answering. More is slower and costs more; "provider-default" leaves it to the model. */
     chatReasoning: "provider-default" | "none" | "minimal" | "low" | "medium" | "high";
-    /** Writes the snapshot at the top of client, person and organization pages, refreshed once a day. */
+    /** Writes the snapshot at the top of client, person and organization pages, rewritten when the record changes. */
     summaryModel: string;
     summaryReasoning: "provider-default" | "none" | "minimal" | "low" | "medium" | "high";
     /** Names threads from their first messages. Small and fast is enough. */
     titleModel: string;
     /** Reads each uploaded file once and describes it. Small and cheap is enough; it has no tools. */
     fileModel: string;
+    /** How hard the file model thinks before describing a file. */
+    fileReasoning: "provider-default" | "none" | "minimal" | "low" | "medium" | "high";
     /**
      * Turns file descriptions (and searches) into vectors, so files are found
      * by meaning. Must make 1536-dimension vectors (the column's width); a
@@ -146,6 +148,8 @@ export type AppConfig = {
       reasoning: "provider-default" | "none" | "minimal" | "low" | "medium" | "high";
       /** The model for the research helper, which reads the web and can't change anything. Small and fast keeps long runs cheap. */
       researchModel: string;
+      /** How hard the research helper thinks: it decides what to search and read, and weighs what it finds. */
+      researchReasoning: "provider-default" | "none" | "minimal" | "low" | "medium" | "high";
       /** One run stops once its model spend reaches this many US dollars. */
       maxRunUsd: number;
       /** New runs are refused once this month's spend reaches this many US dollars, across the workspace. */
@@ -201,6 +205,15 @@ export type AppConfig = {
     idleMinutes: number;
     /** How often (seconds) the team chat page asks while it's open, visible and in use, so messages show up quickly. 0 uses `pollSeconds`. */
     chatPollSeconds: number;
+  };
+  /** Vercel's own measurement, loaded on Vercel deployments only (locally there's nothing to report to). */
+  analytics: {
+    /** Vercel Web Analytics: page views and visitors. Each page view is an event on the Vercel plan. */
+    webAnalytics: boolean;
+    /** Vercel Speed Insights: real visitors' Core Web Vitals. Each page view sends data points on the Vercel plan. */
+    speedInsights: boolean;
+    /** The share of page views Speed Insights reports, from 0 to 1. Lower it to stay within the plan's included data points. */
+    speedInsightsSampleRate: number;
   };
   records: {
     /**
@@ -331,6 +344,7 @@ const defaults = {
     summaryReasoning: "low",
     titleModel: "anthropic/claude-haiku-5.5",
     fileModel: "openai/gpt-6-luna",
+    fileReasoning: "low",
     embeddingModel: "openai/text-embedding-3-small",
     voiceModel: "spacexai/grok-voice-3.0",
     transcriptionModel: "spacexai/grok-stt",
@@ -341,6 +355,7 @@ const defaults = {
       model: "openai/gpt-6.1-sol",
       reasoning: "low",
       researchModel: "openai/gpt-6-luna",
+      researchReasoning: "high",
       maxRunUsd: 0.75,
       monthlyBudgetUsd: 30,
       maxRunMinutes: 20,
@@ -363,6 +378,11 @@ const defaults = {
     pollSeconds: 30,
     idleMinutes: 2,
     chatPollSeconds: 5,
+  },
+  analytics: {
+    webAnalytics: true,
+    speedInsights: true,
+    speedInsightsSampleRate: 1,
   },
   records: {
     keyContactLabel: "Decision maker",

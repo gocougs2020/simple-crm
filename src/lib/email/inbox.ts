@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { cacheLife, cacheTag } from "next/cache";
 import type { GetInboxThreadEmailResponseSuccess, Resend } from "resend";
 import { appConfig } from "@/app.config";
@@ -152,36 +152,43 @@ export async function applyThreadLinks(threadId: string) {
 export async function syncThread(inboxId: string, resendThreadId: string, ourAddresses?: Set<string>) {
   const resend = resendOrThrow();
   const db = await getDb();
-  const inbox = must(await resend.inboxes.get(inboxId), "load the inbox");
+  // The inbox, from the cached list of the CRM's inboxes when it's there (usually: no request); else asked for.
+  const listed = await listInboxes();
+  const inbox = listed.find((i) => i.id === inboxId) ?? must(await resend.inboxes.get(inboxId), "load the inbox");
   // The webhook hears about every inbox in the account; another app's mail is never mirrored.
   if (!inEmailScope(inbox.email_address)) return null;
-  const ours = ourAddresses ?? new Set((await listInboxes()).map((i) => i.email_address.toLowerCase()));
-  const summary = must(await resend.inboxes.threads.get({ inboxId, threadId: resendThreadId }), "load the conversation");
+  const ours = ourAddresses ?? new Set(listed.map((i) => i.email_address.toLowerCase()));
+  // The conversation and its first page of emails, together.
+  const [summaryRes, firstPage] = await Promise.all([
+    resend.inboxes.threads.get({ inboxId, threadId: resendThreadId }),
+    resend.inboxes.threads.emails.list({ inboxId, threadId: resendThreadId, limit: 100 }),
+  ]);
+  const summary = must(summaryRes, "load the conversation");
 
   const messages: GetInboxThreadEmailResponseSuccess[] = [];
-  let after: string | undefined;
+  let res = must(firstPage, "load the conversation's emails");
   for (let page = 0; page < 5; page++) {
-    const res = must(await resend.inboxes.threads.emails.list({ inboxId, threadId: resendThreadId, limit: 100, ...(after ? { after } : {}) }), "load the conversation's emails");
     messages.push(...res.data);
-    if (!res.has_more || !res.data.length) break;
-    after = res.data[res.data.length - 1].id;
+    if (!res.has_more || !res.data.length || page === 4) break;
+    const after = res.data[res.data.length - 1].id;
+    res = must(await resend.inboxes.threads.emails.list({ inboxId, threadId: resendThreadId, limit: 100, after }), "load the conversation's emails");
   }
   messages.sort((a, b) => a.received_at.localeCompare(b.received_at));
 
   const participants = [...new Set(messages.flatMap((m) => [m.from, ...m.to, ...m.cc].map(address)).filter((a) => a && !ours.has(a)))];
-  // Messages someone deleted from the records stay out of the snippet too.
-  const hidden = new Set(
+  // What's already stored of these emails (one read for both uses below), and the thread, together.
+  const [known, [existing]] = await Promise.all([
     messages.length
-      ? (
-          await db
-            .select({ id: inboxMessages.resendEmailId })
-            .from(inboxMessages)
-            .where(and(inArray(inboxMessages.resendEmailId, messages.map((m) => m.id)), isNotNull(inboxMessages.hiddenAt)))
-        ).map((r) => r.id)
+      ? db
+          .select({ id: inboxMessages.resendEmailId, hidden: sql<boolean>`${inboxMessages.hiddenAt} is not null`, linked: sql<boolean>`${inboxMessages.activityId} is not null` })
+          .from(inboxMessages)
+          .where(inArray(inboxMessages.resendEmailId, messages.map((m) => m.id)))
       : [],
-  );
+    db.select().from(inboxThreads).where(eq(inboxThreads.resendThreadId, resendThreadId)),
+  ]);
+  // Messages someone deleted from the records stay out of the snippet too.
+  const hidden = new Set(known.filter((k) => k.hidden).map((k) => k.id));
   const last = messages.filter((m) => !hidden.has(m.id)).at(-1);
-  const [existing] = await db.select().from(inboxThreads).where(eq(inboxThreads.resendThreadId, resendThreadId));
   const links = existing?.linkedByHand ? { personId: existing.personId, organizationId: existing.organizationId, clientId: existing.clientId } : await findLinks(participants);
   const values = {
     resendThreadId,
@@ -204,16 +211,7 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
 
   // Messages already finished (stored and logged on the timeline, or deleted from it). One stored without an
   // activity was left half-done by a sync that died midway; it's picked up again below.
-  const done = new Set(
-    messages.length
-      ? (
-          await db
-            .select({ id: inboxMessages.resendEmailId })
-            .from(inboxMessages)
-            .where(and(inArray(inboxMessages.resendEmailId, messages.map((m) => m.id)), or(isNotNull(inboxMessages.activityId), isNotNull(inboxMessages.hiddenAt))))
-        ).map((r) => r.id)
-      : [],
-  );
+  const done = new Set(known.filter((k) => k.linked || k.hidden).map((k) => k.id));
   for (const m of messages) {
     if (done.has(m.id)) continue;
     const body = bodyOf(m);

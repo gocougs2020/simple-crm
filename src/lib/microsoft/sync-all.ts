@@ -23,8 +23,7 @@ export async function syncAllMailboxes({ budgetMs = 240_000 } = {}) {
   if (!accounts.length) return { mailboxes: 0, results: [] };
   const [db, shared] = await Promise.all([getDb(), mailboxSyncContext()]);
   const results: { email: string; imported?: number; withheld?: number; error?: string }[] = [];
-  for (const account of accounts) {
-    if (Date.now() - started > budgetMs) break;
+  const one = async (account: (typeof accounts)[number]) => {
     try {
       results.push({ email: account.email, ...(await syncMailbox(account, shared)) });
     } catch (err) {
@@ -33,6 +32,13 @@ export async function syncAllMailboxes({ budgetMs = 240_000 } = {}) {
       await db.update(schema.connectedAccounts).set({ lastError: message, lastSyncAt: new Date(), updatedAt: new Date() }).where(eq(schema.connectedAccounts.id, account.id));
       results.push({ email: account.email, error: message });
     }
+  };
+  // One mailbox at a time. Teammates' mailboxes often hold the same email (both on the thread), and a
+  // message is put on the record from the first mailbox that gets to it: two syncs at once could both
+  // check before either saved, and log it twice.
+  for (const account of accounts) {
+    if (Date.now() - started > budgetMs) break;
+    await one(account);
   }
   return { mailboxes: accounts.length, results };
 }

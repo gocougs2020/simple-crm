@@ -9,6 +9,10 @@ Import the repository in Vercel. `vercel.json` sets the build command (`pnpm db:
 - **Neon Postgres.** Connecting it sets `DATABASE_URL`.
 - **Blob, with private access.** Connecting it sets `BLOB_READ_WRITE_TOKEN`. Files must be private: the app streams them only to signed-in teammates.
 
+### Put the functions next to the database
+
+Set the project's function region (Vercel → Settings → Functions → Function Region) to the region your Neon database is in, for example `iad1` for a database in AWS `us-east-1`. The app talks to Neon over HTTP, one request per query, and a page makes several in a row (the session check, then the app's data, then the page's), so every query pays the distance between the two twice. In the same region that's about a millisecond; across a continent it's 60–80 ms a query, which turns a quick page into a slow one. Vercel's default region isn't necessarily where your database is, so check both. The repository doesn't pin a region, since each deployment's database can be anywhere.
+
 ## 3. Set environment variables
 
 | Variable | Value |

@@ -6,7 +6,7 @@ import { isDestructive } from "@/lib/api/spec";
 import { applyApprovals, cleanTitle, cleanTranscript, cleanUserMessage, DEFAULT_TITLE, fallbackTitle, historyForModel, MAX_USER_TEXT, mergeIncoming, OMITTED_RESULT, trimForStorage } from "./messages";
 import { allowedOperations, capResult, needsConfirmation } from "./policy";
 import { agentInstructions, pageNote } from "./prompt";
-import { activityLine, cleanSummary, isFresh, summaryInstructions } from "./summary-prompt";
+import { activityLine, cleanSummary, isFresh, SUMMARY_MAX_AGE_MS, SUMMARY_TTL_MS, summaryDue, summaryInstructions } from "./summary-prompt";
 import { dialogueState, levelFromTimeDomain, reduceSilenceClock, responseInProgress, voiceSetupFresh, VOICE_SETUP_FRESH_MS, VOICE_PLAYBACK_SETTLE_MS, VOICE_USER_SILENCE_MS } from "./voice";
 
 const user = (id: string, text: string): AgentMessage => ({ id, role: "user", parts: [{ type: "text", text }] });
@@ -263,6 +263,38 @@ describe("history sent to the model", () => {
     const before = JSON.stringify(msgs);
     historyForModel(msgs, { maxChars: 1_000 });
     assert.equal(JSON.stringify(msgs), before);
+  });
+});
+
+describe("when a record snapshot is rewritten", () => {
+  const now = Date.parse("2026-03-10T12:00:00Z");
+  const ago = (ms: number) => new Date(now - ms);
+  const day = 24 * 3600_000;
+  const base = { summary: "Acme is a current client.", summaryAt: ago(2 * day), updatedAt: ago(3 * day), lastActivityAt: ago(3 * day), cameDue: false };
+
+  it("writes one when there's none", () => {
+    assert.equal(summaryDue({ ...base, summary: null }, now), true);
+    assert.equal(summaryDue({ ...base, summaryAt: null }, now), true);
+  });
+
+  it("keeps a snapshot under a day old, whatever changed", () => {
+    assert.equal(summaryDue({ ...base, summaryAt: ago(SUMMARY_TTL_MS - 1), updatedAt: ago(1) }, now), false);
+  });
+
+  it("keeps an older one when nothing on the record moved", () => {
+    assert.equal(summaryDue(base, now), false);
+  });
+
+  it("rewrites an older one after an edit, new activity or work coming due", () => {
+    assert.equal(summaryDue({ ...base, updatedAt: ago(day) }, now), true);
+    assert.equal(summaryDue({ ...base, lastActivityAt: ago(day) }, now), true);
+    assert.equal(summaryDue({ ...base, cameDue: true }, now), true);
+    // A task planned or moved for later counts too, before it comes due.
+    assert.equal(summaryDue({ ...base, workChanged: true }, now), true);
+  });
+
+  it("always rewrites after a week, so relative dates stay right", () => {
+    assert.equal(summaryDue({ ...base, summaryAt: ago(SUMMARY_MAX_AGE_MS) }, now), true);
   });
 });
 

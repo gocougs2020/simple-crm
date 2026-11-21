@@ -39,11 +39,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         {children}
         <PwaRegister />
-        {/* Vercel serves these from the site's own origin; locally there's nothing to report to. */}
+        {/* Vercel serves these from the site's own origin; locally there's nothing to report to. Each can be turned off (`analytics` in app.config.ts). */}
         {process.env.VERCEL ? (
           <>
-            <Analytics />
-            <SpeedInsights />
+            {appConfig.analytics.webAnalytics ? <Analytics /> : null}
+            {appConfig.analytics.speedInsights ? <SpeedInsights sampleRate={appConfig.analytics.speedInsightsSampleRate} /> : null}
           </>
         ) : null}
       </body>

@@ -69,10 +69,12 @@ export async function describeFile(fileId: string, opts: { again?: boolean } = {
     }
     const { output } = await generateText({
       model: aiGateway(appConfig.agent.fileModel),
+      reasoning: appConfig.agent.fileReasoning,
       system: describeInstructions,
       messages: [{ role: "user", content }],
       output: Output.object({ schema: answer }),
-      maxOutputTokens: 1500,
+      // Reasoning counts toward this; the description itself is short.
+      maxOutputTokens: 3_000,
       maxRetries: 1,
       abortSignal: AbortSignal.timeout(90_000),
     });

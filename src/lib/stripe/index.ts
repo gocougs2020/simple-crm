@@ -1,4 +1,5 @@
 import "server-only";
+import { cacheLife, cacheTag } from "next/cache";
 import { parseStripeAccounts, type StripeAccount } from "./accounts";
 import { discountShare } from "./rules";
 
@@ -258,3 +259,20 @@ export async function billingFor(accountId: string, customerId: string) {
 }
 
 export type Billing = Awaited<ReturnType<typeof billingFor>>;
+
+/** The cache tag on one customer's billing: "Check Stripe now" expires it (`updateTag`). */
+export const stripeCustomerTag = (accountId: string, customerId: string) => `stripe-customer:${accountId}:${customerId}`;
+
+/**
+ * `billingFor`, kept for two minutes per customer: the billing card makes six
+ * Stripe requests per customer, and a page is often opened again within
+ * minutes. Only Stripe is read in here, never the database. In-memory
+ * (`use cache`), so customers' billing details stay out of a shared store.
+ * "Check Stripe now" expires the tag, so it always reads live.
+ */
+export async function cachedBillingFor(accountId: string, customerId: string): Promise<Billing> {
+  "use cache";
+  cacheTag(stripeCustomerTag(accountId, customerId));
+  cacheLife({ stale: 60, revalidate: 120, expire: 120 });
+  return billingFor(accountId, customerId);
+}

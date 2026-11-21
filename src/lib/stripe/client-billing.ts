@@ -1,5 +1,5 @@
 import "server-only";
-import { billingFor, type Billing } from "@/lib/stripe";
+import { cachedBillingFor, type Billing } from "@/lib/stripe";
 import { monthlyAmount, netMonthly } from "./rules";
 import { customersOfClient, syncClient } from "./sync";
 import type { CustomerBilling } from "./types";
@@ -70,7 +70,7 @@ export async function clientBilling(clientId: string, syncedAt: Date | null) {
   // First view since Stripe was connected, or the daily sync hasn't reached this client: ask Stripe now.
   if (!syncedAt || Date.now() - syncedAt.getTime() > STALE_MS) await syncClient(clientId).catch((err) => console.warn("[stripe] on open", (err as Error).message));
   const matched = await customersOfClient(clientId);
-  const results = await Promise.allSettled(matched.slice(0, MAX_CUSTOMERS).map(async (c) => slim(await billingFor(c.account, c.customerId), c)));
+  const results = await Promise.allSettled(matched.slice(0, MAX_CUSTOMERS).map(async (c) => slim(await cachedBillingFor(c.account, c.customerId), c)));
   const customers = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
   return { customers, failed: results.length - customers.length, more: Math.max(0, matched.length - MAX_CUSTOMERS) };
 }

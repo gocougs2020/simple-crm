@@ -20,7 +20,23 @@ export function knowledgeSource(): KnowledgeSource | null {
   return parsed;
 }
 
-/** Reads one path of the source (GET /api/v1/knowledge, tool get_knowledge). */
+/** How long an answer from the source is reused: published content, read over and over by the agent within a conversation. */
+export const KNOWLEDGE_CACHE_MS = 3 * 60_000;
+const KNOWLEDGE_CACHE_ENTRIES = 200;
+/** At most this much kept in all (an answer can be up to 2 MB). */
+const KNOWLEDGE_CACHE_CHARS = 10_000_000;
+const answers = new Map<string, { at: number; size: number; value: Awaited<ReturnType<typeof readKnowledge>> }>();
+let kept = 0;
+const forget = (key: string) => {
+  kept -= answers.get(key)?.size ?? 0;
+  answers.delete(key);
+};
+
+/**
+ * Reads one path of the source (GET /api/v1/knowledge, tool get_knowledge).
+ * Answers are kept for a few minutes on this server, keyed by the source and
+ * the full path and query; failures aren't kept, so a retry asks again.
+ */
 export async function fetchKnowledge(path: string) {
   const source = knowledgeSource();
   if (!source) {
@@ -28,5 +44,17 @@ export async function fetchKnowledge(path: string) {
     const reason = parsed && "error" in parsed ? parsed.error : "An admin can connect one with KNOWLEDGE_API_URL (see docs/KNOWLEDGE.md).";
     throw new ApiFailure({ status: 404, code: "not_configured", message: `No knowledge source is connected to this CRM. ${reason}` });
   }
-  return readKnowledge(source, path);
+  const key = `${source.base}\n${path}`;
+  const hit = answers.get(key);
+  if (hit && Date.now() - hit.at < KNOWLEDGE_CACHE_MS) return hit.value;
+  const value = await readKnowledge(source, path);
+  const size = typeof value.content === "string" ? value.content.length : JSON.stringify(value.content ?? null).length;
+  forget(key);
+  if (size <= KNOWLEDGE_CACHE_CHARS / 10) {
+    answers.set(key, { at: Date.now(), size, value });
+    kept += size;
+  }
+  // Oldest first out, so it stays small.
+  while (answers.size > KNOWLEDGE_CACHE_ENTRIES || kept > KNOWLEDGE_CACHE_CHARS) forget(answers.keys().next().value!);
+  return value;
 }
