@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { ActionError, NotFoundError } from "@/lib/errors";
 import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
@@ -443,16 +443,31 @@ export type PrivateMail = { id: string; direction: "inbound" | "outbound"; from:
  * mailbox without putting it on the record. The mailbox has to be theirs, so
  * a timeline shows it to them and to nobody else.
  */
-export async function privateMailOn(entity: "person" | "organization" | "client", id: string, viewerId: string): Promise<PrivateMail[]> {
-  const db = await getDb();
+const privateMailWhere = (entity: "person" | "organization" | "client", id: string, viewerId: string) => {
   const column = entity === "person" ? syncedEmails.personId : entity === "organization" ? syncedEmails.organizationId : syncedEmails.clientId;
+  return and(eq(schema.connectedAccounts.userId, viewerId), eq(syncedEmails.status, "private"), eq(column, id));
+};
+
+export async function privateMailOn(entity: "person" | "organization" | "client", id: string, viewerId: string, o: { before?: Date | null; limit?: number } = {}): Promise<PrivateMail[]> {
+  const db = await getDb();
   return db
     .select({ id: syncedEmails.id, direction: syncedEmails.direction, from: syncedEmails.from, to: syncedEmails.to, sentAt: syncedEmails.sentAt, subject: syncedEmails.subject, body: syncedEmails.body })
     .from(syncedEmails)
     .innerJoin(schema.connectedAccounts, eq(schema.connectedAccounts.id, syncedEmails.accountId))
-    .where(and(eq(schema.connectedAccounts.userId, viewerId), eq(syncedEmails.status, "private"), eq(column, id)))
+    .where(and(privateMailWhere(entity, id, viewerId), o.before ? lte(syncedEmails.sentAt, o.before) : undefined))
     .orderBy(desc(syncedEmails.sentAt))
-    .limit(100);
+    .limit(o.limit ?? 100);
+}
+
+/** How many private emails the viewer has on a record (the timeline's Conversations count). */
+export async function privateMailCount(entity: "person" | "organization" | "client", id: string, viewerId: string) {
+  const db = await getDb();
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(syncedEmails)
+    .innerJoin(schema.connectedAccounts, eq(schema.connectedAccounts.id, syncedEmails.accountId))
+    .where(privateMailWhere(entity, id, viewerId));
+  return row?.n ?? 0;
 }
 
 /** One synced email, only if it came from this teammate's own mailbox. */

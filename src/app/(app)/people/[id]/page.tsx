@@ -14,7 +14,7 @@ import { CallButton, StarToggle } from "@/components/phone/contact-actions";
 import { Avatar } from "@/components/ui/avatar";
 import { appConfig } from "@/app.config";
 import { PageSkeleton } from "@/components/ui/skeleton";
-import { timeline } from "@/lib/crm/activities";
+import { recordTimeline } from "@/lib/crm/activities";
 import { clientsOfPerson, getPerson, otherOrganizationsOf } from "@/lib/crm/records";
 import { personName } from "@/lib/format";
 import { z } from "zod";
@@ -50,7 +50,7 @@ async function Person({ params }: Pick<PageProps<"/people/[id]">, "params">) {
   const { person, organization } = row;
   // Their own private mail with this record is on the timeline, for them alone.
   const viewer = await requireUser();
-  const [tl, clients, alsoAt] = await Promise.all([timeline("person", id, viewer.id), clientsOfPerson(id, person.organizationId), otherOrganizationsOf(id)]);
+  const [tl, clients, alsoAt] = await Promise.all([recordTimeline("person", id, viewer.id), clientsOfPerson(id, person.organizationId), otherOrganizationsOf(id)]);
   const name = personName(person);
   return (
     <>
@@ -85,7 +85,7 @@ async function Person({ params }: Pick<PageProps<"/people/[id]">, "params">) {
         <RecordSummary entity="person" id={id} summary={person.summary} summaryAt={person.summaryAt} />
         <FocusLine planned={tl.planned} lastContactAt={tl.lastContactAt} lastCampaignAt={person.lastCampaignAt} context={{ type: "person", id }} />
         <Composer links={{ personId: id }} recipient={{ personId: id, name, email: person.email, phone: person.phone, textOptedOut: !!person.textOptOutAt }} />
-        <Timeline planned={tl.planned} pinned={tl.pinned} past={tl.past} context={{ type: "person", id }} fileLinks={{ personId: id, organizationId: person.organizationId }} files={tl.files} emptyHint={`Log a call, note or email with ${person.firstName} above and it shows up here.`} />
+        <Timeline planned={tl.planned} pinned={tl.pinned} past={tl.past} hasMore={tl.hasMore} counts={tl.counts} context={{ type: "person", id }} fileLinks={{ personId: id, organizationId: person.organizationId }} files={tl.files} emptyHint={`Log a call, note or email with ${person.firstName} above and it shows up here.`} />
       </RecordBody>
     </>
   );

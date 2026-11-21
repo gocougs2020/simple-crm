@@ -1,11 +1,13 @@
 "use server";
 
 import { refresh } from "next/cache";
+import { z } from "zod";
 import { run, type Result } from "@/lib/action";
 import { actionUser } from "@/lib/auth";
 import { sessionActor } from "@/lib/crm/actor";
 import type { ActivityInput } from "@/lib/crm/schemas";
 import * as svc from "@/lib/crm/service/activities";
+import { activityBody } from "@/lib/crm/activities";
 
 export type { ActivityInput } from "@/lib/crm/schemas";
 
@@ -65,5 +67,13 @@ export async function deleteReply(replyId: string): Promise<Result> {
   return run(async () => {
     await svc.deleteReply(sessionActor(await actionUser()), replyId);
     refresh();
+  });
+}
+
+/** An activity's whole body, for "Show more" and editing in a list that only had its preview (the Activities page, the home feed). */
+export async function loadActivityBody(activityId: string): Promise<Result<{ body: string | null }>> {
+  return run(async () => {
+    await actionUser();
+    return { body: await activityBody(z.uuid().parse(activityId)) };
   });
 }
