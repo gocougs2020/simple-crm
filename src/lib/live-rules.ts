@@ -24,11 +24,13 @@ export const noVersions: LiveVersions = { records: "0", chat: "0", mail: "0" };
 /**
  * What each page shows, so a change elsewhere doesn't re-render it. Every
  * page with records on it shows `records` (new mail and texts are activities
- * too); the inbox and Messages also show `mail`. The team chat shows nothing
+ * too); the inbox and Messages also show `mail`, and Files `chat` (its chat attachments). The team chat shows nothing
  * that needs a page refresh: it fetches new and changed messages itself.
  */
 export function pageScopes(pathname: string): LiveScope[] {
   if (pathname === "/chat" || pathname.startsWith("/chat/")) return [];
+  // Files lists team chat attachments too ("From chat"), which come and go with chat messages.
+  if (pathname === "/files" || pathname.startsWith("/files/")) return ["records", "chat"];
   if (pathname === "/email" || pathname.startsWith("/email/outlook") || pathname === "/messages" || pathname.startsWith("/messages/")) return ["records", "mail"];
   return ["records"];
 }
