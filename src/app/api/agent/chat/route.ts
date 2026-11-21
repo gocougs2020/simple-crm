@@ -9,7 +9,7 @@ import { assistantActor } from "@/lib/agent/actor";
 import { aiGateway } from "@/lib/agent/gateway";
 import { agentError, agentRequest, readJson } from "@/lib/agent/http";
 import { withAttachments } from "@/lib/agent/attachments";
-import { mergeIncoming } from "@/lib/agent/messages";
+import { MAX_STORED_CHARS, mergeIncoming } from "@/lib/agent/messages";
 import { agentInstructions } from "@/lib/agent/prompt";
 import { activeSkills } from "@/lib/agent/skills";
 import { featureInstructions } from "@/lib/api/features";
@@ -69,7 +69,9 @@ export async function POST(request: Request) {
   // A new message is appended on its own; an edit to an earlier one rewrites the thread.
   if (merged.submitted) {
     const added = merged.messages.length === thread.messages.length + 1 && merged.messages.at(-2) === thread.messages.at(-1);
-    if (added) await appendMessage(user.id, thread.id, messages.at(-1) as AgentMessage, { isFirst: !thread.messages.some((m) => m.role === "user") });
+    // Only while the thread stays under the storage cap; past it, the rewrite trims the oldest turns.
+    const fits = added && JSON.stringify(messages).length <= MAX_STORED_CHARS;
+    if (fits) await appendMessage(user.id, thread.id, messages.at(-1) as AgentMessage, { isFirst: !thread.messages.some((m) => m.role === "user") });
     else await saveMessages(user.id, thread.id, messages as AgentMessage[], { touched: true });
   }
 
