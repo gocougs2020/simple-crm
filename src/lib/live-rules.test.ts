@@ -12,6 +12,7 @@ describe("live scopes", () => {
     assert.deepEqual(pageScopes("/messages"), ["records", "mail"]);
     assert.deepEqual(pageScopes("/email/campaigns"), ["records"]);
     assert.deepEqual(pageScopes("/chat"), []);
+    assert.deepEqual(pageScopes("/files"), ["records", "chat"]);
   });
 
   it("finds what moved, comparing as numbers", () => {
