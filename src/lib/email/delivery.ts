@@ -242,8 +242,8 @@ export async function reconcileDeliveryStatuses({ limit = 150, budgetMs = 240_00
     .from(o)
     .where(
       and(
-        isNotNull(o.resendId),
-        or(isNull(o.deliveryStatus), inArray(o.deliveryStatus, ["sent", "delayed"])),
+        // Written out so it matches outbound_emails_awaiting_idx's predicate.
+        sql`${o.resendId} is not null and (${o.deliveryStatus} is null or ${o.deliveryStatus} in ('sent', 'delayed'))`,
         lte(o.createdAt, new Date(now - SETTLE_MS)),
         gte(o.createdAt, new Date(now - GIVE_UP_MS)),
         or(isNull(o.statusCheckedAt), lte(o.statusCheckedAt, new Date(now - RECHECK_MS))),
