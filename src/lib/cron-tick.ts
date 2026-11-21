@@ -86,6 +86,8 @@ export async function tick(now = new Date()) {
   // Time-sensitive first: reminders and scheduled sends.
   await step("notifications", (due.timed || (morning && due.devices)) && (await pushConfigured()), () => sendDueNotifications(now));
   await step("agenda", morning && due.digests, () => sendAgendaEmails(now));
+  // Once a day, and quick: it goes before the jobs that can use up the time, so a long sync never pushes it to tomorrow.
+  await step("prune", slot === PRUNE_SLOT, () => pruneDaily(now));
   await step("campaigns", due.campaigns, async () => runDueCampaigns(await siteOrigin()));
   await step("scheduledJobs", background && due.jobs, () => runDueJobs(now));
   await step("runs", background && due.runs, () => sweepRuns(now));
@@ -94,6 +96,5 @@ export async function tick(now = new Date()) {
   // Every quarter hour: it only writes what changed, and the database is awake for the check above anyway.
   await step("inbox", !!getResend(), () => syncAllInboxes(25));
   await step("microsoft", microsoftConfigured() && microsoftSlotDue(now), () => syncAllMailboxes({ budgetMs: Math.max(0, BUDGET_MS - (Date.now() - started)) }));
-  await step("prune", slot === PRUNE_SLOT, () => pruneDaily(now));
   return { at: now.toISOString(), due, ran };
 }
