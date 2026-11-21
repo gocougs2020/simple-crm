@@ -41,7 +41,7 @@ What [`app.config.ts`](../app.config.ts) controls:
 | `agent.name` | `"Agent"` | The agent's name in its panel, its replies and history |
 | `agent.chatModel`, `agent.titleModel`, `agent.voiceModel`, `agent.transcriptionModel` | GPT-6.1 Sol, Claude Haiku 5.5, Grok Voice 3.0, Grok STT | AI Gateway model ids (`creator/model`) for chat, thread titles, voice chat and dictation |
 | `agent.chatReasoning` | `"medium"` | Reasoning effort for chat: `"provider-default"`, `"none"`, `"minimal"`, `"low"`, `"medium"` or `"high"` |
-| `agent.summaryModel`, `agent.summaryReasoning` | GPT-6 Luna (the file descriptions' model), `"low"` | The model and reasoning effort for the AI summary at the top of client, person and organization pages |
+| `agent.summaryModel`, `agent.summaryReasoning` | GPT-6.1 Sol, `"low"` | The model and reasoning effort for the AI summary at the top of client, person and organization pages |
 | `agent.fileDescriptions`, `agent.fileModel`, `agent.embeddingModel` | `true`, GPT-6 Luna, text-embedding-3-small | AI descriptions of uploaded files, the model that writes them, and the one that turns them into search vectors (1536 dimensions). See [AGENT.md](AGENT.md#file-descriptions) |
 | `agent.background.enabled` | `true` | The agent's background work: jobs handed off from chat, mentions in notes and tasks assigned to it. See [AGENT.md](AGENT.md#background-work) |
 | `agent.background.model`, `agent.background.reasoning`, `agent.background.researchModel` | GPT-6.1 Sol, `"low"`, GPT-6 Luna | The model that plans and changes records, its reasoning effort, and the smaller model that reads the web |

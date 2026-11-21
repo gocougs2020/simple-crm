@@ -114,11 +114,7 @@ export type AppConfig = {
     chatModel: string;
     /** How hard the chat model thinks before answering. More is slower and costs more; "provider-default" leaves it to the model. */
     chatReasoning: "provider-default" | "none" | "minimal" | "low" | "medium" | "high";
-    /**
-     * Writes the snapshot at the top of client, person and organization pages.
-     * Two short sentences from the record, no tools: the small model that
-     * describes files is enough, and costs far less than the chat model.
-     */
+    /** Writes the snapshot at the top of client, person and organization pages, rewritten when the record changes. */
     summaryModel: string;
     summaryReasoning: "provider-default" | "none" | "minimal" | "low" | "medium" | "high";
     /** Names threads from their first messages. Small and fast is enough. */
@@ -340,7 +336,7 @@ const defaults = {
     name: "Agent",
     chatModel: "openai/gpt-6.1-sol",
     chatReasoning: "medium",
-    summaryModel: "openai/gpt-6-luna",
+    summaryModel: "openai/gpt-6.1-sol",
     summaryReasoning: "low",
     titleModel: "anthropic/claude-haiku-5.5",
     fileModel: "openai/gpt-6-luna",
