@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { ActionError, NotFoundError } from "@/lib/errors";
 import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
@@ -454,7 +454,7 @@ export async function privateMailOn(entity: "person" | "organization" | "client"
     .select({ id: syncedEmails.id, direction: syncedEmails.direction, from: syncedEmails.from, to: syncedEmails.to, sentAt: syncedEmails.sentAt, subject: syncedEmails.subject, body: syncedEmails.body })
     .from(syncedEmails)
     .innerJoin(schema.connectedAccounts, eq(schema.connectedAccounts.id, syncedEmails.accountId))
-    .where(and(privateMailWhere(entity, id, viewerId), o.before ? lte(syncedEmails.sentAt, o.before) : undefined))
+    .where(and(privateMailWhere(entity, id, viewerId), o.before ? lt(syncedEmails.sentAt, o.before) : undefined))
     .orderBy(desc(syncedEmails.sentAt))
     .limit(o.limit ?? 100);
 }

@@ -65,7 +65,14 @@ export function useTimelinePages({ entity, id, first, hasMore, filter }: { entit
     setViews({ all: { items: unique([...first, ...older]), hasMore: viewsRef.current.all?.hasMore ?? hasMore } });
     void loadTimeline({ entity, id, before: at, skip, limit: Math.min(Math.max(older.length, 1), 1000) }).then((r) => {
       if (request !== state.current.request || !r.ok) return;
-      setViews({ all: { items: unique([...first, ...r.data.items]), hasMore: r.data.hasMore } });
+      setViews((v) => {
+        const fresh = unique([...first, ...r.data.items]);
+        // A page scrolled in while this was read goes on below what was read again.
+        const end = fresh.at(-1)?.at;
+        const later = r.data.hasMore && end ? (v.all?.items ?? []).filter((i) => i.at <= end) : [];
+        const more = later.some((i) => i.at < end!);
+        return { all: { items: unique([...fresh, ...later]), hasMore: more ? (v.all?.hasMore ?? r.data.hasMore) : r.data.hasMore } };
+      });
     });
   }, [first, hasMore, entity, id]);
 
@@ -83,7 +90,8 @@ export function useTimelinePages({ entity, id, first, hasMore, filter }: { entit
       if (request !== state.current.request) return;
       setLoading(false);
       if (!r.ok) return void setError(r.error);
-      setViews((v) => ({ ...v, [which]: { items: unique([...from, ...r.data.items]), hasMore: r.data.hasMore } }));
+      // Onto what's shown now (a live refresh may have read it again meanwhile).
+      setViews((v) => ({ ...v, [which]: { items: unique([...(v[which]?.items ?? from), ...r.data.items]), hasMore: r.data.hasMore } }));
     },
     [entity, id],
   );
@@ -91,13 +99,16 @@ export function useTimelinePages({ entity, id, first, hasMore, filter }: { entit
   // A filter shown for the first time, with more to load than what's here: read its first page.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetching a filter's first page when it's picked
-    if (!view && !loading) void load(filter, []);
-  }, [view, loading, filter, load]);
+    if (!view && !loading && !error) void load(filter, []);
+  }, [view, loading, error, filter, load]);
 
   const loadMore = useCallback(() => {
-    if (loading || !view?.hasMore) return;
+    if (loading) return;
+    // A filter whose first page failed: "Try again" reads it again.
+    if (!view) return void load(filter, []);
+    if (!view.hasMore) return;
     void load(filter === "all" || !all.hasMore ? "all" : filter, view.items);
   }, [loading, view, filter, all.hasMore, load]);
 
-  return { items: view?.items ?? [], hasMore: view ? view.hasMore : true, loading: loading || !view, error, loadMore };
+  return { items: view?.items ?? [], hasMore: view ? view.hasMore : true, loading: loading || (!view && !error), error, loadMore };
 }
