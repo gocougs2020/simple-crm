@@ -7,7 +7,7 @@ import type { EntityType } from "@/lib/constants";
 import { actorUserId, assertCan, can, stamp, type Actor } from "@/lib/crm/actor";
 import { uploadLinks } from "@/lib/crm/activities";
 import { recordEvent, touch } from "@/lib/crm/events";
-import { onAnyRecord, recordsFor } from "@/lib/crm/files";
+import { fileRow, onAnyRecord, recordsFor } from "@/lib/crm/files";
 import { ActionError, ForbiddenError, NotFoundError } from "@/lib/errors";
 import { cleanFileName, fileProblem } from "@/lib/files";
 import { bytesUploadInput, fileRecordInput, type FileRecordInput } from "@/lib/crm/schemas";
@@ -33,7 +33,7 @@ const MAX_FOLDER_DEPTH = 8;
 
 async function loadFile(id: string) {
   const db = await getDb();
-  const [f] = await db.select().from(files).where(eq(files.id, z.uuid().parse(id)));
+  const [f] = await db.select(fileRow).from(files).where(eq(files.id, z.uuid().parse(id)));
   if (!f || f.deletedAt) throw new NotFoundError("That file was removed.");
   return f;
 }
@@ -174,7 +174,7 @@ export async function setFileVisibility(a: Actor, fileId: string, visibility: "i
 export async function deleteFile(a: Actor, fileId: string) {
   assertCan(a, "records:write");
   const db = await getDb();
-  const [f] = await db.select().from(files).where(eq(files.id, z.uuid().parse(fileId)));
+  const [f] = await db.select(fileRow).from(files).where(eq(files.id, z.uuid().parse(fileId)));
   if (!f || f.deletedAt) return;
   if (f.uploadedBy !== actorUserId(a) && !can(a, "activities:moderate")) throw new ForbiddenError("Only the person who uploaded this, or an admin, can remove it.");
   const records = (await recordsFor([f.id])).get(f.id) ?? [];
@@ -440,7 +440,7 @@ export async function deleteFolder(a: Actor, folderId: string, choice: z.input<t
   }
 
   const inside = await db
-    .select()
+    .select(fileRow)
     .from(files)
     .where(and(inArray(files.folderId, ids), isNull(files.deletedAt)));
   const me = actorUserId(a);

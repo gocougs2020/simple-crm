@@ -1,5 +1,6 @@
 import "server-only";
 import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
+import { cache } from "react";
 import { getDb, schema } from "@/db";
 import { clientCategoryLabels, monthlyPriceSql, type ClientCategory } from "@/lib/constants";
 import { effectiveTags } from "@/lib/crm/labels";
@@ -105,7 +106,7 @@ export async function countPeople(f: PeopleFilter = {}) {
   return row?.n ?? 0;
 }
 
-export async function getPerson(id: string) {
+export const getPerson = cache(async (id: string) => {
   const db = await getDb();
   const [row] = await db
     .select({ person: people, organization: organizations })
@@ -114,7 +115,7 @@ export async function getPerson(id: string) {
     .where(eq(people.id, id))
     .limit(1);
   return row ?? null;
-}
+});
 
 /** The organizations a person is also at, besides their main one (merged duplicates keep every one). */
 export async function otherOrganizationsOf(personId: string) {
@@ -197,11 +198,11 @@ export async function countOrganizations(f: OrgFilter = {}) {
   return row?.n ?? 0;
 }
 
-export async function getOrganization(id: string) {
+export const getOrganization = cache(async (id: string) => {
   const db = await getDb();
   const [row] = await db.select().from(organizations).where(eq(organizations.id, id)).limit(1);
   return row ?? null;
-}
+});
 
 /** Every parent organization, by name: the choices for an organization's parent and for filters. */
 export async function parentOrganizations() {
@@ -331,7 +332,7 @@ export async function listClients(f: ClientFilter = {}) {
 
 export type ClientRow = Awaited<ReturnType<typeof listClients>>[number];
 
-export async function getClient(id: string) {
+export const getClient = cache(async (id: string) => {
   const db = await getDb();
   const [row] = await db
     .select({ client: clients, person: people, organization: organizations })
@@ -341,7 +342,7 @@ export async function getClient(id: string) {
     .where(eq(clients.id, id))
     .limit(1);
   return row ?? null;
-}
+});
 
 /** How someone comes to be on a client: its contact, added to it by hand, or at its organization. */
 export type ClientPersonSource = "contact" | "added" | "organization";

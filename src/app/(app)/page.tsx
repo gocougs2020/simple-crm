@@ -2,10 +2,11 @@ import { Suspense } from "react";
 import { HomeView } from "@/components/home/home-view";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { requireUser } from "@/lib/auth";
-import { clientStats, clientsWithoutNextStep, listActivities, myDueCounts, teamFeed } from "@/lib/crm/activities";
+import { clientStats, clientsWithoutNextStep, listActivities, teamFeed } from "@/lib/crm/activities";
 import { getAppData } from "@/lib/crm/context";
 import { viewerTimeZone } from "@/lib/viewer-time-zone";
 import { pipelineSummary } from "@/lib/crm/records";
+import { sidebarCounts } from "@/lib/sidebar-counts";
 
 export default function Home() {
   return (
@@ -20,13 +21,14 @@ async function Dashboard() {
   const tz = await viewerTimeZone(app.workspace.timezone);
   const prospectPipelines = app.pipelines.filter((p) => p.category === "prospective");
   const pipeline = prospectPipelines.find((p) => p.id === user.prefs.clientPipelines?.prospective) ?? prospectPipelines[0];
-  const [tasks, feed, stuck, stats, summary, due] = await Promise.all([
+  const [tasks, feed, stuck, stats, summary, { due }] = await Promise.all([
     listActivities({ assigneeId: user.id, status: "todo", range: "week" }, tz),
     teamFeed(15),
     clientsWithoutNextStep(),
     clientStats(tz),
     pipeline ? pipelineSummary(pipeline.id) : Promise.resolve([]),
-    myDueCounts(user.id, tz),
+    // The same cached statement the sidebar's badges read, so the due count costs nothing extra.
+    sidebarCounts(user, tz),
   ]);
   const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hourCycle: "h23" }).format(new Date()));
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";

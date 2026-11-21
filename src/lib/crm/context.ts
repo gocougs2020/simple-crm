@@ -1,7 +1,7 @@
 import "server-only";
 import { appConfig } from "@/app.config";
 import { cache } from "react";
-import { asc, isNull } from "drizzle-orm";
+import { asc, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { aiFeatures } from "@/lib/agent/config";
 import { emailConfigured } from "@/lib/email";
@@ -28,7 +28,19 @@ export const getAppData = cache(async () => {
   const db = await getDb();
   const [ws, users, pipelines, stages, fields, services, plans, keys, parents, labels] = await Promise.all([
     getWorkspace(),
-    db.select().from(schema.users).orderBy(asc(schema.users.name)),
+    // Only what the team list shows: never the password hash or prefs, which go to the browser with this.
+    db
+      .select({
+        id: schema.users.id,
+        name: schema.users.name,
+        email: schema.users.email,
+        role: schema.users.role,
+        title: schema.users.title,
+        deactivatedAt: schema.users.deactivatedAt,
+        hasPassword: sql<boolean>`${schema.users.passwordHash} is not null`,
+      })
+      .from(schema.users)
+      .orderBy(asc(schema.users.name)),
     db.select().from(schema.pipelines).orderBy(asc(schema.pipelines.position), asc(schema.pipelines.createdAt)),
     db.select().from(schema.stages).orderBy(asc(schema.stages.position)),
     db.select().from(schema.customFields).where(isNull(schema.customFields.archivedAt)).orderBy(asc(schema.customFields.position), asc(schema.customFields.createdAt)),
@@ -41,7 +53,7 @@ export const getAppData = cache(async () => {
   ]);
   return {
     workspace: { name: ws.name, currency: ws.currency, timezone: ws.timezone },
-    team: users.map((u): TeamMember => ({ id: u.id, name: u.name, email: u.email, role: u.role, title: u.title, active: !u.deactivatedAt && !!u.passwordHash })),
+    team: users.map((u): TeamMember => ({ id: u.id, name: u.name, email: u.email, role: u.role, title: u.title, active: !u.deactivatedAt && u.hasPassword })),
     pipelines: pipelines.map((p): Pipeline => ({ ...p, stages: stages.filter((s) => s.pipelineId === p.id) })),
     customFields: fields,
     /** Everything the workspace sells, archived ones included so existing subscriptions still show their name. */

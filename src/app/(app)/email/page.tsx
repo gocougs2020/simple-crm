@@ -35,30 +35,16 @@ async function Inbox({ searchParams }: Pick<PageProps<"/email">, "searchParams">
   const configured = emailConfigured();
   if (!configured) return <InboxView configured={false} isAdmin={admin} inboxes={[]} inboxError={null} threads={[]} open={null} context={null} filters={{ folder: "inbox" }} />;
 
-  let inboxes: { id: string; address: string; name: string | null; unread: number }[] = [];
-  let inboxError: string | null = null;
-  try {
-    inboxes = (await listInboxes()).map((i) => ({ id: i.id, address: i.email_address, name: i.name, unread: i.unread }));
-  } catch (err) {
-    inboxError = err instanceof Error ? err.message : "Resend didn't answer.";
-  }
-
   const folder: Folder = (folders as readonly string[]).includes(one(sp.folder) ?? "") ? (one(sp.folder) as Folder) : "inbox";
   const inbox = one(sp.inbox);
   const q = one(sp.q);
   const unlinked = one(sp.unlinked) === "1";
   const unreadOnly = one(sp.unread) === "1";
+  const openId = one(sp.t);
+  const opening = !!openId && z.uuid().safeParse(openId).success;
   const t = schema.inboxThreads;
+  const m = schema.inboxMessages;
   const db = await getDb();
-
-  // Resend counts unread for the whole team; here each teammate sees only their own (src/lib/conversations/read-rules.ts),
-  // over the same 90 days as the sidebar badge.
-  const counts = await db
-    .select({ inboxId: t.resendInboxId, n: sql<number>`count(*)::int` })
-    .from(t)
-    .where(and(eq(t.folder, "inbox"), unreadFor("inbox_threads", user.id), sql`${t.lastMessageAt} >= now() - interval '90 days'`))
-    .groupBy(t.resendInboxId);
-  inboxes = inboxes.map((i) => ({ ...i, unread: counts.find((c) => c.inboxId === i.id)?.n ?? 0 }));
 
   const where: SQL[] = [];
   // Sent mail lives in the same threads as replies, so the Sent folder is any thread with an outbound message.
@@ -72,20 +58,73 @@ async function Inbox({ searchParams }: Pick<PageProps<"/email">, "searchParams">
     where.push(or(ilike(t.subject, term), ilike(t.snippet, term), sql`${t.participants}::text ilike ${term}`)!);
   }
 
-  const rows = await db
-    .select({
-      thread: t,
-      personName: sql<string | null>`case when ${schema.people.id} is null then null else ${schema.people.firstName} || coalesce(' ' || ${schema.people.lastName}, '') end`,
-      clientName: schema.clients.name,
-      lastFrom: sql<string | null>`(select m."from" from inbox_messages m where m.thread_id = ${t.id} and m.direction = 'inbound' order by m.sent_at desc limit 1)`,
-      unread: unreadFor("inbox_threads", user.id),
-    })
-    .from(t)
-    .leftJoin(schema.people, eq(schema.people.id, t.personId))
-    .leftJoin(schema.clients, eq(schema.clients.id, t.clientId))
-    .where(and(...where))
-    .orderBy(sql`${t.lastMessageAt} desc nulls last`)
-    .limit(200);
+  // None of these depend on each other: Resend's inbox list and the four reads run together.
+  const [listed, counts, rows, [openRow], messages] = await Promise.all([
+    listInboxes().then(
+      (list) => ({ list, error: null }),
+      (err: unknown) => ({ list: [], error: err instanceof Error ? err.message : "Resend didn't answer." }),
+    ),
+    // Resend counts unread for the whole team; here each teammate sees only their own (src/lib/conversations/read-rules.ts),
+    // over the same 90 days as the sidebar badge.
+    db
+      .select({ inboxId: t.resendInboxId, n: sql<number>`count(*)::int` })
+      .from(t)
+      .where(and(eq(t.folder, "inbox"), unreadFor("inbox_threads", user.id), sql`${t.lastMessageAt} >= now() - interval '90 days'`))
+      .groupBy(t.resendInboxId),
+    db
+      .select({
+        thread: t,
+        personName: sql<string | null>`case when ${schema.people.id} is null then null else ${schema.people.firstName} || coalesce(' ' || ${schema.people.lastName}, '') end`,
+        clientName: schema.clients.name,
+        lastFrom: sql<string | null>`(select m."from" from inbox_messages m where m.thread_id = ${t.id} and m.direction = 'inbound' order by m.sent_at desc limit 1)`,
+        unread: unreadFor("inbox_threads", user.id),
+      })
+      .from(t)
+      .leftJoin(schema.people, eq(schema.people.id, t.personId))
+      .leftJoin(schema.clients, eq(schema.clients.id, t.clientId))
+      .where(and(...where))
+      .orderBy(sql`${t.lastMessageAt} desc nulls last`)
+      .limit(200),
+    opening
+      ? db
+          .select({
+            thread: t,
+            personName: sql<string | null>`case when ${schema.people.id} is null then null else ${schema.people.firstName} || coalesce(' ' || ${schema.people.lastName}, '') end`,
+            clientName: schema.clients.name,
+            ownerId: conversationOwner("inbox_threads"),
+          })
+          .from(t)
+          .leftJoin(schema.people, eq(schema.people.id, t.personId))
+          .leftJoin(schema.clients, eq(schema.clients.id, t.clientId))
+          .where(eq(t.id, openId))
+      : [],
+    opening
+      ? db
+          .select({
+            id: m.id,
+            direction: m.direction,
+            from: m.from,
+            to: m.to,
+            cc: m.cc,
+            subject: m.subject,
+            html: m.html,
+            sentAt: m.sentAt,
+            attachments: m.attachments,
+            userId: schema.activities.userId,
+            campaignId: schema.outboundEmails.campaignId,
+            campaignName: schema.campaigns.name,
+          })
+          .from(m)
+          .leftJoin(schema.activities, eq(schema.activities.id, m.activityId))
+          // Campaign emails are matched to the send that logged them, which says which campaign it was.
+          .leftJoin(schema.outboundEmails, eq(schema.outboundEmails.id, schema.activities.emailId))
+          .leftJoin(schema.campaigns, eq(schema.campaigns.id, schema.outboundEmails.campaignId))
+          .where(and(eq(m.threadId, openId), isNull(m.hiddenAt)))
+          .orderBy(asc(m.sentAt))
+      : [],
+  ]);
+  const inboxError = listed.error;
+  const inboxes = listed.list.map((i) => ({ id: i.id, address: i.email_address, name: i.name, unread: counts.find((c) => c.inboxId === i.id)?.n ?? 0 }));
 
   const threads: InboxThreadRow[] = rows.map((r) => ({
     id: r.thread.id,
@@ -105,56 +144,20 @@ async function Inbox({ searchParams }: Pick<PageProps<"/email">, "searchParams">
 
   let open: OpenThread | null = null;
   let openOrg: string | null = null;
-  const openId = one(sp.t);
-  if (openId && z.uuid().safeParse(openId).success) {
-    const [row] = await db
-      .select({
-        thread: t,
-        personName: sql<string | null>`case when ${schema.people.id} is null then null else ${schema.people.firstName} || coalesce(' ' || ${schema.people.lastName}, '') end`,
-        clientName: schema.clients.name,
-        ownerId: conversationOwner("inbox_threads"),
-      })
-      .from(t)
-      .leftJoin(schema.people, eq(schema.people.id, t.personId))
-      .leftJoin(schema.clients, eq(schema.clients.id, t.clientId))
-      .where(eq(t.id, openId));
-    if (row) {
-      openOrg = row.thread.organizationId;
-      const m = schema.inboxMessages;
-      const messages = await db
-        .select({
-          id: m.id,
-          direction: m.direction,
-          from: m.from,
-          to: m.to,
-          cc: m.cc,
-          subject: m.subject,
-          html: m.html,
-          sentAt: m.sentAt,
-          attachments: m.attachments,
-          userId: schema.activities.userId,
-          campaignId: schema.outboundEmails.campaignId,
-          campaignName: schema.campaigns.name,
-        })
-        .from(m)
-        .leftJoin(schema.activities, eq(schema.activities.id, m.activityId))
-        // Campaign emails are matched to the send that logged them, which says which campaign it was.
-        .leftJoin(schema.outboundEmails, eq(schema.outboundEmails.id, schema.activities.emailId))
-        .leftJoin(schema.campaigns, eq(schema.campaigns.id, schema.outboundEmails.campaignId))
-        .where(and(eq(m.threadId, row.thread.id), isNull(m.hiddenAt)))
-        .orderBy(asc(m.sentAt));
-      open = {
-        id: row.thread.id,
-        subject: row.thread.subject,
-        folder: row.thread.folder,
-        read: row.thread.read,
-        readState: readStateFor({ read: row.thread.read, ownerId: row.ownerId }, user.id),
-        inboxAddress: row.thread.inboxAddress,
-        person: row.thread.personId ? { id: row.thread.personId, label: row.personName ?? "Someone" } : null,
-        client: row.thread.clientId ? { id: row.thread.clientId, label: row.clientName ?? "A client" } : null,
-        messages: messages.map((x) => ({ ...x, sentAt: x.sentAt.toISOString() })),
-      };
-    }
+  if (openRow) {
+    const row = openRow;
+    openOrg = row.thread.organizationId;
+    open = {
+      id: row.thread.id,
+      subject: row.thread.subject,
+      folder: row.thread.folder,
+      read: row.thread.read,
+      readState: readStateFor({ read: row.thread.read, ownerId: row.ownerId }, user.id),
+      inboxAddress: row.thread.inboxAddress,
+      person: row.thread.personId ? { id: row.thread.personId, label: row.personName ?? "Someone" } : null,
+      client: row.thread.clientId ? { id: row.thread.clientId, label: row.clientName ?? "A client" } : null,
+      messages: messages.map((x) => ({ ...x, sentAt: x.sentAt.toISOString() })),
+    };
   }
 
   const context = open ? await recordContext({ personId: open.person?.id ?? null, organizationId: openOrg }) : null;

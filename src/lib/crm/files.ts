@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, count, desc, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, getTableColumns, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { EntityType } from "@/lib/constants";
 import { likeTerm } from "@/lib/crm/records";
@@ -11,6 +11,9 @@ import { likeTerm } from "@/lib/crm/records";
  */
 
 const { files, fileLinks, fileFolders, people, organizations, clients } = schema;
+
+/** Every column of `files` but `embedding` (1,536 numbers): for reads that don't search by meaning. */
+export const { embedding: _embedding, ...fileRow } = getTableColumns(files);
 
 /** Which list the Files page shows: every file, general files (in folders), files on records, or chat attachments. */
 export const fileViews = ["all", "general", "records", "chat"] as const;
