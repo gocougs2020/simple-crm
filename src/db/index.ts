@@ -26,13 +26,14 @@ async function connect(): Promise<Database> {
   }
 
   const { PGlite } = await import("@electric-sql/pglite");
-  // pgvector, for file search (Neon has it built in).
+  // pgvector, for file search, and pg_trgm, for substring search (Neon has both built in).
   const { vector } = await import("@electric-sql/pglite-pgvector");
+  const { pg_trgm } = await import("@electric-sql/pglite/contrib/pg_trgm");
   const { drizzle } = await import("drizzle-orm/pglite");
   const { migrate } = await import("drizzle-orm/pglite/migrator");
   const { mkdir } = await import("node:fs/promises");
   await mkdir(".data", { recursive: true });
-  const client = new PGlite(".data/pglite", { extensions: { vector } });
+  const client = new PGlite(".data/pglite", { extensions: { vector, pg_trgm } });
   const db = drizzle({ client, schema });
   await migrate(db, { migrationsFolder: "drizzle" });
   return db as unknown as Database;

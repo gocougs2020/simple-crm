@@ -123,7 +123,8 @@ export const rateLimits = pgTable(
     windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
     count: integer("count").notNull().default(0),
   },
-  (t) => [primaryKey({ columns: [t.key, t.windowStart] })],
+  // window_start alone: the daily prune drops finished windows.
+  (t) => [primaryKey({ columns: [t.key, t.windowStart] }), index("rate_limits_window_idx").on(t.windowStart)],
 );
 
 /**
@@ -320,6 +321,10 @@ export const organizations = pgTable(
   },
   (t) => [
     index("organizations_name_idx").on(t.name),
+    // Search (ILIKE '%q%') and the label filter.
+    index("organizations_name_trgm_idx").using("gin", t.name.op("gin_trgm_ops")),
+    index("organizations_domain_trgm_idx").using("gin", t.domain.op("gin_trgm_ops")),
+    index("organizations_tags_idx").using("gin", t.tags),
     index("organizations_parent_idx").on(t.parentId),
     index("organizations_owner_idx").on(t.ownerId),
     index("organizations_phone_digits_idx").on(sql`right(regexp_replace(regexp_replace(${t.phone}, '\\s*(x|ext\\.?|extension|#)\\s*[0-9]+\\s*$', '', 'i'), '[^0-9]', '', 'g'), 10)`),
@@ -383,6 +388,12 @@ export const people = pgTable(
     index("people_owner_idx").on(t.ownerId),
     index("people_email_idx").on(t.email),
     index("people_name_idx").on(t.firstName, t.lastName),
+    // The People table's default sort (peopleSorts.name in src/lib/crm/records.ts), then id.
+    index("people_name_sort_idx").on(sql`lower(${t.firstName} || ' ' || coalesce(${t.lastName}, ''))`, t.id),
+    // Search (ILIKE '%q%') on the full name and email, and the label filter.
+    index("people_name_trgm_idx").using("gin", sql`(${t.firstName} || ' ' || coalesce(${t.lastName}, '')) gin_trgm_ops`),
+    index("people_email_trgm_idx").using("gin", t.email.op("gin_trgm_ops")),
+    index("people_tags_idx").using("gin", t.tags),
     // Calls and texts are matched on the last 10 digits, whatever way the number was typed (src/lib/phone/numbers.ts).
     index("people_phone_digits_idx").on(sql`right(regexp_replace(regexp_replace(${t.phone}, '\\s*(x|ext\\.?|extension|#)\\s*[0-9]+\\s*$', '', 'i'), '[^0-9]', '', 'g'), 10)`),
   ],
@@ -537,6 +548,9 @@ export const clients = pgTable(
     index("clients_org_idx").on(t.organizationId),
     index("clients_owner_idx").on(t.ownerId),
     index("clients_stripe_status_idx").on(t.stripeStatus),
+    // Search (ILIKE '%q%') and the label filter.
+    index("clients_name_trgm_idx").using("gin", t.name.op("gin_trgm_ops")),
+    index("clients_tags_idx").using("gin", t.tags),
   ],
 );
 
@@ -772,6 +786,19 @@ export const activities = pgTable(
     index("activities_text_idx").on(t.textMessageId),
     // The newest activity change, for the open-page refresh check (src/lib/live.ts).
     index("activities_updated_idx").on(t.updatedAt),
+    // The home feed's order (teamFeed in src/lib/crm/activities.ts): keep the expression and predicate in step with it.
+    index("activities_feed_idx")
+      .on(sql`coalesce(${t.occurredAt}, ${t.completedAt}, ${t.createdAt}) desc`)
+      .where(sql`${t.completedAt} is not null or ${t.dueAt} is null`),
+    // Planned work per record: the next step (nextActivity in src/lib/crm/records.ts) and "no next step" on the home page.
+    index("activities_client_planned_idx").on(t.clientId, t.dueAt).where(sql`${t.completedAt} is null and ${t.dueAt} is not null`),
+    index("activities_person_planned_idx").on(t.personId, t.dueAt).where(sql`${t.completedAt} is null and ${t.dueAt} is not null`),
+    index("activities_org_planned_idx").on(t.organizationId, t.dueAt).where(sql`${t.completedAt} is null and ${t.dueAt} is not null`),
+    // Foreign keys: lookups from the other side, and deletes that set them null.
+    index("activities_email_idx").on(t.emailId),
+    index("activities_inbox_thread_idx").on(t.inboxThreadId),
+    index("activities_synced_email_idx").on(t.syncedEmailId),
+    index("activities_agent_run_idx").on(t.agentRunId),
   ],
 );
 
@@ -1144,6 +1171,10 @@ export const outboundEmails = pgTable(
     index("outbound_emails_campaign_status_idx").on(t.campaignId, t.deliveryStatus),
     uniqueIndex("outbound_emails_campaign_person_idx").on(t.campaignId, t.personId),
     index("outbound_emails_message_idx").on(t.messageId),
+    // Emails still waiting on a final delivery report (reconcileDeliveryStatuses in src/lib/email/delivery.ts).
+    index("outbound_emails_awaiting_idx")
+      .on(t.createdAt)
+      .where(sql`${t.resendId} is not null and (${t.deliveryStatus} is null or ${t.deliveryStatus} in ('sent', 'delayed'))`),
   ],
 );
 
@@ -1202,6 +1233,8 @@ export const inboxThreads = pgTable(
     index("inbox_threads_person_idx").on(t.personId),
     index("inbox_threads_org_idx").on(t.organizationId),
     index("inbox_threads_client_idx").on(t.clientId),
+    // The sidebar's unread count (unreadCount in src/lib/email/inbox.ts): unread inbox threads by recency.
+    index("inbox_threads_unread_idx").on(t.folder, t.lastMessageAt).where(sql`not ${t.read}`),
   ],
 );
 
@@ -1229,7 +1262,12 @@ export const inboxMessages = pgTable(
     hiddenAt: timestamp("hidden_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("inbox_messages_resend_idx").on(t.resendEmailId), index("inbox_messages_thread_idx").on(t.threadId, t.sentAt)],
+  (t) => [
+    uniqueIndex("inbox_messages_resend_idx").on(t.resendEmailId),
+    index("inbox_messages_thread_idx").on(t.threadId, t.sentAt),
+    // Timelines read each email activity's sender and recipients from here.
+    index("inbox_messages_activity_idx").on(t.activityId),
+  ],
 );
 
 /**
@@ -1778,6 +1816,8 @@ export const textThreads = pgTable(
   (t) => [
     uniqueIndex("text_threads_number_remote_idx").on(t.phoneNumberId, t.remoteKey).where(sql`${t.phoneNumberId} is not null`),
     index("text_threads_last_idx").on(t.lastMessageAt),
+    // The sidebar's unread count (unreadTextCount in src/lib/conversations/texts.ts).
+    index("text_threads_unread_idx").on(t.lastMessageAt).where(sql`not ${t.read}`),
     index("text_threads_person_idx").on(t.personId),
     index("text_threads_org_idx").on(t.organizationId),
   ],

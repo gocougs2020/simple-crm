@@ -260,6 +260,13 @@
       "when": 1795193861644,
       "tag": "0036_hide-finished-agent-runs",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1795224969505,
+      "tag": "0037_search-and-hot-path-indexes",
+      "breakpoints": true
     }
   ]
 }

@@ -54,8 +54,8 @@ function activityRows(where: SQL | undefined, opts: { order: SQL[]; limit: numbe
         /** Mail copied from a teammate's connected mailbox: who it's from and whose mailbox it came through. */
         synced: { from: schema.syncedEmails.from, to: schema.syncedEmails.to, mailboxUserId: schema.connectedAccounts.userId },
         /** For mail in a connected inbox: who sent it, and which inbox it's in. */
-        inboxFrom: sql<string | null>`(select m."from" from inbox_messages m where m.activity_id = ${activities.id} limit 1)`,
-        inboxTo: sql<string[] | null>`(select m."to" from inbox_messages m where m.activity_id = ${activities.id} limit 1)`,
+        inboxFrom: sql<string | null>`inbox_mail."from"`,
+        inboxTo: sql<string[] | null>`inbox_mail."to"`,
         inboxAddress: schema.inboxThreads.inboxAddress,
         /** The agent's background run for this note or task, when it was handed one: how it's going. */
         assistantStatus: schema.agentRuns.status,
@@ -76,6 +76,11 @@ function activityRows(where: SQL | undefined, opts: { order: SQL[]; limit: numbe
       .leftJoin(schema.campaigns, or(eq(schema.campaigns.id, schema.outboundEmails.campaignId), eq(schema.campaigns.id, schema.textMessages.campaignId)))
       .leftJoin(schema.inboxThreads, eq(schema.inboxThreads.id, activities.inboxThreadId))
       .leftJoin(schema.agentRuns, eq(schema.agentRuns.id, activities.agentRunId))
+      // One lookup for both, and only for mail that came through an inbox: other rows skip it.
+      .leftJoinLateral(
+        sql`(select m."from", m."to" from inbox_messages m where ${activities.inboxThreadId} is not null and m.activity_id = ${activities.id} limit 1) inbox_mail`,
+        sql`true`,
+      )
       .where(where)
       .orderBy(...opts.order)
       .limit(opts.limit),
