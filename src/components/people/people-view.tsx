@@ -89,15 +89,17 @@ export function PeopleView({ rows: first, total, filter, pageSize, tags, filtere
       key: "org",
       label: "Organization",
       sort: "organization",
+      mobile: "meta",
+      mobileRender: (r) => r.organizationName,
       render: (r) => (r.organizationName ? <Link href={`/organizations/${r.person.organizationId}`} className="hover:underline">{r.organizationName}</Link> : <span className="text-faint">—</span>),
     },
     { key: "email", label: "Email", render: (r) => (r.person.email ? <a href={`mailto:${r.person.email}`} className="text-secondary hover:underline">{r.person.email}</a> : <span className="text-faint">—</span>) },
     { key: "phone", label: "Phone", render: (r) => (r.person.phone ? <a href={`tel:${r.person.phone.replace(/[^\d+]/g, "")}`} className="whitespace-nowrap text-secondary hover:underline">{r.person.phone}</a> : <span className="text-faint">—</span>) },
     { key: "clients", label: "Client", render: (r) => (r.clientCategories.length ? <span className="flex gap-1">{(["current", "prospective", "past"] as const).filter((c) => r.clientCategories.includes(c)).map((c) => <CategoryBadge key={c} category={c} />)}</span> : <span className="text-faint">—</span>) },
-    { key: "next", label: "Next activity", className: "max-w-60", render: (r) => <NextActivityCell next={r.next} /> },
+    { key: "next", label: "Next activity", className: "max-w-60", mobile: "meta", mobileRender: (r) => (r.next?.dueAt ? <NextActivityCell next={r.next} /> : null), render: (r) => <NextActivityCell next={r.next} /> },
     { key: "tags", label: "Labels", render: (r) => <LabelChips names={r.person.tags} carried={r.organizationTags?.length && r.organizationName ? { names: r.organizationTags, from: r.organizationName } : null} max={2} /> },
     { key: "owner", label: "Owner", render: (r) => <OwnerCell id={r.person.ownerId} /> },
-    { key: "last", label: "Last activity", sort: "lastActivity", render: (r) => <AgoCell at={r.person.lastActivityAt} /> },
+    { key: "last", label: "Last activity", sort: "lastActivity", mobile: "meta", mobileRender: (r) => (r.person.lastActivityAt && !r.next?.dueAt ? <AgoCell at={r.person.lastActivityAt} /> : null), render: (r) => <AgoCell at={r.person.lastActivityAt} /> },
     { key: "campaign", label: "Last campaign", sort: "lastCampaign", render: (r) => <AgoCell at={r.person.lastCampaignAt} /> },
     ...customFields
       .filter((f) => f.entityType === "person" && f.showInTable)
@@ -125,7 +127,7 @@ export function PeopleView({ rows: first, total, filter, pageSize, tags, filtere
         <OwnerFilter />
         <ParentFilter />
         {shownTags.length ? (
-          <Select value={get("tag") ?? ""} onChange={(e) => set({ tag: e.target.value || null })} aria-label="Label" className="w-36 [&_select]:h-8 [&_select]:text-[13px]">
+          <Select value={get("tag") ?? ""} onChange={(e) => set({ tag: e.target.value || null })} aria-label="Label" className="w-36 [&_select]:h-8 pointer-coarse:[&_select]:h-10 [&_select]:text-[13px]">
             <option value="">Any label</option>
             {shownTags.map((t) => (
               <option key={t}>{t}</option>

@@ -13,7 +13,8 @@ export function MenuContent({ className, align = "end", ...props }: ComponentPro
       <M.Content
         align={align}
         sideOffset={4}
-        className={clsx("z-50 min-w-44 animate-pop-in rounded-lg border border-line bg-surface p-1 shadow-md", className)}
+        collisionPadding={8}
+        className={clsx("z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] max-w-[calc(100vw-16px)] min-w-44 animate-pop-in overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-md", className)}
         {...props}
       />
     </M.Portal>
@@ -24,7 +25,7 @@ export function MenuItem({ className, destructive, icon, children, asChild, ...p
   return (
     <M.Item
       className={clsx(
-        "flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[13px] outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-sunken [&_svg]:size-4",
+        "flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[13px] outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-sunken [&_svg]:size-4 pointer-coarse:h-11 pointer-coarse:gap-3 pointer-coarse:px-3 pointer-coarse:text-[15px] pointer-coarse:[&_svg]:size-5",
         destructive ? "text-error" : "text-secondary data-[highlighted]:text-primary",
         className,
       )}

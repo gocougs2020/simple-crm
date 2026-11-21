@@ -64,9 +64,19 @@
 }
 
 @layer base {
+  /*
+   * The app shell's size on a phone: the top bar and the tab bar (app-shell.tsx).
+   * Full-height pages (h-app), sticky bars and floating buttons work from these,
+   * so they sit between the bars instead of under them. Zero on a desktop.
+   */
+  :root {
+    --shell-top: 0px;
+    --shell-bottom: 0px;
+  }
   html {
     -webkit-text-size-adjust: 100%;
     text-rendering: optimizeLegibility;
+    -webkit-tap-highlight-color: transparent;
   }
   body {
     background: var(--canvas);
@@ -103,6 +113,78 @@
   [hidden] {
     display: none !important;
   }
+  a,
+  button,
+  [role="button"],
+  [role="tab"],
+  label,
+  summary {
+    touch-action: manipulation;
+  }
+}
+
+@media (width < 64rem) {
+  :root:has(.app-tabbar) {
+    --shell-top: calc(3rem + env(safe-area-inset-top));
+    --shell-bottom: calc(3.5rem + env(safe-area-inset-bottom));
+  }
+}
+
+/*
+ * Touch screens. Unlayered, so they win over the utilities' desktop sizes.
+ * Text fields use 16px: iOS zooms the page into anything smaller when it gets focus.
+ */
+@media (pointer: coarse) {
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]),
+  select,
+  textarea,
+  .ProseMirror {
+    font-size: 16px;
+  }
+}
+/* While the keyboard is up, the tab bar steps aside so the field and what's above it have the room. */
+@media (width < 64rem) and (pointer: coarse) {
+  :root:has(.app-tabbar):has(:is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="submit"], [type="date"], [type="time"], [type="datetime-local"]), textarea, [contenteditable="true"]):focus) {
+    --shell-bottom: 0px;
+    & .app-tabbar {
+      display: none;
+    }
+  }
+}
+/* Installed to the home screen: no rubber-band bounce of the whole app, like a native one. */
+@media (display-mode: standalone) {
+  html,
+  body {
+    overscroll-behavior-y: none;
+  }
+}
+
+/* A tab in the phone's tab bar. */
+@utility tab-item {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--text-muted);
+  transition:
+    color 120ms,
+    transform 120ms var(--ease-out);
+  &:active {
+    transform: scale(0.92);
+  }
+}
+
+/* A page that fills the screen between the shell's bars (lists with their own scroll, chats, the board). */
+@utility h-app {
+  height: calc(100dvh - var(--shell-top) - var(--shell-bottom));
+}
+@utility min-h-app {
+  min-height: calc(100dvh - var(--shell-top) - var(--shell-bottom));
 }
 
 /* ── Type scale (HiringCenter) ───────────────────────────────────────── */

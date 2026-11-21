@@ -436,7 +436,7 @@ function ActivityForm({ type, links, contacts }: { type: ActivityType; links: Li
           ) : null}
           {planned ? (
             <div className="w-40">
-              <OwnerSelect value={assigneeId} onChange={setAssigneeId} allowNone={false} agent={isTask && assistantWorks} className="[&_select]:h-8 [&_select]:text-[13px]" />
+              <OwnerSelect value={assigneeId} onChange={setAssigneeId} allowNone={false} agent={isTask && assistantWorks} className="[&_select]:h-8 pointer-coarse:[&_select]:h-10 [&_select]:text-[13px]" />
             </div>
           ) : null}
           {!planned ? <FollowUp value={followUp} onChange={setFollowUp} /> : null}

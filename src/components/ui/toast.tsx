@@ -39,7 +39,7 @@ export function Toaster() {
     () => toasts,
   );
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[70] flex flex-col items-center gap-2 p-4 sm:items-end" aria-live="polite">
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[70] flex flex-col items-center gap-2 p-4 pb-[max(1rem,env(safe-area-inset-bottom),calc(var(--shell-bottom)+0.75rem))] sm:items-end" aria-live="polite">
       {list.map((t) => (
         <ToastItem key={t.id} toast={t} />
       ))}

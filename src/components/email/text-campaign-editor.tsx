@@ -234,7 +234,7 @@ export function TextCampaignEditor({
                     setAudienceId(next?.id ?? null);
                     if (next) setAudience(next.filters);
                   }}
-                  className="min-w-0 flex-1 [&_select]:h-8 [&_select]:text-[13px]"
+                  className="min-w-0 flex-1 [&_select]:h-8 pointer-coarse:[&_select]:h-10 [&_select]:text-[13px]"
                 >
                   <option value="">Filters set here</option>
                   {audiences.map((a) => (

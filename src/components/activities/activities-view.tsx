@@ -52,7 +52,7 @@ export function ActivitiesView({ rows, status }: { rows: ActivityRow[]; status: 
             { value: "done", label: "Done" },
           ]}
         />
-        <Select value={get("who") ?? "me"} onChange={(e) => set({ who: e.target.value === "me" ? null : e.target.value })} aria-label="Assigned to" className="w-44 [&_select]:h-8 [&_select]:text-[13px]">
+        <Select value={get("who") ?? "me"} onChange={(e) => set({ who: e.target.value === "me" ? null : e.target.value })} aria-label="Assigned to" className="w-44 [&_select]:h-8 pointer-coarse:[&_select]:h-10 [&_select]:text-[13px]">
           <option value="me">Assigned to me</option>
           <option value="all">Everyone</option>
           <optgroup label="Teammates">

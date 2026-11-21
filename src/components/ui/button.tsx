@@ -13,11 +13,11 @@ const variants = {
 };
 
 const sizes = {
-  sm: "h-8 px-2.5 text-[13px] gap-1.5 [&_svg]:size-4",
-  md: "h-9 px-3.5 text-[14px] gap-2 [&_svg]:size-4",
-  lg: "h-10 px-5 text-[14px] gap-2 [&_svg]:size-4",
-  icon: "size-9 [&_svg]:size-[18px]",
-  "icon-sm": "size-8 [&_svg]:size-4",
+  sm: "h-8 px-2.5 text-[13px] gap-1.5 [&_svg]:size-4 pointer-coarse:h-9",
+  md: "h-9 px-3.5 text-[14px] gap-2 [&_svg]:size-4 pointer-coarse:h-10",
+  lg: "h-10 px-5 text-[14px] gap-2 [&_svg]:size-4 pointer-coarse:h-11",
+  icon: "size-9 [&_svg]:size-[18px] pointer-coarse:size-10",
+  "icon-sm": "size-8 [&_svg]:size-4 pointer-coarse:size-9",
 };
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -39,7 +39,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-md font-medium whitespace-nowrap transition-colors select-none",
+        "inline-flex shrink-0 items-center justify-center rounded-md font-medium whitespace-nowrap transition-[color,background-color,border-color,transform] select-none pointer-coarse:active:scale-[0.97]",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:shrink-0",
         variants[variant],
         variant !== "link" && sizes[size],

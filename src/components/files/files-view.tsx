@@ -126,7 +126,7 @@ export function FilesView({ view, folderId, q, rows, folders, counts }: { view: 
 
   return (
     <div
-      className={clsx("min-h-[calc(100dvh-3rem)]", pageDrop && "bg-accent-soft/40")}
+      className={clsx("min-h-app", pageDrop && "bg-accent-soft/40")}
       onDragOver={(e) => {
         if (!(general || view === "all") || !canEdit || !e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
@@ -192,7 +192,7 @@ export function FilesView({ view, folderId, q, rows, folders, counts }: { view: 
       ) : null}
 
       {selected.size && canEdit ? (
-        <div className="sticky top-12 z-20 mx-4 mb-2 flex animate-pop-in items-center gap-3 rounded-lg border border-line bg-primary px-3 py-2 text-[13px] text-white shadow-md lg:top-2 lg:mx-6">
+        <div className="sticky top-[calc(var(--shell-top)+0.5rem)] z-20 mx-4 mb-2 flex animate-pop-in items-center gap-3 rounded-lg border border-line bg-primary px-3 py-2 text-[13px] text-white shadow-md lg:top-2 lg:mx-6">
           <span className="font-medium tabular-nums">{selected.size} selected</span>
           <button type="button" className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2 py-1 font-medium hover:bg-white/20" onClick={() => setMoving({ files: [...selected], current: folder?.id ?? null })}>
             <ArrowsRightLeftIcon className="size-4" />

@@ -94,7 +94,7 @@ export function ClientsView({
     label: "Contact",
     render: (r) => (r.personFirstName ? <Link href={`/people/${r.client.personId}`} className="hover:underline">{[r.personFirstName, r.personLastName].filter(Boolean).join(" ")}</Link> : <span className="text-faint">—</span>),
   };
-  const stage: Column<ClientRow> = { key: "stage", label: "Stage", sort: "stage", render: (r) => <span className="whitespace-nowrap">{r.stageName}</span> };
+  const stage: Column<ClientRow> = { key: "stage", label: "Stage", sort: "stage", mobile: "meta", render: (r) => <span className="whitespace-nowrap">{r.stageName}</span> };
   /** What Stripe says: the status, the monthly amount and the products, from the daily sync. */
   const billing: Column<ClientRow> = {
     key: "billing",
@@ -151,7 +151,14 @@ export function ClientsView({
         <span className="text-faint">—</span>
       ),
   };
-  const next: Column<ClientRow> = { key: "next", label: "Next activity", className: "max-w-64", render: (r) => <NextActivityCell next={r.next} warnIfNone={category !== "past"} /> };
+  const next: Column<ClientRow> = {
+    key: "next",
+    label: "Next activity",
+    className: "max-w-64",
+    mobile: "meta",
+    mobileRender: (r) => (r.next?.dueAt || category !== "past" ? <NextActivityCell next={r.next} warnIfNone={category !== "past"} /> : null),
+    render: (r) => <NextActivityCell next={r.next} warnIfNone={category !== "past"} />,
+  };
   const owner: Column<ClientRow> = { key: "owner", label: "Owner", render: (r) => <OwnerCell id={r.client.ownerId} /> };
   const last: Column<ClientRow> = { key: "last", label: "Last activity", sort: "lastActivity", render: (r) => <AgoCell at={r.client.lastActivityAt} /> };
   const date = (field: "expectedCloseDate" | "startedOn" | "endedOn", label: string, sort: string): Column<ClientRow> => ({
@@ -165,12 +172,14 @@ export function ClientsView({
     label,
     sort: field,
     align: "right",
+    mobile: "end",
+    mobileRender: (r) => (Number(r[field]) ? <span className="tabular-nums">{money(Number(r[field]))}/mo</span> : null),
     render: (r) => (Number(r[field]) ? <span className="tabular-nums">{money(Number(r[field]))}/mo</span> : <span className="text-faint">—</span>),
   });
 
   const byCategory: Record<ClientCategory, Column<ClientRow>[]> = {
-    prospective: [name, { key: "value", label: "Potential value", sort: "value", align: "right", render: (r) => <span className="tabular-nums">{money(r.client.value)}</span> }, contact, ...(connected.stripe ? [billing, collectedCol] : []), stage, next, date("expectedCloseDate", "Expected to sign", "expectedClose"), owner, last],
-    current: [name, monthly("mrr", "Monthly"), services(true), ...(connected.stripe ? [billing, collectedCol] : []), { key: "health", label: "Health", render: (r) => (r.client.health ? <HealthBadge health={r.client.health} /> : <span className="text-faint">—</span>) }, stage, next, date("startedOn", "Client since", "startedOn"), owner, last],
+    prospective: [name, { key: "value", label: "Potential value", sort: "value", align: "right", mobile: "end", render: (r) => <span className="tabular-nums">{money(r.client.value)}</span> }, contact, ...(connected.stripe ? [billing, collectedCol] : []), stage, next, date("expectedCloseDate", "Expected to sign", "expectedClose"), owner, last],
+    current: [name, monthly("mrr", "Monthly"), services(true), ...(connected.stripe ? [billing, collectedCol] : []), { key: "health", label: "Health", mobile: "meta", mobileRender: (r) => (r.client.health ? <HealthBadge health={r.client.health} /> : null), render: (r) => (r.client.health ? <HealthBadge health={r.client.health} /> : <span className="text-faint">—</span>) }, stage, next, date("startedOn", "Client since", "startedOn"), owner, last],
     past: [
       name,
       monthly("formerMrr", "Was paying"),
@@ -193,7 +202,7 @@ export function ClientsView({
   ];
 
   const filterSelect = (param: string, label: string, choices: { value: string; label: string }[]) => (
-    <Select value={get(param) ?? ""} onChange={(e) => set({ [param]: e.target.value || null })} aria-label={label} className="w-44 [&_select]:h-8 [&_select]:text-[13px]">
+    <Select value={get(param) ?? ""} onChange={(e) => set({ [param]: e.target.value || null })} aria-label={label} className="w-44 [&_select]:h-8 pointer-coarse:[&_select]:h-10 [&_select]:text-[13px]">
       <option value="">{label}</option>
       {choices.map((c) => (
         <option key={c.value} value={c.value}>
@@ -204,7 +213,8 @@ export function ClientsView({
   );
 
   return (
-    <div className="flex h-[calc(100dvh-3rem)] flex-col lg:h-dvh">
+    // The board fills the screen; on a phone the table is a list that scrolls with the page.
+    <div className={clsx("flex flex-col", view === "board" ? "h-app" : "sm:h-app")}>
       <PageHeader title="Clients" sub={<p className="mt-0.5 text-[12.5px] text-muted tabular-nums">{summary}</p>}>
         {canEdit ? (
           <Button variant="primary" onClick={() => openCreate({ kind: "client", defaults: { category, stageId: pipeline?.stages[0]?.id } })}>
@@ -244,7 +254,7 @@ export function ClientsView({
               if (e.target.value) start(() => void savePrefs({ clientPipelines: { [category]: e.target.value } }));
             }}
             aria-label="Pipeline"
-            className="w-44 [&_select]:h-8 [&_select]:text-[13px]"
+            className="w-44 [&_select]:h-8 pointer-coarse:[&_select]:h-10 [&_select]:text-[13px]"
           >
             {view === "table" ? <option value="">All pipelines</option> : null}
             {options.map((p) => (

@@ -165,7 +165,7 @@ export function InboxView({
     );
 
   return (
-    <div className="flex h-[calc(100dvh-3rem)] flex-col lg:h-dvh">
+    <div className="flex h-app flex-col">
       <PageHeader title="Email">
         <Button variant="outline" onClick={sync} loading={syncing}>
           {!syncing ? <ArrowPathIcon /> : null}

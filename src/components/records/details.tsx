@@ -56,7 +56,7 @@ function OwnerField({ value, onSave }: { value: string | null; onSave: (v: strin
           </span>
         ) : undefined
       }
-      editor={({ value, commit }) => <OwnerSelect value={value} onChange={(v) => commit(v)} className="[&_select]:h-8" />}
+      editor={({ value, commit }) => <OwnerSelect value={value} onChange={(v) => commit(v)} className="[&_select]:h-8 pointer-coarse:[&_select]:h-10" />}
       onSave={onSave}
     />
   );
@@ -423,7 +423,7 @@ export function OrganizationDetails({ org, parent, childCount = 0 }: { org: Orga
               }
               editor={({ value, commit, autoFocus }) =>
                 choices.length ? (
-                  <Select value={value ?? ""} onChange={(e) => commit(e.target.value || null)} autoFocus={autoFocus} aria-label="Parent organization" className="[&_select]:h-8 [&_select]:text-[13.5px]">
+                  <Select value={value ?? ""} onChange={(e) => commit(e.target.value || null)} autoFocus={autoFocus} aria-label="Parent organization" className="[&_select]:h-8 pointer-coarse:[&_select]:h-10 [&_select]:text-[13.5px]">
                     <option value="">None</option>
                     {choices.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -494,7 +494,7 @@ export function ClientDetails({ client, person, organization }: { client: Client
             empty="Set health"
             display={client.health ? <HealthBadge health={client.health} /> : undefined}
             editor={({ value, commit }) => (
-              <Select value={value ?? ""} onChange={(e) => commit((e.target.value || null) as ClientHealth | null)} autoFocus className="[&_select]:h-8">
+              <Select value={value ?? ""} onChange={(e) => commit((e.target.value || null) as ClientHealth | null)} autoFocus className="[&_select]:h-8 pointer-coarse:[&_select]:h-10">
                 <option value="">Not set</option>
                 {clientHealths.map((h) => (
                   <option key={h} value={h}>

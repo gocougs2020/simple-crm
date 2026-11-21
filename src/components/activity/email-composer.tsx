@@ -152,7 +152,7 @@ export function EmailComposer({
           <label htmlFor="email-from" className="w-10 text-muted">
             From
           </label>
-          <Select id="email-from" value={inboxId} onChange={(e) => setInboxId(e.target.value)} className="min-w-0 flex-1 [&_select]:h-8 [&_select]:text-[13px]">
+          <Select id="email-from" value={inboxId} onChange={(e) => setInboxId(e.target.value)} className="min-w-0 flex-1 [&_select]:h-8 pointer-coarse:[&_select]:h-10 [&_select]:text-[13px]">
             {comms.mailbox ? (
               <option value="microsoft" disabled={comms.mailbox.needsReconnect}>
                 {comms.mailbox.email} (your Outlook{comms.mailbox.needsReconnect ? ", reconnect in Settings" : ""})

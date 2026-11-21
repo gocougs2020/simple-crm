@@ -100,7 +100,7 @@ export function MessagesView({
     );
 
   return (
-    <div className="flex h-[calc(100dvh-3rem)] flex-col lg:h-dvh">
+    <div className="flex h-app flex-col">
       <PageHeader title="Messages" sub={<p className="text-[12.5px] text-muted">{unread ? `${unread} unread for you` : "Nothing unread for you"}</p>}>
         {comms.texting && canEdit ? (
           <Button variant="primary" onClick={() => setComposing(true)}>

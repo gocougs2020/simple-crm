@@ -132,7 +132,8 @@ export function CommandPalette() {
     >
       <D.Portal>
         <D.Overlay className="fixed inset-0 z-50 animate-fade-in bg-overlay" />
-        <D.Content className="fixed top-[10vh] left-1/2 z-50 w-[calc(100%-24px)] max-w-xl -translate-x-1/2 animate-pop-in overflow-hidden rounded-xl border border-line bg-surface shadow-lg outline-none">
+        {/* Full screen on a phone, like a search page; a floating box elsewhere. */}
+        <D.Content className="fixed inset-0 z-50 flex animate-fade-in flex-col overflow-hidden bg-surface pt-[env(safe-area-inset-top)] outline-none sm:inset-auto sm:top-[10vh] sm:left-1/2 sm:block sm:w-[calc(100%-24px)] sm:max-w-xl sm:-translate-x-1/2 sm:animate-pop-in sm:rounded-xl sm:border sm:border-line sm:pt-0 sm:shadow-lg">
           <D.Title className="sr-only">Search</D.Title>
           <D.Description className="sr-only">Find people, organizations and clients, or jump to a page.</D.Description>
           <div className="flex items-center gap-2.5 border-b border-line px-4">
@@ -154,15 +155,17 @@ export function CommandPalette() {
                 }
               }}
               placeholder="Search people, organizations, clients…"
-              className="h-12 flex-1 bg-transparent text-[15px] text-primary outline-none placeholder:text-faint"
+              enterKeyHint="go"
+              className="h-12 min-w-0 flex-1 bg-transparent text-[15px] text-primary outline-none placeholder:text-faint max-sm:h-14"
               role="combobox"
               aria-expanded="true"
               aria-controls="palette-list"
               aria-activedescendant={items[active] ? `palette-${items[active].id}` : undefined}
             />
-            <Kbd>esc</Kbd>
+            <Kbd className="pointer-coarse:hidden max-sm:hidden">esc</Kbd>
+            <D.Close className="-mr-2 h-10 shrink-0 rounded-md px-2 text-[15px] font-medium text-primary active:bg-sunken sm:hidden">Cancel</D.Close>
           </div>
-          <div ref={listRef} id="palette-list" role="listbox" className="max-h-[min(60vh,420px)] overflow-y-auto p-1.5 scroll-thin">
+          <div ref={listRef} id="palette-list" role="listbox" className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] scroll-thin sm:max-h-[min(60vh,420px)] sm:pb-1.5">
             {q.trim() && results && items.length <= 2 && !pending ? <p className="px-3 py-6 text-center text-[13px] text-muted">No matches for “{q.trim()}”.</p> : null}
             {groups.map((g) => (
               <div key={g} role="group" aria-label={g}>
@@ -180,7 +183,7 @@ export function CommandPalette() {
                         data-index={index}
                         onMouseMove={() => setActive(index)}
                         onClick={i.run}
-                        className={clsx("flex h-9 cursor-default items-center gap-2.5 rounded-md px-2.5 text-[14px]", index === active ? "bg-sunken text-primary" : "text-secondary")}
+                        className={clsx("flex h-9 cursor-default items-center gap-2.5 rounded-md px-2.5 text-[14px] pointer-coarse:h-11 pointer-coarse:text-[15px]", index === active ? "bg-sunken text-primary" : "text-secondary")}
                       >
                         <i.icon className="size-4 shrink-0 text-muted" aria-hidden />
                         <span className="truncate">{i.label}</span>
@@ -191,7 +194,7 @@ export function CommandPalette() {
               </div>
             ))}
           </div>
-          <div className="flex items-center gap-3 border-t border-line px-4 py-2 text-[11.5px] text-muted">
+          <div className="flex items-center gap-3 border-t border-line px-4 py-2 text-[11.5px] text-muted pointer-coarse:hidden max-sm:hidden">
             <span className="flex items-center gap-1">
               <Kbd>↑</Kbd>
               <Kbd>↓</Kbd> to move
