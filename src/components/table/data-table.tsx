@@ -45,6 +45,13 @@ export function DataTable<T>({
   paging?: { total: number; hasMore: boolean; loading: boolean; error: string | null; loadMore: () => void };
 }) {
   const router = useRouter();
+  const prefetched = useRef(new Set<string>());
+  const prefetchRow = (row: T) => {
+    const url = href(row);
+    if (prefetched.current.has(url) || url.startsWith("/api/")) return;
+    prefetched.current.add(url);
+    router.prefetch(url);
+  };
   const { get, set } = useListParams();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const sort = get("sort") ?? defaultSort;
@@ -135,6 +142,9 @@ export function DataTable<T>({
               return (
                 <tr
                   key={id}
+                  // Rows open with router.push, which doesn't prefetch: start loading the record on the way to it, once per row.
+                  onPointerEnter={() => prefetchRow(row)}
+                  onFocusCapture={() => prefetchRow(row)}
                   onClick={(e) => {
                     if ((e.target as HTMLElement).closest("a,button,input,label")) return;
                     const url = href(row);

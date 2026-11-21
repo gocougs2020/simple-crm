@@ -144,7 +144,7 @@ export async function markThreadRead(threadId: string, read: boolean): Promise<R
     const resend = await inbox(async () => resendOrThrow());
     await inbox(async () => must(await resend.inboxes.threads.update({ inboxId: t.resendInboxId, threadId: t.resendThreadId, read }), "update the conversation"));
     const db = await getDb();
-    await db.update(inboxThreads).set({ read }).where(eq(inboxThreads.id, t.id));
+    await db.update(inboxThreads).set({ read, updatedAt: new Date() }).where(eq(inboxThreads.id, t.id));
     refresh();
   });
 }

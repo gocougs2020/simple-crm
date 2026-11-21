@@ -1233,6 +1233,8 @@ export const inboxThreads = pgTable(
     index("inbox_threads_person_idx").on(t.personId),
     index("inbox_threads_org_idx").on(t.organizationId),
     index("inbox_threads_client_idx").on(t.clientId),
+    // The newest change to a conversation, for the open-page refresh check (src/lib/live.ts).
+    index("inbox_threads_updated_idx").on(t.updatedAt),
     // The sidebar's unread count (src/lib/sidebar-counts.ts): unread inbox threads by recency.
     index("inbox_threads_unread_idx").on(t.folder, t.lastMessageAt).where(sql`not ${t.read}`),
   ],
@@ -1816,6 +1818,8 @@ export const textThreads = pgTable(
   (t) => [
     uniqueIndex("text_threads_number_remote_idx").on(t.phoneNumberId, t.remoteKey).where(sql`${t.phoneNumberId} is not null`),
     index("text_threads_last_idx").on(t.lastMessageAt),
+    // The newest change to a conversation, for the open-page refresh check (src/lib/live.ts).
+    index("text_threads_updated_idx").on(t.updatedAt),
     // The sidebar's unread count (src/lib/sidebar-counts.ts) and the Messages page's.
     index("text_threads_unread_idx").on(t.lastMessageAt).where(sql`not ${t.read}`),
     index("text_threads_person_idx").on(t.personId),

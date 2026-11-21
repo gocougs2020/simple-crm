@@ -2,7 +2,7 @@
 
 import clsx from "clsx";
 import Link from "next/link";
-import { useRef, useState, useTransition } from "react";
+import { useOptimistic, useRef, useState, useTransition } from "react";
 import {
   ArrowDownLeftIcon,
   ArrowUpRightIcon,
@@ -294,29 +294,36 @@ export function PlannedItem({ row, context, attachments }: { row: ActivityRow; c
   const assignee = member(a.assigneeId);
   const tone = dueTone(a.dueAt!, tz);
 
+  // Checked off the moment it's clicked; it goes back if the server says no.
+  const [done, showDone] = useOptimistic(false);
   const complete = () =>
     start(async () => {
+      showDone(true);
       const r = await setCompleted(a.id, true);
       if (!r.ok) return void toast.error(r.error);
+      // The "what's next" question depends on the server's answer, so it waits for it.
       toast.success(`${activityLabels[a.type]} done`, { label: "Undo", onClick: () => setCompleted(a.id, false) });
       if (r.data.clientWithoutNext) askNextStep({ clientId: r.data.clientWithoutNext, title: row.clientName ?? "This client" });
     });
 
   return (
-    <li className="group flex items-start gap-3 px-3.5 py-2.5">
+    <li className={clsx("group flex items-start gap-3 px-3.5 py-2.5 transition-opacity", done && "opacity-60")}>
       <button
         type="button"
         onClick={complete}
         disabled={pending}
-        className="mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-full border-[1.5px] border-line-strong text-transparent transition-colors hover:border-success hover:bg-success-surface hover:text-success disabled:opacity-50"
-        aria-label={`Mark “${a.subject ?? activityLabels[a.type]}” done`}
+        className={clsx(
+          "mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors",
+          done ? "border-success bg-success-surface text-success" : "border-line-strong text-transparent hover:border-success hover:bg-success-surface hover:text-success disabled:opacity-50",
+        )}
+        aria-label={done ? `“${a.subject ?? activityLabels[a.type]}” done` : `Mark “${a.subject ?? activityLabels[a.type]}” done`}
       >
         <CheckIcon className="size-3" />
       </button>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <Icon className="size-4 text-muted" aria-label={activityLabels[a.type]} />
-          <span className="text-[14px] font-medium text-primary">{a.subject || activityLabels[a.type]}</span>
+          <span className={clsx("text-[14px] font-medium text-primary", done && "line-through")}>{a.subject || activityLabels[a.type]}</span>
           <Tooltip content={formatFull(a.dueAt!, tz)}>
             <span>
               <StatusBadge tone={tone}>
@@ -349,6 +356,15 @@ export function PlannedItem({ row, context, attachments }: { row: ActivityRow; c
 export function ActivityItem({ row, context, attachments }: { row: ActivityRow; context: Context; attachments?: RecordFile[] }) {
   const { workspace } = useApp();
   const a = row.activity;
+  // Pinned or unpinned the moment it's chosen; it goes back if the server says no. Moving to the top waits for the server.
+  const [pinned, showPinned] = useOptimistic(a.pinned);
+  const [, startPin] = useTransition();
+  const togglePin = () =>
+    startPin(async () => {
+      showPinned(!pinned);
+      const r = await setPinned(a.id, !pinned);
+      if (!r.ok) toast.error(r.error);
+    });
   const tz = workspace.timezone;
   const [editing, setEditing] = useState(false);
   const Icon = activityIcons[a.type];
@@ -400,7 +416,7 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
       <span className={clsx("relative z-10 mt-2.5 flex size-8 shrink-0 items-center justify-center rounded-full border", a.type === "note" ? "border-note-border bg-note-surface" : "border-line bg-surface")}>
         <Icon className="size-4 text-secondary" aria-hidden />
       </span>
-      <article className={clsx("group min-w-0 flex-1 rounded-xl border bg-surface px-3.5 py-3", a.pinned ? "border-line-strong shadow-sm" : "border-line")}>
+      <article className={clsx("group min-w-0 flex-1 rounded-xl border bg-surface px-3.5 py-3", pinned ? "border-line-strong shadow-sm" : "border-line")}>
         <header className="flex items-start gap-2">
           <div className="min-w-0 flex-1 text-[13px] text-muted">
             {arrived && a.direction === "inbound" && otherSide ? (
@@ -433,14 +449,14 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
                 · {formatDateTime(at, tz)}
               </time>
             </Tooltip>
-            {a.pinned ? <span className="ml-1.5 text-[11.5px] font-medium text-secondary">· Pinned</span> : null}
+            {pinned ? <span className="ml-1.5 text-[11.5px] font-medium text-secondary">· Pinned</span> : null}
             {row.assistantStatus ? (
               <span className="ml-1.5 inline-flex align-middle">
                 <AssistantStatus status={row.assistantStatus} />
               </span>
             ) : null}
           </div>
-          <ItemMenu row={row} onEdit={() => setEditing(true)} />
+          <ItemMenu row={row} onEdit={() => setEditing(true)} pin={{ pinned, toggle: togglePin }} />
         </header>
         {a.type === "email" && row.emailTo ? (
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted">
@@ -573,19 +589,27 @@ function CollapsibleBody({ html }: { html: string }) {
  * stays with the note it answers: teammates answer each other here, and the
  * agent answers here when a note or a reply calls on it.
  */
-function Replies({ noteId, replies }: { noteId: string; replies: NoteReply[] }) {
+function Replies({ noteId, replies: saved }: { noteId: string; replies: NoteReply[] }) {
   const { viewer, isAdmin, canEdit, workspace, services } = useApp();
   const tz = workspace.timezone;
   const [open, setOpen] = useState(false);
   const [body, setBody] = useState("");
   const [pending, start] = useTransition();
+  // A reply shows under the note the moment it's sent. If the server says no it's taken back and the text returns to the box.
+  const [replies, showReply] = useOptimistic(saved, (list, r: NoteReply) => [...list, r]);
   const send = () => {
     if (pending) return;
+    const text = body;
     start(async () => {
-      const r = await replyToNote(noteId, body);
-      if (!r.ok) return void toast.error(r.error);
+      showReply({ id: `pending-${Date.now()}`, body: text, userId: viewer.id, apiKeyId: null, createdAt: new Date().toISOString() });
       setBody("");
       setOpen(false);
+      const r = await replyToNote(noteId, text);
+      if (!r.ok) {
+        toast.error(r.error);
+        setBody(text);
+        setOpen(true);
+      }
     });
   };
   if (!replies.length && !canEdit) return null;
@@ -606,7 +630,7 @@ function Replies({ noteId, replies }: { noteId: string; replies: NoteReply[] }) 
                 </p>
                 <CollapsibleBody html={r.body} />
               </div>
-              {r.userId === viewer.id || isAdmin ? (
+              {(r.userId === viewer.id || isAdmin) && !r.id.startsWith("pending-") ? (
                 <button
                   type="button"
                   className="-mt-0.5 h-fit rounded-md p-1 text-faint opacity-0 transition-opacity group-hover/reply:opacity-100 hover:bg-sunken hover:text-primary focus:opacity-100"
@@ -662,7 +686,7 @@ function Replies({ noteId, replies }: { noteId: string; replies: NoteReply[] }) 
   );
 }
 
-function ItemMenu({ row, onEdit }: { row: ActivityRow; onEdit: () => void }) {
+function ItemMenu({ row, onEdit, pin }: { row: ActivityRow; onEdit: () => void; pin?: { pinned: boolean; toggle: () => void } }) {
   const { viewer, isAdmin, canEdit: canWrite } = useApp();
   const a = row.activity;
   const canEdit = a.userId === viewer.id || isAdmin || a.type === "task" || !a.completedAt || (!!a.callId && (a.assigneeId === viewer.id || !a.userId));
@@ -684,8 +708,15 @@ function ItemMenu({ row, onEdit }: { row: ActivityRow; onEdit: () => void }) {
           </MenuItem>
         ) : null}
         {a.completedAt || !a.dueAt ? (
-          <MenuItem icon={<SparklesIcon />} onSelect={async () => void (await setPinned(a.id, !a.pinned))}>
-            {a.pinned ? "Unpin" : "Pin to top"}
+          <MenuItem
+            icon={<SparklesIcon />}
+            onSelect={async () => {
+              if (pin) return pin.toggle();
+              const r = await setPinned(a.id, !a.pinned);
+              if (!r.ok) toast.error(r.error);
+            }}
+          >
+            {(pin?.pinned ?? a.pinned) ? "Unpin" : "Pin to top"}
           </MenuItem>
         ) : null}
         {a.completedAt && a.dueAt ? (

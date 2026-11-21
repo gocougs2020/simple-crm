@@ -27,22 +27,56 @@ export type ChatMessage = { id: string; userId: string; body: string; mentions: 
 
 const PAGE = 80;
 
-/** One page of messages, oldest first. `before` (a message id) pages back from it; without it, the newest. */
-export async function listChat(o: { before?: string | null; limit?: number } = {}): Promise<{ messages: ChatMessage[]; hasMore: boolean }> {
+/** Microseconds since the epoch, as a string: the same unit as the live versions (src/lib/live.ts). */
+const microseconds = (col: typeof chatMessages.updatedAt) => sql<string>`(extract(epoch from ${col}) * 1000000)::bigint::text`;
+
+/**
+ * One page of messages, oldest first. `before` (a message id) pages back from it; without it, the newest.
+ * `version` is the chat's newest change when this was read, from the same statement as the messages:
+ * `chatChangesSince` picks up from it, so nothing posted meanwhile is skipped.
+ */
+export async function listChat(o: { before?: string | null; limit?: number } = {}): Promise<{ messages: ChatMessage[]; hasMore: boolean; version: string }> {
   const db = await getDb();
   const limit = Math.min(o.limit ?? PAGE, 200);
   let cursor: { createdAt: Date; id: string } | undefined;
   if (o.before) {
     [cursor] = await db.select({ createdAt: chatMessages.createdAt, id: chatMessages.id }).from(chatMessages).where(eq(chatMessages.id, z.uuid().parse(o.before)));
-    if (!cursor) return { messages: [], hasMore: false };
+    if (!cursor) return { messages: [], hasMore: false, version: "0" };
   }
   const rows = await db
-    .select({ id: chatMessages.id, userId: chatMessages.userId, body: chatMessages.body, mentions: chatMessages.mentions, createdAt: chatMessages.createdAt, editedAt: chatMessages.editedAt })
+    .select({
+      id: chatMessages.id,
+      userId: chatMessages.userId,
+      body: chatMessages.body,
+      mentions: chatMessages.mentions,
+      createdAt: chatMessages.createdAt,
+      editedAt: chatMessages.editedAt,
+      version: sql<string>`(select coalesce((extract(epoch from max(c.updated_at)) * 1000000)::bigint, 0)::text from chat_messages c)`,
+    })
     .from(chatMessages)
     .where(and(isNull(chatMessages.deletedAt), cursor ? or(lt(chatMessages.createdAt, cursor.createdAt), and(eq(chatMessages.createdAt, cursor.createdAt), lt(chatMessages.id, cursor.id))) : undefined))
     .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))
     .limit(limit + 1);
   const page = rows.slice(0, limit).reverse();
+  const withFiles = await attachFiles(page.map(withoutVersion));
+  return { messages: withFiles, hasMore: rows.length > limit, version: rows[0]?.version ?? (await chatVersion()) };
+}
+
+/** A row without the `version` column it was read with. */
+function withoutVersion<R extends { version: string }>(row: R): Omit<R, "version"> {
+  const out: Partial<R> = { ...row };
+  delete out.version;
+  return out as Omit<R, "version">;
+}
+
+async function chatVersion() {
+  const db = await getDb();
+  const [row] = await db.select({ v: sql<string>`coalesce((extract(epoch from max(${chatMessages.updatedAt})) * 1000000)::bigint, 0)::text` }).from(chatMessages);
+  return row?.v ?? "0";
+}
+
+async function attachFiles<M extends Omit<ChatMessage, "files">>(page: M[]): Promise<(M & { files: ChatFile[] })[]> {
+  const db = await getDb();
   const attached = page.length
     ? await db
         .select({ id: files.id, name: files.name, size: files.size, contentType: files.contentType, messageId: files.chatMessageId })
@@ -58,10 +92,36 @@ export async function listChat(o: { before?: string | null; limit?: number } = {
         )
         .orderBy(asc(files.createdAt))
     : [];
-  return {
-    messages: page.map((m) => ({ ...m, files: attached.filter((f) => f.messageId === m.id).map((f) => ({ id: f.id, name: f.name, size: f.size, contentType: f.contentType })) })),
-    hasMore: rows.length > limit,
-  };
+  return page.map((m) => ({ ...m, files: attached.filter((f) => f.messageId === m.id).map((f) => ({ id: f.id, name: f.name, size: f.size, contentType: f.contentType })) }));
+}
+
+/**
+ * Messages posted, edited or deleted since `since` (a chat version from
+ * `listChat` or an earlier call), oldest change first, and the version to
+ * ask from next time. Deleted ones come back with `deleted` so the page can
+ * drop them. Lets the open chat follow along without re-rendering the page.
+ */
+export async function chatChangesSince(since: string, limit = 200): Promise<{ changes: (ChatMessage & { deleted: boolean })[]; version: string }> {
+  const db = await getDb();
+  const from = z.string().regex(/^\d{1,19}$/).parse(since);
+  const rows = await db
+    .select({
+      id: chatMessages.id,
+      userId: chatMessages.userId,
+      body: chatMessages.body,
+      mentions: chatMessages.mentions,
+      createdAt: chatMessages.createdAt,
+      editedAt: chatMessages.editedAt,
+      deleted: sql<boolean>`${chatMessages.deletedAt} is not null`,
+      version: microseconds(chatMessages.updatedAt),
+    })
+    .from(chatMessages)
+    // Integer microseconds, so the cursor is exact.
+    .where(sql`${chatMessages.updatedAt} > 'epoch'::timestamptz + ${from}::bigint * interval '1 microsecond'`)
+    .orderBy(asc(chatMessages.updatedAt))
+    .limit(limit);
+  const withFiles = await attachFiles(rows.map(withoutVersion));
+  return { changes: withFiles, version: rows.at(-1)?.version ?? from };
 }
 
 const bodyInput = z.string().max(MAX_CHAT_LENGTH, `Keep messages under ${MAX_CHAT_LENGTH.toLocaleString()} characters.`);
@@ -191,6 +251,8 @@ export async function deleteChatMessage(a: Actor, messageId: string) {
 /** The teammate has seen the chat up to now. */
 export async function markChatRead(userId: string) {
   const db = await getDb();
-  await db.update(users).set({ chatReadAt: new Date() }).where(eq(users.id, userId));
+  const readAt = new Date();
+  await db.update(users).set({ chatReadAt: readAt }).where(eq(users.id, userId));
+  return readAt;
 }
 

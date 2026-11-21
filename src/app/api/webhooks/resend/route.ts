@@ -65,7 +65,7 @@ export async function POST(request: Request) {
       await syncThread(event.data.inbox_id, event.data.thread_id);
       break;
     case "inbox.thread.folder.updated":
-      await db.update(schema.inboxThreads).set({ folder: event.data.to }).where(eq(schema.inboxThreads.resendThreadId, event.data.thread_id));
+      await db.update(schema.inboxThreads).set({ folder: event.data.to, updatedAt: new Date() }).where(eq(schema.inboxThreads.resendThreadId, event.data.thread_id));
       break;
     default:
       break;
