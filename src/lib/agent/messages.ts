@@ -126,3 +126,44 @@ export function cleanTitle(raw: string) {
 
 /** Until a model names it, a thread is called by the start of its first message. */
 export const fallbackTitle = (text: string) => cleanTitle(text) || DEFAULT_TITLE;
+
+/** What the model is sent of a thread, at most (about 60k tokens). Storage keeps more (MAX_STORED_CHARS). */
+export const MAX_MODEL_CHARS = 240_000;
+/** Tool results from this many of the latest turns are sent in full; older ones are stubbed. */
+export const FULL_RESULT_TURNS = 3;
+export const OMITTED_RESULT = "Result omitted from this older turn; call the tool again if it's needed.";
+
+const isToolPart = (p: unknown): p is Record<string, unknown> & { type: string } => isRecord(p) && typeof p.type === "string" && (p.type.startsWith("tool-") || p.type === "dynamic-tool");
+/** A part waiting on the teammate's button, or just answered: never pruned or stubbed. */
+const awaitsApproval = (p: unknown) => isRecord(p) && (p.state === "approval-requested" || p.state === "approval-responded");
+
+/**
+ * The history as the model reads it, without changing what's stored: tool
+ * results older than the last `FULL_RESULT_TURNS` turns become a one-line
+ * stub, and the oldest turns are left out until it fits `maxChars`. A turn
+ * starts at a teammate's message. Anything awaiting or just given the
+ * teammate's approval is kept as it is, and so is the latest turn.
+ */
+export function historyForModel<M extends AgentMessage>(messages: M[], { maxChars = MAX_MODEL_CHARS, fullTurns = FULL_RESULT_TURNS } = {}): M[] {
+  const starts = messages.flatMap((m, i) => (m.role === "user" ? [i] : []));
+  const fullFrom = starts.length > fullTurns ? starts[starts.length - fullTurns] : 0;
+  let out = messages.map((m, i) => {
+    if (i >= fullFrom || m.role !== "assistant") return m;
+    let changed = false;
+    const parts = m.parts.map((p) => {
+      if (!isToolPart(p) || awaitsApproval(p) || p.state !== "output-available") return p;
+      changed = true;
+      return { ...p, output: OMITTED_RESULT };
+    });
+    return changed ? ({ ...m, parts } as M) : m;
+  });
+  // Oldest turns out first, keeping the latest one whole and anything awaiting approval.
+  while (JSON.stringify(out).length > maxChars) {
+    const next = out.findIndex((m, i) => i > 0 && m.role === "user");
+    const lastUser = out.findLastIndex((m) => m.role === "user");
+    // No later turn to keep (the latest is all that's left), or the oldest holds something awaiting approval.
+    if (next <= 0 || next > lastUser || out.slice(0, next).some((m) => m.parts.some(awaitsApproval))) break;
+    out = out.slice(next);
+  }
+  return out;
+}

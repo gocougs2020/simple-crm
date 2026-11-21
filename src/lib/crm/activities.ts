@@ -143,83 +143,6 @@ export type TimelineItem =
   /** An email kept private to the viewer: synced from their own mailbox, not on the record. Only ever in their own timeline. */
   | { kind: "privateMail"; at: string; mail: Omit<PrivateMail, "sentAt"> };
 
-/**
- * A record's whole story, newest first: logged activities (by when they
- * happened), changes, and files. Open tasks are returned separately as
- * "planned", soonest first, because they're about the future.
- * `lastContactAt` is the latest call, email, text or meeting. `files` is every
- * file on the record (added on its own or attached to an activity) and
- * `emailFiles` every attachment on its inbox mail, for the Files card.
- */
-export async function timeline(entity: EntityType, id: string, viewerId?: string) {
-  const db = await getDb();
-  // A person's timeline also holds what they were on with others: a meeting they attended, an email they were copied on.
-  const on =
-    entity === "person"
-      ? or(eq(activities.personId, id), sql`exists (select 1 from activity_people ap where ap.activity_id = ${activities.id} and ap.person_id = ${id})`)!
-      : eq(linkColumn[entity], id);
-  const [planned, done, history, attached, mail, [contact], privateMail] = await Promise.all([
-    activityRows(and(on, isNull(activities.completedAt), isNotNull(activities.dueAt)), { order: [asc(activities.dueAt)], limit: 100 }),
-    activityRows(and(on, or(isNotNull(activities.completedAt), isNull(activities.dueAt))), {
-      order: [desc(activities.pinned), desc(sql`coalesce(${activities.occurredAt}, ${activities.completedAt}, ${activities.createdAt})`)],
-      limit: 300,
-    }),
-    db
-      .select()
-      .from(events)
-      .where(and(eq(events.entityType, entity), eq(events.entityId, id)))
-      .orderBy(desc(events.createdAt))
-      .limit(200),
-    db
-      .select({
-        id: files.id,
-        name: files.name,
-        size: files.size,
-        contentType: files.contentType,
-        uploadedBy: files.uploadedBy,
-        createdAt: files.createdAt,
-        activityId: files.activityId,
-        activityType: activities.type,
-        publicToken: files.publicToken,
-        /** Uploaded on this record, rather than attached to it later or gathered from one below it. */
-        own: sql<boolean>`${entity === "person" ? files.personId : entity === "organization" ? files.organizationId : files.clientId} is not distinct from ${id}`,
-        /** On a client's page, the person or organization a file came from when it isn't on the client itself. */
-        via: entity === "client" ? sql<string | null>`case when ${onRecord("client", id)} then null else coalesce((select p.first_name || coalesce(' ' || p.last_name, '') from people p where p.id = ${files.personId}), (select o.name from organizations o where o.id = ${files.organizationId})) end` : sql<string | null>`null`,
-      })
-      .from(files)
-      .leftJoin(activities, eq(activities.id, files.activityId))
-      .where(and(inRecordView(entity, id), isNull(files.deletedAt)))
-      .orderBy(desc(files.createdAt))
-      .limit(500),
-    db
-      .select({ id: schema.inboxMessages.id, threadId: schema.inboxMessages.threadId, from: schema.inboxMessages.from, sentAt: schema.inboxMessages.sentAt, attachments: schema.inboxMessages.attachments })
-      .from(schema.inboxMessages)
-      .innerJoin(activities, eq(activities.id, schema.inboxMessages.activityId))
-      .where(and(on, sql`jsonb_array_length(${schema.inboxMessages.attachments}) > 0`))
-      .orderBy(desc(schema.inboxMessages.sentAt))
-      .limit(200),
-    // Its own query, so it's right however long the history is.
-    db
-      .select({ at: sql<Date | null>`max(coalesce(${activities.occurredAt}, ${activities.completedAt}, ${activities.createdAt}))` })
-      .from(activities)
-      .where(and(on, inArray(activities.type, interactionTypes), or(isNotNull(activities.completedAt), isNull(activities.dueAt)), notCampaignEmail)),
-    viewerId ? privateMailOn(entity, id, viewerId) : [],
-  ]);
-  const past: TimelineItem[] = [
-    ...done.map((row): TimelineItem => ({ kind: "activity", at: (row.activity.occurredAt ?? row.activity.completedAt ?? row.activity.createdAt).toISOString(), row })),
-    ...history.map((event): TimelineItem => ({ kind: "event", at: event.createdAt.toISOString(), event })),
-    // A file attached to an activity shows on that activity, not as its own line.
-    // One attached to the record later shows on its own, whatever activity it came from.
-    ...attached.filter((f) => !f.activityId || !f.own).map((f): TimelineItem => ({ kind: "file", at: f.createdAt.toISOString(), file: recordFile(f) })),
-    ...privateMail.map(({ sentAt, ...m }): TimelineItem => ({ kind: "privateMail", at: sentAt.toISOString(), mail: m })),
-  ];
-  const pinned = past.filter((i) => i.kind === "activity" && i.row.activity.pinned);
-  const rest = past.filter((i) => !(i.kind === "activity" && i.row.activity.pinned)).sort((a, b) => b.at.localeCompare(a.at));
-  const lastContactAt = contact?.at ? new Date(contact.at).toISOString() : null;
-  const emailFiles: EmailFile[] = mail.flatMap((m) => m.attachments.map((a) => ({ key: `${m.id}:${a.id}`, name: a.filename ?? "Attachment", size: a.size, threadId: m.threadId, from: m.from, at: m.sentAt })));
-  return { planned, pinned, past: rest, lastContactAt, files: attached.map(recordFile), emailFiles };
-}
-
 /** One activity's whole body (a list sends only its preview). */
 export async function activityBody(id: string) {
   const db = await getDb();
@@ -291,6 +214,28 @@ export async function timelinePage(entity: EntityType, id: string, viewerId: str
   return { items: merged.slice(0, want), hasMore: merged.length > want };
 }
 
+/** A record's planned work (open, with a due date), soonest first. */
+export function plannedOn(entity: EntityType, id: string, limit = 100) {
+  return activityRows(and(recordOn(entity, id), isNull(activities.completedAt), isNotNull(activities.dueAt)), { order: [asc(activities.dueAt)], limit });
+}
+
+/** A record's pinned entries, newest first. */
+export function pinnedOn(entity: EntityType, id: string, limit = 100) {
+  return activityRows(and(recordOn(entity, id), isPast, eq(activities.pinned, true)), { order: [desc(activityAt)], limit });
+}
+
+/** When the record was last contacted: the latest call, email, text or meeting (not a campaign). Its own query, so it's right however long the history is. */
+export async function lastContactOn(entity: EntityType, id: string) {
+  const db = await getDb();
+  const [contact] = await db
+    .select({ at: sql<Date | null>`max(${activityAt})` })
+    .from(activities)
+    .where(and(recordOn(entity, id), inArray(activities.type, interactionTypes), isPast, notCampaignEmail));
+  return contact?.at ? new Date(contact.at).toISOString() : null;
+}
+
+export const asTimelineItem = (row: ActivityRow): TimelineItem => ({ kind: "activity", at: (row.activity.occurredAt ?? row.activity.completedAt ?? row.activity.createdAt).toISOString(), row });
+
 /**
  * A record's page: planned work in full (soonest first: it's about the
  * future, and there's little of it), pinned entries, the first page of the
@@ -302,9 +247,9 @@ export async function timelinePage(entity: EntityType, id: string, viewerId: str
 export async function recordTimeline(entity: EntityType, id: string, viewerId?: string) {
   const db = await getDb();
   const on = recordOn(entity, id);
-  const [planned, pinned, first, attached, mail, [contact], [counts], privateCount] = await Promise.all([
-    activityRows(and(on, isNull(activities.completedAt), isNotNull(activities.dueAt)), { order: [asc(activities.dueAt)], limit: 100 }),
-    activityRows(and(on, isPast, eq(activities.pinned, true)), { order: [desc(activityAt)], limit: 100 }),
+  const [planned, pinned, first, attached, mail, lastContactAt, [counts], privateCount] = await Promise.all([
+    plannedOn(entity, id),
+    pinnedOn(entity, id),
     timelinePage(entity, id, viewerId),
     db
       .select({
@@ -332,10 +277,7 @@ export async function recordTimeline(entity: EntityType, id: string, viewerId?: 
       .where(and(on, sql`jsonb_array_length(${schema.inboxMessages.attachments}) > 0`))
       .orderBy(desc(schema.inboxMessages.sentAt))
       .limit(200),
-    db
-      .select({ at: sql<Date | null>`max(${activityAt})` })
-      .from(activities)
-      .where(and(on, inArray(activities.type, interactionTypes), isPast, notCampaignEmail)),
+    lastContactOn(entity, id),
     // The filters' counts, over the whole past (pinned included), in one grouped query.
     db
       .select({
@@ -346,11 +288,10 @@ export async function recordTimeline(entity: EntityType, id: string, viewerId?: 
       .where(and(on, isPast)),
     viewerId ? privateMailCount(entity, id, viewerId) : 0,
   ]);
-  const lastContactAt = contact?.at ? new Date(contact.at).toISOString() : null;
   const emailFiles: EmailFile[] = mail.flatMap((m) => m.attachments.map((a) => ({ key: `${m.id}:${a.id}`, name: a.filename ?? "Attachment", size: a.size, threadId: m.threadId, from: m.from, at: m.sentAt })));
   return {
     planned,
-    pinned: pinned.map((row): TimelineItem => ({ kind: "activity", at: (row.activity.occurredAt ?? row.activity.completedAt ?? row.activity.createdAt).toISOString(), row })),
+    pinned: pinned.map(asTimelineItem),
     past: first.items,
     hasMore: first.hasMore,
     counts: { conversations: (counts?.conversations ?? 0) + privateCount, tasks: counts?.tasks ?? 0 } satisfies Record<Exclude<TimelineFilter, "all">, number>,

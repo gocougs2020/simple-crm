@@ -8,7 +8,7 @@ import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { getDb, schema } from "@/db";
 import { monthlyPriceSql, type ActivityType, type EntityType } from "@/lib/constants";
 import { actorUserId, type Actor } from "@/lib/crm/actor";
-import { timeline, type NoteReply } from "@/lib/crm/activities";
+import { asTimelineItem, lastContactOn, pinnedOn, plannedOn, timelinePage, type NoteReply } from "@/lib/crm/activities";
 import { effectiveTags, listLabels } from "@/lib/crm/labels";
 import { clientPeople as peopleOnClient, inOrganizations, likeTerm } from "@/lib/crm/records";
 import { ActionError, NotFoundError } from "@/lib/errors";
@@ -484,17 +484,21 @@ export async function assertExists(entity: EntityType, id: string) {
   if (!row) throw new NotFoundError(`There's no ${entity} with that id.`);
 }
 
+/**
+ * A record's planned work and its newest history (pinned entries first), each
+ * read with `limit` in SQL rather than loaded whole and cut down.
+ */
 export async function recordTimeline(entity: EntityType, id: string, limit = 50) {
   await assertExists(entity, id);
-  const t = await timeline(entity, id);
-  const event = (e: typeof schema.events.$inferSelect) => ({ id: e.id, action: e.action, data: e.data, userId: e.userId, apiKeyId: e.apiKeyId, createdAt: iso(e.createdAt)! });
   // No viewer is passed, so a teammate's private mail is never read here. The filter makes that true for the types too.
-  const history = [...t.pinned, ...t.past].filter((i) => i.kind !== "privateMail").slice(0, limit).map((i) => {
+  const [planned, pinned, past, lastContactAt] = await Promise.all([plannedOn(entity, id, limit), pinnedOn(entity, id, limit), timelinePage(entity, id, undefined, { limit }), lastContactOn(entity, id)]);
+  const event = (e: typeof schema.events.$inferSelect) => ({ id: e.id, action: e.action, data: e.data, userId: e.userId, apiKeyId: e.apiKeyId, createdAt: iso(e.createdAt)! });
+  const history = [...pinned.map(asTimelineItem), ...past.items].filter((i) => i.kind !== "privateMail").slice(0, limit).map((i) => {
     if (i.kind === "activity") return { kind: "activity" as const, at: i.at, activity: toActivity(i.row) };
     if (i.kind === "event") return { kind: "event" as const, at: i.at, event: event(i.event) };
     return { kind: "file" as const, at: i.at, file: { id: i.file.id, name: i.file.name, size: i.file.size, contentType: i.file.contentType } };
   });
-  return { planned: t.planned.map(toActivity), history, lastContactAt: t.lastContactAt };
+  return { planned: planned.map(toActivity), history, lastContactAt };
 }
 
 // ─── Workspace ───────────────────────────────────────────────────────────

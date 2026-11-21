@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import type { AgentMessage } from "@/db/schema";
 import { roleCan } from "@/lib/permissions";
 import { isDestructive } from "@/lib/api/spec";
-import { applyApprovals, cleanTitle, cleanTranscript, cleanUserMessage, DEFAULT_TITLE, fallbackTitle, MAX_USER_TEXT, mergeIncoming, trimForStorage } from "./messages";
+import { applyApprovals, cleanTitle, cleanTranscript, cleanUserMessage, DEFAULT_TITLE, fallbackTitle, historyForModel, MAX_USER_TEXT, mergeIncoming, OMITTED_RESULT, trimForStorage } from "./messages";
 import { allowedOperations, capResult, needsConfirmation } from "./policy";
 import { agentInstructions, pageNote } from "./prompt";
 import { activityLine, cleanSummary, isFresh, summaryInstructions } from "./summary-prompt";
@@ -104,8 +104,10 @@ describe("agent tools", () => {
     const page = { data: Array.from({ length: 50 }, (_, i) => ({ i, pad: "x".repeat(100) })), nextCursor: "abc" };
     const capped = capResult(page, 2_000) as { data: unknown[]; nextCursor: string; trimmed: string };
     assert.ok(capped.data.length < 50 && JSON.stringify(capped).length < 2_400);
-    assert.equal(capped.nextCursor, "abc");
+    // The cursor points past all 50; following it would skip the ones left out.
+    assert.equal(capped.nextCursor, undefined);
     assert.match(capped.trimmed, /of 50/);
+    assert.match(capped.trimmed, /smaller limit/);
     const small = { data: [1] };
     assert.equal(capResult(small), small);
   });
@@ -120,6 +122,14 @@ describe("assistant instructions", () => {
     assert.match(text, /u1/);
     assert.match(text, /Today is 2026-03-02/);
     assert.match(text, /client with id 9b1d2c3e/);
+  });
+
+  it("puts what changes every turn (the time, the page) at the end, so the rest can be cached", () => {
+    const a = agentInstructions({ ...base, page: "/clients/9b1d2c3e-1111-4222-8333-444455556666" });
+    const b = agentInstructions({ ...base, now: new Date("2026-03-02T15:07:00Z"), page: "/people" });
+    const now = a.indexOf("## Now");
+    assert.ok(now > 0 && a.indexOf("client with id 9b1d2c3e") > now);
+    assert.equal(a.slice(0, now), b.slice(0, b.indexOf("## Now")));
   });
 
   it("tells a read-only teammate's agent it can't change anything", () => {
@@ -212,3 +222,47 @@ describe("voice setup prefetch", () => {
     assert.equal(voiceSetupFresh({ at: now - 2_000, page: "/", expiresAt: (now + 10_000) / 1000 }, "/", now), false);
   });
 });
+
+describe("history sent to the model", () => {
+  const tool = (id: string, output: unknown, state = "output-available") => ({ type: "tool-get_client", toolCallId: id, state, input: { id: "c1" }, output, ...(state.startsWith("approval") ? { approval: { id: `ap-${id}` } } : {}) });
+  const answer = (id: string, ...parts: unknown[]): AgentMessage => ({ id, role: "assistant", parts: parts as AgentMessage["parts"] });
+  const big = { name: "Acme", notes: "x".repeat(2_000) };
+  const thread = (n: number) => Array.from({ length: n }, (_, i) => [user(`u${i}`, `question ${i}`), answer(`a${i}`, tool(`t${i}`, big), { type: "text", text: `answer ${i}` })]).flat();
+
+  it("stubs tool results older than the last three turns, and keeps the rest", () => {
+    const out = historyForModel(thread(5));
+    const outputs = out.filter((m) => m.role === "assistant").map((m) => (m.parts[0] as { output: unknown }).output);
+    assert.deepEqual(outputs.slice(0, 2), [OMITTED_RESULT, OMITTED_RESULT]);
+    assert.deepEqual(outputs.slice(2), [big, big, big]);
+    // Inputs and the words stay.
+    assert.deepEqual((out[1].parts[0] as { input: unknown }).input, { id: "c1" });
+    assert.equal(out.length, 10);
+  });
+
+  it("never stubs what's waiting on the teammate's approval", () => {
+    const msgs = [user("u0", "archive it"), answer("a0", tool("t0", undefined, "approval-requested")), ...thread(4)];
+    const out = historyForModel(msgs);
+    assert.equal((out[1].parts[0] as { state: string }).state, "approval-requested");
+  });
+
+  it("leaves out the oldest turns past the size, keeping the latest whole", () => {
+    const out = historyForModel(thread(6), { maxChars: 6_000 });
+    assert.ok(JSON.stringify(out).length <= 6_000 || out.filter((m) => m.role === "user").length === 1);
+    assert.equal(out[0].role, "user");
+    assert.equal(out.at(-1)!.id, "a5");
+    assert.ok(out.length < 12);
+  });
+
+  it("can leave out everything but the latest turn", () => {
+    const out = historyForModel(thread(2), { maxChars: 3_000 });
+    assert.deepEqual(out.map((m) => m.id), ["u1", "a1"]);
+  });
+
+  it("doesn't change the stored messages it's given", () => {
+    const msgs = thread(5);
+    const before = JSON.stringify(msgs);
+    historyForModel(msgs, { maxChars: 1_000 });
+    assert.equal(JSON.stringify(msgs), before);
+  });
+});
+

@@ -15,7 +15,9 @@ import { runActor } from "@/lib/agent/run-actor";
 import { runMayUse } from "@/lib/agent/run-rules";
 import { RUN_TOKEN_PREFIX } from "@/lib/agent/run-token";
 import { keyFromHeaders } from "@/lib/api/key-format";
-import { handleMessage, offered, RpcError, splitArguments, toolFor, toolOperations, type JsonRpcResponse, type McpServer, type ToolCallResult } from "./protocol";
+import { handleMessage, offered, RpcError, splitArguments, toolFor, toolOperations, type JsonRpcResponse, type McpServer, type Tool, type ToolCallResult } from "./protocol";
+import { capResult } from "@/lib/agent/policy";
+import { toolArguments, toolResult } from "@/lib/api/tool-results";
 
 /** Messages per request. Batching is for a few calls at once, not bulk work. */
 const MAX_BATCH = 20;
@@ -48,14 +50,20 @@ const instructions = (name: string, actor: Actor & { kind: "user" }, readOnly: b
     .filter(Boolean)
     .join("\n");
 
+/** Every tool's definition, built once per server instance (the schemas don't change while it runs); each request only filters them. */
+let definitions: { op: (typeof toolOperations)[number]; tool: Tool }[] | null = null;
+const allDefinitions = () => (definitions ??= toolOperations.map((op) => {
+  const t = toolFor(op);
+  return { op, tool: { ...t, description: deploymentToolDescription(t.name, t.description) } };
+}));
+
 function serverFor(actor: Actor & { kind: "user" }, origin: string): McpServer {
   const allowed = (p: Parameters<typeof can>[1]) => can(actor, p);
   const features = enabledFeatures();
   // The agent's own background run gets the teammate's tools minus what needs a person watching (archive, delete, merge) and starting more runs.
-  const tools = toolOperations
-    .filter((o) => allowed(o.permission) && offered(o, features) && (!actor.runId || runMayUse(o)))
-    .map(toolFor)
-    .map((t) => ({ ...t, description: deploymentToolDescription(t.name, t.description) }));
+  const tools = allDefinitions()
+    .filter(({ op }) => allowed(op.permission) && offered(op, features) && (!actor.runId || runMayUse(op)))
+    .map(({ tool }) => tool);
   return {
     info: { name: "crm", title: appConfig.brand.name, version: "1.0.0" },
     instructions: instructions(appConfig.brand.name, actor, !can(actor, "records:write")),
@@ -63,7 +71,9 @@ function serverFor(actor: Actor & { kind: "user" }, origin: string): McpServer {
     async callTool(name, args): Promise<ToolCallResult> {
       const op = toolOperations.find((o) => o.tool === name)!;
       try {
-        const result = await executeOperation(actor, op.id, splitArguments(operations[op.id], args), { origin });
+        // The same as the in-app agent gets: smaller default lists, no HTML body beside its plain text, and a size cap.
+        // Both copies stay: the MCP spec asks for the JSON as text too, for clients that don't read structuredContent.
+        const result = capResult(toolResult(await executeOperation(actor, op.id, splitArguments(operations[op.id], toolArguments(operations[op.id], args)), { origin })));
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result as Record<string, unknown> };
       } catch (err) {
         const e = toApiError(err);

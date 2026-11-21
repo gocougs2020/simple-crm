@@ -38,14 +38,22 @@ export function allowedOperations(allowed: (p: Permission) => boolean, opts: { v
 /** Tool output the model sees. Long lists are trimmed so one call can't fill the context. */
 export const MAX_RESULT_CHARS = 40_000;
 
-/** Keeps a result under `max` characters of JSON by dropping list items from the end, and says so. */
+/**
+ * Keeps a result under `max` characters of JSON by dropping list items from
+ * the end, and says so. The page's `nextCursor` points past every item it
+ * held, dropped ones included, so it's left out: following it would skip
+ * them. The note says to ask again with a smaller limit instead.
+ */
 export function capResult(result: unknown, max = MAX_RESULT_CHARS): unknown {
   if (JSON.stringify(result ?? null).length <= max) return result;
   const page = result as { data?: unknown; nextCursor?: unknown };
   if (Array.isArray(page?.data)) {
+    const { nextCursor: _cursor, ...rest } = page;
+    void _cursor;
     const items = [...page.data];
-    while (items.length > 1 && JSON.stringify({ ...page, data: items }).length > max) items.pop();
-    return { ...page, data: items, trimmed: `Showing ${items.length} of ${page.data.length}. Ask for fewer at a time (limit) or narrow the search.` };
+    const trimmed = `Showing ${items.length} of ${page.data.length}; the rest didn't fit. Ask again the same way with a smaller limit to see them all, or narrow the search.`;
+    while (items.length > 1 && JSON.stringify({ ...rest, data: items, trimmed }).length > max) items.pop();
+    return { ...rest, data: items, trimmed: `Showing ${items.length} of ${page.data.length}; the rest didn't fit. Ask again the same way with a smaller limit to see them all, or narrow the search.` };
   }
   return { trimmed: "The result was too long to show. Narrow the request.", preview: JSON.stringify(result).slice(0, max) };
 }
