@@ -45,6 +45,7 @@ import { CommandPalette, openPalette } from "./command-palette";
 import { CreateDialogs } from "./create-dialogs";
 import { openCreate } from "./create-store";
 import type { SidebarCounts } from "@/lib/sidebar-counts";
+import { canGoBackInApp, nextTrail } from "@/lib/back-trail";
 import { setBadges, useBadgeOverride } from "./badge-store";
 
 type Badge = { n: number; label: string; tone?: "error" };
@@ -286,15 +287,17 @@ function WorkspaceMark({ name }: { name: string }) {
 
 /**
  * The phone's top bar: the workspace, or a back button on a record page, then
- * New and Search. Back returns to the list as it was (filters, scroll) when the
- * teammate came from inside the app, and opens the list otherwise.
+ * New and Search. Back returns to the previous page as it was (filters, scroll)
+ * when that page is in the CRM, and opens the list otherwise, so it never
+ * leaves the app.
  */
 function PhoneHeader({ workspace, newMenu }: { workspace: string; newMenu: (trigger: ReactNode, align?: "start" | "end") => ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const first = useRef(pathname);
-  const [moved, setMoved] = useState(false);
-  useEffect(() => setMoved((m) => m || pathname !== first.current), [pathname]);
+  const trail = useRef<string[]>([]);
+  useEffect(() => {
+    trail.current = nextTrail(trail.current, pathname);
+  }, [pathname]);
   const back = backTargets.find((b) => b.pattern.test(pathname));
   const iconButton = "flex size-10 items-center justify-center rounded-full text-secondary transition-colors hover:bg-sunken active:bg-sunken";
   return (
@@ -303,7 +306,8 @@ function PhoneHeader({ workspace, newMenu }: { workspace: string; newMenu: (trig
         <Link
           href={back.href}
           onClick={(e) => {
-            if (!moved || e.metaKey || e.ctrlKey) return;
+            const navigation = (window as Window & { navigation?: { canGoBack?: unknown } }).navigation;
+            if (e.metaKey || e.ctrlKey || !canGoBackInApp(trail.current, navigation)) return;
             e.preventDefault();
             router.back();
           }}
