@@ -1,3 +1,4 @@
+import { unstable_rethrow } from "next/navigation";
 import { Suspense } from "react";
 import { AppProvider } from "@/components/app-context";
 import { AppShell } from "@/components/shell/app-shell";
@@ -30,6 +31,8 @@ async function Gate({ children }: { children: React.ReactNode }) {
   // Read before any page data (the page renders after this), so the browser never adopts a version newer than what it shows.
   // If they can't be read, the page still renders; the next check refreshes once.
   const live = liveVersions().catch((err) => {
+    // Next's own signals (a prerender ending) pass through; only a real failure falls back.
+    unstable_rethrow(err);
     console.error("[live] versions", err);
     return noVersions;
   });
