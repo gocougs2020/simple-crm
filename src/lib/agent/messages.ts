@@ -161,7 +161,8 @@ export function historyForModel<M extends AgentMessage>(messages: M[], { maxChar
   while (JSON.stringify(out).length > maxChars) {
     const next = out.findIndex((m, i) => i > 0 && m.role === "user");
     const lastUser = out.findLastIndex((m) => m.role === "user");
-    if (next <= 0 || next >= lastUser || out.slice(0, next).some((m) => m.parts.some(awaitsApproval))) break;
+    // No later turn to keep (the latest is all that's left), or the oldest holds something awaiting approval.
+    if (next <= 0 || next > lastUser || out.slice(0, next).some((m) => m.parts.some(awaitsApproval))) break;
     out = out.slice(next);
   }
   return out;
