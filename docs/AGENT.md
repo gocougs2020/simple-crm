@@ -76,7 +76,7 @@ A scheduled job is work the agent does on its own, on a cadence: "every Monday a
 - Background runs can read jobs but can't create or change them, so a run can't schedule more of itself.
 - Limits: 20 jobs per teammate and 20 offers.
 - Tools and endpoints: `list_scheduled_jobs`, `create_scheduled_job`, `update_scheduled_job`, `delete_scheduled_job`, `add_shared_scheduled_job` (`/api/v1/scheduled-jobs`). They exist only where background work is on.
-- How it runs: `runDueJobs` in `src/lib/agent/schedules.ts`, from `/api/cron/agent` every 15 minutes. One conditional update moves a job to its next time before it starts, so overlapping crons run it once; a job whose time passed while the cron was down runs once, then keeps to its cadence. Times are computed in the workspace's time zone, so 8:00 stays 8:00 across daylight saving changes (`nextRun` in `src/lib/agent/schedule-rules.ts`).
+- How it runs: `runDueJobs` in `src/lib/agent/schedules.ts`, from the cron dispatcher (`/api/cron/tick`, every 15 minutes, when a job is due; `/api/cron/agent` does the same by hand). One conditional update moves a job to its next time before it starts, so overlapping crons run it once; a job whose time passed while the cron was down runs once, then keeps to its cadence. Times are computed in the workspace's time zone, so 8:00 stays 8:00 across daylight saving changes (`nextRun` in `src/lib/agent/schedule-rules.ts`).
 
 eve has its own experimental extensions for user-saved skills and runtime schedules. They aren't used here: skills and jobs live in the CRM's database so that Settings, the REST API, MCP, chat and the background worker all share one list, one set of permission checks and one budget.
 
@@ -253,7 +253,7 @@ teammate ── chat / @mention / task ──▶ CRM: agent_runs row (queued →
 
 - The worker is an [eve](https://eve.dev) agent in `agent/`, a second service of the same Vercel project. `withEve` in `next.config.ts` builds it with the app and starts it with `next dev`. It needs Node.js 24 or newer; on older versions, or with background work off, the app builds and runs without it.
 - The two services trust each other through short-lived tokens signed with a shared secret (`src/lib/agent/run-token.ts`): `AGENT_RUN_SECRET`, or one derived from `AUTH_SECRET` when it isn't set. Each token names one run and one teammate, and stops working when the run ends.
-- A cron (`/api/cron/agent`, every 15 minutes) starts scheduled jobs that are due, cancels runs that have gone past `maxRunMinutes` and starts any left waiting.
+- The cron dispatcher (`/api/cron/tick`, every 15 minutes, when there is work; `/api/cron/agent` by hand) starts scheduled jobs that are due, cancels runs that have gone past `maxRunMinutes` and starts any left waiting.
 - On a preview deployment behind Vercel's Deployment Protection, set `VERCEL_AUTOMATION_BYPASS_SECRET` so the two services can reach each other. Production on its own domain needs nothing.
 - Runs are traced in the Vercel dashboard under Observability → Agent Runs.
 

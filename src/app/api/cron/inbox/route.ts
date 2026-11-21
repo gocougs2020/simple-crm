@@ -5,7 +5,7 @@ import { syncAllInboxes } from "@/lib/email/inbox";
 
 export const maxDuration = 300;
 
-/** Vercel Cron, on the quarter hour (with the campaign cron): catches anything the webhook missed (a deploy mid-delivery, a webhook not yet connected). */
+/** Catches anything the webhook missed (a deploy mid-delivery, a webhook not yet connected). The cron dispatcher (/api/cron/tick) runs it hourly; also callable by hand. */
 export async function GET(request: Request) {
   // Always at request time; never a build-time snapshot.
   await connection();

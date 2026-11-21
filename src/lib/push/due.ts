@@ -1,5 +1,5 @@
 import "server-only";
-import { and, between, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, between, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { NotificationKind } from "@/lib/constants";
 import { dayBounds } from "@/lib/crm/activities";
@@ -21,15 +21,17 @@ const { activities: t, pushSubscriptions: subs } = schema;
 const recordUrl = (a: { clientId: string | null; personId: string | null; organizationId: string | null }) =>
   a.clientId ? `/clients/${a.clientId}` : a.personId ? `/people/${a.personId}` : a.organizationId ? `/organizations/${a.organizationId}` : "/activities";
 
-async function usersWanting(kind: NotificationKind) {
+/** The active teammates with a device that wants each of these alerts, from one read of the subscriptions. */
+async function usersWanting<K extends NotificationKind>(kinds: K[]): Promise<Record<K, string[]>> {
   const db = await getDb();
-  return (
-    await db
-      .selectDistinct({ userId: subs.userId })
-      .from(subs)
-      .innerJoin(schema.users, eq(schema.users.id, subs.userId))
-      .where(and(isNull(schema.users.deactivatedAt), sql`${subs.alerts} @> ${JSON.stringify([kind])}::jsonb`))
-  ).map((r) => r.userId);
+  const rows = await db
+    .select({ userId: subs.userId, alerts: subs.alerts })
+    .from(subs)
+    .innerJoin(schema.users, eq(schema.users.id, subs.userId))
+    .where(and(isNull(schema.users.deactivatedAt), or(...kinds.map((k) => sql`${subs.alerts} @> ${JSON.stringify([k])}::jsonb`))));
+  const out = Object.fromEntries(kinds.map((k) => [k, new Set<string>()])) as Record<K, Set<string>>;
+  for (const r of rows) for (const k of kinds) if ((r.alerts as string[]).includes(k)) out[k].add(r.userId);
+  return Object.fromEntries(kinds.map((k) => [k, [...out[k]]])) as Record<K, string[]>;
 }
 
 export async function sendDueNotifications(now = new Date()) {
@@ -37,7 +39,7 @@ export async function sendDueNotifications(now = new Date()) {
   const ws = await getWorkspace();
   const tz = ws.timezone;
   const time = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" });
-  const [forMeetings, forTasks, forDigest] = await Promise.all([usersWanting("meeting_soon"), usersWanting("task_due"), usersWanting("task_digest")]);
+  const { meeting_soon: forMeetings, task_due: forTasks, task_digest: forDigest } = await usersWanting(["meeting_soon", "task_due", "task_digest"]);
   const counts = { meetings: 0, timed: 0, digests: 0 };
 
   // Meetings and timed tasks starting in the next 15 minutes (or a few minutes ago, if a run was missed).

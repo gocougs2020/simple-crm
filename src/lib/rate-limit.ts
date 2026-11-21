@@ -1,7 +1,6 @@
 import "server-only";
 import { headers } from "next/headers";
-import { after } from "next/server";
-import { lt, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { hashToken } from "./auth";
 
@@ -13,30 +12,43 @@ export async function clientIp() {
   return h.get("x-real-ip") ?? h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
 }
 
+type Limit = { bucket: string; id: string; limit: number; windowMs?: number; cost?: number };
+
+/**
+ * Counts one request against several fixed windows in one statement (an
+ * upsert per window) and reports, for each, whether the caller is over its
+ * limit. Each limit behaves exactly as `rateLimit` alone would.
+ * Counters from finished windows are dropped by the daily prune (src/lib/daily-prune.ts).
+ */
+export async function rateLimits(limits: Limit[]) {
+  const db = await getDb();
+  const now = Date.now();
+  const rows = await Promise.all(
+    limits.map(async (l) => {
+      const windowMs = l.windowMs ?? DAY_MS;
+      return { key: `${l.bucket}:${await hashToken(l.id)}`, windowStart: new Date(Math.floor(now / windowMs) * windowMs), count: l.cost ?? 1 };
+    }),
+  );
+  const counted = await db
+    .insert(schema.rateLimits)
+    .values(rows)
+    // `excluded.count` is this request's cost for that window.
+    .onConflictDoUpdate({ target: [schema.rateLimits.key, schema.rateLimits.windowStart], set: { count: sql`${schema.rateLimits.count} + excluded.count` } })
+    .returning({ key: schema.rateLimits.key, count: schema.rateLimits.count });
+  return limits.map((l, i) => {
+    const count = counted.find((c) => c.key === rows[i].key)?.count ?? rows[i].count;
+    return { limited: count > l.limit, count };
+  });
+}
+
 /**
  * Counts one request against a fixed window and reports whether the caller is over the limit.
  * Counters live in Postgres because Vercel Firewall rate-limit windows top out at one hour.
  * Daily windows reset at midnight UTC. `cost` counts one request as several (an MCP batch of tool calls).
  */
 export async function rateLimit(bucket: string, id: string, { limit, windowMs = DAY_MS, cost = 1 }: { limit: number; windowMs?: number; cost?: number }) {
-  const db = await getDb();
-  const windowStart = new Date(Math.floor(Date.now() / windowMs) * windowMs);
-  const key = `${bucket}:${await hashToken(id)}`;
-  const [row] = await db
-    .insert(schema.rateLimits)
-    .values({ key, windowStart, count: cost })
-    .onConflictDoUpdate({ target: [schema.rateLimits.key, schema.rateLimits.windowStart], set: { count: sql`${schema.rateLimits.count} + ${cost}` } })
-    .returning({ count: schema.rateLimits.count });
-
-  // Housekeeping after the response: drop counters from finished windows.
-  after(() =>
-    db
-      .delete(schema.rateLimits)
-      .where(lt(schema.rateLimits.windowStart, new Date(Date.now() - 2 * DAY_MS)))
-      .catch((err) => console.error("[rate-limit] cleanup", err)),
-  );
-
-  return { limited: row.count > limit, count: row.count };
+  const [r] = await rateLimits([{ bucket, id, limit, windowMs, cost }]);
+  return r;
 }
 
 /**

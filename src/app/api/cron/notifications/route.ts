@@ -7,8 +7,9 @@ import { pushConfigured } from "@/lib/push/vapid";
 export const maxDuration = 300;
 
 /**
- * Vercel Cron, on the quarter hour with the other jobs: meeting and due-task
- * pushes, the morning push summary, and the morning agenda emails.
+ * Meeting and due-task pushes, the morning push summary, and the morning
+ * agenda emails. The cron dispatcher (/api/cron/tick) runs each when it's
+ * due; this route runs both, for calling by hand.
  */
 export async function GET(request: Request) {
   await connection();

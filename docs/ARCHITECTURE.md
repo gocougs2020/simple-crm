@@ -153,7 +153,7 @@ Email threads and text conversations share one rule (`src/lib/conversations/read
 - There's one `read` flag per conversation, not one per teammate, so when the record changes hands an unread conversation becomes the new owner's unread with nothing to copy.
 - The sidebar's Email and Messages counts, the per-inbox counts and the Unread filters all count what's unread for the viewer. Email counts only the inbox folder from the last 90 days, as before.
 - Open pages catch up on their own ([Live updates](#live-updates)); the Messages page also fetches what's new when the tab comes back into view, and push alerts cover the rest.
-- Freshness: the Resend webhook (`/api/webhooks/resend`, signature-verified) syncs a thread as soon as mail arrives; a cron every 15 minutes and the "Sync now" button catch anything missed. Syncing is idempotent.
+- Freshness: the Resend webhook (`/api/webhooks/resend`, signature-verified) syncs a thread as soon as mail arrives; an hourly sync (from the cron dispatcher) and the "Sync now" button catch anything missed. Syncing is idempotent.
 - Received HTML goes through the same allow-list sanitizer as notes. The plain-text part is preferred when present, because sanitized marketing HTML reads poorly.
 
 ## Microsoft 365
@@ -203,7 +203,13 @@ Record pages open with an AI summary of the record, shared by the team and rewri
 
 ## Background jobs
 
-Vercel Cron, all on the same quarter-hour blocks so the database can scale to zero between them (Neon suspends after a few idle minutes): the campaign cron (email and text campaigns), the agent cron (scheduled jobs that are due, and the safety net for background runs), the inbox sync, the Stripe sync (once a day, at 09:00 UTC), the Microsoft 365 mailbox sync (which skips the blocks that don't fit `microsoft.syncEveryMinutes`) and the notifications cron (meeting and task pushes, morning summaries and agenda emails) run at :00, :15, :30 and :45, and the delivery check runs at :00. Nothing runs more often than every 15 minutes. The browser's only repeated request is the live-update check below, which stops when no one is using the page. Scheduled campaigns are rounded up to the next quarter hour, so they go out exactly when the cron runs. Work someone starts by hand ("Send now", "Sync now") runs right away.
+Three Vercel Cron entries (`vercel.json`), on the same quarter-hour blocks so the database can scale to zero between them (Neon suspends after a few idle minutes):
+
+- **The dispatcher** (`/api/cron/tick`, `src/lib/cron-tick.ts`), at :00, :15, :30 and :45. One statement asks what's due (`whatIsDue`), then it runs only the jobs that have work, each on its own so one failing doesn't stop the rest, and stops starting new ones after four minutes (they go next time). A quarter hour with nothing to do is one query and no writes. The jobs: meeting and task pushes and the morning summary (when one is due, or in the morning window), agenda emails (in the morning window, when someone wants them), email and text campaigns (scheduled or interrupted ones), the agent's scheduled jobs and the safety net for background runs, forwarding replies that didn't go out, describing files nobody has described yet, the inbox sync (hourly: Resend's webhook delivers mail as it arrives, this catches anything it missed), the Microsoft 365 mailbox sync (on the blocks that fit `microsoft.syncEveryMinutes`) and the daily prune (09:00 UTC).
+- **The delivery check** (`/api/cron/email-status`), hourly at :00.
+- **The Stripe sync** (`/api/cron/stripe`), once a day at 09:00 UTC.
+
+Each job's own route (`/api/cron/campaigns`, `agent`, `inbox`, `notifications`, `microsoft`) still works when called by hand with the cron secret. **The daily prune** (`src/lib/daily-prune.ts`) deletes notifications older than 90 days (they only stop a push or email going out twice), expired invite and reset links, expired sessions and rate-limit counters from windows that ended two days ago, clears forwarded emails' text after 30 days (and drops them after 180), and clears the request and answer text of finished background runs 90 days after they left the agent panel, keeping the run and its cost. History (`events`) is never pruned. Nothing runs more often than every 15 minutes. The browser's only repeated request is the live-update check below, which stops when no one is using the page. Scheduled campaigns are rounded up to the next quarter hour, so they go out exactly when the cron runs. Work someone starts by hand ("Send now", "Sync now") runs right away.
 
 ## Live updates
 
