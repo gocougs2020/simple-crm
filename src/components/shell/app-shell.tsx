@@ -29,6 +29,7 @@ import { Kbd } from "@/components/ui/field";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { AgentLauncher } from "@/components/agent/agent-launcher";
 import { NextStepDialog } from "@/components/activity/next-step-dialog";
+import { preloadRichTextWhenIdle } from "@/components/ui/rich-text";
 import { CommandPalette, openPalette } from "./command-palette";
 import { CreateDialogs } from "./create-dialogs";
 import { openCreate } from "./create-store";
@@ -54,6 +55,8 @@ export function AppShell({
   const [drawer, setDrawer] = useState(false);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- close the mobile drawer after navigating
   useEffect(() => setDrawer(false), [pathname]);
+  // The text editor loads on demand; fetch it once the page is idle, so it's there before anyone opens a composer.
+  useEffect(() => preloadRichTextWhenIdle(), []);
 
   const nav: NavItem[] = [
     { href: "/", label: "Home", icon: HomeIcon },

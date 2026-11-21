@@ -11,7 +11,11 @@ import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger, Tooltip } from "@/
 import { toast } from "@/components/ui/toast";
 import { appConfig } from "@/app.config";
 import { formatPhone } from "@/lib/phone/numbers";
+import { preloadRichText } from "@/components/ui/rich-text";
 import { placeCall } from "./call-store";
+
+/** The call panel's notes box opens with the call: start loading its editor on the way to the button. */
+const preload = () => void preloadRichText().catch(() => {});
 
 type Target = { name: string; phone: string | null | undefined; personId?: string | null; organizationId?: string | null; clientId?: string | null };
 
@@ -33,7 +37,7 @@ export function CallButton({ target, size = "sm", variant = "outline", label = "
   if (!others.length || !preferred) {
     return (
       <Tooltip content={`Call ${formatPhone(target.phone)} from ${preferred ? formatPhone(preferred.number) : "the team's number"}`}>
-        <Button size={size} variant={variant} onClick={() => preferred && call(preferred.id)}>
+        <Button size={size} variant={variant} onClick={() => preferred && call(preferred.id)} onPointerEnter={preload} onFocus={preload}>
           <PhoneIcon />
           {label}
         </Button>
@@ -43,7 +47,7 @@ export function CallButton({ target, size = "sm", variant = "outline", label = "
   return (
     <Menu>
       <MenuTrigger asChild>
-        <Button size={size} variant={variant}>
+        <Button size={size} variant={variant} onPointerEnter={preload} onFocus={preload}>
           <PhoneIcon />
           {label}
         </Button>

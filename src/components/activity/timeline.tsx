@@ -43,7 +43,7 @@ import { Field, Input } from "@/components/ui/field";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tooltip } from "@/components/ui/menu";
 import { useUploader } from "@/components/files/files-panel";
 import type { FileLinks } from "@/components/files/upload";
-import { RichText } from "@/components/ui/rich-text";
+import { preloadRichText, RichText } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
 import type { ActivityRow, NoteReply, RecordFile, TimelineItem } from "@/lib/crm/activities";
 import { appConfig } from "@/app.config";
@@ -653,7 +653,7 @@ function Replies({ noteId, replies }: { noteId: string; replies: NoteReply[] }) 
           </div>
         </div>
       ) : (
-        <button type="button" onClick={() => setOpen(true)} className={clsx("inline-flex items-center gap-1 text-[12.5px] font-medium text-secondary hover:text-primary", replies.length && "mt-2")}>
+        <button type="button" onClick={() => setOpen(true)} onPointerEnter={() => void preloadRichText().catch(() => {})} onFocus={() => void preloadRichText().catch(() => {})} className={clsx("inline-flex items-center gap-1 text-[12.5px] font-medium text-secondary hover:text-primary", replies.length && "mt-2")}>
           <ArrowUturnLeftIcon className="size-3.5" aria-hidden />
           Reply
         </button>
