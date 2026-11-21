@@ -17,11 +17,12 @@ export function PromptCard({ title, icon, children, onDismiss, className }: { ti
       aria-modal="false"
       aria-labelledby={id}
       className={clsx(
-        "fixed inset-x-0 bottom-0 z-[45] animate-slide-up px-3 pr-[max(0.75rem,env(safe-area-inset-right))] pb-[max(0.75rem,env(safe-area-inset-bottom),calc(var(--shell-bottom)+0.5rem))] pl-[max(0.75rem,env(safe-area-inset-left))]",
+        "pointer-events-none fixed inset-x-0 bottom-0 z-[45] animate-slide-up px-3 pr-[max(0.75rem,env(safe-area-inset-right))] pb-[max(0.75rem,env(safe-area-inset-bottom),calc(var(--shell-bottom)+0.5rem))] pl-[max(0.75rem,env(safe-area-inset-left))]",
         className,
       )}
     >
-      <div className="mx-auto max-w-md rounded-xl border border-line bg-surface p-4 shadow-lg">
+      {/* Only the card takes taps: the padding around it sits over the tab bar. */}
+      <div className="pointer-events-auto mx-auto max-w-md rounded-xl border border-line bg-surface p-4 shadow-lg">
         <div className="flex items-start gap-3">
           {icon ? <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground [&_svg]:size-5">{icon}</span> : null}
           <h2 id={id} className="min-w-0 flex-1 pt-1.5 text-section">
