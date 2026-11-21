@@ -5,7 +5,7 @@ import { getDb, schema } from "@/db";
 import { interactionTypes, type ActivityType } from "@/lib/constants";
 import { actorUserId, assertCan, can, stamp, type Actor } from "@/lib/crm/actor";
 import { resolveLinks } from "@/lib/crm/activities";
-import { recordEvent, touch } from "@/lib/crm/events";
+import { recordEvent, touch, touchPeople } from "@/lib/crm/events";
 import { activityInput, replyInput, type ActivityInput } from "@/lib/crm/schemas";
 import { assertOrganization, assertPerson, assertUser } from "@/lib/crm/service/records";
 import { ActionError, ForbiddenError, NotFoundError } from "@/lib/errors";
@@ -124,8 +124,7 @@ export async function logActivity(a: Actor, input: ActivityInput, opts: { requir
     .returning({ id: activities.id });
   if (others.length) await setActivityPeople(row.id, others);
   if (done) {
-    await touch(links, occurredAt ?? now);
-    for (const personId of others) await touch({ personId }, occurredAt ?? now);
+    await Promise.all([touch(links, occurredAt ?? now), touchPeople(others, occurredAt ?? now)]);
   } else if (onCalendar(data.type)) calendarChanged(row.id);
   if (data.type === "note") noteWritten(a, { id: row.id, people: others, ...links }, htmlToText(body), await mentionedIn(body));
   activityLogged(a, { id: row.id, type: data.type, subject: data.subject ?? null, text: htmlToText(body), done, assigneeId, people: others, ...links });
@@ -299,7 +298,10 @@ export async function setCompleted(a: Actor, activityId: string, completed: bool
     await touch(row, now);
     // Everyone else who was on it (a meeting's other attendees) was contacted too.
     const others = await db.select({ personId: activityPeople.personId }).from(activityPeople).where(eq(activityPeople.activityId, row.id));
-    for (const o of others) await touch({ personId: o.personId }, now);
+    await touchPeople(
+      others.map((o) => o.personId),
+      now,
+    );
   }
   let clientWithoutNext: string | null = null;
   if (completed && row.clientId) {
