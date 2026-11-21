@@ -1,38 +1,13 @@
 "use client";
 
 import clsx from "clsx";
-import { useEditor, EditorContent, type Editor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
-import { Selection } from "@tiptap/pm/state";
-import { useEffect, useImperativeHandle, useRef, type ReactNode, type Ref } from "react";
-import { BoldIcon, ItalicIcon, LinkIcon, ListBulletIcon, NumberedListIcon } from "@heroicons/react/20/solid";
+import dynamic from "next/dynamic";
+import { createContext, useContext, useImperativeHandle, useRef, type ReactNode, type Ref } from "react";
 import { Dictation } from "@/components/dictation/dictation";
 
 export type RichTextHandle = { clear: () => void; focus: () => void; insert: (html: string) => void; setContent: (html: string) => void; isEmpty: () => boolean };
 
-/**
- * The rich-text box used for notes, call summaries and email bodies. Small on
- * purpose: bold, italic, lists and links. ⌘/Ctrl+Enter submits.
- *
- * The toolbar sits above the text; `actions` (like "Insert field") sit at
- * its right end. `dictation` adds a microphone there: what's said is
- * transcribed and goes in at the cursor, or at the end if nobody has placed
- * one in the text yet.
- */
-export function RichText({
-  value,
-  onChange,
-  onSubmit,
-  placeholder,
-  minHeight = 88,
-  autoFocus,
-  handle,
-  className,
-  toolbar = true,
-  actions,
-  dictation,
-}: {
+export type RichTextProps = {
   value?: string;
   onChange?: (html: string) => void;
   onSubmit?: () => void;
@@ -44,125 +19,139 @@ export function RichText({
   toolbar?: boolean;
   actions?: ReactNode;
   dictation?: boolean;
-}) {
-  /** Whether the teammate has put the cursor somewhere in the text (clicked, tabbed in, or typed). */
-  const placed = useRef(false);
-  const editor = useEditor({
-    immediatelyRender: false,
-    extensions: [
-      StarterKit.configure({
-        heading: { levels: [2, 3] },
-        link: { openOnClick: false, autolink: true, defaultProtocol: "https", HTMLAttributes: { rel: "noopener noreferrer nofollow", target: "_blank" } },
-      }),
-      Placeholder.configure({ placeholder: placeholder ?? "Write something…" }),
-    ],
-    content: value ?? "",
-    autofocus: autoFocus ? "end" : false,
-    editorProps: {
-      attributes: { class: "prose-crm px-3 py-2.5 focus:outline-none", style: `min-height:${minHeight}px` },
-      handleKeyDown: (_view, e) => {
-        if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && onSubmit) {
-          e.preventDefault();
-          onSubmit();
-          return true;
-        }
-        return false;
-      },
-    },
-    onUpdate: ({ editor }) => onChange?.(editor.isEmpty ? "" : editor.getHTML()),
-    onFocus: () => {
-      placed.current = true;
-    },
+};
+
+const loadEditor = () => import("./rich-text-editor");
+let editorModule: ReturnType<typeof loadEditor> | null = null;
+
+/**
+ * Starts downloading the editor (Tiptap and ProseMirror) without showing it.
+ * Called when a text box is about to open (pointer over or focus on what
+ * opens it) and once when the browser is idle, so it's there before anyone
+ * needs it. Safe to call any number of times.
+ */
+export function preloadRichText() {
+  editorModule ??= loadEditor().catch((err) => {
+    editorModule = null;
+    throw err;
   });
+  return editorModule;
+}
 
-  /** Puts dictated text at the cursor (replacing a selection), or at the end, with spaces so it never runs into the words around it. */
-  const insertSpoken = (text: string) => {
-    if (!editor) return;
-    const { doc, selection } = editor.state;
-    const end = Selection.atEnd(doc).from;
-    const from = placed.current ? selection.from : end;
-    const to = placed.current ? selection.to : end;
-    const before = doc.textBetween(Math.max(0, from - 1), from, "\n", "\n");
-    const after = doc.textBetween(to, Math.min(doc.content.size, to + 1), "\n", "\n");
-    const spaced = `${before && !/\s$/.test(before) ? " " : ""}${text}${after && !/^[\s.,;:!?)]/.test(after) ? " " : ""}`;
-    editor.chain().focus().insertContentAt({ from, to }, { type: "text", text: spaced }).run();
-    placed.current = true;
-  };
+/** Preloads the editor once the browser is idle after the first paint. */
+export function preloadRichTextWhenIdle() {
+  const run = () => void preloadRichText().catch(() => {});
+  if (typeof window.requestIdleCallback === "function") {
+    const id = window.requestIdleCallback(run, { timeout: 4000 });
+    return () => window.cancelIdleCallback(id);
+  }
+  const id = window.setTimeout(run, 1500);
+  return () => window.clearTimeout(id);
+}
 
+/** What the placeholder needs from the props, while the editor loads. */
+const Pending = createContext<RichTextProps>({});
+
+const Editor = dynamic(() => import("./rich-text-editor").then((m) => m.RichTextEditor), {
+  ssr: false,
+  loading: function Loading() {
+    const p = useContext(Pending);
+    return (
+      <RichTextFrame
+        className={p.className}
+        toolbar={p.toolbar ?? true}
+        tools={null}
+        actions={p.actions}
+        dictation={p.dictation ? <Dictation onText={() => {}} disabled /> : null}
+        placeholder={p.placeholder}
+        minHeight={p.minHeight ?? 88}
+      >
+        {null}
+      </RichTextFrame>
+    );
+  },
+});
+
+/**
+ * The rich-text box used for notes, call summaries and email bodies. Small on
+ * purpose: bold, italic, lists and links. ⌘/Ctrl+Enter submits.
+ *
+ * The toolbar sits above the text; `actions` (like "Insert field") sit at
+ * its right end. `dictation` adds a microphone there: what's said is
+ * transcribed and goes in at the cursor, or at the end if nobody has placed
+ * one in the text yet.
+ *
+ * The editor loads on demand. Until it arrives this shows an empty box of
+ * the same size, and `value` is what the editor starts with when it mounts,
+ * so nothing set before then is lost.
+ */
+export function RichText({ handle, ...props }: RichTextProps) {
+  const inner = useRef<RichTextHandle>(null);
+  const latest = useRef(props);
+  // eslint-disable-next-line react-hooks/refs -- read by the handle's callbacks, never during render
+  latest.current = props;
+  // Before the editor has mounted, changes go through `onChange`, so the editor starts with them.
   useImperativeHandle(
     handle,
     () => ({
-      clear: () => {
-        editor?.commands.clearContent(true);
-        placed.current = false;
-      },
-      focus: () => editor?.commands.focus("end"),
-      insert: (html: string) => editor?.chain().focus().insertContent(html).run(),
-      setContent: (html: string) => editor?.commands.setContent(html, { emitUpdate: true }),
-      isEmpty: () => editor?.isEmpty ?? true,
+      clear: () => (inner.current ? inner.current.clear() : latest.current.onChange?.("")),
+      focus: () => inner.current?.focus(),
+      insert: (html: string) => (inner.current ? inner.current.insert(html) : latest.current.onChange?.(`${latest.current.value ?? ""}${html}`)),
+      setContent: (html: string) => (inner.current ? inner.current.setContent(html) : latest.current.onChange?.(html)),
+      isEmpty: () => (inner.current ? inner.current.isEmpty() : !latest.current.value),
     }),
-    [editor],
+    [],
   );
+  return (
+    <Pending.Provider value={props}>
+      <Editor {...props} handle={inner} />
+    </Pending.Provider>
+  );
+}
 
-  // Keep in step when the parent swaps the content (picking an email template).
-  useEffect(() => {
-    if (editor && value !== undefined && value !== (editor.isEmpty ? "" : editor.getHTML())) editor.commands.setContent(value, { emitUpdate: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only external changes
-  }, [value === "" ? "empty" : null, editor]);
-
+/**
+ * The box around the editor: border, toolbar row and text area. Shared by the
+ * editor and the placeholder shown while it loads, so nothing jumps when it
+ * arrives. `children` is the editor; without it the box shows the placeholder text.
+ */
+export function RichTextFrame({
+  className,
+  toolbar,
+  tools,
+  actions,
+  dictation,
+  placeholder,
+  minHeight,
+  children,
+}: {
+  className?: string;
+  toolbar: boolean;
+  tools: ReactNode;
+  actions?: ReactNode;
+  dictation: ReactNode;
+  placeholder?: string;
+  minHeight: number;
+  children: ReactNode;
+}) {
   return (
     <div className={clsx("rounded-md border border-line bg-surface shadow-sm transition-colors focus-within:border-ring focus-within:ring-1 focus-within:ring-ring", className)}>
       {toolbar || actions || dictation ? (
         <div className="flex min-h-[33px] flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-1.5 py-1">
-          {toolbar ? editor ? <Toolbar editor={editor} /> : <div className="h-6" /> : null}
+          {toolbar ? (tools ?? <div className="h-6" />) : null}
           {actions || dictation ? (
             <div className="ml-auto flex flex-wrap items-center gap-2">
               {actions}
-              {dictation ? <Dictation onText={insertSpoken} disabled={!editor} /> : null}
+              {dictation}
             </div>
           ) : null}
         </div>
       ) : null}
-      {editor ? (
-        <EditorContent editor={editor} />
-      ) : (
+      {children ?? (
         // Same size as the editor, so nothing jumps when it mounts.
         <div className="prose-crm px-3 py-2.5 text-faint" style={{ minHeight }}>
           {placeholder ?? "Write something…"}
         </div>
       )}
-    </div>
-  );
-}
-
-function Toolbar({ editor }: { editor: Editor }) {
-  const btn = (active: boolean) => clsx("rounded p-1 transition-colors", active ? "bg-sunken text-primary" : "text-faint hover:bg-sunken hover:text-secondary");
-  return (
-    <div className="flex items-center gap-0.5">
-      <button type="button" className={btn(editor.isActive("bold"))} onClick={() => editor.chain().focus().toggleBold().run()} aria-label="Bold" aria-pressed={editor.isActive("bold")}>
-        <BoldIcon className="size-4" />
-      </button>
-      <button type="button" className={btn(editor.isActive("italic"))} onClick={() => editor.chain().focus().toggleItalic().run()} aria-label="Italic" aria-pressed={editor.isActive("italic")}>
-        <ItalicIcon className="size-4" />
-      </button>
-      <button type="button" className={btn(editor.isActive("bulletList"))} onClick={() => editor.chain().focus().toggleBulletList().run()} aria-label="Bulleted list">
-        <ListBulletIcon className="size-4" />
-      </button>
-      <button type="button" className={btn(editor.isActive("orderedList"))} onClick={() => editor.chain().focus().toggleOrderedList().run()} aria-label="Numbered list">
-        <NumberedListIcon className="size-4" />
-      </button>
-      <button
-        type="button"
-        className={btn(editor.isActive("link"))}
-        onClick={() => {
-          if (editor.isActive("link")) return editor.chain().focus().unsetLink().run();
-          const href = window.prompt("Link to");
-          if (href) editor.chain().focus().extendMarkRange("link").setLink({ href }).run();
-        }}
-        aria-label="Link"
-      >
-        <LinkIcon className="size-4" />
-      </button>
     </div>
   );
 }

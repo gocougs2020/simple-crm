@@ -230,3 +230,6 @@ export const calendarSharingLabels: Record<CalendarSharing, { label: string; hin
   busy: { label: "Free and busy", hint: "Teammates see when you're busy, without titles or details." },
   details: { label: "Full details", hint: "Teammates see your events' titles, times and places." },
 };
+
+/** How many addresses one email from a record can go to, To and Cc together (checked in the composer and on the server). */
+export const MAX_EMAIL_RECIPIENTS = 10;

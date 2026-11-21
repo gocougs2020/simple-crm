@@ -1,8 +1,14 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useSyncExternalStore } from "react";
 import { Dialog } from "@/components/ui/dialog";
-import { ScheduleNext } from "./schedule-next";
+
+// Only shown after a client's last task is checked off; the form (and the composer it borrows from) loads then.
+const ScheduleNext = dynamic(() => import("./schedule-next").then((m) => m.ScheduleNext), {
+  ssr: false,
+  loading: () => <div className="h-24" aria-busy="true" />,
+});
 
 type Request = { clientId: string; title: string } | null;
 let current: Request = null;

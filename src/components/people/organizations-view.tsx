@@ -6,7 +6,7 @@ import { useCallback, useState } from "react";
 import { assignOwner, moreOrganizations, setArchived, setParentOrganization } from "@/actions/records";
 import { useApp } from "@/components/app-context";
 import { CategoryBadge } from "@/components/clients/client-controls";
-import { BulkButton } from "@/components/clients/clients-view";
+import { BulkButton } from "@/components/clients/bulk-button";
 import { formatCustomValue } from "@/components/records/custom-field-input";
 import { PageHeader } from "@/components/shell/app-shell";
 import { openCreate } from "@/components/shell/create-store";

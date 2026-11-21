@@ -13,7 +13,7 @@ import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "@/component
 import { RichText, type RichTextHandle } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
 import type { EmailAttachment } from "@/db/schema";
-import { MAX_EMAIL_RECIPIENTS } from "@/lib/crm/schemas";
+import { MAX_EMAIL_RECIPIENTS } from "@/lib/constants";
 import type { Links } from "./composer";
 import { PeopleChips, type Contact } from "./people-picker";
 

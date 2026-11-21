@@ -160,8 +160,8 @@ export const datetime = z.iso.datetime({ offset: true, error: "Use an ISO 8601 t
 
 /** How many people one activity can name (meeting attendees). */
 export const MAX_ACTIVITY_PEOPLE = 20;
-/** How many addresses one email from a record can go to, To and Cc together. */
-export const MAX_EMAIL_RECIPIENTS = 10;
+/** How many addresses one email from a record can go to, To and Cc together. Lives in constants.ts so the composer can read it without zod. */
+export { MAX_EMAIL_RECIPIENTS } from "@/lib/constants";
 
 export const activityInput = z.object({
   type: z.enum(activityTypes).describe("note, call, email, text, meeting or task."),

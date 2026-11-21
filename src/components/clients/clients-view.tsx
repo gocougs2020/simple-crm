@@ -1,6 +1,7 @@
 "use client";
 
 import clsx from "clsx";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useTransition } from "react";
 import { PlusIcon, Squares2X2Icon, TableCellsIcon } from "@heroicons/react/20/solid";
@@ -25,8 +26,11 @@ import { churnReasons, clientCategories, clientCategoryLabels, clientHealthLabel
 import { billingStatusLabels, billingStatuses, type BillingStatus } from "@/lib/stripe/rules";
 import type { ClientRow } from "@/lib/crm/records";
 import { formatDateOnly } from "@/lib/format";
-import { ClientsBoard } from "./board";
+import { BulkButton } from "./bulk-button";
 import { HealthBadge } from "./client-controls";
+
+// The board (and drag and drop) is its own chunk, loaded only when the board view renders; the table never needs it.
+const ClientsBoard = dynamic(() => import("./board").then((m) => m.ClientsBoard));
 
 const billingTone: Record<BillingStatus, Tone> = { past_due: "error", active: "success", trialing: "info", paused: "warning", canceled: "neutral", customer: "neutral" };
 
@@ -328,13 +332,5 @@ export function ClientsView({
         </div>
       )}
     </div>
-  );
-}
-
-export function BulkButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button type="button" onClick={onClick} className="h-7 rounded-md border border-white/20 bg-white/10 px-2.5 text-[12.5px] font-medium text-white hover:bg-white/20">
-      {children}
-    </button>
   );
 }
