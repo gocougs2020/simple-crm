@@ -2,7 +2,7 @@
 
 import clsx from "clsx";
 import Link from "next/link";
-import { useOptimistic, useRef, useState, useTransition } from "react";
+import { useEffect, useOptimistic, useRef, useState, useTransition } from "react";
 import {
   ArrowDownLeftIcon,
   ArrowUpRightIcon,
@@ -29,14 +29,14 @@ import {
 /** The record being viewed. For clients, the category decides whether a missing next step is worth flagging. */
 type Context = { type: EntityType; id: string; category?: ClientCategory };
 import { MapPinIcon, UserPlusIcon } from "@heroicons/react/24/outline";
-import { deleteActivity, deleteReply, replyToNote, setCompleted, setPinned, updateActivity } from "@/actions/activities";
+import { deleteActivity, deleteReply, loadActivityBody, replyToNote, setCompleted, setPinned, updateActivity } from "@/actions/activities";
 import { deletePrivateEmail, setSyncedEmailVisibility } from "@/actions/accounts";
 import { deleteFile } from "@/actions/files";
 import { useApp } from "@/components/app-context";
 import { AGENT_ASSIGNEE, OwnerSelect } from "@/components/records/owner-select";
 import { Avatar } from "@/components/ui/avatar";
 import { StatusBadge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, Spinner } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Field, Input } from "@/components/ui/field";
@@ -46,6 +46,7 @@ import type { FileLinks } from "@/components/files/upload";
 import { preloadRichText, RichText } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
 import type { ActivityRow, NoteReply, RecordFile, TimelineItem } from "@/lib/crm/activities";
+import { useTimelinePages } from "./use-timeline-pages";
 import { appConfig } from "@/app.config";
 import { deliveryLabels, deliveryTone } from "@/lib/email/delivery-status";
 import { activityLabels, agentRunStatusLabels, billingIntervalLabels, clientCategoryLabels, clientHealthLabels, interactionTypes, type ActivityType, type BillingInterval, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
@@ -102,6 +103,8 @@ export function Timeline({
   planned,
   pinned,
   past,
+  hasMore,
+  counts,
   context,
   emptyHint,
   fileLinks,
@@ -109,7 +112,11 @@ export function Timeline({
 }: {
   planned: ActivityRow[];
   pinned: TimelineItem[];
+  /** The first page of the past; the rest loads as it's scrolled (useTimelinePages). */
   past: TimelineItem[];
+  hasMore: boolean;
+  /** How many conversations and tasks the whole past holds, for the filters. */
+  counts: Record<Exclude<Filter, "all">, number>;
   context: Context;
   emptyHint: string;
   /** What an uploaded file is attached to. */
@@ -120,13 +127,23 @@ export function Timeline({
   const byActivity = new Map<string, RecordFile[]>();
   for (const f of files) if (f.activityId) byActivity.set(f.activityId, [...(byActivity.get(f.activityId) ?? []), f]);
   const [filter, setFilter] = useState<Filter>("all");
-  const shown = groupRoutine(past.filter((i) => matches(i, filter)));
+  const pages = useTimelinePages({ entity: context.type, id: context.id, first: past, hasMore, filter });
+  const shown = groupRoutine(pages.items.filter((i) => matches(i, filter)));
+  // Older entries load as the end of the list comes near.
+  const sentinel = useRef<HTMLDivElement>(null);
+  const loadMore = pages.loadMore;
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || !pages.hasMore) return;
+    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && loadMore(), { rootMargin: "800px 0px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [pages.hasMore, loadMore]);
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const { uploads, run } = useUploader(fileLinks);
   // Viewers can't add files.
   const canAttach = useApp().canEdit;
-  const counts = Object.fromEntries(filters.map((f) => [f.value, [...pinned, ...past].filter((i) => matches(i, f.value)).length]));
 
   return (
     <div className="flex flex-col gap-6">
@@ -211,7 +228,8 @@ export function Timeline({
           </div>
         ))}
         {shown.length ? (
-          <ol className="relative flex flex-col gap-2 before:absolute before:top-2 before:bottom-2 before:left-[15px] before:w-px before:bg-line">
+          // Entries out of view skip layout and paint until they're scrolled near.
+          <ol className="relative flex flex-col gap-2 before:absolute before:top-2 before:bottom-2 before:left-[15px] before:w-px before:bg-line [&>li]:[contain-intrinsic-size:auto_96px] [&>li]:[content-visibility:auto]">
             {shown.map((i) =>
               i.kind === "activity" ? (
                 <ActivityItem key={i.row.activity.id} row={i.row} context={context} attachments={byActivity.get(i.row.activity.id)} />
@@ -226,9 +244,23 @@ export function Timeline({
               ),
             )}
           </ol>
-        ) : (
+        ) : pages.loading ? null : (
           <EmptyState variant="subtle" title={filter === "all" ? "No history yet" : `No ${filters.find((f) => f.value === filter)?.label.toLowerCase()} yet`} description={filter === "all" ? `${emptyHint} Drop a file here to attach it.` : undefined} />
         )}
+        <div ref={sentinel} aria-hidden />
+        {pages.loading ? (
+          <p className="mt-3 flex items-center gap-2 pl-[9px] text-[12.5px] text-muted" role="status">
+            <Spinner className="size-3.5" />
+            Loading earlier history…
+          </p>
+        ) : pages.error ? (
+          <p className="mt-3 pl-[9px] text-[12.5px] text-error" role="alert">
+            {pages.error}{" "}
+            <button type="button" onClick={loadMore} className="font-medium underline underline-offset-2">
+              Try again
+            </button>
+          </p>
+        ) : null}
       </section>
     </div>
   );
@@ -335,7 +367,7 @@ export function PlannedItem({ row, context, attachments }: { row: ActivityRow; c
           </Tooltip>
           <AssistantStatus status={row.assistantStatus} />
         </div>
-        {a.body ? <div className="prose-crm mt-1 line-clamp-3 text-[13px]" dangerouslySetInnerHTML={{ __html: a.body }} /> : null}
+        {a.body ? <div className="prose-crm mt-1 line-clamp-3 text-[13px]" dangerouslySetInnerHTML={{ __html: a.body }} /> : row.preview ? <p className="mt-1 line-clamp-3 text-[13px] text-secondary">{row.preview.text}</p> : null}
         <Attachments files={attachments} />
         <div className="mt-1 flex min-w-0 items-center gap-2 text-[12px]">
           {assignee ? (
@@ -492,7 +524,7 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
           <p className="mt-1 truncate text-[12px] text-muted tabular-nums">{a.direction === "inbound" ? `From ${formatPhone(row.call.from)} to ${formatPhone(row.call.to)}` : `To ${formatPhone(row.call.to)} from ${formatPhone(row.call.from)}`}</p>
         ) : null}
         {a.subject ? <h3 className="mt-1 text-[14px] font-medium">{a.subject}</h3> : null}
-        {a.body ? <CollapsibleBody html={a.body} /> : null}
+        {a.body ? <CollapsibleBody html={a.body} /> : row.preview ? <PreviewBody key={`${a.id}:${String(a.updatedAt)}`} id={a.id} preview={row.preview} /> : null}
         <Attachments files={withEmailAttachments(attachments, row)} />
         {a.type === "note" ? <Replies noteId={a.id} replies={row.replies ?? []} /> : null}
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] empty:hidden">
@@ -569,6 +601,43 @@ function Attachments({ files }: { files?: RecordFile[] }) {
 }
 
 /** Long notes and emails start folded so one big email doesn't push everything else off screen. */
+/**
+ * A body in a list (the Activities page, the home feed), which sends only its
+ * start as plain text: "Show more" fetches the whole thing, formatting included.
+ * Keyed on the activity's `updatedAt`, so an edit drops the fetched copy.
+ */
+function PreviewBody({ id, preview }: { id: string; preview: { text: string; more: boolean } }) {
+  const [html, setHtml] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  if (html !== null) return <CollapsibleBody html={html} />;
+  return (
+    <div className="mt-1">
+      <div className="prose-crm line-clamp-6">
+        <p>
+          {preview.text}
+          {preview.more ? "…" : ""}
+        </p>
+      </div>
+      {preview.more ? (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() =>
+            start(async () => {
+              const r = await loadActivityBody(id);
+              if (!r.ok) return void toast.error(r.error);
+              setHtml(r.data.body ?? "");
+            })
+          }
+          className="mt-1 text-[12.5px] font-medium text-secondary hover:text-primary disabled:opacity-60"
+        >
+          {pending ? "Loading…" : "Show more"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function CollapsibleBody({ html }: { html: string }) {
   const long = html.length > 900;
   const [open, setOpen] = useState(!long);
@@ -759,7 +828,41 @@ function ItemMenu({ row, onEdit, pin }: { row: ActivityRow; onEdit: () => void; 
   );
 }
 
+/** Editing from a list that only had the body's preview: the whole body is fetched first, so saving never cuts it short. */
 function EditActivity({ row, onClose }: { row: ActivityRow; onClose: () => void }) {
+  const needsBody = !row.activity.body && !!row.preview;
+  const [full, setFull] = useState<string | null>(needsBody ? null : (row.activity.body ?? ""));
+  const close = useRef(onClose);
+  useEffect(() => {
+    close.current = onClose;
+  });
+  useEffect(() => {
+    if (!needsBody) return;
+    let live = true;
+    void loadActivityBody(row.activity.id).then((r) => {
+      if (!live) return;
+      if (!r.ok) {
+        toast.error(r.error);
+        close.current();
+      } else setFull(r.data.body ?? "");
+    });
+    return () => {
+      live = false;
+    };
+  }, [needsBody, row.activity.id]);
+  if (full === null)
+    return (
+      <Dialog open onOpenChange={(o) => !o && onClose()} title="Edit" size="md">
+        <p className="flex items-center gap-2 text-[13px] text-muted" role="status">
+          <Spinner className="size-3.5" />
+          Loading…
+        </p>
+      </Dialog>
+    );
+  return <EditActivityForm row={{ ...row, activity: { ...row.activity, body: full || null } }} onClose={onClose} />;
+}
+
+function EditActivityForm({ row, onClose }: { row: ActivityRow; onClose: () => void }) {
   const { workspace, services, canEdit } = useApp();
   const tz = workspace.timezone;
   const a = row.activity;

@@ -20,7 +20,7 @@ import { ClientDetails } from "@/components/records/details";
 import { RecordBody, RecordHeader } from "@/components/records/record-header";
 import { PageSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { monthlyFactor } from "@/lib/constants";
-import { timeline } from "@/lib/crm/activities";
+import { recordTimeline } from "@/lib/crm/activities";
 import { getAppData } from "@/lib/crm/context";
 import { viewerTimeZone } from "@/lib/viewer-time-zone";
 import { clientPeople, getClient, metricsOf, servicesOf } from "@/lib/crm/records";
@@ -58,7 +58,7 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
   // Their own private mail with this record is on the timeline, for them alone.
   const viewer = await requireUser();
   const [tl, app, services, metrics, associated] = await Promise.all([
-    timeline("client", id, viewer.id),
+    recordTimeline("client", id, viewer.id),
     getAppData(),
     servicesOf(id),
     metricsOf(id),
@@ -143,7 +143,7 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
         <Timeline
           planned={tl.planned}
           pinned={tl.pinned}
-          past={tl.past}
+          past={tl.past} hasMore={tl.hasMore} counts={tl.counts}
           context={{ type: "client", id, category: c }}
           fileLinks={{ clientId: id, personId: client.personId, organizationId: client.organizationId }}
           files={tl.files}

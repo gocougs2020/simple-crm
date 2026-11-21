@@ -15,7 +15,7 @@ import { OrganizationDetails, RelatedClients, RelatedOrganizations, RelatedPeopl
 import { RecordBody, RecordHeader } from "@/components/records/record-header";
 import { CallButton } from "@/components/phone/contact-actions";
 import { PageSkeleton } from "@/components/ui/skeleton";
-import { timeline } from "@/lib/crm/activities";
+import { recordTimeline } from "@/lib/crm/activities";
 import { orderPeople } from "@/lib/crm/people-order";
 import { clientsOfOrganization, getOrganization, organizationsOf, peopleOf } from "@/lib/crm/records";
 import { personName } from "@/lib/format";
@@ -50,7 +50,7 @@ async function Organization({ params }: Pick<PageProps<"/organizations/[id]">, "
   // Their own private mail with this record is on the timeline, for them alone.
   const viewer = await requireUser();
   const [tl, clients, people, parent, children] = await Promise.all([
-    timeline("organization", id, viewer.id),
+    recordTimeline("organization", id, viewer.id),
     clientsOfOrganization(id),
     peopleOf(id),
     org.parentId ? getOrganization(org.parentId) : null,
@@ -93,7 +93,7 @@ async function Organization({ params }: Pick<PageProps<"/organizations/[id]">, "
         <Timeline
           planned={tl.planned}
           pinned={tl.pinned}
-          past={tl.past}
+          past={tl.past} hasMore={tl.hasMore} counts={tl.counts}
           context={{ type: "organization", id }}
           fileLinks={{ organizationId: id }}
           files={tl.files}

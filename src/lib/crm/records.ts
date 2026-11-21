@@ -306,7 +306,30 @@ export async function listClients(f: ClientFilter = {}) {
   const dir = f.dir ?? (["value", "mrr", "stripeMrr", "stripeCollected", "formerMrr", "startedOn", "endedOn", "lastActivity", "created"].includes(f.sort ?? "") ? "desc" : "asc");
   return db
     .select({
-      client: clients,
+      // Only what the board and the table show (no AI summary, notes or timestamps they don't use).
+      client: {
+        id: clients.id,
+        name: clients.name,
+        value: clients.value,
+        stageId: clients.stageId,
+        ownerId: clients.ownerId,
+        personId: clients.personId,
+        health: clients.health,
+        churnReason: clients.churnReason,
+        openToReturn: clients.openToReturn,
+        lastActivityAt: clients.lastActivityAt,
+        stageChangedAt: clients.stageChangedAt,
+        expectedCloseDate: clients.expectedCloseDate,
+        startedOn: clients.startedOn,
+        endedOn: clients.endedOn,
+        tags: clients.tags,
+        custom: clients.custom,
+        stripeStatus: clients.stripeStatus,
+        stripeMrr: clients.stripeMrr,
+        stripeOwed: clients.stripeOwed,
+        stripeCollected: clients.stripeCollected,
+        stripeProducts: clients.stripeProducts,
+      },
       stageName: stages.name,
       stagePosition: stages.position,
       organizationName: organizations.name,
