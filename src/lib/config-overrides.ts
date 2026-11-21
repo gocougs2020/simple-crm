@@ -35,6 +35,8 @@ const ENUMS: Readonly<Record<string, readonly string[]>> = {
   "agent.chatReasoning": ["provider-default", "none", "minimal", "low", "medium", "high"],
   "agent.summaryReasoning": ["provider-default", "none", "minimal", "low", "medium", "high"],
   "agent.background.reasoning": ["provider-default", "none", "minimal", "low", "medium", "high"],
+  "agent.background.researchReasoning": ["provider-default", "none", "minimal", "low", "medium", "high"],
+  "agent.fileReasoning": ["provider-default", "none", "minimal", "low", "medium", "high"],
   "phone.forwardCallerId": ["caller", "number"],
 };
 

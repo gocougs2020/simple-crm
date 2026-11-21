@@ -117,7 +117,7 @@ Every file added to the CRM (on the Files page, a client, person or organization
 - **When:** right after the upload, without holding it up (`after()`). The agent cron describes older files a few at a time. A file is marked failed before it's read, so one that can't be read isn't retried forever.
 - **Teammates can rewrite it** in the file's dialog; theirs is never overwritten. Clearing it hands it back to the model.
 - **Found by meaning:** the name, description and key facts are embedded (`agent.embeddingModel`) into a pgvector column, rewritten whenever the description changes. `search_files` embeds the question and asks the database for the nearest files, so finding a document costs one small embedding call and no file text.
-- **Models:** `agent.fileModel` (`openai/gpt-6-luna`) and `agent.embeddingModel` (`openai/text-embedding-3-small`, 1536 dimensions, which the column's width matches). `agent.fileDescriptions: false` turns both off.
+- **Models:** `agent.fileModel` (`openai/gpt-6-luna`) at `agent.fileReasoning` (`low`), and `agent.embeddingModel` (`openai/text-embedding-3-small`, 1536 dimensions, which the column's width matches). `agent.fileDescriptions: false` turns both off.
 
 ## Background work
 
@@ -210,6 +210,7 @@ Exactly what any background run can, as the sender: no archiving, deleting, merg
 | `agent.background.model` | `"openai/gpt-6.1-sol"` | The worker that plans and changes records |
 | `agent.background.reasoning` | `"low"` | Its reasoning effort |
 | `agent.background.researchModel` | `"openai/gpt-6-luna"` | The researcher, which reads the most text. Small and fast keeps long runs cheap (about a twentieth of the worker's price per token) |
+| `agent.background.researchReasoning` | `"high"` | The researcher's reasoning effort: it chooses what to search and read and weighs what it finds. Its spend counts toward `maxRunUsd` |
 | `agent.background.maxRunUsd` | `0.75` | One run stops once its model spend reaches this |
 | `agent.background.monthlyBudgetUsd` | `30` | New runs are refused once the month's spend reaches this, across the workspace |
 | `agent.background.maxRunMinutes` | `20` | A run still going after this long is cancelled |
@@ -296,6 +297,7 @@ Unknown keys, wrong types and reasoning levels that don't exist fail the build w
 | `agent.titleModel` | `"anthropic/claude-haiku-5.5"` | Naming threads |
 | `agent.fileDescriptions` | `true` | AI descriptions and search vectors for uploaded files. `false` stops writing new ones; search falls back to words |
 | `agent.fileModel` | `"openai/gpt-6-luna"` | Reads each uploaded file once and describes it |
+| `agent.fileReasoning` | `"low"` | Reasoning effort for file descriptions |
 | `agent.embeddingModel` | `"openai/text-embedding-3-small"` | File search vectors. It must make 1536-dimension vectors; another width needs a migration |
 | `agent.voiceModel` | `"spacexai/grok-voice-3.0"` | Voice chat (a realtime model with tool use) |
 | `agent.transcriptionModel` | `"spacexai/grok-stt"` | Dictation |
