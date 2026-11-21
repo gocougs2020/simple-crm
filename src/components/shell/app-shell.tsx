@@ -27,8 +27,8 @@ import {
   BriefcaseIcon as BriefcaseSolid,
   CheckCircleIcon as CheckCircleSolid,
   EllipsisHorizontalCircleIcon as EllipsisSolid,
+  ChatBubbleOvalLeftEllipsisIcon as ChatSolid,
   HomeIcon as HomeSolid,
-  UserIcon as UserSolid,
 } from "@heroicons/react/24/solid";
 import { signOut } from "@/actions/auth";
 import { useApp } from "@/components/app-context";
@@ -40,6 +40,7 @@ import { AgentLauncher } from "@/components/agent/agent-launcher";
 import { openAssistant } from "@/components/agent/agent-store";
 import { appConfig } from "@/app.config";
 import { NextStepDialog } from "@/components/activity/next-step-dialog";
+import { NotificationsPrompt } from "@/components/pwa/notifications-prompt";
 import { preloadRichTextWhenIdle } from "@/components/ui/rich-text";
 import { CommandPalette, openPalette } from "./command-palette";
 import { CreateDialogs } from "./create-dialogs";
@@ -197,7 +198,7 @@ export function AppShell({ counts, children }: { counts: Promise<SidebarCounts>;
       </a>
       <aside className="sticky top-0 hidden h-dvh border-r border-line bg-canvas lg:block">{sidebar}</aside>
       <PhoneHeader workspace={workspace.name} newMenu={newMenu} />
-      <main id="main" className="min-w-0 bg-background pb-[var(--shell-bottom)] lg:min-h-dvh">
+      <main id="main" className="min-w-0 overflow-x-clip bg-background pb-[var(--shell-bottom)] lg:min-h-dvh">
         {children}
       </main>
       {/* Phones and small tablets: the main places sit under the thumb; the rest are one tap away under More. */}
@@ -257,18 +258,19 @@ export function AppShell({ counts, children }: { counts: Promise<SidebarCounts>;
       <CreateDialogs />
       <NextStepDialog />
       <AgentLauncher configured={services.ai.chat} />
+      <NotificationsPrompt />
     </div>
   );
 }
 
 const activitiesBadge = ({ due }: SidebarCounts): Badge => ({ n: due.overdue + due.today, label: "due", tone: due.overdue ? "error" : undefined });
 
-/** The phone tab bar: the four places people go most. Outline icons at rest, solid when current. */
+/** The phone tab bar: the four places people go most. Outline icons at rest, solid when current. People are under More. */
 const phoneTabs: { href: string; label: string; icon: ComponentType<{ className?: string }>; solid: ComponentType<{ className?: string }> }[] = [
   { href: "/", label: "Home", icon: HomeIcon, solid: HomeSolid },
   { href: "/clients", label: "Clients", icon: BriefcaseIcon, solid: BriefcaseSolid },
   { href: "/activities", label: "Activities", icon: CheckCircleIcon, solid: CheckCircleSolid },
-  { href: "/people", label: "People", icon: UserIcon, solid: UserSolid },
+  { href: "/chat", label: "Chat", icon: ChatBubbleOvalLeftEllipsisIcon, solid: ChatSolid },
 ];
 
 /** Record pages, and where their back button goes when there's no in-app history to return to. */

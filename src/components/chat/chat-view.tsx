@@ -450,8 +450,8 @@ function Composer({ onPosted }: { onPosted: () => void }) {
         void attach(e.dataTransfer.files);
       }}
     >
-      {/* Room on the right for the agent's button, which sits in the bottom corner. */}
-      <div className="mx-auto max-w-4xl pr-[4.25rem]">
+      {/* On a desktop, room on the right for the agent's button in the bottom corner. Phones have it in the top bar. */}
+      <div className="mx-auto max-w-4xl lg:pr-[4.25rem]">
         <div className="rounded-xl border border-line bg-surface shadow-sm focus-within:border-ring focus-within:ring-1 focus-within:ring-ring">
           {attached.length ? (
             <ul className="flex flex-wrap gap-1.5 border-b border-line px-3 py-2" aria-label="Attached files">

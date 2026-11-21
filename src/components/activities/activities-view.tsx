@@ -6,7 +6,7 @@ import { useApp } from "@/components/app-context";
 import { activityIcons } from "@/components/activity/composer";
 import { ActivityItem, PlannedItem } from "@/components/activity/timeline";
 import { PageHeader } from "@/components/shell/app-shell";
-import { FilterTabs, Toolbar } from "@/components/table/toolbar";
+import { FilterTabs } from "@/components/table/toolbar";
 import { useListParams } from "@/components/table/use-params";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Select } from "@/components/ui/field";
@@ -43,7 +43,7 @@ export function ActivitiesView({ rows, status }: { rows: ActivityRow[]; status: 
   return (
     <>
       <PageHeader title="Activities" />
-      <Toolbar>
+      <div className="flex items-center gap-2 px-4 py-3 lg:px-6">
         <FilterTabs
           param="status"
           fallback="todo"
@@ -52,7 +52,7 @@ export function ActivitiesView({ rows, status }: { rows: ActivityRow[]; status: 
             { value: "done", label: "Done" },
           ]}
         />
-        <Select value={get("who") ?? "me"} onChange={(e) => set({ who: e.target.value === "me" ? null : e.target.value })} aria-label="Assigned to" className="w-44 [&_select]:h-8 pointer-coarse:[&_select]:h-10 [&_select]:text-[13px]">
+        <Select value={get("who") ?? "me"} onChange={(e) => set({ who: e.target.value === "me" ? null : e.target.value })} aria-label="Assigned to" className="w-44 min-w-0 max-sm:flex-1 [&_select]:h-8 pointer-coarse:[&_select]:h-10 [&_select]:text-[13px]">
           <option value="me">Assigned to me</option>
           <option value="all">Everyone</option>
           <optgroup label="Teammates">
@@ -65,7 +65,10 @@ export function ActivitiesView({ rows, status }: { rows: ActivityRow[]; status: 
               ))}
           </optgroup>
         </Select>
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Types">
+      </div>
+      {/* Types get their own row: on a phone all six fit across, icon over label. */}
+      <div className="-mt-1 px-4 pb-4 lg:px-6" role="group" aria-label="Types">
+        <div className="grid grid-cols-6 gap-1.5 sm:flex sm:flex-wrap sm:gap-1">
           {activityTypes.map((t) => {
             const on = types.includes(t);
             const Icon = activityIcons[t];
@@ -76,17 +79,18 @@ export function ActivitiesView({ rows, status }: { rows: ActivityRow[]; status: 
                 aria-pressed={on}
                 onClick={() => set({ type: (on ? types.filter((x) => x !== t) : [...types, t]).join(",") || null })}
                 className={clsx(
-                  "flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[12.5px] font-medium transition-colors",
-                  on ? "border-accent bg-accent-soft text-primary" : "border-line text-muted hover:border-line-strong hover:text-secondary",
+                  "flex min-w-0 items-center justify-center rounded-md border font-medium transition-colors",
+                  "h-13 flex-col gap-1 px-1 text-[11.5px] sm:h-8 sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-[12.5px]",
+                  on ? "border-accent bg-accent-soft text-primary" : "border-line bg-surface text-muted hover:border-line-strong hover:text-secondary",
                 )}
               >
-                <Icon className="size-3.5" aria-hidden />
-                {activityLabels[t]}
+                <Icon className="size-[18px] shrink-0 sm:size-3.5" aria-hidden />
+                <span className="max-w-full truncate">{activityLabels[t]}</span>
               </button>
             );
           })}
         </div>
-      </Toolbar>
+      </div>
       <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 pb-10 lg:px-6">
         {!rows.length ? (
           <EmptyState

@@ -42,7 +42,7 @@ export function StageBar({ clientId, stageId, category, stageChangedAt }: { clie
   const rotting = current.rottingDays !== null && days >= current.rottingDays;
   return (
     <div className="px-4 pb-4 lg:px-6">
-      <div className="mb-1.5 flex items-center justify-between gap-3 text-[12px] text-muted">
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-[12px] text-muted">
         <span>
           {current.pipeline.name} · {clientCategoryLabels[category].one.toLowerCase()} clients
         </span>
@@ -72,13 +72,14 @@ export function StageBar({ clientId, stageId, category, stageChangedAt }: { clie
                   }
                   aria-current={isCurrent ? "step" : undefined}
                   className={clsx(
-                    "flex h-8 w-full items-center justify-center px-3 text-[12px] font-medium transition-colors disabled:cursor-default",
+                    "flex h-7 w-full items-center justify-center px-3 text-[12px] font-medium transition-colors disabled:cursor-default sm:h-8",
                     i === 0 ? "rounded-l-md [clip-path:polygon(0_0,calc(100%-8px)_0,100%_50%,calc(100%-8px)_100%,0_100%)]" : "[clip-path:polygon(0_0,calc(100%-8px)_0,100%_50%,calc(100%-8px)_100%,0_100%,8px_50%)]",
                     i === stages.length - 1 && "rounded-r-md [clip-path:polygon(0_0,100%_0,100%_100%,0_100%,8px_50%)]",
                     reached ? "bg-accent text-accent-foreground" : "bg-sunken text-muted hover:bg-line hover:text-primary",
                   )}
                 >
-                  <span className="truncate">{s.name}</span>
+                  {/* On a phone the names don't fit; the line above says where the client is, and each stage's name is in its tooltip. */}
+                  <span className="truncate max-sm:sr-only">{s.name}</span>
                 </button>
               </Tooltip>
             </li>

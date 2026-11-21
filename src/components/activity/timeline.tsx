@@ -369,9 +369,9 @@ export function PlannedItem({ row, context, attachments }: { row: ActivityRow; c
         </div>
         {a.body ? <div className="prose-crm mt-1 line-clamp-3 text-[13px]" dangerouslySetInnerHTML={{ __html: a.body }} /> : row.preview ? <p className="mt-1 line-clamp-3 text-[13px] text-secondary">{row.preview.text}</p> : null}
         <Attachments files={attachments} />
-        <div className="mt-1 flex min-w-0 items-center gap-2 text-[12px]">
+        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
           {assignee ? (
-            <span className="flex items-center gap-1.5 text-muted">
+            <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-muted">
               <Avatar name={assignee.name} size="xs" />
               {assignee.name}
             </span>

@@ -15,7 +15,7 @@ export function RecordHeader({ entity, id, title, sub, avatar, actions, archived
   const router = useRouter();
   const label = entityLabels[entity];
   return (
-    <div className="border-b border-line px-4 pt-4 pb-4 lg:px-6 lg:pt-3">
+    <div className="border-b border-line px-4 pt-3 pb-4 lg:px-6">
       {/* Phones have a back button in the top bar instead. */}
       <nav aria-label="Breadcrumb" className="mb-2 flex items-center gap-1 text-[12.5px] text-muted max-lg:hidden">
         <Link href={label.path} className="hover:text-primary">
@@ -85,8 +85,8 @@ export function RecordHeader({ entity, id, title, sub, avatar, actions, archived
 /** The two-column body of a record page: details on the left, activity on the right. Stacks on narrow screens. */
 export function RecordBody({ side, children }: { side: ReactNode; children: ReactNode }) {
   return (
-    <div className="mx-auto grid max-w-[1400px] gap-5 px-4 py-5 lg:grid-cols-[340px_minmax(0,1fr)] lg:px-6">
-      <aside className="flex flex-col gap-4 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:self-start lg:overflow-y-auto lg:pb-4 scroll-thin">{side}</aside>
+    <div className="mx-auto grid max-w-[1400px] grid-cols-[minmax(0,1fr)] gap-4 px-4 py-4 lg:grid-cols-[340px_minmax(0,1fr)] lg:gap-5 lg:px-6 lg:py-5">
+      <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:self-start lg:overflow-y-auto lg:pb-4 scroll-thin">{side}</aside>
       <div className="flex min-w-0 flex-col gap-6">{children}</div>
     </div>
   );

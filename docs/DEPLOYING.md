@@ -105,7 +105,7 @@ Push alerts (tasks, meetings, mentions, team chat, activity on your records) use
 3. **Redeploy**, so the new variables are picked up.
 4. **Turn it on, per device.** Settings → Notifications shows whether push is on for the device you're on. Tap **Turn on notifications** and allow them when the browser asks, then pick which alerts that device gets. **Send a test** checks one arrives.
    - **Android:** works in Chrome straight away. Installing the CRM (Chrome menu → Install app) makes alerts open it full screen.
-   - **iPhone and iPad** (iOS 16.4 or later): notifications only work in the installed app. In Safari, tap Share → Add to Home Screen, open the CRM from its new icon, sign in, then turn notifications on there.
+   - **iPhone and iPad** (iOS 16.4 or later): notifications only work in the installed app. In Safari, tap Share → Add to Home Screen (the sign-in page shows these steps on a phone), open the CRM from its new icon and sign in. It then asks to turn notifications on.
    - **Desktop:** Chrome, Edge, Firefox and Safari all work. If the page says notifications are blocked, allow them in the browser's site settings (the icon left of the address) and reload.
 
 Set the keys once and keep them. New keys sign every device out of notifications, and everyone has to turn them on again. Until the keys are set, the notifications page says push isn't set up, and the notifications cron skips push (agenda emails still go out). The same page turns on the daily and weekly agenda emails, which need Resend (`RESEND_API_KEY`, `RESEND_FROM`).

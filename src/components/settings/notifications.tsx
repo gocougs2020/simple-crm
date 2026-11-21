@@ -3,7 +3,8 @@
 import clsx from "clsx";
 import { useEffect, useState, useTransition } from "react";
 import { BellAlertIcon, BellSlashIcon, ComputerDesktopIcon, DevicePhoneMobileIcon } from "@heroicons/react/24/outline";
-import { removeDevice, sendAgendaPreview, sendTestNotification, setDeviceAlerts, setEmailDigests, subscribeDevice } from "@/actions/notifications";
+import { removeDevice, sendAgendaPreview, sendTestNotification, setDeviceAlerts, setEmailDigests } from "@/actions/notifications";
+import { enablePush } from "@/components/push/enable-push";
 import { useApp } from "@/components/app-context";
 import { StatusBadge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,7 @@ import { toast } from "@/components/ui/toast";
 import { emailDigestKinds, emailDigestLabels, notificationGroups, notificationKinds, notificationLabels, type EmailDigestKind, type NotificationKind } from "@/lib/constants";
 import { formatAgo } from "@/lib/format";
 import { morningHour } from "@/lib/notifications/schedule";
-import { currentSubscription, isIos, isStandalone, keyBytes, pushSupported, registerServiceWorker } from "@/lib/push/client";
+import { currentSubscription, isIos, isStandalone, pushSupported } from "@/lib/push/client";
 import { Section } from "./nav";
 
 type Device = { id: string; endpoint: string; label: string; alerts: NotificationKind[]; createdAt: string; lastSentAt: string | null };
@@ -47,26 +48,13 @@ export function NotificationSettings({ publicKey, devices }: { publicKey: string
 
   const turnOn = () =>
     start(async () => {
-      if (!publicKey) return void toast.error("Push notifications aren't set up on this deployment yet. An admin can add VAPID keys.");
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        setSupport(permission === "denied" ? "denied" : "ready");
-        return void toast.error("Notifications are blocked for this site. Allow them in your browser's site settings, then try again.");
+      const r = await enablePush(publicKey);
+      if (!r.ok) {
+        if (r.denied) setSupport("denied");
+        return void toast.error(r.error);
       }
-      try {
-        const reg = await registerServiceWorker();
-        await navigator.serviceWorker.ready;
-        const existing = await reg.pushManager.getSubscription();
-        const sub = existing ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) }));
-        const json = sub.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } };
-        const r = await subscribeDevice(json, { standalone: isStandalone() });
-        if (!r.ok) return void toast.error(r.error);
-        setEndpoint(sub.endpoint);
-        toast.success("Notifications are on for this device. Pick the alerts you want below.");
-      } catch (err) {
-        console.error("[push] subscribe", err);
-        toast.error("This device couldn't sign up for notifications. Reload the page and try again.");
-      }
+      setEndpoint(r.endpoint);
+      toast.success("Notifications are on for this device. Pick the alerts you want below.");
     });
 
   const turnOff = (device: Device) =>
