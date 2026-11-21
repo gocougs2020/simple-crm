@@ -104,8 +104,10 @@ describe("agent tools", () => {
     const page = { data: Array.from({ length: 50 }, (_, i) => ({ i, pad: "x".repeat(100) })), nextCursor: "abc" };
     const capped = capResult(page, 2_000) as { data: unknown[]; nextCursor: string; trimmed: string };
     assert.ok(capped.data.length < 50 && JSON.stringify(capped).length < 2_400);
-    assert.equal(capped.nextCursor, "abc");
+    // The cursor points past all 50; following it would skip the ones left out.
+    assert.equal(capped.nextCursor, undefined);
     assert.match(capped.trimmed, /of 50/);
+    assert.match(capped.trimmed, /smaller limit/);
     const small = { data: [1] };
     assert.equal(capResult(small), small);
   });
@@ -249,6 +251,11 @@ describe("history sent to the model", () => {
     assert.equal(out[0].role, "user");
     assert.equal(out.at(-1)!.id, "a5");
     assert.ok(out.length < 12);
+  });
+
+  it("can leave out everything but the latest turn", () => {
+    const out = historyForModel(thread(2), { maxChars: 3_000 });
+    assert.deepEqual(out.map((m) => m.id), ["u1", "a1"]);
   });
 
   it("doesn't change the stored messages it's given", () => {
