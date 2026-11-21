@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, count, desc, eq, gt, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { actorUserId, assertCan, can, type Actor } from "@/lib/crm/actor";
@@ -194,17 +194,3 @@ export async function markChatRead(userId: string) {
   await db.update(users).set({ chatReadAt: new Date() }).where(eq(users.id, userId));
 }
 
-/** Messages from others since the teammate last had the chat open, and how many of them mention them. */
-export async function unreadChat(userId: string): Promise<{ unread: number; mentions: number }> {
-  const db = await getDb();
-  const [me] = await db.select({ readAt: users.chatReadAt, createdAt: users.createdAt }).from(users).where(eq(users.id, userId));
-  if (!me) return { unread: 0, mentions: 0 };
-  const [row] = await db
-    .select({
-      unread: count(),
-      mentions: sql<number>`count(*) filter (where ${userId}::uuid = any(${chatMessages.mentions}))`.mapWith(Number),
-    })
-    .from(chatMessages)
-    .where(and(isNull(chatMessages.deletedAt), ne(chatMessages.userId, userId), gt(chatMessages.createdAt, me.readAt ?? me.createdAt)));
-  return { unread: row?.unread ?? 0, mentions: row?.mentions ?? 0 };
-}

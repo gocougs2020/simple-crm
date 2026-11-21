@@ -299,20 +299,6 @@ export async function teamFeed(limit = 25) {
   });
 }
 
-/** Counts for the sidebar badge: the viewer's overdue and due-today items. */
-export async function myDueCounts(userId: string, tz: string) {
-  const db = await getDb();
-  const { startOfToday, startOfTomorrow } = dayBounds(tz);
-  const [row] = await db
-    .select({
-      overdue: sql<number>`count(*) filter (where ${activities.dueAt} < ${startOfToday})::int`,
-      today: sql<number>`count(*) filter (where ${activities.dueAt} >= ${startOfToday} and ${activities.dueAt} < ${startOfTomorrow})::int`,
-    })
-    .from(activities)
-    .where(and(eq(activities.assigneeId, userId), isNull(activities.completedAt), isNotNull(activities.dueAt)));
-  return row;
-}
-
 /** Midnight today, tomorrow, and the end of the 7th day, in the workspace's time zone, as UTC instants. */
 export function dayBounds(tz: string, now = new Date()) {
   const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);

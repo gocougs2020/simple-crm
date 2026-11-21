@@ -61,8 +61,8 @@ export async function revokeSessions(userId: string, exceptSessionId?: string) {
   await db.delete(t).where(exceptSessionId ? and(eq(t.userId, userId), ne(t.id, exceptSessionId)) : eq(t.userId, userId));
 }
 
-/** Verifies the cookie's signature and expiry only. Callers must also check the session row. */
-async function readSessionCookie() {
+/** Verifies the cookie's signature and expiry only. Callers must also check the session row (`activeSession`). */
+export async function readSessionCookie() {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
   try {
@@ -72,6 +72,15 @@ async function readSessionCookie() {
   } catch {
     return null;
   }
+}
+
+/**
+ * The session row check behind every signed-in request: the cookie's session
+ * exists for its teammate, hasn't expired, and the teammate isn't
+ * deactivated. For a query over `sessions` joined to `users`.
+ */
+export function activeSession(claims: { userId: string; sid: string }) {
+  return and(eq(schema.sessions.id, claims.sid), eq(schema.sessions.userId, claims.userId), gt(schema.sessions.expiresAt, new Date()), isNull(schema.users.deactivatedAt));
 }
 
 /**
@@ -88,14 +97,7 @@ export const getUser = cache(async (): Promise<(User & { sessionId: string }) | 
     .select({ user: schema.users })
     .from(schema.sessions)
     .innerJoin(schema.users, eq(schema.users.id, schema.sessions.userId))
-    .where(
-      and(
-        eq(schema.sessions.id, claims.sid),
-        eq(schema.sessions.userId, claims.userId),
-        gt(schema.sessions.expiresAt, new Date()),
-        isNull(schema.users.deactivatedAt),
-      ),
-    )
+    .where(activeSession(claims))
     .limit(1);
   return row ? { ...row.user, sessionId: claims.sid } : null;
 });

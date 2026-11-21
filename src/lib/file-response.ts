@@ -11,7 +11,7 @@ import { inlineTypes, LOCAL_UPLOAD_DIR } from "@/lib/files";
  * an uploaded document can never run script on this site. `cache` is how long
  * a browser may keep it (always private: the same URL can stop working).
  */
-export async function fileResponse(f: typeof schema.files.$inferSelect, o: { download: boolean; cache?: string }) {
+export async function fileResponse(f: Pick<typeof schema.files.$inferSelect, "contentType" | "name" | "url" | "pathname">, o: { download: boolean; cache?: string }) {
   const download = o.download || !inlineTypes.test(f.contentType);
   const headers = new Headers({
     "Content-Type": f.contentType,

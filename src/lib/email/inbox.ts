@@ -1,9 +1,9 @@
 import "server-only";
-import { and, eq, gte, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { cacheLife, cacheTag } from "next/cache";
 import type { GetInboxThreadEmailResponseSuccess, Resend } from "resend";
 import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
-import { unreadFor } from "@/lib/conversations/read-state";
 import { touch } from "@/lib/crm/events";
 import { linksForEmails } from "@/lib/crm/match";
 import { emailDomainsScoped, getResend, inEmailScope } from "@/lib/email";
@@ -83,8 +83,27 @@ function snippetOf(m: { html: string | null; text: string | null }) {
 
 type InboxSummary = { id: string; email_address: string; name: string | null; from_name: string | null; unread: number };
 
-/** Every inbox in the Resend account on a domain this CRM manages (see RESEND_DOMAINS). */
+/** The cached inbox list's tag. Every settings action that adds, changes or removes an inbox or a domain expires it (`updateTag`). */
+export const INBOXES_TAG = "resend-inboxes";
+
+/**
+ * Every inbox in the Resend account on a domain this CRM manages (see
+ * RESEND_DOMAINS), cached for a few minutes: the Email page, the inbox sync
+ * and the composer's inbox picker read it on every request, and it changes
+ * only when someone adds or removes an inbox. `use cache: remote` because
+ * Resend is rate-limited and serverless instances rarely share memory, so an
+ * in-memory entry would seldom be hit. `unread` here can be minutes old; the
+ * Email page counts unread itself, and Settings reads `listInboxesNow`.
+ */
 export async function listInboxes(): Promise<InboxSummary[]> {
+  "use cache: remote";
+  cacheTag(INBOXES_TAG);
+  cacheLife({ stale: 60, revalidate: 120, expire: 300 });
+  return listInboxesNow();
+}
+
+/** The inbox list straight from Resend, with its unread counts as they are now (Settings → Email domains). */
+export async function listInboxesNow(): Promise<InboxSummary[]> {
   const resend = resendOrThrow();
   const out: InboxSummary[] = [];
   let after: string | undefined;
@@ -325,16 +344,6 @@ export async function syncAllInboxes(limit = 50) {
   let synced = 0;
   for (const i of inboxes) synced += (await syncInbox(i.id, { limit, ourAddresses: ours })).synced;
   return { inboxes: inboxes.length, synced };
-}
-
-/** Conversations in the inbox folder unread for this teammate (theirs, or nobody's: src/lib/conversations/read-rules.ts), for the sidebar badge. */
-export async function unreadCount(userId: string) {
-  const db = await getDb();
-  const [row] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(inboxThreads)
-    .where(and(eq(inboxThreads.folder, "inbox"), unreadFor("inbox_threads", userId), gte(inboxThreads.lastMessageAt, new Date(Date.now() - 90 * 86400_000))));
-  return row?.n ?? 0;
 }
 
 type WebhookEventName = Parameters<Resend["webhooks"]["create"]>[0]["events"][number];

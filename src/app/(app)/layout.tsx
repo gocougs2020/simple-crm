@@ -4,17 +4,13 @@ import { AppShell } from "@/components/shell/app-shell";
 import { Toaster } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/menu";
 import { requireUser, toViewer } from "@/lib/auth";
-import { myDueCounts } from "@/lib/crm/activities";
 import { getAppData } from "@/lib/crm/context";
-import { unreadCount } from "@/lib/email/inbox";
 import { commsFor } from "@/lib/comms";
-import { unreadTextCount } from "@/lib/conversations/texts";
-import { phoneConfigured } from "@/lib/twilio/config";
 import { CallPanel } from "@/components/phone/call-panel";
 import { LiveUpdates } from "@/components/live-updates";
 import { TimeZoneSync } from "@/components/time-zone-sync";
 import { viewerTimeZone } from "@/lib/viewer-time-zone";
-import { unreadChat } from "@/lib/chat/service";
+import { noCounts, sidebarCounts } from "@/lib/sidebar-counts";
 
 /** Everything inside requires a signed-in, active teammate. */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -26,20 +22,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 async function Gate({ children }: { children: React.ReactNode }) {
+  // The session check and the app-wide data start together. A signed-out visitor is redirected
+  // here, before anything renders, so none of the data reaches them.
+  const data = getAppData();
+  // A rejection that loses the race with the redirect is dropped here; awaiting below still surfaces it.
+  data.catch(() => {});
   const user = await requireUser();
-  const data = await getAppData();
-  const tz = await viewerTimeZone(data.workspace.timezone);
-  const [due, unread, unreadTexts, comms, chat] = await Promise.all([
-    myDueCounts(user.id, tz),
-    data.services.email ? unreadCount(user.id) : 0,
-    phoneConfigured() ? unreadTextCount(user.id) : 0,
-    commsFor(user),
-    unreadChat(user.id),
-  ]);
+  const app = await data;
+  const tz = await viewerTimeZone(app.workspace.timezone);
+  // The badges don't hold up the shell: the sidebar reads them when they arrive (AppShell).
+  // A failed count shows no badge rather than breaking the page.
+  const counts = sidebarCounts(user, tz).catch((err) => {
+    console.error("[sidebar] counts", err);
+    return noCounts;
+  });
+  const comms = await commsFor(user);
   return (
-    <AppProvider data={data} viewer={toViewer(user)} comms={comms} timezone={tz}>
+    <AppProvider data={app} viewer={toViewer(user)} comms={comms} timezone={tz}>
       <TooltipProvider delayDuration={300}>
-        <AppShell due={due} unread={unread} unreadTexts={unreadTexts} chat={chat}>{children}</AppShell>
+        <AppShell counts={counts}>{children}</AppShell>
         {comms.calling ? <CallPanel /> : null}
         <LiveUpdates />
         <TimeZoneSync />

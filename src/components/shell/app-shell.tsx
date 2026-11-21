@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
-import { useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { Suspense, use, useEffect, useState, type ComponentType, type ReactNode } from "react";
 import {
   ArrowRightStartOnRectangleIcon,
   Bars3Icon,
@@ -33,23 +33,16 @@ import { preloadRichTextWhenIdle } from "@/components/ui/rich-text";
 import { CommandPalette, openPalette } from "./command-palette";
 import { CreateDialogs } from "./create-dialogs";
 import { openCreate } from "./create-store";
+import type { SidebarCounts } from "@/lib/sidebar-counts";
 
-type NavItem = { href: string; label: string; icon: ComponentType<{ className?: string }>; badge?: number; badgeLabel?: string; tone?: "error" };
+type Badge = { n: number; label: string; tone?: "error" };
+type NavItem = { href: string; label: string; icon: ComponentType<{ className?: string }>; badge?: (c: SidebarCounts) => Badge };
 
-export function AppShell({
-  due,
-  unread = 0,
-  unreadTexts = 0,
-  chat = { unread: 0, mentions: 0 },
-  children,
-}: {
-  due: { overdue: number; today: number };
-  unread?: number;
-  unreadTexts?: number;
-  /** Team chat messages since the viewer last had it open, and how many mention them. */
-  chat?: { unread: number; mentions: number };
-  children: ReactNode;
-}) {
+/**
+ * `counts` is a promise: the sidebar and page frame paint without waiting for
+ * the badges, which fill in when the counts arrive.
+ */
+export function AppShell({ counts, children }: { counts: Promise<SidebarCounts>; children: ReactNode }) {
   const { viewer, workspace, canEdit, services, comms } = useApp();
   const pathname = usePathname();
   const [drawer, setDrawer] = useState(false);
@@ -61,9 +54,9 @@ export function AppShell({
   const nav: NavItem[] = [
     { href: "/", label: "Home", icon: HomeIcon },
     { href: "/clients", label: "Clients", icon: BriefcaseIcon },
-    ...(comms.phone ? [{ href: "/messages", label: "Messages", icon: ChatBubbleLeftRightIcon, badge: unreadTexts || undefined, badgeLabel: "unread" }] : []),
-    { href: "/email", label: "Email", icon: EnvelopeIcon, badge: unread || undefined, badgeLabel: "unread" },
-    { href: "/activities", label: "Activities", icon: CheckCircleIcon, badge: due.overdue + due.today || undefined, badgeLabel: "due", tone: due.overdue ? "error" : undefined },
+    ...(comms.phone ? [{ href: "/messages", label: "Messages", icon: ChatBubbleLeftRightIcon, badge: (c: SidebarCounts) => ({ n: c.unreadTexts, label: "unread" }) }] : []),
+    { href: "/email", label: "Email", icon: EnvelopeIcon, badge: (c) => ({ n: c.unread, label: "unread" }) },
+    { href: "/activities", label: "Activities", icon: CheckCircleIcon, badge: ({ due }) => ({ n: due.overdue + due.today, label: "due", tone: due.overdue ? "error" : undefined }) },
     { href: "/people", label: "People", icon: UserIcon },
     { href: "/organizations", label: "Organizations", icon: BuildingOffice2Icon },
     { href: "/calendar", label: "Calendar", icon: CalendarDaysIcon },
@@ -72,9 +65,7 @@ export function AppShell({
       href: "/chat",
       label: "Team chat",
       icon: ChatBubbleOvalLeftEllipsisIcon,
-      badge: (chat.mentions ? chat.mentions : chat.unread) || undefined,
-      badgeLabel: chat.mentions ? (chat.mentions === 1 ? "mention" : "mentions") : "unread",
-      tone: chat.mentions ? "error" : undefined,
+      badge: ({ chat }) => ({ n: chat.mentions || chat.unread, label: chat.mentions ? (chat.mentions === 1 ? "mention" : "mentions") : "unread", tone: chat.mentions ? "error" : undefined }),
     },
   ];
 
@@ -129,12 +120,10 @@ export function AppShell({
             <n.icon className={clsx("size-[18px]", active ? "text-primary" : "text-muted")} aria-hidden />
             <span className="flex-1">{n.label}</span>
             {n.badge ? (
-              <span
-                className={clsx("min-w-5 rounded-full px-1.5 text-center text-[11px] leading-5 font-semibold tabular-nums", n.tone === "error" ? "bg-error-surface text-error" : "bg-sunken text-secondary")}
-                aria-label={`${n.badge} ${n.badgeLabel ?? ""}`.trim()}
-              >
-                {n.badge}
-              </span>
+              // No badge until the counts arrive.
+              <Suspense fallback={null}>
+                <NavBadge counts={counts} pick={n.badge} />
+              </Suspense>
             ) : null}
           </Link>
         );
@@ -209,6 +198,19 @@ export function AppShell({
       <NextStepDialog />
       <AgentLauncher configured={services.ai.chat} />
     </div>
+  );
+}
+
+function NavBadge({ counts, pick }: { counts: Promise<SidebarCounts>; pick: (c: SidebarCounts) => Badge }) {
+  const b = pick(use(counts));
+  if (!b.n) return null;
+  return (
+    <span
+      className={clsx("min-w-5 rounded-full px-1.5 text-center text-[11px] leading-5 font-semibold tabular-nums", b.tone === "error" ? "bg-error-surface text-error" : "bg-sunken text-secondary")}
+      aria-label={`${b.n} ${b.label}`}
+    >
+      {b.n}
+    </span>
   );
 }
 

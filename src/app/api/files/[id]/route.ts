@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { getUser } from "@/lib/auth";
+import { fileRow } from "@/lib/crm/files";
 import { fileResponse } from "@/lib/file-response";
 
 /**
@@ -15,7 +16,7 @@ export async function GET(request: Request, { params }: RouteContext<"/api/files
   const { id } = await params;
   if (!z.uuid().safeParse(id).success) return new NextResponse("Not found", { status: 404 });
   const db = await getDb();
-  const [f] = await db.select().from(schema.files).where(eq(schema.files.id, id));
+  const [f] = await db.select(fileRow).from(schema.files).where(eq(schema.files.id, id));
   if (!f || f.deletedAt) return new NextResponse("This file was removed.", { status: 404 });
   return fileResponse(f, { download: new URL(request.url).searchParams.has("download") });
 }

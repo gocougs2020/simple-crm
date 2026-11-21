@@ -5,7 +5,7 @@ import { PageSkeleton } from "@/components/ui/skeleton";
 import { getDb, schema } from "@/db";
 import { requireAdminPage } from "@/lib/auth";
 import { emailDomainsScoped, getResend, inEmailScope } from "@/lib/email";
-import { listInboxes, webhookNeedsReconnect } from "@/lib/email/inbox";
+import { listInboxesNow, webhookNeedsReconnect } from "@/lib/email/inbox";
 
 export const metadata: Metadata = { title: "Email domains" };
 
@@ -65,7 +65,7 @@ async function EmailDomains() {
   let inboxes: InboxView[] = [];
   let inboxesError: string | null = null;
   try {
-    inboxes = (await listInboxes()).map((i) => ({ id: i.id, address: i.email_address, name: i.name, fromName: i.from_name, unread: i.unread }));
+    inboxes = (await listInboxesNow()).map((i) => ({ id: i.id, address: i.email_address, name: i.name, fromName: i.from_name, unread: i.unread }));
   } catch (err) {
     inboxesError = message(err);
   }

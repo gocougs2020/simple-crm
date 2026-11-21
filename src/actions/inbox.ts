@@ -1,6 +1,6 @@
 "use server";
 
-import { refresh } from "next/cache";
+import { refresh, updateTag } from "next/cache";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
@@ -9,7 +9,7 @@ import { ActionError, actionAdmin, actionEditor, actionUser } from "@/lib/auth";
 import { assertCanChangeRead } from "@/lib/conversations/read-state";
 import { recordEvent } from "@/lib/crm/events";
 import { getResend, inEmailScope } from "@/lib/email";
-import { applyThreadLinks, assertDomainInScope, assertInboxInScope, creditSender, InboxError, listInboxes, must, resendOrThrow, syncAllInboxes, syncInbox, syncThread, webhookEvents } from "@/lib/email/inbox";
+import { applyThreadLinks, assertDomainInScope, assertInboxInScope, creditSender, InboxError, INBOXES_TAG, listInboxes, must, resendOrThrow, syncAllInboxes, syncInbox, syncThread, webhookEvents } from "@/lib/email/inbox";
 import { siteOrigin } from "@/lib/origin";
 import { htmlToText, sanitizeHtml } from "@/lib/safe-html";
 
@@ -207,6 +207,7 @@ export async function addDomain(input: z.input<typeof domainInput>): Promise<Res
     const d = await inbox(async () =>
       must(await resend.domains.create({ name: data.name, region: data.region, capabilities: { sending: "enabled", receiving: data.receiving ? "enabled" : "disabled" } }), "add the domain"),
     );
+    updateTag(INBOXES_TAG);
     refresh();
     return { id: d.id };
   });
@@ -231,6 +232,7 @@ export async function setDomainCapability(domainId: string, capability: "sending
     const id = z.string().min(1).max(100).parse(domainId);
     await inbox(() => assertDomainInScope(id));
     await inbox(async () => must(await resend.domains.update({ id, capabilities: { [cap]: enabled ? "enabled" : "disabled" } }), `turn ${cap} ${enabled ? "on" : "off"}`));
+    updateTag(INBOXES_TAG);
     refresh();
   });
 }
@@ -242,6 +244,7 @@ export async function removeDomain(domainId: string): Promise<Result> {
     const id = z.string().min(1).max(100).parse(domainId);
     await inbox(() => assertDomainInScope(id));
     await inbox(async () => must(await resend.domains.remove(id), "remove the domain"));
+    updateTag(INBOXES_TAG);
     refresh();
   });
 }
@@ -264,6 +267,7 @@ export async function createInbox(input: z.input<typeof inboxInput>): Promise<Re
     if (!inEmailScope(data.domain)) throw new ActionError(`${data.domain} isn't in RESEND_DOMAINS. Add it there and redeploy, then add inboxes on it here.`);
     const resend = await inbox(async () => resendOrThrow());
     await inbox(async () => must(await resend.inboxes.create({ emailAddress: `${data.localPart}@${data.domain}`, name: data.name || undefined, fromName: data.fromName || undefined }), "create the inbox"));
+    updateTag(INBOXES_TAG);
     refresh();
   });
 }
@@ -277,6 +281,7 @@ export async function updateInbox(inboxId: string, input: { name?: string; fromN
     const id = z.string().min(1).max(100).parse(inboxId);
     await inbox(() => assertInboxInScope(id));
     await inbox(async () => must(await resend.inboxes.update(id, data as { name: string }), "update the inbox"));
+    updateTag(INBOXES_TAG);
     refresh();
   });
 }
@@ -289,6 +294,7 @@ export async function removeInbox(inboxId: string): Promise<Result> {
     const id = z.string().min(1).max(100).parse(inboxId);
     await inbox(() => assertInboxInScope(id));
     await inbox(async () => must(await resend.inboxes.remove(id), "remove the inbox"));
+    updateTag(INBOXES_TAG);
     refresh();
   });
 }
