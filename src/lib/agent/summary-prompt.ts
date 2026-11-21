@@ -18,17 +18,18 @@ export const SUMMARY_MAX_AGE_MS = 7 * 24 * 3600_000;
 /**
  * Whether a record's snapshot should be rewritten now. Missing: yes. Under a
  * day old: no. After that, only when something it's about moved since it was
- * written (the record was edited, there was new activity, or planned work came
- * due), and always once it's a week old. A quiet record keeps its snapshot
+ * written (the record was edited, there was new activity, something logged on
+ * it was added or changed, such as a task planned or moved, or planned work
+ * came due), and always once it's a week old. A quiet record keeps its snapshot
  * instead of paying for the same two sentences every day.
  */
-export function summaryDue(s: { summary: string | null; summaryAt: Date | null; updatedAt: Date | null; lastActivityAt: Date | null; cameDue: boolean }, now = Date.now()) {
+export function summaryDue(s: { summary: string | null; summaryAt: Date | null; updatedAt: Date | null; lastActivityAt: Date | null; cameDue: boolean; workChanged?: boolean }, now = Date.now()) {
   if (!s.summary || !s.summaryAt) return true;
   const age = now - s.summaryAt.getTime();
   if (age < SUMMARY_TTL_MS) return false;
   if (age >= SUMMARY_MAX_AGE_MS) return true;
   const after = (d: Date | null) => !!d && d.getTime() > s.summaryAt!.getTime();
-  return after(s.updatedAt) || after(s.lastActivityAt) || s.cameDue;
+  return after(s.updatedAt) || after(s.lastActivityAt) || s.cameDue || !!s.workChanged;
 }
 
 export function summaryInstructions(entity: SummaryEntity, today: string) {

@@ -5,9 +5,6 @@ import { microsoftConfigured, syncEveryMinutes } from "@/lib/microsoft/config";
 import { GraphError } from "@/lib/microsoft/graph";
 import { mailboxesToSync, mailboxSyncContext, syncMailbox } from "@/lib/microsoft/mail";
 
-/** Mailboxes synced at the same time. Each mailbox's own folders and messages still go one at a time, in order. */
-const MAILBOXES_AT_ONCE = 3;
-
 /** Whether this quarter-hour slot is one `microsoft.syncEveryMinutes` (15, 30 or 60) syncs on. */
 export function microsoftSlotDue(now = new Date()) {
   const slot = Math.round((now.getUTCHours() * 60 + now.getUTCMinutes()) / 15) * 15;
@@ -36,15 +33,12 @@ export async function syncAllMailboxes({ budgetMs = 240_000 } = {}) {
       results.push({ email: account.email, error: message });
     }
   };
-  // A few mailboxes at a time (each is mostly waiting on Graph and the screen), in the same longest-waiting order.
-  const queue = [...accounts];
-  await Promise.all(
-    Array.from({ length: Math.min(MAILBOXES_AT_ONCE, queue.length) }, async () => {
-      for (let next = queue.shift(); next; next = queue.shift()) {
-        if (Date.now() - started > budgetMs) return;
-        await one(next);
-      }
-    }),
-  );
+  // One mailbox at a time. Teammates' mailboxes often hold the same email (both on the thread), and a
+  // message is put on the record from the first mailbox that gets to it: two syncs at once could both
+  // check before either saved, and log it twice.
+  for (const account of accounts) {
+    if (Date.now() - started > budgetMs) break;
+    await one(account);
+  }
   return { mailboxes: accounts.length, results };
 }

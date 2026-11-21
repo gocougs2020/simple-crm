@@ -49,6 +49,8 @@ async function readSummary(entity: SummaryEntity, id: string) {
       lastActivityAt: t.lastActivityAt,
       // Planned work on it that came due since the snapshot was written: "upcoming" became "overdue".
       cameDue: sql<boolean>`exists (select 1 from activities a where a.${sql.raw(plannedColumn[entity])} = ${t.id} and a.completed_at is null and a.due_at is not null and a.due_at > ${t.summaryAt} and a.due_at <= now())`,
+      // Anything logged on it added or changed since: a task planned or moved, a meeting booked, a note edited.
+      workChanged: sql<boolean>`exists (select 1 from activities a where a.${sql.raw(plannedColumn[entity])} = ${t.id} and a.updated_at > ${t.summaryAt})`,
     })
     .from(t)
     .where(eq(t.id, id));

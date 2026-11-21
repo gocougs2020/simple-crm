@@ -289,6 +289,8 @@ describe("when a record snapshot is rewritten", () => {
     assert.equal(summaryDue({ ...base, updatedAt: ago(day) }, now), true);
     assert.equal(summaryDue({ ...base, lastActivityAt: ago(day) }, now), true);
     assert.equal(summaryDue({ ...base, cameDue: true }, now), true);
+    // A task planned or moved for later counts too, before it comes due.
+    assert.equal(summaryDue({ ...base, workChanged: true }, now), true);
   });
 
   it("always rewrites after a week, so relative dates stay right", () => {
