@@ -5,7 +5,7 @@ import { syncAllInboxes } from "@/lib/email/inbox";
 
 export const maxDuration = 300;
 
-/** Catches anything the webhook missed (a deploy mid-delivery, a webhook not yet connected). The cron dispatcher (/api/cron/tick) runs it hourly; also callable by hand. */
+/** Catches anything the webhook missed (a deploy mid-delivery, a webhook not yet connected). The cron dispatcher (/api/cron/tick) runs it every quarter hour; also callable by hand. */
 export async function GET(request: Request) {
   // Always at request time; never a build-time snapshot.
   await connection();

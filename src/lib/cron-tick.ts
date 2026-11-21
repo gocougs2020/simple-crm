@@ -61,7 +61,7 @@ export async function whatIsDue(now = new Date()): Promise<Due> {
  * The one quarter-hour cron (/api/cron/tick): asks what's due in one query,
  * then runs only the jobs that have work, each on its own so one failing
  * doesn't stop the rest. The inbox sync (a safety net behind Resend's
- * webhook) runs hourly; Microsoft 365 on `microsoft.syncEveryMinutes`; the
+ * webhook) runs every quarter hour; Microsoft 365 on `microsoft.syncEveryMinutes`; the
  * daily prune once a day. Each job's own route still works on its own.
  */
 export async function tick(now = new Date()) {
@@ -91,7 +91,8 @@ export async function tick(now = new Date()) {
   await step("runs", background && due.runs, () => sweepRuns(now));
   await step("forwardReplies", due.replies, () => retryReplies(now));
   await step("files", due.files, () => describeBacklog());
-  await step("inbox", slot % 60 === 0 && !!getResend(), () => syncAllInboxes(25));
+  // Every quarter hour: it only writes what changed, and the database is awake for the check above anyway.
+  await step("inbox", !!getResend(), () => syncAllInboxes(25));
   await step("microsoft", microsoftConfigured() && microsoftSlotDue(now), () => syncAllMailboxes({ budgetMs: Math.max(0, BUDGET_MS - (Date.now() - started)) }));
   await step("prune", slot === PRUNE_SLOT, () => pruneDaily(now));
   return { at: now.toISOString(), due, ran };

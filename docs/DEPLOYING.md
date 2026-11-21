@@ -2,7 +2,7 @@
 
 ## 1. Create the project
 
-Import the repository in Vercel. `vercel.json` sets the build command (`pnpm db:migrate && pnpm build`), so migrations run before every build, and adds three crons: the dispatcher (`/api/cron/tick`, every quarter hour), which asks the database what's due in one query and runs only those jobs (campaigns, the agent, notifications and agenda emails, the hourly inbox sync, Microsoft 365 and a daily prune), the delivery check (hourly) and the Stripe sync (daily at 09:00 UTC). They run on the same quarter-hour blocks (never more often than every 15 minutes), and a quarter hour with nothing to do is one query and no writes, so Neon can scale to zero in between. Check the compute's autosuspend delay in Neon: with a 5-minute delay the database still wakes for each quarter-hour check, so a shorter delay saves more when nobody is working.
+Import the repository in Vercel. `vercel.json` sets the build command (`pnpm db:migrate && pnpm build`), so migrations run before every build, and adds three crons: the dispatcher (`/api/cron/tick`, every quarter hour), which asks the database what's due in one query and runs only those jobs (campaigns, the agent, notifications and agenda emails, the inbox sync, Microsoft 365 and a daily prune), the delivery check (hourly) and the Stripe sync (daily at 09:00 UTC). They run on the same quarter-hour blocks (never more often than every 15 minutes), and a quarter hour with nothing to do is one query and no writes, so Neon can scale to zero in between. Check the compute's autosuspend delay in Neon: with a 5-minute delay the database still wakes for each quarter-hour check, so a shorter delay saves more when nobody is working.
 
 ## 2. Add storage (Vercel → Storage)
 
@@ -45,7 +45,7 @@ In the CRM, Settings → Email domains. Removing a domain or inbox here deletes 
 
 1. **Add a domain** (with "Receive email on this domain" on). Add the DNS records it shows (SPF, DKIM, and the MX record for receiving) at your DNS host, then **Verify**. Until a domain is verified, Resend only delivers to your own address. Use a subdomain (mail.acme.com) for receiving if your main domain's mail already goes to Google Workspace or Microsoft 365, since receiving needs the MX record.
 2. **Add inboxes** on that domain, like sales@ or hello@. Their mail shows in Email → Inbox and on the matching records.
-3. **Connect webhook** under Live updates, so new mail shows up within seconds and sent emails show whether they were delivered or bounced. (Without it, the cron syncs inboxes hourly and checks delivery hourly.) Open and click tracking are off by default, for deliverability; leave them off in Resend too. To use them, set `email.trackOpens` / `email.trackClicks` in `NEXT_PUBLIC_APP_CONFIG` (see [THEMING.md](THEMING.md)), turn the same tracking on for the domain in Resend, redeploy, and reconnect the webhook.
+3. **Connect webhook** under Live updates, so new mail shows up within seconds and sent emails show whether they were delivered or bounced. (Without it, the cron syncs inboxes every 15 minutes and checks delivery hourly.) Open and click tracking are off by default, for deliverability; leave them off in Resend too. To use them, set `email.trackOpens` / `email.trackClicks` in `NEXT_PUBLIC_APP_CONFIG` (see [THEMING.md](THEMING.md)), turn the same tracking on for the domain in Resend, redeploy, and reconnect the webhook.
 
 ## 5. Deploy and set up
 
