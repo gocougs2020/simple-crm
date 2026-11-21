@@ -67,15 +67,26 @@ export function ChatView({ latest, hasMore, version }: { latest: ChatMessage[]; 
     if (since.current.from !== latest) since.current = { from: latest, version };
     let busy = false;
     let again = false;
+    let ended = false;
+    let retry = 0;
     const pull = async () => {
+      if (ended) return;
       if (busy) return void (again = true);
       busy = true;
       try {
         const from = since.current.from;
         const r = await loadChatChanges(since.current.version);
-        if (!r.ok || since.current.from !== from) return;
+        if (since.current.from !== from) return;
+        // The chat counts as caught up only once its changes are here: a failed read tries again shortly,
+        // and a backlog bigger than one read keeps reading.
+        if (!r.ok) {
+          window.clearTimeout(retry);
+          retry = window.setTimeout(() => void pull(), 5_000);
+          return;
+        }
         since.current.version = r.data.version;
         adoptVersions({ chat: r.data.version });
+        if (r.data.more) again = true;
         if (!r.data.changes.length) return;
         setChanged((c) => {
           const map = new Map(c.from === from ? c.map : []);
@@ -94,7 +105,11 @@ export function ChatView({ latest, hasMore, version }: { latest: ChatMessage[]; 
       if ((e as CustomEvent<{ scopes: string[] }>).detail?.scopes.includes("chat")) void pull();
     };
     window.addEventListener(MOVED_EVENT, onMoved);
-    return () => window.removeEventListener(MOVED_EVENT, onMoved);
+    return () => {
+      ended = true;
+      window.clearTimeout(retry);
+      window.removeEventListener(MOVED_EVENT, onMoved);
+    };
   }, [latest, version]);
 
   // Stay at the bottom as messages arrive, unless the viewer scrolled up to read.
