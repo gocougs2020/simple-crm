@@ -319,6 +319,8 @@ export async function syncInbox(inboxId: string, opts: { limit?: number; ourAddr
           messageCount: inboxThreads.messageCount,
           lastMessageAt: inboxThreads.lastMessageAt,
           id: inboxThreads.id,
+          folder: inboxThreads.folder,
+          read: inboxThreads.read,
           // Qualified by hand: with no joins Drizzle would render a bare "id", which the subquery reads as m.id.
           unfinished: sql<boolean>`exists (select 1 from inbox_messages m where m.thread_id = "inbox_threads"."id" and m.activity_id is null)`,
         })
@@ -329,7 +331,8 @@ export async function syncInbox(inboxId: string, opts: { limit?: number; ourAddr
   for (const t of res.data) {
     const l = local.find((x) => x.resendThreadId === t.id);
     if (l && !l.unfinished && l.messageCount === t.email_count && l.lastMessageAt && l.lastMessageAt.getTime() >= new Date(t.received_at).getTime()) {
-      await db.update(inboxThreads).set({ folder: t.folder, read: t.read }).where(eq(inboxThreads.id, l.id));
+      // Written only when Resend's folder or read flag differs, so a sync with nothing new writes nothing.
+      if (l.folder !== t.folder || l.read !== t.read) await db.update(inboxThreads).set({ folder: t.folder, read: t.read, updatedAt: new Date() }).where(eq(inboxThreads.id, l.id));
       continue;
     }
     await syncThread(inboxId, t.id, ours);

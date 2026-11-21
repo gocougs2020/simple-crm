@@ -6,9 +6,10 @@ import { siteOrigin } from "@/lib/origin";
 export const maxDuration = 300;
 
 /**
- * Vercel Cron, on the quarter hour (with the inbox sync, so Neon can scale to
- * zero between runs): sends scheduled campaigns that are due and resumes
- * interrupted ones. Scheduled times are rounded to the quarter hour to match.
+ * Sends scheduled campaigns that are due and resumes interrupted ones. The
+ * cron dispatcher (/api/cron/tick) runs this on the quarter hour when a
+ * campaign is due; scheduled times are rounded to the quarter hour to match.
+ * Also callable by hand.
  */
 export async function GET(request: Request) {
   if (!cronAuthorized(request)) return new NextResponse("Unauthorized", { status: 401 });

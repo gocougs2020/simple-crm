@@ -179,18 +179,31 @@ export type MailboxSyncResult = { imported: number; private: number; withheld: n
  * Each one is screened first: it goes on the record for the team, is kept
  * private to the teammate, or isn't stored. Safe to run as often as you like.
  */
-export async function syncMailbox(account: ConnectedAccount): Promise<MailboxSyncResult> {
+/**
+ * What every mailbox's sync needs to know about the team: the teammates, every
+ * connected mailbox's address and the workspace's name. The same for every
+ * mailbox in a run, so the cron reads it once (`syncMailbox`'s `shared`).
+ */
+export async function mailboxSyncContext() {
+  const db = await getDb();
+  const [users, connected, ws] = await Promise.all([
+    db.select({ email: schema.users.email, name: schema.users.name }).from(schema.users),
+    db.select({ email: schema.connectedAccounts.email }).from(schema.connectedAccounts),
+    getWorkspace(),
+  ]);
+  return { users, mailboxes: connected.map((m) => m.email.toLowerCase()), workspaceName: ws.name };
+}
+
+export async function syncMailbox(account: ConnectedAccount, shared?: Awaited<ReturnType<typeof mailboxSyncContext>>): Promise<MailboxSyncResult> {
   const db = await getDb();
   const result: MailboxSyncResult = { imported: 0, private: 0, withheld: 0 };
-  const users = await db.select({ email: schema.users.email, name: schema.users.name }).from(schema.users);
   // Every teammate's sign-in address and every connected mailbox's address: someone's Outlook address can differ from the email they sign in with.
-  const mailboxes = (await db.select({ email: schema.connectedAccounts.email }).from(schema.connectedAccounts)).map((m) => m.email.toLowerCase());
+  const { users, mailboxes, workspaceName } = shared ?? (await mailboxSyncContext());
   const team = new Set([...users.map((u) => u.email.toLowerCase()), ...mailboxes, account.email.toLowerCase()]);
   // Everyone at our own domains is on our side too, with or without a login here.
   const domains = internalDomains([...mailboxes, account.email], appConfig.microsoft.internalDomains);
   // For the screen: who's on our side, so mail between teammates (one of them also in the CRM as a person) is recognized.
   const ourTeam = [...new Set([...users.map((u) => `${u.name} <${u.email.toLowerCase()}>`), ...mailboxes, account.email.toLowerCase()])];
-  const workspaceName = (await getWorkspace()).name;
   const ctx: Ctx = { account, team, domains, ourTeam, workspaceName, result };
 
   const cursor: Record<string, string> = { ...account.mailCursor };

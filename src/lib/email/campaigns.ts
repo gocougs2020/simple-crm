@@ -22,7 +22,7 @@ const { people, organizations, campaigns, outboundEmails } = schema;
 /** Resend's batch endpoint takes up to 100 messages per call. */
 const BATCH_SIZE = 100;
 /** A send that hasn't progressed in this long is treated as interrupted and resumed. */
-const STALE_SEND_MS = 10 * 60_000;
+export const STALE_SEND_MS = 10 * 60_000;
 
 /** The full email HTML for a campaign body, in the brand kit's layout. Rendered on every save. */
 export async function renderCampaign(body: string, previewText: string | null) {

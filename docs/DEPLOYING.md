@@ -2,7 +2,7 @@
 
 ## 1. Create the project
 
-Import the repository in Vercel. `vercel.json` sets the build command (`pnpm db:migrate && pnpm build`), so migrations run before every build, and adds the campaign, inbox, email-status, notifications and Microsoft 365 crons. They run on the same quarter-hour blocks (never more often than every 15 minutes) so Neon can scale to zero in between.
+Import the repository in Vercel. `vercel.json` sets the build command (`pnpm db:migrate && pnpm build`), so migrations run before every build, and adds three crons: the dispatcher (`/api/cron/tick`, every quarter hour), which asks the database what's due in one query and runs only those jobs (campaigns, the agent, notifications and agenda emails, the inbox sync, Microsoft 365 and a daily prune), the delivery check (hourly) and the Stripe sync (daily at 09:00 UTC). They run on the same quarter-hour blocks (never more often than every 15 minutes), and a quarter hour with nothing to do is one query and no writes, so Neon can scale to zero in between. Check the compute's autosuspend delay in Neon: with a 5-minute delay the database still wakes for each quarter-hour check, so a shorter delay saves more when nobody is working.
 
 ## 2. Add storage (Vercel → Storage)
 
