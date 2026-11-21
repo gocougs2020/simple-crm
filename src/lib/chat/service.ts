@@ -101,7 +101,7 @@ async function attachFiles<M extends Omit<ChatMessage, "files">>(page: M[]): Pro
  * ask from next time. Deleted ones come back with `deleted` so the page can
  * drop them. Lets the open chat follow along without re-rendering the page.
  */
-export async function chatChangesSince(since: string, limit = 200): Promise<{ changes: (ChatMessage & { deleted: boolean })[]; version: string }> {
+export async function chatChangesSince(since: string, limit = 200): Promise<{ changes: (ChatMessage & { deleted: boolean })[]; version: string; more: boolean }> {
   const db = await getDb();
   const from = z.string().regex(/^\d{1,19}$/).parse(since);
   const rows = await db
@@ -119,9 +119,11 @@ export async function chatChangesSince(since: string, limit = 200): Promise<{ ch
     // Integer microseconds, so the cursor is exact.
     .where(sql`${chatMessages.updatedAt} > 'epoch'::timestamptz + ${from}::bigint * interval '1 microsecond'`)
     .orderBy(asc(chatMessages.updatedAt))
-    .limit(limit);
-  const withFiles = await attachFiles(rows.map(withoutVersion));
-  return { changes: withFiles, version: rows.at(-1)?.version ?? from };
+    .limit(limit + 1);
+  const page = rows.slice(0, limit);
+  const withFiles = await attachFiles(page.map(withoutVersion));
+  // `more`: there's another page after this one; ask again from `version`.
+  return { changes: withFiles, version: page.at(-1)?.version ?? from, more: rows.length > limit };
 }
 
 const bodyInput = z.string().max(MAX_CHAT_LENGTH, `Keep messages under ${MAX_CHAT_LENGTH.toLocaleString()} characters.`);
