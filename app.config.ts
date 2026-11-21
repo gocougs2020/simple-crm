@@ -114,7 +114,11 @@ export type AppConfig = {
     chatModel: string;
     /** How hard the chat model thinks before answering. More is slower and costs more; "provider-default" leaves it to the model. */
     chatReasoning: "provider-default" | "none" | "minimal" | "low" | "medium" | "high";
-    /** Writes the snapshot at the top of client, person and organization pages, refreshed once a day. */
+    /**
+     * Writes the snapshot at the top of client, person and organization pages.
+     * Two short sentences from the record, no tools: the small model that
+     * describes files is enough, and costs far less than the chat model.
+     */
     summaryModel: string;
     summaryReasoning: "provider-default" | "none" | "minimal" | "low" | "medium" | "high";
     /** Names threads from their first messages. Small and fast is enough. */
@@ -201,6 +205,15 @@ export type AppConfig = {
     idleMinutes: number;
     /** How often (seconds) the team chat page asks while it's open, visible and in use, so messages show up quickly. 0 uses `pollSeconds`. */
     chatPollSeconds: number;
+  };
+  /** Vercel's own measurement, loaded on Vercel deployments only (locally there's nothing to report to). */
+  analytics: {
+    /** Vercel Web Analytics: page views and visitors. Each page view is an event on the Vercel plan. */
+    webAnalytics: boolean;
+    /** Vercel Speed Insights: real visitors' Core Web Vitals. Each page view sends data points on the Vercel plan. */
+    speedInsights: boolean;
+    /** The share of page views Speed Insights reports, from 0 to 1. Lower it to stay within the plan's included data points. */
+    speedInsightsSampleRate: number;
   };
   records: {
     /**
@@ -327,7 +340,7 @@ const defaults = {
     name: "Agent",
     chatModel: "openai/gpt-6.1-sol",
     chatReasoning: "medium",
-    summaryModel: "openai/gpt-6.1-sol",
+    summaryModel: "openai/gpt-6-luna",
     summaryReasoning: "low",
     titleModel: "anthropic/claude-haiku-5.5",
     fileModel: "openai/gpt-6-luna",
@@ -363,6 +376,11 @@ const defaults = {
     pollSeconds: 30,
     idleMinutes: 2,
     chatPollSeconds: 5,
+  },
+  analytics: {
+    webAnalytics: true,
+    speedInsights: true,
+    speedInsightsSampleRate: 1,
   },
   records: {
     keyContactLabel: "Decision maker",

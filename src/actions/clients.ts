@@ -1,6 +1,6 @@
 "use server";
 
-import { refresh } from "next/cache";
+import { refresh, updateTag } from "next/cache";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
@@ -11,8 +11,8 @@ import { sessionActor } from "@/lib/crm/actor";
 import { recordEvent } from "@/lib/crm/events";
 import { id, type categoryInput, type clientInput, type metricInput, type subscriptionInput } from "@/lib/crm/schemas";
 import * as svc from "@/lib/crm/service/clients";
-import { getCustomer, searchCustomers, stripeAccountLabel, stripeConfigured, StripeError } from "@/lib/stripe";
-import { refreshClientBilling, rememberCustomer, syncClient } from "@/lib/stripe/sync";
+import { getCustomer, searchCustomers, stripeAccountLabel, stripeConfigured, stripeCustomerTag, StripeError } from "@/lib/stripe";
+import { customersOfClient, refreshClientBilling, rememberCustomer, syncClient } from "@/lib/stripe/sync";
 
 const { clients } = schema;
 
@@ -187,6 +187,8 @@ export async function refreshStripe(clientId: string): Promise<Result> {
     const client = await clientRow(clientId);
     if (!stripeConfigured()) throw new ActionError("Stripe isn't connected.");
     await syncClient(client.id);
+    // The card's two-minute copy of each customer is dropped, so it reads Stripe live now.
+    for (const c of await customersOfClient(client.id)) updateTag(stripeCustomerTag(c.account, c.customerId));
     refresh();
   });
 }

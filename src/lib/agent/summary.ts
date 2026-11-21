@@ -8,11 +8,12 @@ import { getAppData } from "@/lib/crm/context";
 import { clientsOfOrganization, getClient, getOrganization, getPerson, metricsOf, peopleOf, servicesOf } from "@/lib/crm/records";
 import { formatMoney, personName } from "@/lib/format";
 import { htmlToText } from "@/lib/safe-html";
-import { billingFor, stripeAccounts, stripeConfigured } from "@/lib/stripe";
+import { stripeAccounts, stripeConfigured } from "@/lib/stripe";
+import { billingStatusLabels, type BillingStatus } from "@/lib/stripe/rules";
 import { customersOfClient } from "@/lib/stripe/sync";
 import { getWorkspace } from "@/lib/workspace";
 import { aiGateway } from "./gateway";
-import { activityLine, cleanSummary, isFresh, SUMMARY_LOCK_MS, summaryInstructions, type SummaryEntity } from "./summary-prompt";
+import { activityLine, cleanSummary, SUMMARY_LOCK_MS, summaryDue, summaryInstructions, type SummaryEntity } from "./summary-prompt";
 
 /**
  * The AI snapshot at the top of client, person and organization pages. It's
@@ -34,22 +35,36 @@ const MAX_PEOPLE = 25;
 /** `refreshing` is true only when another visitor's rewrite is still running after the wait. */
 export type Summary = { summary: string | null; summaryAt: string | null; refreshing: boolean };
 
+const plannedColumn = { client: "client_id", person: "person_id", organization: "organization_id" } as const;
+
 async function readSummary(entity: SummaryEntity, id: string) {
   const db = await getDb();
   const t = tables[entity];
-  const [row] = await db.select({ summary: t.summary, summaryAt: t.summaryAt, summaryStartedAt: t.summaryStartedAt }).from(t).where(eq(t.id, id));
+  const [row] = await db
+    .select({
+      summary: t.summary,
+      summaryAt: t.summaryAt,
+      summaryStartedAt: t.summaryStartedAt,
+      updatedAt: t.updatedAt,
+      lastActivityAt: t.lastActivityAt,
+      // Planned work on it that came due since the snapshot was written: "upcoming" became "overdue".
+      cameDue: sql<boolean>`exists (select 1 from activities a where a.${sql.raw(plannedColumn[entity])} = ${t.id} and a.completed_at is null and a.due_at is not null and a.due_at > ${t.summaryAt} and a.due_at <= now())`,
+    })
+    .from(t)
+    .where(eq(t.id, id));
   return row ?? null;
 }
 
 /**
- * The record's snapshot, rewritten first if it's missing or more than a day
- * old. If someone else is already rewriting it, waits for theirs.
+ * The record's snapshot, rewritten first when it's missing, or more than a
+ * day old with something new on the record, or a week old (`summaryDue`).
+ * If someone else is already rewriting it, waits for theirs.
  */
 export async function ensureSummary(entity: SummaryEntity, id: string): Promise<Summary> {
   const current = await readSummary(entity, id);
   if (!current) return { summary: null, summaryAt: null, refreshing: false };
   const shown = { summary: current.summary, summaryAt: current.summaryAt?.toISOString() ?? null };
-  if (current.summary && isFresh(current.summaryAt)) return { ...shown, refreshing: false };
+  if (!summaryDue(current)) return { ...shown, refreshing: false };
 
   // Claim the rewrite: only one visitor at a time pays for it. A claim older than SUMMARY_LOCK_MS was abandoned.
   const db = await getDb();
@@ -162,7 +177,7 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
       for (const m of metrics) latest.set(m.label, m);
       sections.push(["## Performance (latest)", ...[...latest.values()].map((m) => `${m.label}: ${m.value} (${d(m.period)})`)].join("\n"));
     }
-    sections.push(await billingSection(await customersOfClient(id), d));
+    sections.push(await billingSection(await customersOfClient(id), d, client));
     const peopleIds = [...new Set([client.personId, ...accountPeople.map((p) => p.id)].filter((x): x is string => !!x))].slice(0, MAX_PEOPLE);
     if (accountPeople.length) sections.push(["## People at the account", ...accountPeople.slice(0, MAX_PEOPLE).map((p) => `${personName(p)}${p.title ? `, ${p.title}` : ""}`)].join("\n"));
     scope = or(eq(a.clientId, id), peopleIds.length ? inArray(a.personId, peopleIds) : undefined, client.organizationId ? eq(a.organizationId, client.organizationId) : undefined);
@@ -270,28 +285,45 @@ async function activitySection(scope: SQL | undefined, d: (x: Date | null) => st
   ].join("\n");
 }
 
-/** What Stripe says, briefly: subscriptions, unpaid invoices, failed payments. A Stripe outage leaves it out rather than failing the summary. */
-async function billingSection(customers: { account: string; customerId: string }[], d: (x: Date | null) => string | null) {
+/**
+ * What Stripe says, briefly, from the daily copy (stripe_customers,
+ * stripe_subscriptions) and the client's rolled-up billing columns, never a
+ * live call: subscriptions, what's owed and overdue, delinquency. A summary is
+ * two sentences; the billing card on the page reads Stripe live for detail.
+ */
+async function billingSection(customers: { account: string; customerId: string }[], d: (x: Date | null) => string | null, client?: { stripeStatus: BillingStatus | null; stripeMrr: number | null; stripeOwed: number | null; stripeCollected: number | null; currency?: string | null }) {
   if (!stripeConfigured()) return "";
   const lines: string[] = [];
-  const several = stripeAccounts().length > 1;
-  for (const { account, customerId } of customers.slice(0, 4)) {
-    try {
-      const b = await billingFor(account, customerId);
-      if (several || customers.length > 1) lines.push(`Customer ${b.customer.name ?? b.customer.email ?? customerId}${several ? ` (${b.accountLabel})` : ""}:`);
-      const cur = (n: number, c: string) => formatMoney(n, c.toUpperCase());
-      if (b.customer.delinquent) lines.push("Stripe marks this customer as delinquent (a payment failed).");
-      if (b.customer.balance) lines.push(`Account balance: ${cur(b.customer.balance, b.customer.currency ?? "usd")}`);
-      for (const s of b.subscriptions.filter((s) => s.status !== "incomplete_expired").slice(0, 5)) {
-        const items = s.items.map((i) => `${i.name}${i.price.unit_amount ? ` ${cur(i.price.unit_amount * (i.quantity ?? 1), i.price.currency)}/${i.price.recurring?.interval ?? "once"}` : ""}`).join(", ");
-        const end = s.periodEnd ? d(new Date(s.periodEnd * 1000)) : null;
-        lines.push(`Subscription ${s.status}: ${items}${s.cancel_at_period_end && end ? `, cancels ${end}` : end && s.status === "active" ? `, renews ${end}` : ""}`);
+  const cur = (n: number, c: string | null | undefined) => formatMoney(n, (c ?? client?.currency ?? "usd").toUpperCase());
+  if (client?.stripeStatus) {
+    const parts = [`Billing: ${billingStatusLabels[client.stripeStatus].toLowerCase()}`];
+    if (client.stripeMrr) parts.push(`${cur(client.stripeMrr, null)}/mo`);
+    if (client.stripeOwed) parts.push(`${cur(client.stripeOwed, null)} owed`);
+    if (client.stripeCollected) parts.push(`${cur(client.stripeCollected, null)} collected in the last year`);
+    lines.push(parts.join(", "));
+  }
+  const picked = customers.slice(0, 4);
+  if (picked.length) {
+    const db = await getDb();
+    const sc = schema.stripeCustomers;
+    const ss = schema.stripeSubscriptions;
+    const pairs = sql.join(picked.map((c) => sql`(${c.account}, ${c.customerId})`), sql`, `);
+    const [rows, subs] = await Promise.all([
+      db.select().from(sc).where(sql`(${sc.account}, ${sc.customerId}) in (${pairs})`),
+      db.select().from(ss).where(and(sql`(${ss.account}, ${ss.customerId}) in (${pairs})`, isNull(ss.endedAt))),
+    ]);
+    const several = stripeAccounts().length > 1 || rows.length > 1;
+    for (const c of rows) {
+      if (several) lines.push(`Customer ${c.name ?? c.email ?? c.customerId}${stripeAccounts().length > 1 ? ` (${c.account})` : ""}:`);
+      if (c.delinquent) lines.push("Stripe marks this customer as delinquent (a payment failed).");
+      if (c.balance) lines.push(`Account balance: ${cur(c.balance, c.currency)}`);
+      for (const s of subs.filter((x) => x.account === c.account && x.customerId === c.customerId && x.status !== "incomplete_expired").slice(0, 5)) {
+        const items = s.items.map((i) => i.name).join(", ");
+        const end = s.periodEnd ? d(s.periodEnd) : null;
+        lines.push(`Subscription ${s.status}: ${items}${s.net ? `, ${cur(s.net, s.currency)}/mo` : ""}${s.cancelAtPeriodEnd && end ? `, cancels ${end}` : end && s.status === "active" ? `, renews ${end}` : ""}`);
       }
-      for (const i of b.invoices.filter((i) => i.status === "open").slice(0, 5)) lines.push(`Unpaid invoice ${i.number ?? ""}: ${cur(i.amount_remaining, i.currency)}${i.overdue ? ", overdue" : ""}${i.due_date ? `, due ${d(new Date(i.due_date * 1000))}` : ""}`);
-      const failed = b.charges.find((c) => c.status === "failed");
-      if (failed) lines.push(`Last failed payment: ${cur(failed.amount, failed.currency)} on ${d(new Date(failed.created * 1000))}${failed.failure_message ? ` (${failed.failure_message})` : ""}`);
-    } catch (err) {
-      console.warn("[summary] stripe", (err as Error).message);
+      if (c.owed) lines.push(`Unpaid invoices: ${cur(c.owed, c.currency)}${c.overdue ? `, ${c.overdue} overdue` : ""}`);
+      if (c.lastPaidAt) lines.push(`Last paid ${d(c.lastPaidAt)}`);
     }
   }
   return lines.length ? ["## Billing (Stripe)", ...lines].join("\n") : "";
