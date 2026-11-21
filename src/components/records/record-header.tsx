@@ -41,7 +41,7 @@ export function RecordHeader({ entity, id, title, sub, avatar, actions, archived
         </div>
         {/* On a phone the title keeps its row (with the menu) and the actions go underneath. */}
         <div className="contents sm:flex sm:flex-wrap sm:items-center sm:gap-2">
-          {actions ? <div className="order-last flex w-full flex-wrap items-center gap-2 sm:order-none sm:w-auto">{actions}</div> : null}
+          {actions ? <div className="order-last flex w-full flex-wrap items-center gap-2 empty:hidden sm:order-none sm:w-auto">{actions}</div> : null}
           <Menu>
             <MenuTrigger asChild>
               <Button variant="outline" size="icon" aria-label="More actions">
