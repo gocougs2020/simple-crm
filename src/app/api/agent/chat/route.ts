@@ -9,7 +9,7 @@ import { assistantActor } from "@/lib/agent/actor";
 import { aiGateway } from "@/lib/agent/gateway";
 import { agentError, agentRequest, readJson } from "@/lib/agent/http";
 import { withAttachments } from "@/lib/agent/attachments";
-import { MAX_STORED_CHARS, mergeIncoming } from "@/lib/agent/messages";
+import { historyForModel, MAX_STORED_CHARS, mergeIncoming } from "@/lib/agent/messages";
 import { agentInstructions } from "@/lib/agent/prompt";
 import { activeSkills } from "@/lib/agent/skills";
 import { featureInstructions } from "@/lib/api/features";
@@ -54,7 +54,8 @@ export async function POST(request: Request) {
   const merged = mergeIncoming(thread.messages, input.message);
   if (!merged.ok) return agentError(400, merged.error);
 
-  const [actor, workspace, origin, skills] = await Promise.all([assistantActor(user), getWorkspace(), siteOrigin(), activeSkills(user.id)]);
+  // Everything the turn needs that doesn't depend on each other, at once.
+  const [actor, workspace, origin, skills, labels] = await Promise.all([assistantActor(user), getWorkspace(), siteOrigin(), activeSkills(user.id), listLabels()]);
   const tools = agentTools(actor, { origin, agent: true, threadId: thread.id });
 
   let messages: UIMessage[];
@@ -85,18 +86,24 @@ export async function POST(request: Request) {
       now: new Date(),
       page: input.page,
       knowledge: featureInstructions(),
-      labels: labelsSection(await listLabels()),
+      labels: labelsSection(labels),
       skills,
       background: aiFeatures().background && can(actor, "records:write"),
     }),
     // Attached files reach the model as text after the message they came with.
-    messages: await convertToModelMessages(withAttachments(messages as AgentMessage[]) as UIMessage[], { tools, ignoreIncompleteToolCalls: true }),
+    // The model gets a lighter copy: older tool results stubbed and the oldest turns left out past a size (historyForModel). Storage keeps everything.
+    messages: await convertToModelMessages(historyForModel(withAttachments(messages as AgentMessage[])) as UIMessage[], { tools, ignoreIncompleteToolCalls: true }),
     tools,
     // Archive and delete wait for the teammate's button press.
     toolApproval: ({ toolCall }) => (needsConfirmation(toolCall.toolName) ? { type: "user-approval", reason: confirmReason(toolCall.toolName) } : undefined),
     stopWhen: isStepCount(12),
     // Reasoning tokens count toward this, so it leaves room for thinking as well as the answer.
     maxOutputTokens: 16_000,
+    // Prompt caching through AI Gateway (`caching` in @ai-sdk/gateway's GatewayProviderOptions): the instructions and tools
+    // are the same every step and every turn (the time and the page come last, src/lib/agent/prompt.ts), so they're read from cache.
+    providerOptions: { gateway: { caching: "auto" } },
+    onFinish: ({ totalUsage: u }) =>
+      console.info("[agent] usage", { input: u.inputTokens, cached: u.inputTokenDetails?.cacheReadTokens, uncached: u.inputTokenDetails?.noCacheTokens, cacheWrite: u.inputTokenDetails?.cacheWriteTokens, output: u.outputTokens }),
     onError: ({ error }) => console.error("[agent] chat", error),
   });
 

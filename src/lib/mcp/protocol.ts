@@ -45,6 +45,46 @@ type ToolOp = Operation & { id: OperationId; tool: string };
 
 export const toolOperations = operationList.filter((o): o is ToolOp => !!o.tool);
 
+type Js = Record<string, unknown>;
+const isJs = (v: unknown): v is Js => !!v && typeof v === "object" && !Array.isArray(v);
+const words = (s: string) =>
+  s
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w && !["the", "a", "an", "its", "their", "this", "record", "records", "s"].includes(w));
+
+/**
+ * A schema as tools send it to a model, smaller and saying the same thing:
+ * - no `maxLength` (the server checks every length and says what's too long);
+ * - "a string or null" as `type: ["string", "null"]` instead of a two-branch `anyOf`;
+ * - no description that only repeats the property's name ("The record's id." on `id`).
+ * The REST docs and OpenAPI are built from the operations directly and keep every detail.
+ */
+export function modelSchema(schema: unknown, name?: string): unknown {
+  if (Array.isArray(schema)) return schema.map((x) => modelSchema(x));
+  if (!isJs(schema)) return schema;
+  let out: Js = {};
+  for (const [k, v] of Object.entries(schema)) {
+    if (k === "maxLength") continue;
+    if (k === "properties" && isJs(v)) out.properties = Object.fromEntries(Object.entries(v).map(([p, ps]) => [p, modelSchema(ps, p)]));
+    else out[k] = modelSchema(v);
+  }
+  const branches = out.anyOf;
+  if (Array.isArray(branches) && branches.length === 2) {
+    const nul = branches.findIndex((b) => isJs(b) && b.type === "null" && Object.keys(b).length === 1);
+    const other = branches[1 - nul];
+    if (nul >= 0 && isJs(other) && typeof other.type === "string" && !("anyOf" in other)) {
+      const { anyOf: _anyOf, ...rest } = out;
+      void _anyOf;
+      out = { ...rest, ...other, type: [other.type, "null"], ...(Array.isArray(other.enum) ? { enum: [...other.enum, null] } : {}) };
+    }
+  }
+  if (name && typeof out.description === "string" && words(out.description).join(" ") === words(name).join(" ")) delete out.description;
+  return out;
+}
+
 /** Each tool takes one object: the operation's path parameters, query parameters and body fields together. */
 export function toolInputSchema(op: Pick<Operation, "params" | "query" | "body">) {
   const properties: Record<string, unknown> = {};
@@ -52,7 +92,7 @@ export function toolInputSchema(op: Pick<Operation, "params" | "query" | "body">
   for (const part of [op.params, op.query, op.body]) {
     if (!part) continue;
     const js = jsonSchema(part) as { properties?: Record<string, unknown>; required?: string[] };
-    Object.assign(properties, js.properties ?? {});
+    for (const [k, v] of Object.entries(js.properties ?? {})) properties[k] = modelSchema(v, k);
     for (const r of js.required ?? []) required.add(r);
   }
   return { type: "object", properties, ...(required.size ? { required: [...required] } : {}), additionalProperties: false };
@@ -64,7 +104,18 @@ export function splitArguments(op: Pick<Operation, "params" | "query" | "body">,
   return { params: pick(op.params), query: pick(op.query), body: pick(op.body) };
 }
 
+const toolCache = new Map<string, Tool>();
+
+/** A tool's definition from its operation. Built once per operation and kept: the schema never changes while the server runs. */
 export function toolFor(op: ToolOp): Tool {
+  const cached = toolCache.get(op.tool);
+  if (cached) return cached;
+  const built = buildTool(op);
+  toolCache.set(op.tool, built);
+  return built;
+}
+
+function buildTool(op: ToolOp): Tool {
   const description = op.toolDescription ?? [op.summary + ".", op.description].filter(Boolean).join(" ");
   return {
     name: op.tool,

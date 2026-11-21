@@ -7,6 +7,7 @@ import type { HandlerContext } from "@/lib/api/handlers";
 import { operations } from "@/lib/api/operations";
 import { can, type Actor } from "@/lib/crm/actor";
 import { splitArguments, toolFor } from "@/lib/mcp/protocol";
+import { toolArguments, toolResult } from "@/lib/api/tool-results";
 import { allowedOperations, capResult } from "./policy";
 
 export { needsConfirmation } from "./policy";
@@ -42,7 +43,8 @@ export async function runTool(actor: Actor, name: string, args: Record<string, u
   const op = allowedTools(actor, opts).find((o) => o.tool === name);
   if (!op) return { error: `There's no tool called ${name} you can use.` };
   try {
-    return capResult(await executeOperation(actor, op.id, splitArguments(operations[op.id], args), ctx));
+    // Tools default to smaller lists and leave out HTML bodies that have a plain-text copy (src/lib/api/tool-results.ts).
+    return capResult(toolResult(await executeOperation(actor, op.id, splitArguments(operations[op.id], toolArguments(operations[op.id], args)), ctx)));
   } catch (err) {
     const e = toApiError(err);
     if (!e) console.error(`[agent] ${name}`, err);

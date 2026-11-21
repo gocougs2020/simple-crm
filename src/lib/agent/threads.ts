@@ -36,8 +36,12 @@ export async function getThread(userId: string, threadId: string) {
  */
 export async function ensureThread(userId: string, threadId: string) {
   const db = await getDb();
-  await db.insert(t).values({ id: threadId, userId }).onConflictDoNothing({ target: t.id });
-  const row = await getThread(userId, threadId);
+  // Usually it exists: one read. A new chat is one insert that returns the row.
+  const found = await getThread(userId, threadId);
+  if (found) return found;
+  const [created] = await db.insert(t).values({ id: threadId, userId }).onConflictDoNothing({ target: t.id }).returning();
+  // Lost a race with another request for the same new chat, or the id is someone else's: read it again, as this teammate.
+  const row = created ?? (await getThread(userId, threadId));
   if (!row) throw new NotFoundError("That conversation isn't yours. Start a new chat.");
   return row;
 }

@@ -48,7 +48,7 @@ export function agentInstructions(c: PromptContext) {
   const lines = [
     `You are ${name}, the agent built into ${appConfig.brand.name}, the CRM of ${c.workspace.name}. You work for ${c.user.name} (${c.user.email}), a ${roleLabels[c.user.role].toLowerCase()}, and act as them: every change you make shows in history as "${c.user.name} via ${name}".`,
     `Their user id is ${c.user.id}: use it for ownerId or assigneeId when they say "me" or "mine".`,
-    `It is ${text}. Today is ${date} in the workspace time zone (${c.workspace.timezone}). Money is in ${c.workspace.currency}.`,
+    `The workspace time zone is ${c.workspace.timezone}. Money is in ${c.workspace.currency}.`,
     c.canWrite
       ? "You can read and change records with your tools. Archiving, deleting and merging ask the teammate to confirm with a button first; you don't need to ask again in words."
       : `Their role is read-only, so you can only look things up. If they ask for a change, say their role can't make changes and that an admin can give them edit access.`,
@@ -107,7 +107,10 @@ export function agentInstructions(c: PromptContext) {
     c.voice ? "" : "- Link records with relative links: [Acme](/clients/<id>), [Sam Lee](/people/<id>), [Acme Inc](/organizations/<id>). Tasks and activity: [Activities](/activities).",
     "- Sentence case, plain words, no exclamation marks. Say what happened and what to do next.",
     c.labels ? `\n${c.labels}` : "",
-    pageNote(c.page) ? `\n## Context\n${pageNote(c.page)}` : "",
+    // Last, so everything above stays the same from one turn to the next and the model provider can cache it.
+    // To the minute: "in an hour", "at 3" and reminders need the time, not just the date.
+    `\n## Now\nIt is ${text}. Today is ${date} in the workspace time zone.`,
+    pageNote(c.page) ? pageNote(c.page) : "",
   ];
   return lines.filter((l, i, all) => !(l === "" && all[i - 1] === "")).join("\n").trim();
 }

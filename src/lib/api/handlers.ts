@@ -10,7 +10,6 @@ import * as activities from "@/lib/crm/service/activities";
 import * as clients from "@/lib/crm/service/clients";
 import * as drafts from "@/lib/crm/service/drafts";
 import * as fileService from "@/lib/crm/service/files";
-import { getAppData } from "@/lib/crm/context";
 import { fileDetails, listFolders, recordsFor } from "@/lib/crm/files";
 import { readStoredBytes } from "@/lib/file-bytes";
 import { describeKind } from "@/lib/file-describe-rules";
@@ -390,9 +389,11 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
 
 // ─── Files ───────────────────────────────────────────────────────────────
 
+/** What a file's API shape needs besides the file: every folder (for its path) and teammates' names (for the uploader). Two small reads, not the whole app context. */
 async function fileContext(ctx: HandlerContext) {
-  const [folders, data] = await Promise.all([listFolders(), getAppData()]);
-  return { origin: ctx.origin, folders, team: data.team };
+  const db = await getDb();
+  const [folders, team] = await Promise.all([listFolders(), db.select({ id: schema.users.id, name: schema.users.name }).from(schema.users)]);
+  return { origin: ctx.origin, folders, team };
 }
 
 const toFolder = (all: Awaited<ReturnType<typeof listFolders>>) => (f: Awaited<ReturnType<typeof listFolders>>[number]) => ({ id: f.id, name: f.name, parentId: f.parentId, path: folderLabel(all, f.id), files: f.files });
