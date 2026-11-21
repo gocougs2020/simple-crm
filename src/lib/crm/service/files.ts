@@ -6,7 +6,7 @@ import { getDb, schema } from "@/db";
 import type { EntityType } from "@/lib/constants";
 import { actorUserId, assertCan, can, stamp, type Actor } from "@/lib/crm/actor";
 import { uploadLinks } from "@/lib/crm/activities";
-import { recordEvent, touch } from "@/lib/crm/events";
+import { recordEvents, touch } from "@/lib/crm/events";
 import { fileRow, onAnyRecord, recordsFor } from "@/lib/crm/files";
 import { ActionError, ForbiddenError, NotFoundError } from "@/lib/errors";
 import { cleanFileName, fileProblem } from "@/lib/files";
@@ -81,8 +81,10 @@ export async function setFileRecords(a: Actor, fileId: string, wanted: FileRecor
       .values(added.map((r) => ({ fileId: f.id, [ownColumn[r.entity]]: r.id, createdBy: actorUserId(a) })))
       .onConflictDoNothing();
   }
-  for (const r of added) await recordEvent({ entityType: r.entity, entityId: r.id, action: "file_attached", data: { name: f.name, fileId: f.id }, ...by });
-  for (const r of removed) await recordEvent({ entityType: r.entity, entityId: r.id, action: "file_detached", data: { name: f.name, fileId: f.id }, ...by });
+  await recordEvents([
+    ...added.map((r) => ({ entityType: r.entity, entityId: r.id, action: "file_attached", data: { name: f.name, fileId: f.id }, ...by })),
+    ...removed.map((r) => ({ entityType: r.entity, entityId: r.id, action: "file_detached", data: { name: f.name, fileId: f.id }, ...by })),
+  ]);
   return { added: added.length, removed: removed.length };
 }
 
@@ -164,9 +166,7 @@ export async function setFileVisibility(a: Actor, fileId: string, visibility: "i
     .set({ publicToken: token, publicAt: isPublic ? new Date() : null })
     .where(eq(files.id, f.id));
   const records = (await recordsFor([f.id])).get(f.id) ?? [];
-  for (const r of records) {
-    await recordEvent({ entityType: r.entity, entityId: r.id, action: isPublic ? "file_shared" : "file_unshared", data: { name: f.name, fileId: f.id }, ...stamp(a) });
-  }
+  await recordEvents(records.map((r) => ({ entityType: r.entity, entityId: r.id, action: isPublic ? "file_shared" : "file_unshared", data: { name: f.name, fileId: f.id }, ...stamp(a) })));
   return { token };
 }
 
@@ -180,7 +180,7 @@ export async function deleteFile(a: Actor, fileId: string) {
   const records = (await recordsFor([f.id])).get(f.id) ?? [];
   await db.update(files).set({ deletedAt: new Date(), publicToken: null }).where(eq(files.id, f.id));
   await removeStoredBytes([f.url]);
-  for (const r of records) await recordEvent({ entityType: r.entity, entityId: r.id, action: "file_deleted", data: { name: f.name }, ...stamp(a) });
+  await recordEvents(records.map((r) => ({ entityType: r.entity, entityId: r.id, action: "file_deleted", data: { name: f.name }, ...stamp(a) })));
 }
 
 /** Deletes the bytes behind removed files from Vercel Blob, unless a file still in the CRM uses them. Local development files stay on disk. */
@@ -463,6 +463,6 @@ export async function deleteFolder(a: Actor, folderId: string, choice: z.input<t
   // Folders inside go with it (parent_id cascades).
   await db.delete(fileFolders).where(eq(fileFolders.id, folder.id));
   await removeStoredBytes(inside.map((f) => f.url));
-  for (const f of inside) for (const r of records.get(f.id) ?? []) await recordEvent({ entityType: r.entity, entityId: r.id, action: "file_deleted", data: { name: f.name }, ...stamp(a) });
+  await recordEvents(inside.flatMap((f) => (records.get(f.id) ?? []).map((r) => ({ entityType: r.entity, entityId: r.id, action: "file_deleted", data: { name: f.name }, ...stamp(a) }))));
   return { parentId: folder.parentId, deletedFiles: inside.length };
 }

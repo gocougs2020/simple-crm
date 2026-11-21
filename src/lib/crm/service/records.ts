@@ -6,7 +6,8 @@ import type { EntityType } from "@/lib/constants";
 import { actorUserId, assertCan, stamp, type Actor } from "@/lib/crm/actor";
 import { cleanCustomValues } from "@/lib/crm/custom-fields";
 import { appConfig } from "@/app.config";
-import { diff, labelRelations, recordEvent } from "@/lib/crm/events";
+import { diff, eventRow, labelRelations, recordEvent, recordEvents } from "@/lib/crm/events";
+import { writeBatch } from "@/db/batch";
 import { withCustomChanges } from "@/lib/crm/inputs";
 import { ensureLabels } from "@/lib/crm/labels";
 import { distinct, emailKey, phoneKey } from "@/lib/crm/merge";
@@ -141,10 +142,14 @@ export async function updateOrganization(a: Actor, orgId: string, patch: Partial
   const parentId = data.parentId !== undefined ? data.parentId : before.parentId;
   await assertParentRules({ id: before.id, name: data.name ?? before.name, isParent, parentId }, { isParent: isParent !== before.isParent, parentId: parentId !== before.parentId });
   const custom = data.custom ? { ...before.custom, ...(await cleanCustomValues("organization", data.custom)) } : undefined;
-  await db.update(organizations).set({ ...data, custom, updatedAt: new Date() }).where(eq(organizations.id, before.id));
+  // What changed is worked out first (it only reads), so the update and its history entry go together: one round trip, one transaction.
+  const [related, customChanges] = await Promise.all([labelRelations(diff(before, { ...data, custom: undefined }, orgLabels)), withCustomChanges("organization", before.custom, custom)]);
+  const changes = [...related, ...customChanges];
+  await writeBatch((d) => [
+    d.update(organizations).set({ ...data, custom, updatedAt: new Date() }).where(eq(organizations.id, before.id)),
+    ...(changes.length ? [d.insert(schema.events).values(eventRow({ entityType: "organization", entityId: before.id, action: "updated", data: { changes }, ...stamp(a) }))] : []),
+  ]);
   await ensureLabels(data.tags);
-  const changes = [...(await labelRelations(diff(before, { ...data, custom: undefined }, orgLabels))), ...(await withCustomChanges("organization", before.custom, custom))];
-  if (changes.length) await recordEvent({ entityType: "organization", entityId: before.id, action: "updated", data: { changes }, ...stamp(a) });
   if (data.ownerId !== undefined) recordAssigned(a, { entity: "organization", id: before.id, name: data.name ?? before.name, ownerId: data.ownerId, previousOwnerId: before.ownerId });
   return { id: before.id };
 }
@@ -223,16 +228,20 @@ export async function updatePerson(a: Actor, personId: string, patch: Partial<z.
   const custom = data.custom ? { ...before.custom, ...(await cleanCustomValues("person", data.custom)) } : undefined;
   // A new address gets a fresh start after a bounce.
   const newAddress = data.email !== undefined && (data.email ?? null)?.toLowerCase() !== before.email?.toLowerCase();
-  await db
-    .update(people)
-    .set({ ...data, ...consentColumns(textConsent, before.textConsentAt), custom, ...(newAddress ? { emailBouncedAt: null } : {}), updatedAt: new Date() })
-    .where(eq(people.id, before.id));
+  // What changed is worked out first (it only reads), so the update and its history entry go together: one round trip, one transaction.
+  const [related, customChanges] = await Promise.all([
+    labelRelations(diff({ ...before, textConsent: !!before.textConsentAt }, { ...data, ...(textConsent !== undefined ? { textConsent } : {}), custom: undefined }, personLabels)),
+    withCustomChanges("person", before.custom, custom),
+  ]);
+  const changes = [...related, ...customChanges];
+  await writeBatch((d) => [
+    d
+      .update(people)
+      .set({ ...data, ...consentColumns(textConsent, before.textConsentAt), custom, ...(newAddress ? { emailBouncedAt: null } : {}), updatedAt: new Date() })
+      .where(eq(people.id, before.id)),
+    ...(changes.length ? [d.insert(schema.events).values(eventRow({ entityType: "person", entityId: before.id, action: "updated", data: { changes }, ...stamp(a) }))] : []),
+  ]);
   await ensureLabels(data.tags);
-  const changes = [
-    ...(await labelRelations(diff({ ...before, textConsent: !!before.textConsentAt }, { ...data, ...(textConsent !== undefined ? { textConsent } : {}), custom: undefined }, personLabels))),
-    ...(await withCustomChanges("person", before.custom, custom)),
-  ];
-  if (changes.length) await recordEvent({ entityType: "person", entityId: before.id, action: "updated", data: { changes }, ...stamp(a) });
   if (data.ownerId !== undefined) recordAssigned(a, { entity: "person", id: before.id, name: [data.firstName ?? before.firstName, data.lastName ?? before.lastName].filter(Boolean).join(" ") || "a contact", ownerId: data.ownerId, previousOwnerId: before.ownerId });
   // New numbers, main or other: conversations with them that nobody had move onto this person.
   const had = new Set([before.phone, ...before.otherPhones].map((p) => matchKey(p)));
@@ -255,7 +264,7 @@ export async function setArchived(a: Actor, entity: EntityType, ids: string[], a
     .set({ archivedAt: archived ? new Date() : null, updatedAt: new Date() })
     .where(inArray(table.id, list))
     .returning({ id: table.id });
-  for (const r of rows) await recordEvent({ entityType: entity, entityId: r.id, action: archived ? "archived" : "restored", ...stamp(a) });
+  await recordEvents(rows.map((r) => ({ entityType: entity, entityId: r.id, action: archived ? "archived" : "restored", ...stamp(a) })));
   return { count: rows.length, ids: rows.map((r) => r.id) };
 }
 
@@ -275,7 +284,7 @@ async function addLabelsWhere(a: Actor, entity: EntityType, where: SQL, names: s
     .set({ tags: sql`(select coalesce(jsonb_agg(x order by ord), '[]'::jsonb) from (select x, min(ord) as ord from jsonb_array_elements_text(${table.tags} || ${JSON.stringify(names)}::jsonb) with ordinality t(x, ord) group by x) u)`, updatedAt: new Date() })
     .where(inArray(table.id, ids));
   await ensureLabels(names);
-  for (const b of changed) await recordEvent({ entityType: entity, entityId: b.id, action: "updated", data: { changes: [{ field: "tags", label: "Labels", from: b.tags, to: b.next }] }, ...stamp(a) });
+  await recordEvents(changed.map((b) => ({ entityType: entity, entityId: b.id, action: "updated", data: { changes: [{ field: "tags", label: "Labels", from: b.tags, to: b.next }] }, ...stamp(a) })));
   return { count: before.length, changed: changed.length };
 }
 

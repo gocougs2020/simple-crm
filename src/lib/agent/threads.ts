@@ -59,6 +59,25 @@ export async function saveMessages(userId: string, threadId: string, messages: A
     .where(and(eq(t.id, threadId), eq(t.userId, userId)));
 }
 
+/**
+ * Adds one new message from the teammate to the end of the stored thread
+ * before the answer streams, so it's kept even if the answer never finishes.
+ * Sends only that message, not the whole thread (which the end of the turn
+ * rewrites anyway). `isFirst`: it's the thread's first message, which names it.
+ */
+export async function appendMessage(userId: string, threadId: string, message: AgentMessage, opts: { isFirst: boolean }) {
+  const db = await getDb();
+  await db
+    .update(t)
+    .set({
+      messages: sql`${t.messages} || ${JSON.stringify([message])}::jsonb`,
+      updatedAt: new Date(),
+      lastMessageAt: new Date(),
+      ...(opts.isFirst ? { title: sql`case when ${t.titleByHand} or ${t.title} <> ${DEFAULT_TITLE} then ${t.title} else ${fallbackTitle(messageText(message))} end` } : {}),
+    })
+    .where(and(eq(t.id, threadId), eq(t.userId, userId)));
+}
+
 export async function renameThread(userId: string, threadId: string, title: string) {
   const db = await getDb();
   const [row] = await db

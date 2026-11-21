@@ -9,12 +9,12 @@ import { assistantActor } from "@/lib/agent/actor";
 import { aiGateway } from "@/lib/agent/gateway";
 import { agentError, agentRequest, readJson } from "@/lib/agent/http";
 import { withAttachments } from "@/lib/agent/attachments";
-import { mergeIncoming } from "@/lib/agent/messages";
+import { MAX_STORED_CHARS, mergeIncoming } from "@/lib/agent/messages";
 import { agentInstructions } from "@/lib/agent/prompt";
 import { activeSkills } from "@/lib/agent/skills";
 import { featureInstructions } from "@/lib/api/features";
 import { aiFeatures, aiOffMessage } from "@/lib/agent/config";
-import { autoTitle, ensureThread, saveMessages } from "@/lib/agent/threads";
+import { appendMessage, autoTitle, ensureThread, saveMessages } from "@/lib/agent/threads";
 import { confirmReason } from "@/lib/agent/policy";
 import { agentTools, needsConfirmation } from "@/lib/agent/tools";
 import { can } from "@/lib/crm/actor";
@@ -65,7 +65,15 @@ export async function POST(request: Request) {
     console.warn("[agent] stored messages don't validate; answering from text only", err);
     messages = (merged.messages as UIMessage[]).map((m) => ({ ...m, parts: m.parts.filter((p) => p.type === "text") })).filter((m) => m.parts.length);
   }
-  if (merged.submitted) await saveMessages(user.id, thread.id, messages as AgentMessage[], { touched: true });
+  // The teammate's message is stored before the answer streams, so it's kept if the answer never finishes.
+  // A new message is appended on its own; an edit to an earlier one rewrites the thread.
+  if (merged.submitted) {
+    const added = merged.messages.length === thread.messages.length + 1 && merged.messages.at(-2) === thread.messages.at(-1);
+    // Only while the thread stays under the storage cap; past it, the rewrite trims the oldest turns.
+    const fits = added && JSON.stringify(messages).length <= MAX_STORED_CHARS;
+    if (fits) await appendMessage(user.id, thread.id, messages.at(-1) as AgentMessage, { isFirst: !thread.messages.some((m) => m.role === "user") });
+    else await saveMessages(user.id, thread.id, messages as AgentMessage[], { touched: true });
+  }
 
   const result = streamText({
     model: aiGateway(appConfig.agent.chatModel),

@@ -6,7 +6,8 @@ import { getDb, schema } from "@/db";
 import { clientCategoryLabels, type ClientCategory } from "@/lib/constants";
 import { actorUserId, assertCan, stamp, type Actor } from "@/lib/crm/actor";
 import { cleanCustomValues } from "@/lib/crm/custom-fields";
-import { diff, labelRelations, recordEvent } from "@/lib/crm/events";
+import { diff, eventRow, labelRelations, recordEvent } from "@/lib/crm/events";
+import { writeBatch } from "@/db/batch";
 import { withCustomChanges, workspaceToday } from "@/lib/crm/inputs";
 import { ensureLabels } from "@/lib/crm/labels";
 import { categoryInput, clientCreateInput, clientInput, id, metricInput, subscriptionInput } from "@/lib/crm/schemas";
@@ -132,21 +133,23 @@ export async function updateClient(a: Actor, clientId: string, patch: Partial<z.
   assertCan(a, "records:write");
   const data = clientInput.partial().parse(patch);
   await Promise.all([assertUser(data.ownerId, "owner"), assertPerson(data.personId), assertOrganization(data.organizationId)]);
-  const db = await getDb();
   const before = await getClientRow(clientId);
   const custom = data.custom ? { ...before.custom, ...(await cleanCustomValues("client", data.custom)) } : undefined;
-  await db
-    .update(clients)
-    .set({ ...data, custom, updatedAt: new Date() })
-    .where(eq(clients.id, before.id));
-  if (data.personId !== undefined && data.personId !== before.personId) {
+  // What changed is worked out first (it only reads), so the update, the People card and the history entry go together: one round trip, one transaction.
+  const [related, customChanges] = await Promise.all([labelRelations(diff(before, { ...data, custom: undefined }, clientLabels)), withCustomChanges("client", before.custom, custom)]);
+  const changes = [...related, ...customChanges];
+  const newContact = data.personId !== undefined && data.personId !== before.personId;
+  await writeBatch((d) => [
+    d
+      .update(clients)
+      .set({ ...data, custom, updatedAt: new Date() })
+      .where(eq(clients.id, before.id)),
     // A new contact doesn't take the old one off the client: they stay on its People card. The new one no longer needs a row of their own.
-    if (before.personId) await db.insert(clientPeople).values({ clientId: before.id, personId: before.personId }).onConflictDoNothing();
-    if (data.personId) await db.delete(clientPeople).where(and(eq(clientPeople.clientId, before.id), eq(clientPeople.personId, data.personId)));
-  }
+    ...(newContact && before.personId ? [d.insert(clientPeople).values({ clientId: before.id, personId: before.personId }).onConflictDoNothing()] : []),
+    ...(newContact && data.personId ? [d.delete(clientPeople).where(and(eq(clientPeople.clientId, before.id), eq(clientPeople.personId, data.personId)))] : []),
+    ...(changes.length ? [d.insert(schema.events).values(eventRow({ entityType: "client", entityId: before.id, action: "updated", data: { changes }, ...stamp(a) }))] : []),
+  ]);
   await ensureLabels(data.tags);
-  const changes = [...(await labelRelations(diff(before, { ...data, custom: undefined }, clientLabels))), ...(await withCustomChanges("client", before.custom, custom))];
-  if (changes.length) await recordEvent({ entityType: "client", entityId: before.id, action: "updated", data: { changes }, ...stamp(a) });
   if (data.ownerId !== undefined) recordAssigned(a, { entity: "client", id: before.id, name: data.name ?? before.name, ownerId: data.ownerId, previousOwnerId: before.ownerId });
   return { id: before.id };
 }
