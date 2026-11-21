@@ -4,10 +4,12 @@ import clsx from "clsx";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { ArrowUpIcon, PaperClipIcon, PencilSquareIcon, TrashIcon, XMarkIcon } from "@heroicons/react/20/solid";
 import { ChatBubbleOvalLeftEllipsisIcon } from "@heroicons/react/24/outline";
-import { deleteChatMessage, editChatMessage, loadEarlierChat, markChatRead, postChatMessage } from "@/actions/chat";
+import { deleteChatMessage, editChatMessage, loadChatChanges, loadEarlierChat, markChatRead, postChatMessage } from "@/actions/chat";
 import { useApp } from "@/components/app-context";
 import { FileIcon } from "@/components/files/files-panel";
 import { uploadFile } from "@/components/files/upload";
+import { adoptVersions, MOVED_EVENT } from "@/components/live-updates";
+import { setBadges } from "@/components/shell/badge-store";
 import { PageHeader } from "@/components/shell/app-shell";
 import { Avatar } from "@/components/ui/avatar";
 import { Button, Spinner } from "@/components/ui/button";
@@ -22,14 +24,21 @@ import { dayKey, formatBytes, formatDay, formatFull, formatTime } from "@/lib/fo
 /** Messages from the same person this close together read as one block. */
 const GROUP_MS = 5 * 60_000;
 
+/** Fetch what changed in the chat now (after posting, editing or deleting here). */
+const pullChat = () => window.dispatchEvent(new CustomEvent(MOVED_EVENT, { detail: { scopes: ["chat"] } }));
+
 /**
- * The team chat: one thread for the whole company. New messages arrive on
- * their own (src/components/live-updates.tsx asks often while this page is
- * open); scrolling to the top loads earlier ones.
+ * The team chat: one thread for the whole company. New, edited and deleted
+ * messages arrive on their own: src/components/live-updates.tsx asks often
+ * while this page is open, and when the chat moved this fetches only what
+ * changed since `version` (no page refresh). Scrolling to the top loads earlier ones.
  */
-export function ChatView({ latest, hasMore }: { latest: ChatMessage[]; hasMore: boolean }) {
+export function ChatView({ latest, hasMore, version }: { latest: ChatMessage[]; hasMore: boolean; version: string }) {
   const { team, viewer } = useApp();
   const [older, setOlder] = useState<ChatMessage[]>([]);
+  // What changed since the page rendered: a message by id, or null once deleted.
+  const [changed, setChanged] = useState<{ from: ChatMessage[]; map: Map<string, ChatMessage | null> }>({ from: latest, map: new Map() });
+  const since = useRef({ from: latest, version });
   const [moreBefore, setMoreBefore] = useState(hasMore);
   const [loadingOlder, startOlder] = useTransition();
   const [highlight, setHighlight] = useState<string | null>(null);
@@ -40,10 +49,68 @@ export function ChatView({ latest, hasMore }: { latest: ChatMessage[]; hasMore: 
   const messages = useMemo(() => {
     const byId = new Map<string, ChatMessage>();
     for (const m of [...older, ...latest]) byId.set(m.id, m);
-    // A message deleted since an older page loaded drops out with the next refresh only if it's in `latest`; older pages keep what they had.
+    // Changes fetched since this render: edits and deletes to what's shown, and new messages.
+    if (changed.from === latest) {
+      const earliest = byId.size ? Math.min(...[...byId.values()].map((m) => new Date(m.createdAt).getTime())) : -Infinity;
+      for (const [id, m] of changed.map) {
+        if (!m) byId.delete(id);
+        // An edit to a message further back than what's loaded stays there until it's scrolled to.
+        else if (byId.has(id) || new Date(m.createdAt).getTime() >= earliest) byId.set(id, m);
+      }
+    }
     return [...byId.values()].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  }, [older, latest]);
+  }, [older, latest, changed]);
   const newest = messages.at(-1)?.id;
+
+  // When the chat moved (someone posted, edited or deleted), fetch only what changed.
+  useEffect(() => {
+    if (since.current.from !== latest) since.current = { from: latest, version };
+    let busy = false;
+    let again = false;
+    let ended = false;
+    let retry = 0;
+    const pull = async () => {
+      if (ended) return;
+      if (busy) return void (again = true);
+      busy = true;
+      try {
+        const from = since.current.from;
+        const r = await loadChatChanges(since.current.version);
+        if (since.current.from !== from) return;
+        // The chat counts as caught up only once its changes are here: a failed read tries again shortly,
+        // and a backlog bigger than one read keeps reading.
+        if (!r.ok) {
+          window.clearTimeout(retry);
+          retry = window.setTimeout(() => void pull(), 5_000);
+          return;
+        }
+        since.current.version = r.data.version;
+        adoptVersions({ chat: r.data.version });
+        if (r.data.more) again = true;
+        if (!r.data.changes.length) return;
+        setChanged((c) => {
+          const map = new Map(c.from === from ? c.map : []);
+          for (const m of r.data.changes) map.set(m.id, m.deleted ? null : { id: m.id, userId: m.userId, body: m.body, mentions: m.mentions, createdAt: m.createdAt, editedAt: m.editedAt, files: m.files });
+          return { from, map };
+        });
+      } finally {
+        busy = false;
+        if (again) {
+          again = false;
+          void pull();
+        }
+      }
+    };
+    const onMoved = (e: Event) => {
+      if ((e as CustomEvent<{ scopes: string[] }>).detail?.scopes.includes("chat")) void pull();
+    };
+    window.addEventListener(MOVED_EVENT, onMoved);
+    return () => {
+      ended = true;
+      window.clearTimeout(retry);
+      window.removeEventListener(MOVED_EVENT, onMoved);
+    };
+  }, [latest, version]);
 
   // Stay at the bottom as messages arrive, unless the viewer scrolled up to read.
   useLayoutEffect(() => {
@@ -68,7 +135,11 @@ export function ChatView({ latest, hasMore }: { latest: ChatMessage[]; hasMore: 
 
   // Seen it: clear the sidebar count when a new message shows while the tab is in view.
   useEffect(() => {
-    const mark = () => document.visibilityState === "visible" && void markChatRead();
+    const mark = () => {
+      if (document.visibilityState !== "visible") return;
+      // The sidebar's count clears from the badges this returns, without re-rendering the page.
+      void markChatRead().then((r) => r.ok && setBadges(r.data));
+    };
     mark();
     document.addEventListener("visibilitychange", mark);
     return () => document.removeEventListener("visibilitychange", mark);
@@ -216,6 +287,7 @@ function Message({ message: m, grouped, team, mine, mentionsMe, highlight }: { m
                 const r = await editChatMessage(m.id, body);
                 if (!r.ok) return void toast.error(r.error);
                 setEditing(false);
+                pullChat();
               })
             }
           />
@@ -284,6 +356,7 @@ function Message({ message: m, grouped, team, mine, mentionsMe, highlight }: { m
               start(async () => {
                 const r = await deleteChatMessage(m.id);
                 if (!r.ok) toast.error(r.error);
+                else pullChat();
               });
             }}
             className={clsx("p-1.5 text-faint hover:bg-sunken hover:text-error", mine ? "rounded-r-md" : "rounded-md")}
@@ -357,6 +430,7 @@ function Composer({ onPosted }: { onPosted: () => void }) {
       setBody("");
       setAttached([]);
       onPosted();
+      pullChat();
     });
   };
 

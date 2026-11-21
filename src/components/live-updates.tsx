@@ -3,10 +3,14 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useTransition } from "react";
 import { appConfig } from "@/app.config";
-import { liveCheckDue } from "@/lib/live-rules";
+import { latestVersions, liveAction, liveCheckDue, movedScopes, type LiveScope, type LiveVersions } from "@/lib/live-rules";
+import { refreshBadges } from "./shell/badge-store";
 import { watchArrivals } from "./live-highlight";
 
 const CHANGED_EVENT = "crm:changed";
+/** Sent with the scopes that moved, for parts of a page that fetch their own updates (the team chat). */
+export const MOVED_EVENT = "crm:moved";
+const VERSIONS_EVENT = "crm:versions";
 
 /**
  * Something on this page may be out of date (the agent just changed a
@@ -18,23 +22,45 @@ export function checkForChanges() {
 }
 
 /**
+ * Versions read elsewhere (the task panel's list): treated like a check's
+ * answer, so what moved refreshes, without asking /api/live again.
+ */
+export function noteVersions(versions: LiveVersions) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(VERSIONS_EVENT, { detail: { versions, adopt: false } }));
+}
+
+/**
+ * This page already shows everything up to these versions (it just fetched
+ * the newest chat messages itself, say): take them as seen, without refreshing.
+ */
+export function adoptVersions(versions: Partial<LiveVersions>) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(VERSIONS_EVENT, { detail: { versions, adopt: true } }));
+}
+
+/**
  * Keeps open pages current without a reload. It asks /api/live for the
- * newest change's version and calls router.refresh() when it moved, which
- * re-renders the page and the sidebar counts on the server while keeping
- * whatever is typed or open in the browser. It asks:
+ * newest change in each scope (records, chat, mail; src/lib/live-rules.ts)
+ * and refreshes only what shows a scope that moved: the page, with
+ * router.refresh(), when it shows it, otherwise just the sidebar's badges.
+ * It asks:
  * - right away when checkForChanges() is called (after the agent acts),
  * - when the tab comes back into view or the window regains focus,
  * - every `live.pollSeconds` while the tab is visible and someone clicked or
  *   typed in the last `live.idleMinutes`; a tab left open overnight stops,
  *   so the database can sleep. The team chat asks every `live.chatPollSeconds`
  *   instead, so messages show up quickly.
+ *
+ * `versions` comes from the app layout on every render, including the one a
+ * teammate's own action triggers with refresh(): what's rendered is taken as
+ * seen, so the next check doesn't refresh a second time for their own change.
  * What a refresh adds or changes on the page glows for a moment (live-highlight.ts),
  * so the agent's work is seen as it lands.
  */
-export function LiveUpdates() {
+export function LiveUpdates({ versions }: { versions: LiveVersions }) {
   const router = useRouter();
   const pathname = usePathname();
-  const state = useRef({ version: null as string | null, lastCheck: 0, lastActive: 0, inFlight: false, again: false });
+  const state = useRef({ seen: versions, lastCheck: 0, lastActive: 0, inFlight: false, again: false });
+  const pathRef = useRef(pathname);
   const { pollSeconds: everyPage, chatPollSeconds } = appConfig.live;
   const pollRef = useRef(everyPage);
   // While a refresh is on its way, what it changes in the page is highlighted.
@@ -43,7 +69,12 @@ export function LiveUpdates() {
   const stopWatching = useRef<(() => void) | null>(null);
   useEffect(() => {
     refreshRef.current = startRefresh;
+    pathRef.current = pathname;
   });
+  // A render of the layout: what it shows is seen.
+  useEffect(() => {
+    state.current.seen = latestVersions(state.current.seen, versions);
+  }, [versions]);
   useEffect(() => {
     if (refreshing) {
       const main = document.getElementById("main");
@@ -70,6 +101,19 @@ export function LiveUpdates() {
     const s = state.current;
     const { idleMinutes } = appConfig.live;
     s.lastActive = Date.now();
+    // The layout just rendered with the newest versions: the first check is one interval from now.
+    s.lastCheck = Date.now();
+
+    /** What a check found: refresh the page if it shows what moved, else only the badges. */
+    const apply = (now: LiveVersions) => {
+      const moved: LiveScope[] = movedScopes(s.seen, now);
+      s.seen = latestVersions(s.seen, now);
+      if (!moved.length) return;
+      window.dispatchEvent(new CustomEvent(MOVED_EVENT, { detail: { scopes: moved, versions: now } }));
+      const action = liveAction(moved, pathRef.current);
+      if (action === "refresh") refreshRef.current(() => router.refresh());
+      else if (action === "badges") void refreshBadges();
+    };
 
     const check = async () => {
       if (s.inFlight) {
@@ -81,11 +125,8 @@ export function LiveUpdates() {
       try {
         const res = await fetch("/api/live", { cache: "no-store" });
         if (!res.ok) return;
-        const { v } = (await res.json()) as { v?: string };
-        if (typeof v !== "string") return;
-        const before = s.version;
-        s.version = v;
-        if (before !== null && before !== v) refreshRef.current(() => router.refresh());
+        const { versions: now } = (await res.json()) as { versions?: LiveVersions };
+        if (now && typeof now === "object") apply(now);
       } catch {
         // Offline or a deploy in progress: the next check catches up.
       } finally {
@@ -102,13 +143,17 @@ export function LiveUpdates() {
     };
     // A check already under way may have read the version before the change: it runs once more when done.
     const onChanged = () => void check();
+    const onVersions = (e: Event) => {
+      const { versions: v, adopt } = (e as CustomEvent<{ versions: LiveVersions; adopt: boolean }>).detail;
+      if (adopt) s.seen = latestVersions(s.seen, v);
+      else apply(latestVersions(s.seen, v));
+    };
     const active = () => {
       const wasIdle = Date.now() - s.lastActive > idleMinutes * 60_000;
       s.lastActive = Date.now();
       if (wasIdle) soon();
     };
 
-    void check();
     const timer =
       everyPage > 0 || chatPollSeconds > 0
         ? window.setInterval(() => {
@@ -120,6 +165,7 @@ export function LiveUpdates() {
     document.addEventListener("visibilitychange", soon);
     window.addEventListener("focus", soon);
     window.addEventListener(CHANGED_EVENT, onChanged);
+    window.addEventListener(VERSIONS_EVENT, onVersions);
     window.addEventListener("pointerdown", active, { passive: true });
     window.addEventListener("keydown", active);
     return () => {
@@ -127,6 +173,7 @@ export function LiveUpdates() {
       document.removeEventListener("visibilitychange", soon);
       window.removeEventListener("focus", soon);
       window.removeEventListener(CHANGED_EVENT, onChanged);
+      window.removeEventListener(VERSIONS_EVENT, onVersions);
       window.removeEventListener("pointerdown", active);
       window.removeEventListener("keydown", active);
     };

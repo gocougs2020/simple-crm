@@ -7,6 +7,8 @@ import { unreadFor } from "@/lib/conversations/read-state";
 import { dayBounds } from "@/lib/crm/activities";
 import { emailConfigured } from "@/lib/email";
 import { phoneConfigured } from "@/lib/twilio/config";
+import { viewerTimeZone } from "@/lib/viewer-time-zone";
+import { getWorkspace } from "@/lib/workspace";
 
 /** The sidebar's badges: what's due, unread email and texts, and team chat since the teammate last had it open. */
 export type SidebarCounts = {
@@ -54,4 +56,11 @@ const countsFor = cache(async (userId: string, tz: string, chatSince: string, em
  */
 export function sidebarCounts(user: Pick<User, "id" | "chatReadAt" | "createdAt">, tz: string) {
   return countsFor(user.id, tz, (user.chatReadAt ?? user.createdAt).toISOString(), emailConfigured(), phoneConfigured());
+}
+
+/** The badges on their own, for refreshing them without re-rendering the page (/api/live/badges, marking the chat read). */
+export async function badgesFor(user: Pick<User, "id" | "chatReadAt" | "createdAt">) {
+  // The browser's zone is almost always known (TimeZoneSync); the workspace's is read only when it isn't.
+  const tz = (await viewerTimeZone("")) || (await getWorkspace()).timezone;
+  return sidebarCounts(user, tz);
 }

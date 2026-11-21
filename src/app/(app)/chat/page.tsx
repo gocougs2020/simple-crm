@@ -15,6 +15,6 @@ export default function ChatPage() {
 }
 
 async function Chat() {
-  const { messages, hasMore } = await listChat();
-  return <ChatView latest={messages} hasMore={hasMore} />;
+  const { messages, hasMore, version } = await listChat();
+  return <ChatView latest={messages} hasMore={hasMore} version={version} />;
 }

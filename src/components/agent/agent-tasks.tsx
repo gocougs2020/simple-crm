@@ -6,12 +6,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowPathIcon, CheckCircleIcon, ChevronDownIcon, ClockIcon, ExclamationTriangleIcon, NoSymbolIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { cancelAgentBatch, cancelAgentTask, clearAgentTasks, listAgentTasks, type AgentTask } from "@/actions/agent";
 import { appConfig } from "@/app.config";
-import { checkForChanges } from "@/components/live-updates";
+import { noteVersions } from "@/components/live-updates";
 import { agentRunActive, agentRunStatusLabels, type AgentRunStatus } from "@/lib/constants";
 import { Markdown } from "./agent-message";
 
-/** How often the list is read again while something is still going. */
+/** How often the list is read again while something is still going: often in a task's first minute, then less. */
 const POLL_MS = 4_000;
+const SLOW_POLL_MS = 12_000;
+const FAST_FOR_MS = 60_000;
 
 /** "an hour", "30 minutes": how long a finished task stays listed. */
 function keepLabel() {
@@ -123,13 +125,14 @@ export function AgentTasks({ open, threadId, refreshKey, onAnswer, onNavigate }:
     // With the panel open the teammate can see what finished, which starts the time it stays listed.
     const res = await listAgentTasks(openRef.current);
     if (!res.ok) return;
-    const list = res.data;
+    const list = res.data.tasks;
     // Something that was going has finished: the page behind the panel may have changed, and its answer may be in this chat.
     const finished = list.filter((t) => !agentRunActive(t.status) && wasActive.current.has(t.id));
     wasActive.current = new Set(list.filter((t) => agentRunActive(t.status)).map((t) => t.id));
     setTasks(list);
     // While a task is going, the page behind the panel follows what it changes; when one finishes it catches up once more.
-    if (finished.length || wasActive.current.size) checkForChanges();
+    // The versions came with the list: what moved refreshes, without asking /api/live as well.
+    if (finished.length || wasActive.current.size) noteVersions(res.data.versions);
     if (finished.length) {
       if (finished.some((t) => t.threadId === threadRef.current)) answerRef.current();
     }
@@ -140,14 +143,34 @@ export function AgentTasks({ open, threadId, refreshKey, onAnswer, onNavigate }:
   }, [open, refreshKey, load]);
 
   // Work that's going is followed with the panel closed too, so the page shows its changes as they land.
-  const active = tasks.filter((t) => agentRunActive(t.status)).length;
+  const going = tasks.filter((t) => agentRunActive(t.status));
+  const active = going.length;
+  // Newest start among what's going: polling slows once even that one has run a minute.
+  const newestStart = Math.max(0, ...going.map((t) => new Date(t.createdAt).getTime()));
   useEffect(() => {
     if (!active) return;
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
-    }, POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [active, load]);
+    let timer = 0;
+    // Set on cleanup, so a read still under way then doesn't start the loop again.
+    let stopped = false;
+    const next = () => {
+      if (stopped) return;
+      const fast = Date.now() - newestStart < FAST_FOR_MS;
+      timer = window.setTimeout(async () => {
+        try {
+          if (document.visibilityState === "visible") await load();
+        } catch {
+          // Offline or a deploy in progress: the next round asks again.
+        } finally {
+          next();
+        }
+      }, fast ? POLL_MS : SLOW_POLL_MS);
+    };
+    next();
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, [active, newestStart, load]);
 
   // A finished task leaves the list on its own when its time comes. The time is already here, so this asks the server nothing.
   useEffect(() => {

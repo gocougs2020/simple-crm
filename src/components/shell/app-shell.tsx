@@ -34,6 +34,7 @@ import { CommandPalette, openPalette } from "./command-palette";
 import { CreateDialogs } from "./create-dialogs";
 import { openCreate } from "./create-store";
 import type { SidebarCounts } from "@/lib/sidebar-counts";
+import { setBadges, useBadgeOverride } from "./badge-store";
 
 type Badge = { n: number; label: string; tone?: "error" };
 type NavItem = { href: string; label: string; icon: ComponentType<{ className?: string }>; badge?: (c: SidebarCounts) => Badge };
@@ -48,6 +49,8 @@ export function AppShell({ counts, children }: { counts: Promise<SidebarCounts>;
   const [drawer, setDrawer] = useState(false);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- close the mobile drawer after navigating
   useEffect(() => setDrawer(false), [pathname]);
+  // A render brings new counts: they replace any fetched on their own since.
+  useEffect(() => setBadges(null), [counts]);
   // The text editor loads on demand; fetch it once the page is idle, so it's there before anyone opens a composer.
   useEffect(() => preloadRichTextWhenIdle(), []);
 
@@ -202,7 +205,9 @@ export function AppShell({ counts, children }: { counts: Promise<SidebarCounts>;
 }
 
 function NavBadge({ counts, pick }: { counts: Promise<SidebarCounts>; pick: (c: SidebarCounts) => Badge }) {
-  const b = pick(use(counts));
+  // Counts fetched on their own (badge-store.ts) are newer than the render's until the next render.
+  const fetched = useBadgeOverride();
+  const b = pick(fetched ?? use(counts));
   if (!b.n) return null;
   return (
     <span

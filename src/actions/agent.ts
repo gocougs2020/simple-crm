@@ -1,5 +1,7 @@
 "use server";
 
+import { liveVersions } from "@/lib/live";
+import { noVersions, type LiveVersions } from "@/lib/live-rules";
 import { z } from "zod";
 import type { AgentMessage } from "@/db/schema";
 import { run, type Result } from "@/lib/action";
@@ -120,11 +122,16 @@ const toTask = (r: Run): AgentTask => ({
  * The signed-in teammate's background tasks, newest first: what the agent is working on for them and
  * what it finished lately. `seen` says the panel is open, which starts the hour a finished task stays listed.
  */
-export async function listAgentTasks(seen = false): Promise<Result<AgentTask[]>> {
+/**
+ * The panel's tasks, with the live versions read alongside (src/lib/live.ts),
+ * so following a task's progress doesn't need its own /api/live request.
+ */
+export async function listAgentTasks(seen = false): Promise<Result<{ tasks: AgentTask[]; versions: LiveVersions }>> {
   return run(async () => {
     const user = await actionUser();
-    if (!aiFeatures().background) return [];
-    return (await listPanelRuns(sessionActor(user), { seen: seen === true })).map(toTask);
+    if (!aiFeatures().background) return { tasks: [], versions: noVersions };
+    const [runs, versions] = await Promise.all([listPanelRuns(sessionActor(user), { seen: seen === true }), liveVersions()]);
+    return { tasks: runs.map(toTask), versions };
   });
 }
 
