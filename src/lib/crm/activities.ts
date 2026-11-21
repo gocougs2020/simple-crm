@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, getTableColumns, gte, inArray, isNotNull, isNull, lt, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gte, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { interactionTypes, monthlyPriceSql, type ActivityType, type EntityType } from "@/lib/constants";
 import { ActionError } from "@/lib/auth";
@@ -179,16 +179,17 @@ export async function timelinePage(entity: EntityType, id: string, viewerId: str
   const filter = o.filter ?? "all";
   const want = (o.limit ?? timelinePageSize) + (o.skip ?? 0);
   const n = want + 1;
-  const before = o.before ? new Date(o.before) : null;
+  // The cursor is an ISO time, to the millisecond; Postgres keeps microseconds. Everything in that millisecond comes again (and `skip` counts what's shown), so nothing in it is lost.
+  const before = o.before ? new Date(new Date(o.before).getTime() + 1) : null;
   const own = entity === "person" ? files.personId : entity === "organization" ? files.organizationId : files.clientId;
   const types = filter === "tasks" ? eq(activities.type, "task") : filter === "conversations" ? inArray(activities.type, conversationTypes) : undefined;
   const [done, history, attached, privateMail] = await Promise.all([
-    activityRows(and(recordOn(entity, id), isPast, eq(activities.pinned, false), types, before ? lte(activityAt, before) : undefined), { order: [desc(activityAt), desc(activities.id)], limit: n }),
+    activityRows(and(recordOn(entity, id), isPast, eq(activities.pinned, false), types, before ? lt(activityAt, before) : undefined), { order: [desc(activityAt), desc(activities.id)], limit: n }),
     filter === "all"
       ? db
           .select()
           .from(events)
-          .where(and(eq(events.entityType, entity), eq(events.entityId, id), before ? lte(events.createdAt, before) : undefined))
+          .where(and(eq(events.entityType, entity), eq(events.entityId, id), before ? lt(events.createdAt, before) : undefined))
           .orderBy(desc(events.createdAt))
           .limit(n)
       : [],
@@ -198,7 +199,7 @@ export async function timelinePage(entity: EntityType, id: string, viewerId: str
           .select({ id: files.id, name: files.name, size: files.size, contentType: files.contentType, uploadedBy: files.uploadedBy, createdAt: files.createdAt, activityId: files.activityId, activityType: activities.type, publicToken: files.publicToken })
           .from(files)
           .leftJoin(activities, eq(activities.id, files.activityId))
-          .where(and(inRecordView(entity, id), isNull(files.deletedAt), sql`(${files.activityId} is null or ${own} is distinct from ${id})`, before ? lte(files.createdAt, before) : undefined))
+          .where(and(inRecordView(entity, id), isNull(files.deletedAt), sql`(${files.activityId} is null or ${own} is distinct from ${id})`, before ? lt(files.createdAt, before) : undefined))
           .orderBy(desc(files.createdAt))
           .limit(n)
       : [],
