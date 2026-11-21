@@ -150,7 +150,10 @@ export function AgentTasks({ open, threadId, refreshKey, onAnswer, onNavigate }:
   useEffect(() => {
     if (!active) return;
     let timer = 0;
+    // Set on cleanup, so a read still under way then doesn't start the loop again.
+    let stopped = false;
     const next = () => {
+      if (stopped) return;
       const fast = Date.now() - newestStart < FAST_FOR_MS;
       timer = window.setTimeout(async () => {
         if (document.visibilityState === "visible") await load();
@@ -158,7 +161,10 @@ export function AgentTasks({ open, threadId, refreshKey, onAnswer, onNavigate }:
       }, fast ? POLL_MS : SLOW_POLL_MS);
     };
     next();
-    return () => window.clearTimeout(timer);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
   }, [active, newestStart, load]);
 
   // A finished task leaves the list on its own when its time comes. The time is already here, so this asks the server nothing.
