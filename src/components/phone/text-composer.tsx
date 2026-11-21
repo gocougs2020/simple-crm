@@ -38,7 +38,7 @@ export function TextComposer({ recipient, clientId, draft, onDraftSent }: { reci
             <label htmlFor="text-from" className="text-muted">
               From
             </label>
-            <Select id="text-from" value={numberId} onChange={(e) => setNumberId(e.target.value)} className="min-w-0 flex-1 [&_select]:h-8 [&_select]:text-[13px]">
+            <Select id="text-from" value={numberId} onChange={(e) => setNumberId(e.target.value)} className="min-w-0 flex-1 [&_select]:h-8 pointer-coarse:[&_select]:h-10 [&_select]:text-[13px]">
               {comms.numbers.map((n) => (
                 <option key={n.id} value={n.id}>
                   {n.label} · {formatPhone(n.number)}

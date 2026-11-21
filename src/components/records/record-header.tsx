@@ -15,8 +15,9 @@ export function RecordHeader({ entity, id, title, sub, avatar, actions, archived
   const router = useRouter();
   const label = entityLabels[entity];
   return (
-    <div className="border-b border-line px-4 pt-3 pb-4 lg:px-6">
-      <nav aria-label="Breadcrumb" className="mb-2 flex items-center gap-1 text-[12.5px] text-muted">
+    <div className="border-b border-line px-4 pt-4 pb-4 lg:px-6 lg:pt-3">
+      {/* Phones have a back button in the top bar instead. */}
+      <nav aria-label="Breadcrumb" className="mb-2 flex items-center gap-1 text-[12.5px] text-muted max-lg:hidden">
         <Link href={label.path} className="hover:text-primary">
           {label.many}
         </Link>
@@ -35,11 +36,12 @@ export function RecordHeader({ entity, id, title, sub, avatar, actions, archived
       <div className="flex flex-wrap items-center gap-3">
         {avatar}
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-page-title">{title}</h1>
+          <h1 className="line-clamp-2 text-page-title break-words sm:truncate">{title}</h1>
           {sub ? <div className="mt-0.5 text-[13px] text-muted">{sub}</div> : null}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {actions}
+        {/* On a phone the title keeps its row (with the menu) and the actions go underneath. */}
+        <div className="contents sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+          {actions ? <div className="order-last flex w-full flex-wrap items-center gap-2 empty:hidden sm:order-none sm:w-auto">{actions}</div> : null}
           <Menu>
             <MenuTrigger asChild>
               <Button variant="outline" size="icon" aria-label="More actions">

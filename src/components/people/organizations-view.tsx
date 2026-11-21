@@ -87,8 +87,16 @@ export function OrganizationsView({ rows: first, total, filter, pageSize, filter
         ),
     },
     ...(rows.some((r) => labels.shown(r.organization.tags).length) ? [{ key: "labels", label: "Labels", render: (r) => <LabelChips names={r.organization.tags} max={2} /> } satisfies Column<Row>] : []),
-    { key: "industry", label: "Industry", render: (r) => r.organization.industry ?? <span className="text-faint">—</span> },
-    { key: "people", label: "People", sort: "people", align: "right", render: (r) => <span className="tabular-nums">{r.peopleCount || "—"}</span> },
+    { key: "industry", label: "Industry", mobile: "meta", mobileRender: (r) => r.organization.industry, render: (r) => r.organization.industry ?? <span className="text-faint">—</span> },
+    {
+      key: "people",
+      label: "People",
+      sort: "people",
+      align: "right",
+      mobile: "meta",
+      mobileRender: (r) => (r.peopleCount ? `${r.peopleCount} ${r.peopleCount === 1 ? "person" : "people"}` : null),
+      render: (r) => <span className="tabular-nums">{r.peopleCount || "—"}</span>,
+    },
     { key: "clients", label: "Client", render: (r) => (r.clientCategories.length ? <span className="flex gap-1">{(["current", "prospective", "past"] as const).filter((c) => r.clientCategories.includes(c)).map((c) => <CategoryBadge key={c} category={c} />)}</span> : <span className="text-faint">—</span>) },
     { key: "next", label: "Next activity", className: "max-w-60", render: (r) => <NextActivityCell next={r.next} /> },
     { key: "owner", label: "Owner", render: (r) => <OwnerCell id={r.organization.ownerId} /> },
@@ -112,7 +120,7 @@ export function OrganizationsView({ rows: first, total, filter, pageSize, filter
         <OwnerFilter />
         <ParentFilter parentsOption />
         {pickable.length ? (
-          <Select value={listParams.get("tag") ?? ""} onChange={(e) => listParams.set({ tag: e.target.value || null })} aria-label="Label" className="w-36 [&_select]:h-8 [&_select]:text-[13px]">
+          <Select value={listParams.get("tag") ?? ""} onChange={(e) => listParams.set({ tag: e.target.value || null })} aria-label="Label" className="w-36 [&_select]:h-8 pointer-coarse:[&_select]:h-10 [&_select]:text-[13px]">
             <option value="">Any label</option>
             {pickable.map((l) => (
               <option key={l.name}>{l.name}</option>

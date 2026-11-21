@@ -173,7 +173,7 @@ export function ChatView({ latest, hasMore, version }: { latest: ChatMessage[]; 
   };
 
   return (
-    <div className="flex h-[calc(100dvh-3rem-env(safe-area-inset-top))] flex-col lg:h-dvh">
+    <div className="flex h-app flex-col">
       <PageHeader title="Team chat" sub={<p className="mt-0.5 text-[12.5px] text-muted">One conversation for everyone on the team. Type @ to mention someone.</p>} />
       <div
         ref={scroller}
@@ -436,7 +436,7 @@ function Composer({ onPosted }: { onPosted: () => void }) {
 
   return (
     <div
-      className={clsx("border-t border-line bg-background px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:px-6", over && "bg-accent-soft")}
+      className={clsx("border-t border-line bg-background px-4 pt-3 pb-3 lg:px-6 lg:pb-[max(0.75rem,env(safe-area-inset-bottom))]", over && "bg-accent-soft")}
       onDragOver={(e) => {
         if (!canEdit || !e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();

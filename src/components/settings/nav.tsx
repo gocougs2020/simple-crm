@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { appConfig } from "@/app.config";
 import { useApp } from "@/components/app-context";
 
@@ -27,8 +27,16 @@ const items = [
 export function SettingsNav() {
   const pathname = usePathname();
   const { isAdmin } = useApp();
+  const ref = useRef<HTMLElement>(null);
+  // On a phone the sections are one row that scrolls sideways: keep the open one in view.
+  useEffect(() => {
+    const nav = ref.current;
+    const current = nav?.querySelector<HTMLElement>("[aria-current=page]");
+    if (!nav || !current || nav.scrollWidth <= nav.clientWidth) return;
+    nav.scrollTo({ left: current.offsetLeft - (nav.clientWidth - current.offsetWidth) / 2, behavior: "smooth" });
+  }, [pathname]);
   return (
-    <nav aria-label="Settings" className="flex gap-1 overflow-x-auto md:flex-col [scrollbar-width:none]">
+    <nav ref={ref} aria-label="Settings" className="-mx-4 flex gap-1 overflow-x-auto px-4 md:mx-0 md:flex-col md:px-0 [scrollbar-width:none]">
       {items
         .filter((i) => isAdmin || !i.admin)
         .map((i) => (
@@ -36,7 +44,7 @@ export function SettingsNav() {
             key={i.href}
             href={i.href}
             aria-current={pathname === i.href ? "page" : undefined}
-            className={clsx("shrink-0 rounded-md px-2.5 py-1.5 text-[13.5px] font-medium", pathname === i.href ? "bg-accent-soft text-primary" : "text-secondary hover:bg-sunken hover:text-primary")}
+            className={clsx("shrink-0 rounded-md px-2.5 py-1.5 text-[13.5px] font-medium pointer-coarse:px-3 pointer-coarse:py-2", pathname === i.href ? "bg-accent-soft text-primary" : "text-secondary hover:bg-sunken hover:text-primary")}
           >
             {i.label}
           </Link>

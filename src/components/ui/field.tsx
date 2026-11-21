@@ -6,7 +6,7 @@ const control =
   "w-full rounded-md border border-line bg-surface text-[14px] text-primary shadow-sm transition-colors placeholder:text-faint hover:border-line-strong focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 aria-[invalid=true]:border-error aria-[invalid=true]:ring-error";
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...props }, ref) {
-  return <input ref={ref} className={cn(control, "h-9 px-3", className)} {...props} />;
+  return <input ref={ref} className={cn(control, "h-9 px-3 pointer-coarse:h-10", className)} {...props} />;
 });
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea({ className, ...props }, ref) {
@@ -16,7 +16,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
 export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(function Select({ className, children, ...props }, ref) {
   return (
     <div className={cn("relative", className)}>
-      <select ref={ref} className={cn(control, "h-9 appearance-none pr-8 pl-3")} {...props}>
+      <select ref={ref} className={cn(control, "h-9 appearance-none pr-8 pl-3 pointer-coarse:h-10")} {...props}>
         {children}
       </select>
       <ChevronUpDownIcon className="pointer-events-none absolute top-1/2 right-2 size-4 -translate-y-1/2 text-faint" aria-hidden />
@@ -65,7 +65,7 @@ export function Field({
 export function Checkbox({ label, className, ...props }: InputHTMLAttributes<HTMLInputElement> & { label?: ReactNode }) {
   return (
     <label className={cn("inline-flex cursor-pointer items-center gap-2 text-[14px] text-secondary select-none", className)}>
-      <input type="checkbox" className="size-4 cursor-pointer rounded-sm border-line-strong accent-[var(--accent)]" {...props} />
+      <input type="checkbox" className="size-4 cursor-pointer rounded-sm border-line-strong accent-[var(--accent)] pointer-coarse:size-5" {...props} />
       {label}
     </label>
   );

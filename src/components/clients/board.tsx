@@ -165,7 +165,7 @@ export function ClientsBoard({ rows, pipeline, category }: { rows: ClientRow[]; 
         })}
       </div>
       {activeId ? (
-        <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center gap-3 px-4">
+        <div className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--shell-bottom)+1.5rem)] z-40 flex justify-center gap-3 px-4">
           {zones.map((z) => (
             <DropZone key={z.to} id={`move:${z.to}`} label={z.label} icon={zoneIcons[z.to]} tone={z.to === "past" ? "error" : z.to === "current" ? "success" : "neutral"} />
           ))}

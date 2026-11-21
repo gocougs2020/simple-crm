@@ -209,7 +209,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
                           value={mapping[i] ?? ""}
                           onChange={(e) => setMapping((m) => m.map((x, j) => (j === i ? ((e.target.value || null) as ImportFieldKey | null) : x === e.target.value ? null : x)))}
                           aria-label={`Field for ${h}`}
-                          className="w-44 [&_select]:h-8 [&_select]:text-[13px]"
+                          className="w-44 [&_select]:h-8 pointer-coarse:[&_select]:h-10 [&_select]:text-[13px]"
                         >
                           <option value="">Don&apos;t import</option>
                           {importFields.map((f) => (

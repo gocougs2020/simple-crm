@@ -21,6 +21,7 @@ import { accountOf, GraphError } from "@/lib/microsoft/graph";
 import { sendFromMailbox } from "@/lib/microsoft/mail";
 import { htmlToText, sanitizeHtml } from "@/lib/safe-html";
 import DirectEmail from "@/emails/direct";
+import { plainEmailHtml } from "@/emails/plain";
 
 const { people, organizations, activities, outboundEmails, emailTemplates } = schema;
 
@@ -133,7 +134,8 @@ export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise
     let resendId: string | null = null;
     if (mailbox) {
       try {
-        const sent = await sendFromMailbox(mailbox, { to: plan.to, cc, bcc: data.copyMe ? [user.email] : undefined, replyTo, subject, html: await render(email), attachments: files });
+        // From their own Outlook it reads like any email they send there: no branded layout around it.
+        const sent = await sendFromMailbox(mailbox, { to: plan.to, cc, bcc: data.copyMe ? [user.email] : undefined, replyTo, subject, html: plainEmailHtml(html, signature), attachments: files });
         await db.update(outboundEmails).set({ messageId: sent.messageId }).where(eq(outboundEmails.id, outbound.id));
       } catch (err) {
         await db.delete(outboundEmails).where(eq(outboundEmails.id, outbound.id));

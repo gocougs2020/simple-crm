@@ -20,7 +20,7 @@ export function SearchBox({ placeholder }: { placeholder: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the text changes
   }, [q]);
   return (
-    <div className="relative w-full sm:w-64">
+    <div data-search className="relative w-full max-sm:order-first sm:w-64">
       {pending ? (
         <Spinner className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-faint" />
       ) : (
@@ -33,7 +33,7 @@ export function SearchBox({ placeholder }: { placeholder: string }) {
         onKeyDown={(e) => e.key === "Escape" && setQ("")}
         placeholder={placeholder}
         aria-label={placeholder}
-        className="h-8 w-full rounded-md border border-line bg-surface pr-8 pl-8 text-[13px] text-primary shadow-sm placeholder:text-faint hover:border-line-strong focus:border-ring focus:ring-1 focus:ring-ring focus:outline-none [&::-webkit-search-cancel-button]:hidden"
+        className="h-8 w-full rounded-md border border-line bg-surface pr-8 pl-8 text-[13px] pointer-coarse:h-10 text-primary shadow-sm placeholder:text-faint hover:border-line-strong focus:border-ring focus:ring-1 focus:ring-ring focus:outline-none [&::-webkit-search-cancel-button]:hidden"
       />
       {q ? (
         <button type="button" onClick={() => setQ("")} className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5 text-faint hover:text-primary" aria-label="Clear search">
@@ -49,7 +49,7 @@ export function OwnerFilter({ label = "Owner" }: { label?: string }) {
   const { team, viewer } = useApp();
   const { get, set } = useListParams();
   return (
-    <Select value={get("owner") ?? ""} onChange={(e) => set({ owner: e.target.value || null })} aria-label={label} className="w-40 [&_select]:h-8 [&_select]:text-[13px]">
+    <Select value={get("owner") ?? ""} onChange={(e) => set({ owner: e.target.value || null })} aria-label={label} className="w-40 [&_select]:h-8 pointer-coarse:[&_select]:h-10 [&_select]:text-[13px] pointer-coarse:[&_select]:h-10">
       <option value="">Everyone</option>
       <option value="me">Mine</option>
       <optgroup label="Teammates">
@@ -76,7 +76,7 @@ export function ParentFilter({ parentsOption }: { parentsOption?: boolean }) {
   const { get, set } = useListParams();
   if (!parentOrganizations.length) return null;
   return (
-    <Select value={get("parent") ?? ""} onChange={(e) => set({ parent: e.target.value || null })} aria-label="Parent organization" className="w-52 [&_select]:h-8 [&_select]:text-[13px]">
+    <Select value={get("parent") ?? ""} onChange={(e) => set({ parent: e.target.value || null })} aria-label="Parent organization" className="w-52 [&_select]:h-8 pointer-coarse:[&_select]:h-10 [&_select]:text-[13px] pointer-coarse:[&_select]:h-10">
       <option value="">Any parent organization</option>
       {parentsOption ? <option value="parents">Parent organizations only</option> : null}
       <optgroup label="Part of">
@@ -103,7 +103,7 @@ export function FilterTabs({ param, options, fallback }: { param: string; option
           role="tab"
           aria-selected={value === o.value}
           onClick={() => set({ [param]: o.value === fallback ? null : o.value })}
-          className={clsx("h-7 rounded-[5px] px-2.5 text-[12.5px] font-medium transition-colors", value === o.value ? "bg-surface text-primary shadow-sm" : "text-muted hover:text-secondary")}
+          className={clsx("h-7 rounded-[5px] px-2.5 text-[12.5px] font-medium transition-colors pointer-coarse:h-9 pointer-coarse:px-3 pointer-coarse:text-[13.5px]", value === o.value ? "bg-surface text-primary shadow-sm" : "text-muted hover:text-secondary")}
         >
           {o.label}
         </button>
@@ -113,5 +113,6 @@ export function FilterTabs({ param, options, fallback }: { param: string; option
 }
 
 export function Toolbar({ children }: { children: ReactNode }) {
-  return <div className="flex flex-wrap items-center gap-2 px-4 py-3 lg:px-6">{children}</div>;
+  // On a phone: one row that scrolls sideways, so the list starts near the top of the screen.
+  return <div className="flex items-center gap-2 px-4 py-3 max-sm:overflow-x-auto max-sm:[scrollbar-width:none] max-sm:*:shrink-0 max-sm:[&>[data-search]]:w-60 sm:flex-wrap lg:px-6">{children}</div>;
 }

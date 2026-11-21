@@ -9,7 +9,7 @@ import { openAssistant, useAssistantState } from "./agent-store";
 // The panel (chat, markdown, voice) loads the first time someone opens it, so pages don't pay for it.
 const AgentPanel = dynamic(() => import("./agent-panel").then((m) => m.AgentPanel), { ssr: false });
 
-/** The agent's button in the bottom right corner, and its panel once opened. */
+/** The agent's button in the bottom right corner (in the top bar on a phone: app-shell.tsx), and its panel once opened. */
 export function AgentLauncher({ configured }: { configured: boolean }) {
   const { open } = useAssistantState();
   const [loaded, setLoaded] = useState(false);
@@ -27,7 +27,7 @@ export function AgentLauncher({ configured }: { configured: boolean }) {
           type="button"
           onClick={() => openAssistant()}
           // Steps aside while a dialog is open, so it never covers a form's buttons.
-          className="agent-fab fixed right-[max(1.25rem,env(safe-area-inset-right))] bottom-[max(1.25rem,env(safe-area-inset-bottom))] z-30 flex size-13 items-center justify-center rounded-full bg-accent text-accent-foreground shadow-lg transition-colors hover:bg-accent-hover focus-visible:outline-offset-4"
+          className="agent-fab fixed right-[max(1.25rem,env(safe-area-inset-right))] bottom-[max(1.25rem,env(safe-area-inset-bottom))] z-30 hidden size-13 items-center justify-center rounded-full bg-accent text-accent-foreground shadow-lg transition-colors hover:bg-accent-hover focus-visible:outline-offset-4 lg:flex"
           aria-label={`Open ${appConfig.agent.name}`}
           title={appConfig.agent.name}
         >
