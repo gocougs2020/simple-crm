@@ -143,7 +143,7 @@ function OtherContacts({
   };
   const action = "rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-sunken hover:text-primary disabled:opacity-50";
   return (
-    <div className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-start gap-2 py-1.5">
+    <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-2 py-1 sm:grid-cols-[7.5rem_minmax(0,1fr)] sm:py-1.5">
       <dt className="pt-1.5 text-[12.5px] text-muted">{label}</dt>
       <dd className="min-w-0">
         {values.map((v) => (

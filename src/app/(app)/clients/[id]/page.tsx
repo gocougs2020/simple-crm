@@ -88,25 +88,30 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
         title={client.name}
         archived={!!client.archivedAt}
         sub={
-          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <CategoryBadge category={c} />
-            {c === "current" ? <HealthBadge health={client.health} /> : null}
-            {c === "prospective" ? (
-              <>
-                <span className="text-[15px] font-semibold text-primary tabular-nums">{formatMoney(client.value, client.currency)}</span>
-                {stage && client.value ? <span className="tabular-nums">· {formatMoney(Math.round((client.value * stage.probability) / 100), client.currency)} weighted</span> : null}
-              </>
-            ) : monthly ? (
-              <span className="text-[15px] font-semibold text-primary tabular-nums">
-                {formatMoney(monthly, client.currency)}/mo{c === "past" ? <span className="font-normal text-muted"> when they left</span> : null}
-              </span>
-            ) : null}
-            <span className="text-muted">
-              <CategoryDate category={c} startedOn={client.startedOn} endedOn={client.endedOn} expectedCloseDate={client.expectedCloseDate} />
+          <>
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <CategoryBadge category={c} />
+              {c === "current" ? <HealthBadge health={client.health} /> : null}
+              {c === "prospective" ? (
+                <>
+                  <span className="text-[15px] font-semibold text-primary tabular-nums">{formatMoney(client.value, client.currency)}</span>
+                  {stage && client.value ? <span className="tabular-nums">· {formatMoney(Math.round((client.value * stage.probability) / 100), client.currency)} weighted</span> : null}
+                </>
+              ) : monthly ? (
+                <span className="text-[15px] font-semibold text-primary tabular-nums">
+                  {formatMoney(monthly, client.currency)}/mo{c === "past" ? <span className="font-normal text-muted"> when they left</span> : null}
+                </span>
+              ) : null}
             </span>
-            {organization && organization.name !== client.name ? <span>· {organization.name}</span> : null}
-            {person ? <span>· {personName(person)}</span> : null}
-          </span>
+            {/* Its own line, so on a phone the dates and names wrap together instead of leaving a stray "·". */}
+            <span className="mt-1 flex flex-wrap gap-x-1.5 text-muted [&>:empty]:hidden [&>:not(:empty)~:not(:empty)]:before:mr-1.5 [&>:not(:empty)~:not(:empty)]:before:content-['·']">
+              <span>
+                <CategoryDate category={c} startedOn={client.startedOn} endedOn={client.endedOn} expectedCloseDate={client.expectedCloseDate} />
+              </span>
+              {organization && organization.name !== client.name ? <span>{organization.name}</span> : null}
+              {person ? <span>{personName(person)}</span> : null}
+            </span>
+          </>
         }
         actions={
           <span className="flex items-center gap-2">

@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { ArrowUturnLeftIcon, ArrowRightStartOnRectangleIcon, CheckBadgeIcon, ChevronDownIcon } from "@heroicons/react/20/solid";
 import { changeClientCategory, moveClient } from "@/actions/clients";
 import { useApp } from "@/components/app-context";
@@ -28,13 +28,23 @@ export function HealthBadge({ health }: { health: ClientHealth | null }) {
 
 /**
  * The client's pipeline as a row of steps. Click any stage to move there; the
- * header shows how long they've sat in the current one.
+ * header shows how long they've sat in the current one. On a phone every
+ * stage keeps its full name and the row scrolls sideways, starting at the
+ * current stage.
  */
 export function StageBar({ clientId, stageId, category, stageChangedAt }: { clientId: string; stageId: string; category: ClientCategory; stageChangedAt: Date }) {
   const { stage } = useApp();
   const current = stage(stageId);
   const [pending, start] = useTransition();
   const [optimistic, setOptimistic] = useState<string | null>(null);
+  const row = useRef<HTMLOListElement>(null);
+  // Bring the current stage into view when the row scrolls (phones); a no-op when everything fits.
+  useEffect(() => {
+    const el = row.current;
+    const step = el?.querySelector<HTMLElement>("[aria-current=step]")?.parentElement;
+    if (!el || !step || el.scrollWidth <= el.clientWidth) return;
+    el.scrollLeft = step.offsetLeft - el.offsetLeft - (el.clientWidth - step.offsetWidth) / 2;
+  }, [stageId]);
   if (!current) return null;
   const stages = current.pipeline.stages;
   const activeIndex = stages.findIndex((s) => s.id === (optimistic ?? stageId));
@@ -42,7 +52,7 @@ export function StageBar({ clientId, stageId, category, stageChangedAt }: { clie
   const rotting = current.rottingDays !== null && days >= current.rottingDays;
   return (
     <div className="px-4 pb-4 lg:px-6">
-      <div className="mb-1.5 flex items-center justify-between gap-3 text-[12px] text-muted">
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-[12px] text-muted">
         <span>
           {current.pipeline.name} · {clientCategoryLabels[category].one.toLowerCase()} clients
         </span>
@@ -51,12 +61,12 @@ export function StageBar({ clientId, stageId, category, stageChangedAt }: { clie
           {rotting ? " · needs attention" : ""}
         </span>
       </div>
-      <ol className="flex gap-0.5" aria-label="Stages">
+      <ol ref={row} className="flex gap-0.5 max-sm:-mx-4 max-sm:overflow-x-auto max-sm:px-4 max-sm:[scrollbar-width:none]" aria-label="Stages">
         {stages.map((s, i) => {
           const reached = i <= activeIndex;
           const isCurrent = i === activeIndex;
           return (
-            <li key={s.id} className="min-w-0 flex-1">
+            <li key={s.id} className="min-w-0 flex-1 max-sm:min-w-fit max-sm:flex-none">
               <Tooltip content={category === "prospective" ? `${s.name} · ${s.probability}% likely to sign` : s.name}>
                 <button
                   type="button"
@@ -72,13 +82,13 @@ export function StageBar({ clientId, stageId, category, stageChangedAt }: { clie
                   }
                   aria-current={isCurrent ? "step" : undefined}
                   className={clsx(
-                    "flex h-8 w-full items-center justify-center px-3 text-[12px] font-medium transition-colors disabled:cursor-default",
+                    "flex h-8 w-full items-center justify-center px-3 text-[12px] font-medium transition-colors disabled:cursor-default max-sm:pr-4 max-sm:pl-5",
                     i === 0 ? "rounded-l-md [clip-path:polygon(0_0,calc(100%-8px)_0,100%_50%,calc(100%-8px)_100%,0_100%)]" : "[clip-path:polygon(0_0,calc(100%-8px)_0,100%_50%,calc(100%-8px)_100%,0_100%,8px_50%)]",
                     i === stages.length - 1 && "rounded-r-md [clip-path:polygon(0_0,100%_0,100%_100%,0_100%,8px_50%)]",
                     reached ? "bg-accent text-accent-foreground" : "bg-sunken text-muted hover:bg-line hover:text-primary",
                   )}
                 >
-                  <span className="truncate">{s.name}</span>
+                  <span className="truncate max-sm:overflow-visible max-sm:whitespace-nowrap">{s.name}</span>
                 </button>
               </Tooltip>
             </li>

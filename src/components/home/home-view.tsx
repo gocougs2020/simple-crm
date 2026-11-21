@@ -52,7 +52,7 @@ export function HomeView({
         />
       </dl>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="flex min-w-0 flex-col gap-6">
           <section aria-labelledby="my-tasks">
             <div className="mb-2 flex items-baseline justify-between">
@@ -90,7 +90,7 @@ export function HomeView({
           </section>
         </div>
 
-        <aside className="flex flex-col gap-6">
+        <aside className="flex min-w-0 flex-col gap-6">
           {pipelineName ? (
             <section aria-labelledby="pipeline" className="rounded-xl border border-line bg-surface p-4">
               <div className="mb-3 flex items-baseline justify-between">
@@ -159,7 +159,7 @@ function Stat({ label, value, detail, tone }: { label: string; value: string; de
   return (
     <div className="rounded-xl border border-line bg-surface px-4 py-3">
       <dt className="text-[12px] text-muted">{label}</dt>
-      <dd className="mt-0.5 flex items-baseline gap-2">
+      <dd className="mt-0.5 flex flex-wrap items-baseline gap-x-2">
         <span className={tone === "warn" ? "text-[22px] font-semibold tracking-tight text-error tabular-nums" : "text-[22px] font-semibold tracking-tight text-primary tabular-nums"}>{value}</span>
         {detail ? <span className="text-[12px] text-muted">{detail}</span> : null}
       </dd>

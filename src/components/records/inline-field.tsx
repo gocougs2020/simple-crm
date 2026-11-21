@@ -74,7 +74,7 @@ export function InlineField<T>({
   const isEmpty = filled !== undefined ? !filled : value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0);
 
   return (
-    <div ref={wrap} className="group grid grid-cols-[7.5rem_minmax(0,1fr)] items-start gap-2 py-1.5">
+    <div ref={wrap} className="group grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-2 py-1 sm:grid-cols-[7.5rem_minmax(0,1fr)] sm:py-1.5">
       <dt className="pt-1.5 text-[12.5px] text-muted">{label}</dt>
       <dd className="min-w-0">
         {editing ? (

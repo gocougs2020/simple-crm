@@ -10,6 +10,7 @@ import { stripeConfigured } from "@/lib/stripe";
 import { listLabels } from "@/lib/crm/labels";
 import { parentOrganizations } from "@/lib/crm/records";
 import { getWorkspace } from "@/lib/workspace";
+import { getVapid } from "@/lib/push/vapid";
 
 export type TeamMember = { id: string; name: string; email: string; role: string; title: string | null; active: boolean };
 export type Stage = typeof schema.stages.$inferSelect;
@@ -26,7 +27,7 @@ export type ServicePlan = typeof schema.servicePlans.$inferSelect;
  */
 export const getAppData = cache(async () => {
   const db = await getDb();
-  const [ws, users, pipelines, stages, fields, services, plans, keys, parents, labels] = await Promise.all([
+  const [ws, users, pipelines, stages, fields, services, plans, keys, parents, labels, vapid] = await Promise.all([
     getWorkspace(),
     // Only what the team list shows: never the password hash or prefs, which go to the browser with this.
     db
@@ -50,6 +51,7 @@ export const getAppData = cache(async () => {
     db.select({ id: schema.apiKeys.id, name: schema.apiKeys.name, kind: schema.apiKeys.kind }).from(schema.apiKeys),
     parentOrganizations(),
     listLabels(),
+    getVapid(),
   ]);
   return {
     workspace: { name: ws.name, currency: ws.currency, timezone: ws.timezone },
@@ -66,7 +68,7 @@ export const getAppData = cache(async () => {
     labels,
     // The agent's own key rows carry whatever it was called when they were made; history shows its current name.
     apiKeys: keys.map((k) => (k.kind === "assistant" ? { ...k, name: appConfig.agent.name } : k)),
-    services: { blob: blobConfigured(), email: emailConfigured(), emailFrom: process.env.RESEND_FROM ?? null, stripe: stripeConfigured(), ai: aiFeatures() },
+    services: { blob: blobConfigured(), email: emailConfigured(), emailFrom: process.env.RESEND_FROM ?? null, stripe: stripeConfigured(), ai: aiFeatures(), /** Public, so browsers can sign up for push; null when push isn't set up. */ pushKey: vapid?.publicKey ?? null },
   };
 });
 
