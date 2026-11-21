@@ -524,7 +524,7 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
           <p className="mt-1 truncate text-[12px] text-muted tabular-nums">{a.direction === "inbound" ? `From ${formatPhone(row.call.from)} to ${formatPhone(row.call.to)}` : `To ${formatPhone(row.call.to)} from ${formatPhone(row.call.from)}`}</p>
         ) : null}
         {a.subject ? <h3 className="mt-1 text-[14px] font-medium">{a.subject}</h3> : null}
-        {a.body ? <CollapsibleBody html={a.body} /> : row.preview ? <PreviewBody id={a.id} preview={row.preview} /> : null}
+        {a.body ? <CollapsibleBody html={a.body} /> : row.preview ? <PreviewBody key={`${a.id}:${String(a.updatedAt)}`} id={a.id} preview={row.preview} /> : null}
         <Attachments files={withEmailAttachments(attachments, row)} />
         {a.type === "note" ? <Replies noteId={a.id} replies={row.replies ?? []} /> : null}
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] empty:hidden">
@@ -604,6 +604,7 @@ function Attachments({ files }: { files?: RecordFile[] }) {
 /**
  * A body in a list (the Activities page, the home feed), which sends only its
  * start as plain text: "Show more" fetches the whole thing, formatting included.
+ * Keyed on the activity's `updatedAt`, so an edit drops the fetched copy.
  */
 function PreviewBody({ id, preview }: { id: string; preview: { text: string; more: boolean } }) {
   const [html, setHtml] = useState<string | null>(null);
