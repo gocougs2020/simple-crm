@@ -156,8 +156,13 @@ export function AgentTasks({ open, threadId, refreshKey, onAnswer, onNavigate }:
       if (stopped) return;
       const fast = Date.now() - newestStart < FAST_FOR_MS;
       timer = window.setTimeout(async () => {
-        if (document.visibilityState === "visible") await load();
-        next();
+        try {
+          if (document.visibilityState === "visible") await load();
+        } catch {
+          // Offline or a deploy in progress: the next round asks again.
+        } finally {
+          next();
+        }
       }, fast ? POLL_MS : SLOW_POLL_MS);
     };
     next();
