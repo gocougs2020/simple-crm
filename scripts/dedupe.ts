@@ -79,10 +79,13 @@ async function connect(): Promise<{ db: Database; transaction: Transaction; clos
     return { db: db as unknown as Database, transaction, close: () => pool.end() };
   }
   const { PGlite } = await import("@electric-sql/pglite");
+  // The extensions the app's local database uses (src/db/index.ts): the migrations need them.
+  const { vector } = await import("@electric-sql/pglite-pgvector");
+  const { pg_trgm } = await import("@electric-sql/pglite/contrib/pg_trgm");
   const { drizzle } = await import("drizzle-orm/pglite");
   const { migrate } = await import("drizzle-orm/pglite/migrator");
   mkdirSync(".data", { recursive: true });
-  const client = new PGlite(".data/pglite");
+  const client = new PGlite(".data/pglite", { extensions: { vector, pg_trgm } });
   const db = drizzle({ client, schema });
   await migrate(db, { migrationsFolder: "drizzle" });
   log("Database: local (.data/pglite)");

@@ -43,6 +43,9 @@ export type PdPerson = {
   label_ids?: number[];
   labels?: PdLabel[];
   email_messages_count?: number;
+  /** Only with `persons({ mailTimes: true })`. */
+  last_incoming_mail_time?: string | null;
+  last_outgoing_mail_time?: string | null;
   custom_fields?: Record<string, unknown> | null;
 };
 
@@ -201,7 +204,15 @@ export class PipedriveApi {
   activityTypes = async () => (await this.get<{ data: PdActivityType[] }>("/v1/activityTypes")).data ?? [];
   fields = (entity: "deal" | "person" | "organization" | "activity") => this.allV1<PdField>(`/v1/${entity}Fields`);
   organizations = () => this.allV2<PdOrganization>("/api/v2/organizations", { include_labels: true });
-  persons = () => this.allV2<PdPerson>("/api/v2/persons", { include_labels: true, include_fields: "email_messages_count" });
+  /** With `mailTimes`, also when each person last sent or got email, so a `--since` run only reads the mail of people with new mail. Accounts that don't offer those fields get people without them. */
+  async persons({ mailTimes = false } = {}) {
+    const base = { include_labels: true, include_fields: "email_messages_count" };
+    if (!mailTimes) return this.allV2<PdPerson>("/api/v2/persons", base);
+    return this.allV2<PdPerson>("/api/v2/persons", { ...base, include_fields: "email_messages_count,last_incoming_mail_time,last_outgoing_mail_time" }).catch((err) => {
+      if (err instanceof Error && / 400 /.test(err.message)) return this.allV2<PdPerson>("/api/v2/persons", base);
+      throw err;
+    });
+  }
   /** Live and archived deals. Pipedrive lists archived deals separately; older plans without archiving answer 404 there. */
   async deals() {
     const params = { status: "open,won,lost", include_labels: true, include_fields: "first_won_time" };
