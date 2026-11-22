@@ -1,6 +1,6 @@
 import "server-only";
 import { clientAtOrganization } from "@/lib/crm/client-organizations";
-import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { matchKey } from "@/lib/phone/numbers";
 
@@ -18,8 +18,9 @@ export type Links = { personId: string | null; organizationId: string | null; cl
 async function clientFor(personId: string | null, organizationId: string | null) {
   if (!personId && !organizationId) return null;
   const db = await getDb();
-  const match =
-    personId && organizationId ? sql`(${clients.personId} = ${personId} or ${clientAtOrganization(organizationId)})` : personId ? eq(clients.personId, personId) : clientAtOrganization(organizationId!);
+  // On a client as its contact or added to its people (a merged client's other contacts are), or at one of its organizations.
+  const onClient = personId ? sql`(${clients.personId} = ${personId} or exists (select 1 from client_people cp where cp.client_id = ${clients.id} and cp.person_id = ${personId}))` : null;
+  const match = onClient && organizationId ? sql`(${onClient} or ${clientAtOrganization(organizationId)})` : (onClient ?? clientAtOrganization(organizationId!));
   const [c] = await db
     .select({ id: clients.id })
     .from(clients)

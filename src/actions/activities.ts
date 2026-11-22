@@ -118,7 +118,8 @@ export async function composerTarget(kind: "person" | "organization" | "client",
   });
 }
 
-const bulkIds = z.array(z.uuid()).min(1).max(200);
+/** As many as the Activities page lists at once (500 to do), so selecting all of them always works. */
+const bulkIds = z.array(z.uuid()).min(1).max(500);
 type BulkResult = { count: number; skipped: number; reason: string | null };
 
 /**
