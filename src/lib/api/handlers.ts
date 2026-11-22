@@ -176,6 +176,10 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
     await clients.updateClient(a, params.id, body);
     return q.getClient(ctx, params.id);
   },
+  async mergeClients(a, { params, body }, ctx) {
+    const { id } = await merging.mergeClients(a, { keepId: params.id, mergeIds: body.mergeIds });
+    return q.getClient(ctx, id);
+  },
   async archiveClient(a, { params }) {
     await archive(a, "client", params.id, true);
     return deleted(params.id);

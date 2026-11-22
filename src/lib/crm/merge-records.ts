@@ -108,9 +108,14 @@ export async function mergeOrganizationsInto(t: MergeDatabase, o: { keep: Org; d
   await t.delete(schema.personOrganizations).where(inArray(schema.personOrganizations.organizationId, ids));
   // Someone whose main organization just became the kept one isn't "also at" it too.
   await t.execute(sql`delete from person_organizations po using people p where po.person_id = p.id and po.organization_id = ${keep} and p.organization_id = ${keep}`);
+  // Clients that were also tied to a merged organization are tied to the kept one.
+  await t.execute(sql`insert into client_organizations (client_id, organization_id, created_at) select co.client_id, ${keep}, min(co.created_at) from client_organizations co where co.organization_id = any(${uuids(ids)}) group by co.client_id on conflict do nothing`);
+  await t.delete(schema.clientOrganizations).where(inArray(schema.clientOrganizations.organizationId, ids));
   for (const table of [schema.clients, schema.activities, schema.files, schema.inboxThreads, schema.syncedEmails, schema.phoneCalls, schema.textMessages, schema.textThreads]) {
     await t.update(table).set({ organizationId: keep }).where(inArray(table.organizationId, ids));
   }
+  // A client whose main organization is now the kept one isn't "also tied" to it too.
+  await t.execute(sql`delete from client_organizations co using clients c where co.client_id = c.id and co.organization_id = ${keep} and c.organization_id = ${keep}`);
   await moveFileLinks(t, "organization_id", ids, keep);
   // Organizations that were part of a merged parent are part of the kept one (which the plan marks as a parent).
   await t
@@ -191,7 +196,13 @@ export async function mergePeopleInto(t: MergeDatabase, o: { keep: Person; donor
 
 // ─── Clients ─────────────────────────────────────────────────────────────
 
-/** Merges `donors` (newest first) into `keep`: services, metrics and everything on the timeline move to it. */
+/**
+ * Merges `donors` (first fills blanks first) into `keep`: services, metrics
+ * and everything on the timeline move to it, and so do their people and
+ * organizations, each once. The kept client's own contact and organization
+ * stay its main ones; the others' become people added to it and organizations
+ * it's also tied to (client_organizations).
+ */
 export async function mergeClientsInto(t: MergeDatabase, o: { keep: ClientFields; donors: ClientFields[]; by: MergeAuthor }) {
   const keep = o.keep.id;
   const ids = o.donors.map((c) => c.id);
@@ -200,11 +211,18 @@ export async function mergeClientsInto(t: MergeDatabase, o: { keep: ClientFields
     await t.update(table).set({ clientId: keep }).where(inArray(table.clientId, ids));
   }
   await moveFileLinks(t, "client_id", ids, keep);
-  // People added to the merged clients are on the kept one, unless they're already its contact.
+  // People added to the merged clients are on the kept one, once.
   await t.execute(sql`insert into client_people (client_id, person_id, created_at) select ${keep}, cp.person_id, min(cp.created_at) from client_people cp where cp.client_id = any(${uuids(ids)}) group by cp.person_id on conflict do nothing`);
   // So are their contacts.
   await t.execute(sql`insert into client_people (client_id, person_id) select ${keep}, c.person_id from clients c where c.id = any(${uuids(ids)}) and c.person_id is not null on conflict do nothing`);
-  await t.execute(sql`delete from client_people cp using clients c where cp.client_id = c.id and c.id = ${keep} and cp.person_id = c.person_id`);
+  // And every organization any of them was tied to: their main ones and the others they were also tied to.
+  await t.execute(sql`insert into client_organizations (client_id, organization_id, created_at)
+    select ${keep}, x.organization_id, min(x.created_at) from (
+      select co.organization_id, co.created_at from client_organizations co where co.client_id = any(${uuids(ids)})
+      union all
+      select c.organization_id, c.created_at from clients c where c.id = any(${uuids(ids)}) and c.organization_id is not null
+    ) x group by x.organization_id
+    on conflict do nothing`);
   // Stripe customers linked by hand, or marked as not theirs, carry over; where both said something, the kept client's word stands.
   await t.execute(sql`insert into client_stripe_links (client_id, account, customer_id, kind, created_by, created_at) select distinct on (l.account, l.customer_id) ${keep}, l.account, l.customer_id, l.kind, l.created_by, l.created_at from client_stripe_links l where l.client_id = any(${uuids(ids)}) order by l.account, l.customer_id, l.created_at on conflict do nothing`);
   await moveHistory(t, "client", ids, keep);
@@ -212,6 +230,9 @@ export async function mergeClientsInto(t: MergeDatabase, o: { keep: ClientFields
     .update(schema.clients)
     .set({ ...patch, ...summaryReset, updatedAt: new Date() })
     .where(eq(schema.clients.id, keep));
+  // Once the kept client has its contact and organization (filled from the others if it had none), being them already says it.
+  await t.execute(sql`delete from client_people cp using clients c where cp.client_id = c.id and c.id = ${keep} and cp.person_id = c.person_id`);
+  await t.execute(sql`delete from client_organizations co using clients c where co.client_id = c.id and c.id = ${keep} and co.organization_id = c.organization_id`);
   await t.delete(schema.clients).where(inArray(schema.clients.id, ids));
   await t.insert(schema.events).values({
     entityType: "client",

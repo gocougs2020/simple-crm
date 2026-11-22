@@ -209,9 +209,10 @@ describe("record summaries", () => {
     assert.match(text, /March 2, 2026/);
   });
 
-  it("asks for who they are, the last 30 days and a next step, focused on the account's key people", () => {
+  it("asks for who they are, what matters from their history, the last 30 days and a next step, focused on the account's key people", () => {
     const client = summaryInstructions("client", "Monday, March 2, 2026", "January 31");
     assert.match(client, /Stripe subscriptions/);
+    assert.match(client, /however old it is/);
     assert.match(client, /last 30 days \(since January 31\)/);
     assert.match(client, /decision maker/);
     assert.match(client, /next step/);

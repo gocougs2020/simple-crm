@@ -1,18 +1,19 @@
 # Merging duplicates
 
-There are two ways to merge: by hand from the People or Organizations page, for duplicates you spot ("Acme" and "Acme Inc", which the script won't match), and `pnpm run dedupe` for the exact duplicates an import leaves behind. Both move records the same way (`src/lib/crm/merge-records.ts`).
+There are two ways to merge: by hand from the People, Organizations or Clients page, for duplicates you spot ("Acme" and "Acme Inc", which the script won't match), and `pnpm run dedupe` for the exact duplicates an import leaves behind. Both move records the same way (`src/lib/crm/merge-records.ts`).
 
 ## Merging by hand
 
-Select two or more people or organizations in the table and choose **Merge**. The dialog lists them; pick the one to keep. It shows what the kept record will look like and where each filled-in value comes from.
+Select two or more people, organizations or clients in the table and choose **Merge**. The dialog lists them; pick the one to keep. It shows what the kept record will look like and where each filled-in value comes from.
 
 - **The one you keep keeps every value it has.** Anything it's blank on is filled from the others, the most recently active first. Tags are combined; for people, every email, phone and organization is kept as in [What happens to each group](#what-happens-to-each-group), and opt-outs win.
 - **Everything moves to it**: people (for organizations), clients, notes, tasks, meetings, calls, emails, texts, inbox conversations, files and history. Saved audiences that named a merged record name the kept one.
 - **Duplicate clients become one.** When merging organizations brings more than one client onto the kept organization, those clients are merged with the [client rules](#clients) below: the one furthest along is kept. The same goes for a merged person's clients that have no organization.
+- **Merging clients keeps everyone and everything, once.** The client you keep keeps its own category, stage, contact and organization. The others' services, performance numbers, notes, tasks, meetings, emails, calls, texts, files and history move to it. Their contacts and the people added to them are added to its people, and their organizations stay tied to it (`client_organizations`), so the people at every one of them are its people, those organizations' pages show it, and their people's emails match its Stripe customers. Nobody shows twice.
 - **The others are deleted** and the kept record's history says what was merged into it. Old links to a merged record open the kept one.
 - Members, admins and owners can merge (it needs the same access as archiving); viewers can't. It's one transaction: if anything fails, nothing changes.
 
-The REST API and MCP have it too: `POST /people/{id}/merge` and `POST /organizations/{id}/merge` with `{ "mergeIds": [...] }` keep the record in the path (MCP: `merge_people`, `merge_organizations`; the agent asks you to confirm first).
+The REST API and MCP have it too: `POST /people/{id}/merge`, `POST /organizations/{id}/merge` and `POST /clients/{id}/merge` with `{ "mergeIds": [...] }` keep the record in the path (MCP: `merge_people`, `merge_organizations`, `merge_clients`; the agent asks you to confirm first, and background runs can't merge).
 
 ## The cleanup script
 

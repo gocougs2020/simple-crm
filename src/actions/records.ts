@@ -111,11 +111,12 @@ export async function addLabelsToChildOrganizations(parentId: string, labels: st
 // ─── Merge ───────────────────────────────────────────────────────────────
 
 /** Merges the picked people or organizations into the one chosen to keep. */
-export async function mergeRecords(entity: "person" | "organization", keepId: string, mergeIds: string[]): Promise<Result<{ id: string; merged: number; clientsMerged: number }>> {
+export async function mergeRecords(entity: "person" | "organization" | "client", keepId: string, mergeIds: string[]): Promise<Result<{ id: string; merged: number; clientsMerged: number }>> {
   return run(async () => {
     const actor = sessionActor(await actionEditor());
-    const kind = z.enum(["person", "organization"]).parse(entity);
-    const result = kind === "person" ? await merging.mergePeople(actor, { keepId, mergeIds }) : await merging.mergeOrganizations(actor, { keepId, mergeIds });
+    const kind = z.enum(["person", "organization", "client"]).parse(entity);
+    const merge = { person: merging.mergePeople, organization: merging.mergeOrganizations, client: merging.mergeClients }[kind];
+    const result = await merge(actor, { keepId, mergeIds });
     refresh();
     return result;
   });

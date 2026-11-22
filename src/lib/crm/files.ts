@@ -1,4 +1,5 @@
 import "server-only";
+import { organizationsOfClient } from "@/lib/crm/client-organizations";
 import { and, asc, count, desc, eq, getTableColumns, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { EntityType } from "@/lib/constants";
@@ -39,9 +40,10 @@ export function onRecord(entity: EntityType, id: string) {
 export function inRecordView(entity: EntityType, id: string) {
   if (entity !== "client") return onRecord(entity, id);
   const people = sql`(select c.person_id from clients c where c.id = ${id} and c.person_id is not null union select cp.person_id from client_people cp where cp.client_id = ${id})`;
-  const org = sql`(select c.organization_id from clients c where c.id = ${id})`;
-  return sql`(${files.clientId} = ${id} or ${files.personId} in ${people} or ${files.organizationId} = ${org}
-    or exists (select 1 from file_links fl where fl.file_id = ${files.id} and (fl.client_id = ${id} or fl.person_id in ${people} or fl.organization_id = ${org})))`;
+  // Its main organization and any kept from a merge.
+  const orgs = organizationsOfClient(id);
+  return sql`(${files.clientId} = ${id} or ${files.personId} in ${people} or ${files.organizationId} in ${orgs}
+    or exists (select 1 from file_links fl where fl.file_id = ${files.id} and (fl.client_id = ${id} or fl.person_id in ${people} or fl.organization_id in ${orgs})))`;
 }
 
 /** Every file in the CRM, except chat uploads nobody posted. */

@@ -440,6 +440,26 @@ export const clientPeople = pgTable(
   (t) => [primaryKey({ columns: [t.clientId, t.personId] }), index("client_people_person_idx").on(t.personId)],
 );
 
+/**
+ * Organizations a client is also tied to besides its main one
+ * (`clients.organization_id`): kept when clients from different organizations
+ * are merged into one. Their people are the client's people, their clients'
+ * pages list it, and their people's emails match its Stripe customers.
+ */
+export const clientOrganizations = pgTable(
+  "client_organizations",
+  {
+    clientId: uuid("client_id")
+      .notNull()
+      .references((): AnyPgColumn => clients.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.clientId, t.organizationId] }), index("client_organizations_org_idx").on(t.organizationId)],
+);
+
 /** Each client category has one or more pipelines of its own stages (prospects: Lead → Proposal; current: Onboarding → Renewal). */
 export const pipelines = pgTable("pipelines", {
   id: uuid("id").primaryKey().defaultRandom(),

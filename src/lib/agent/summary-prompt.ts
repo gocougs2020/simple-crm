@@ -5,7 +5,7 @@
 export const SUMMARY_TTL_MS = 24 * 3600_000;
 /** A regeneration that hasn't finished in this long is treated as abandoned, and anyone may start another. */
 export const SUMMARY_LOCK_MS = 2 * 60_000;
-/** The snapshot is at most this long: three short sentences, about three lines in the card on a desktop. */
+/** The snapshot is at most this long: three or four short sentences, about four lines in the card on a desktop. */
 export const SUMMARY_MAX_CHARS = 480;
 
 export type SummaryEntity = "client" | "person" | "organization";
@@ -42,16 +42,17 @@ export function summaryInstructions(entity: SummaryEntity, today: string, since?
         ? "Who this organization is and how it relates to us: its clients and their stage, what they pay for in Stripe or the services they use, and who the main contact or decision makers are."
         : "Who this person is: their role, their organization and the client accounts they're part of.";
   return [
-    `You write the snapshot at the top of a ${what}'s page in a small team's CRM. Teammates read it in a few seconds before a call.`,
+    `You write the snapshot at the top of a ${what}'s page in a small team's CRM. Teammates read it in a few seconds before a call, to know the account: what matters for selling to them, keeping them and managing them.`,
     `Today is ${today}.`,
-    "In three short sentences, at most 450 characters in total:",
+    "In three or four short sentences, at most 450 characters in total:",
     `1. ${who}`,
-    `2. What happened in the last 30 days${since ? ` (since ${since})` : ""}: the calls, emails, meetings and notes that matter, briefly. If nothing happened in that time, say how long it's been quiet.${
+    "2. What matters from their history, however old it is: why they paused, cancelled or left, what they've struggled with or complained about, how their results or performance have gone over time, a renewal or a big win. Skip this when nothing like it is on record.",
+    `3. Recent activity, with a focus on the last 30 days${since ? ` (since ${since})` : ""}: the calls, emails, meetings and notes that matter, briefly. If nothing happened in that time, say how long it's been quiet.${
       account
         ? " Focus on what matters to the account as a whole: conversations with the main contact and the people marked decision maker come first. Emails and notes that only concern one individual manager's day-to-day (a single role, candidate or request) matter less, unless they affect the account."
         : ""
     }`,
-    "3. End with one specific next step: an overdue or upcoming task or meeting to act on, an unpaid invoice to chase, a check-in after a long silence, a renewal or risk to get ahead of, or the obvious follow-up to the latest conversation. Say who it's with when the record says.",
+    "4. End with one specific next step, based on the recent activity or the lack of it: an overdue or upcoming task or meeting to act on, an unpaid invoice to chase, a check-in after a long silence, a renewal or risk to get ahead of, or the obvious follow-up to the latest conversation. Say who it's with when the record says.",
     "Rules:",
     "- Use only the record below. Don't invent facts, numbers or dates. If there's little to go on, say what's known and suggest a first step.",
     "- Name people and companies as the record does. Say relative dates (\"last Tuesday\", \"in 3 days\") or short dates (\"Mar 4\"). Money with its currency symbol.",

@@ -81,21 +81,24 @@ function recordOps(e: typeof P) {
   };
 }
 
-/** Merging duplicates into the record in the path: the same for people and organizations. */
+/** Merging duplicates into the record in the path: the same for people, organizations and clients. */
 function mergeOp(e: typeof P) {
   const person = e === P;
+  const client = e === C;
   return op({
     method: "POST",
     path: `${e.path}/{id}/merge`,
     tag: e.tag,
     summary: `Merge ${e.many} into this one`,
-    description: person
+    description: client
+      ? "The client in the path is kept with every value it has, its category and its stage; blanks are filled from the others (most recently active first). Their services, metrics, notes, tasks, meetings, emails, calls, texts, files and history move to it. Their contacts and people are added to its people and their organizations are kept as organizations it's also tied to, each once, so their people are its people too. Then they're deleted. Can't be undone."
+      : person
       ? "The person in the path is kept with every value it has; blanks are filled from the others (most recently active first). Their notes, tasks, meetings, emails, calls, texts, files, clients and history move to it, their emails, phones and organizations are kept as other emails, other phones and Also at, an opt-out on any of them carries over, and then they're deleted. If that leaves this person with more than one client that has no organization, those clients become one: the one furthest along is kept. Can't be undone."
       : "The organization in the path is kept with every value it has; blanks are filled from the others (most recently active first). Their people, clients, notes, tasks, meetings, emails, calls, texts, files and history move to it, and then they're deleted. If that leaves it with more than one client, those clients become one: the one furthest along (current, then past, then prospective; among prospects, the stage with the higher win probability) is kept, and the others' services, metrics and timelines move to it. Can't be undone.",
     permission: "records:archive",
     params: idParam,
     body: z.object({ mergeIds: z.array(z.uuid()).min(1).max(49).describe(`The ${e.many} to merge into it and delete. Up to 49.`) }),
-    response: person ? "Person" : "Organization",
+    response: person ? "Person" : client ? "Client" : "Organization",
     destructive: true,
     tool: `merge_${e.tools}`,
     toolDescription: `Merge duplicate ${e.many} into one. Check with the user which one to keep before calling: the others are deleted and this can't be undone.`,
@@ -280,6 +283,7 @@ export const operations = {
     response: "Client",
     tool: "update_client",
   }),
+  mergeClients: mergeOp(C),
   archiveClient: clients.archive,
   restoreClient: clients.restore,
   clientTimeline: clients.timeline,

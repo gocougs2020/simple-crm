@@ -16,14 +16,14 @@ import { StageBar } from "@/components/clients/client-controls";
 import { DynamicMarker } from "@/components/dynamic-marker";
 import { CallButton } from "@/components/phone/contact-actions";
 import { FilesCard } from "@/components/files/files-panel";
-import { ClientDetails } from "@/components/records/details";
+import { ClientDetails, OrganizationCard } from "@/components/records/details";
 import { RecordBody, RecordHeader } from "@/components/records/record-header";
 import { PageSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { monthlyFactor } from "@/lib/constants";
 import { recordTimeline } from "@/lib/crm/activities";
 import { getAppData } from "@/lib/crm/context";
 import { viewerTimeZone } from "@/lib/viewer-time-zone";
-import { clientPeople, getClient, metricsOf, servicesOf } from "@/lib/crm/records";
+import { clientPeople, getClient, metricsOf, otherOrganizationsOfClient, servicesOf } from "@/lib/crm/records";
 import { dayKey, formatMoney, personName } from "@/lib/format";
 
 export async function generateMetadata({ params }: PageProps<"/clients/[id]">): Promise<Metadata> {
@@ -57,12 +57,13 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
   const c = client.category;
   // Their own private mail with this record is on the timeline, for them alone.
   const viewer = await requireUser();
-  const [tl, app, services, metrics, associated] = await Promise.all([
+  const [tl, app, services, metrics, associated, alsoTied] = await Promise.all([
     recordTimeline("client", id, viewer.id),
     getAppData(),
     servicesOf(id),
     metricsOf(id),
     clientPeople(client),
+    otherOrganizationsOfClient(id),
   ]);
   // Everyone a call, email, text or meeting from this page can be with: the contact, then decision makers, then everyone else.
   const contacts = associated.map(({ person: p, source }) => ({
@@ -132,6 +133,10 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
               organizationName={organization?.name ?? null}
               people={associated.map(({ person: p, source }) => ({ id: p.id, name: personName(p), title: p.title, email: p.email, decisionMaker: p.decisionMaker, source }))}
             />
+            {/* Organizations kept from clients merged into this one: their people are this client's people too. */}
+            {alsoTied.map((org) => (
+              <OrganizationCard key={org.id} org={org} title="Also tied to" />
+            ))}
             {c !== "prospective" ? <ServicesCard clientId={id} category={c} rows={services} /> : null}
             {/* Billing shows on every client, prospects included: someone can be paying for one product while being sold another. */}
             <Suspense fallback={<Skeleton className="h-28 rounded-xl" />}>

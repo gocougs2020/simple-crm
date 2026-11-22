@@ -1,4 +1,5 @@
 import "server-only";
+import { clientAtOrganization } from "@/lib/crm/client-organizations";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { matchKey } from "@/lib/phone/numbers";
@@ -18,7 +19,7 @@ async function clientFor(personId: string | null, organizationId: string | null)
   if (!personId && !organizationId) return null;
   const db = await getDb();
   const match =
-    personId && organizationId ? sql`(${clients.personId} = ${personId} or ${clients.organizationId} = ${organizationId})` : personId ? eq(clients.personId, personId) : eq(clients.organizationId, organizationId!);
+    personId && organizationId ? sql`(${clients.personId} = ${personId} or ${clientAtOrganization(organizationId)})` : personId ? eq(clients.personId, personId) : clientAtOrganization(organizationId!);
   const [c] = await db
     .select({ id: clients.id })
     .from(clients)
