@@ -316,7 +316,23 @@ function LinkedTo({ row, context }: { row: ActivityRow; context: Context }) {
   );
 }
 
-export function PlannedItem({ row, context, attachments }: { row: ActivityRow; context: Context; attachments?: RecordFile[] }) {
+/** Picking items for a bulk action (the Activities page): a checkbox on each. */
+export type Selection = { selected: boolean; onToggle: () => void };
+
+function SelectBox({ selection, label, className }: { selection?: Selection; label: string; className?: string }) {
+  if (!selection) return null;
+  return (
+    <input
+      type="checkbox"
+      checked={selection.selected}
+      onChange={selection.onToggle}
+      aria-label={`Select “${label}”`}
+      className={clsx("size-4 shrink-0 cursor-pointer rounded-sm border-line-strong accent-[var(--accent)] pointer-coarse:size-5", className)}
+    />
+  );
+}
+
+export function PlannedItem({ row, context, attachments, selection }: { row: ActivityRow; context: Context; attachments?: RecordFile[]; selection?: Selection }) {
   const { workspace, member } = useApp();
   const a = row.activity;
   const [pending, start] = useTransition();
@@ -339,7 +355,8 @@ export function PlannedItem({ row, context, attachments }: { row: ActivityRow; c
     });
 
   return (
-    <li className={clsx("group flex items-start gap-3 px-3.5 py-2.5 transition-opacity", done && "opacity-60")}>
+    <li className={clsx("group flex items-start gap-3 px-3.5 py-2.5 transition-opacity", done && "opacity-60", selection?.selected && "bg-accent-soft")}>
+      <SelectBox selection={selection} label={a.subject ?? activityLabels[a.type]} className="mt-0.5" />
       <button
         type="button"
         onClick={complete}
@@ -385,7 +402,7 @@ export function PlannedItem({ row, context, attachments }: { row: ActivityRow; c
   );
 }
 
-export function ActivityItem({ row, context, attachments }: { row: ActivityRow; context: Context; attachments?: RecordFile[] }) {
+export function ActivityItem({ row, context, attachments, selection }: { row: ActivityRow; context: Context; attachments?: RecordFile[]; selection?: Selection }) {
   const { workspace } = useApp();
   const a = row.activity;
   // Pinned or unpinned the moment it's chosen; it goes back if the server says no. Moving to the top waits for the server.
@@ -448,8 +465,9 @@ export function ActivityItem({ row, context, attachments }: { row: ActivityRow; 
       <span className={clsx("relative z-10 mt-2.5 flex size-8 shrink-0 items-center justify-center rounded-full border", a.type === "note" ? "border-note-border bg-note-surface" : "border-line bg-surface")}>
         <Icon className="size-4 text-secondary" aria-hidden />
       </span>
-      <article className={clsx("group min-w-0 flex-1 rounded-xl border bg-surface px-3.5 py-3", pinned ? "border-line-strong shadow-sm" : "border-line")}>
+      <article className={clsx("group min-w-0 flex-1 rounded-xl border px-3.5 py-3", selection?.selected ? "border-accent bg-accent-soft" : "bg-surface", !selection?.selected && (pinned ? "border-line-strong shadow-sm" : "border-line"))}>
         <header className="flex items-start gap-2">
+          <SelectBox selection={selection} label={a.subject ?? activityLabels[a.type]} className="mt-px" />
           <div className="min-w-0 flex-1 text-[13px] text-muted">
             {arrived && a.direction === "inbound" && otherSide ? (
               <span className="font-medium text-primary">{otherSide}</span>
@@ -609,7 +627,8 @@ function Attachments({ files }: { files?: RecordFile[] }) {
 function PreviewBody({ id, preview }: { id: string; preview: { text: string; more: boolean } }) {
   const [html, setHtml] = useState<string | null>(null);
   const [pending, start] = useTransition();
-  if (html !== null) return <CollapsibleBody html={html} />;
+  // They asked to see it all: the whole body opens, with no second "Show more" to click.
+  if (html !== null) return <CollapsibleBody html={html} defaultOpen />;
   return (
     <div className="mt-1">
       <div className="prose-crm line-clamp-6">
@@ -638,9 +657,9 @@ function PreviewBody({ id, preview }: { id: string; preview: { text: string; mor
   );
 }
 
-function CollapsibleBody({ html }: { html: string }) {
+function CollapsibleBody({ html, defaultOpen = false }: { html: string; defaultOpen?: boolean }) {
   const long = html.length > 900;
-  const [open, setOpen] = useState(!long);
+  const [open, setOpen] = useState(defaultOpen || !long);
   return (
     <div className="mt-1">
       <div className={clsx("prose-crm", !open && "line-clamp-6")} dangerouslySetInnerHTML={{ __html: html }} />

@@ -85,7 +85,7 @@ export function RecordHeader({ entity, id, title, sub, avatar, actions, archived
 /** The two-column body of a record page: details on the left, activity on the right. Stacks on narrow screens. */
 export function RecordBody({ side, children }: { side: ReactNode; children: ReactNode }) {
   return (
-    <div className="mx-auto grid max-w-[1400px] grid-cols-[minmax(0,1fr)] gap-4 px-4 py-4 lg:grid-cols-[340px_minmax(0,1fr)] lg:gap-5 lg:px-6 lg:py-5">
+    <div className="mx-auto grid max-w-[1400px] grid-cols-[minmax(0,1fr)] gap-4 px-4 py-4 lg:grid-cols-[380px_minmax(0,1fr)] lg:gap-5 lg:px-6 lg:py-5">
       <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:self-start lg:overflow-y-auto lg:pb-4 scroll-thin">{side}</aside>
       <div className="flex min-w-0 flex-col gap-6">{children}</div>
     </div>

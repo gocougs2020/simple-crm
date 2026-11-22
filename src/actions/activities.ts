@@ -8,6 +8,9 @@ import { sessionActor } from "@/lib/crm/actor";
 import type { ActivityInput } from "@/lib/crm/schemas";
 import * as svc from "@/lib/crm/service/activities";
 import { activityBody } from "@/lib/crm/activities";
+import { orderPeople } from "@/lib/crm/people-order";
+import { clientPeople, getClient, getOrganization, getPerson, peopleOf } from "@/lib/crm/records";
+import { personName } from "@/lib/format";
 
 export type { ActivityInput } from "@/lib/crm/schemas";
 
@@ -75,5 +78,82 @@ export async function loadActivityBody(activityId: string): Promise<Result<{ bod
   return run(async () => {
     await actionUser();
     return { body: await activityBody(z.uuid().parse(activityId)) };
+  });
+}
+
+type TargetContact = { personId: string; name: string; email: string | null; phone: string | null; textOptedOut: boolean; detail: string | null; starred: boolean };
+
+/**
+ * Who an activity started away from its record (the Activities page) can be
+ * with, the same as that record's own composer: the person themselves, or a
+ * client's or organization's people, contact first.
+ */
+export async function composerTarget(kind: "person" | "organization" | "client", recordId: string): Promise<Result<{ recipient: TargetContact | null; contacts: TargetContact[] }>> {
+  return run(async () => {
+    await actionUser();
+    const id = z.uuid().parse(recordId);
+    const contact = (p: { id: string; firstName: string; lastName: string | null; email: string | null; phone: string | null; textOptOutAt: Date | null; title: string | null; decisionMaker: boolean }, detail?: string | null): TargetContact => ({
+      personId: p.id,
+      name: personName(p),
+      email: p.email,
+      phone: p.phone,
+      textOptedOut: !!p.textOptOutAt,
+      detail: detail ?? p.title,
+      starred: p.decisionMaker,
+    });
+    if (kind === "person") {
+      const row = await getPerson(id);
+      if (!row) throw new Error("That person isn't in the CRM anymore.");
+      return { recipient: contact(row.person), contacts: [] };
+    }
+    if (kind === "client") {
+      const row = await getClient(id);
+      if (!row) throw new Error("That client isn't in the CRM anymore.");
+      const contacts = (await clientPeople(row.client)).map(({ person: p, source }) => contact(p, source === "contact" ? ["Contact", p.title].filter(Boolean).join(", ") : p.title));
+      return { recipient: contacts.find((c) => c.personId === row.client.personId) ?? contacts[0] ?? null, contacts };
+    }
+    if (!(await getOrganization(id))) throw new Error("That organization isn't in the CRM anymore.");
+    const contacts = orderPeople((await peopleOf(id)).map((p) => contact(p)), (c) => c);
+    return { recipient: null, contacts };
+  });
+}
+
+const bulkIds = z.array(z.uuid()).min(1).max(200);
+type BulkResult = { count: number; skipped: number; reason: string | null };
+
+/**
+ * The Activities page's bulk actions: each one goes through the same service
+ * call as doing it one at a time, so the permission checks and history are the
+ * same. One that's refused (someone else's to delete) is skipped and counted,
+ * and the rest still go through.
+ */
+async function eachActivity(ids: string[], work: (id: string) => Promise<unknown>): Promise<BulkResult> {
+  let count = 0;
+  let skipped = 0;
+  let reason: string | null = null;
+  for (const id of bulkIds.parse(ids)) {
+    try {
+      await work(id);
+      count++;
+    } catch (err) {
+      skipped++;
+      reason ??= err instanceof Error ? err.message : "Couldn't change it.";
+    }
+  }
+  refresh();
+  return { count, skipped, reason };
+}
+
+export async function setCompletedMany(activityIds: string[], completed: boolean): Promise<Result<BulkResult>> {
+  return run(async () => {
+    const actor = sessionActor(await actionUser());
+    return eachActivity(activityIds, (id) => svc.setCompleted(actor, id, completed));
+  });
+}
+
+export async function deleteActivities(activityIds: string[]): Promise<Result<BulkResult>> {
+  return run(async () => {
+    const actor = sessionActor(await actionUser());
+    return eachActivity(activityIds, (id) => svc.deleteActivity(actor, id));
   });
 }

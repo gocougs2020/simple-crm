@@ -58,6 +58,8 @@ export type UserPrefs = {
   phoneNumberId?: string;
   /** Teammates whose calendars they last had on in Calendar. */
   calendarPeople?: string[];
+  /** Calendar's last view: the week or the month. */
+  calendarView?: "week" | "month";
 };
 
 // ─── Team and access ─────────────────────────────────────────────────────

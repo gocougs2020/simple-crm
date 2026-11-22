@@ -177,8 +177,9 @@ type GraphEvent = {
  * calendar, as much as each shares (`viewerId` always sees all of their own).
  * Events the CRM put there are left out: the activity already shows.
  * Read live, never stored, so it's always current and costs the database nothing.
+ * `maxPages` pages of 100 per teammate: a week needs few, a month more.
  */
-export async function outlookEvents(userIds: string[], start: Date, end: Date, viewerId: string): Promise<{ events: OutlookEvent[]; errors: { userId: string; message: string }[] }> {
+export async function outlookEvents(userIds: string[], start: Date, end: Date, viewerId: string, maxPages = 3): Promise<{ events: OutlookEvent[]; errors: { userId: string; message: string }[] }> {
   if (!microsoftConfigured() || !userIds.length) return { events: [], errors: [] };
   const db = await getDb();
   const accounts = await db
@@ -198,7 +199,7 @@ export async function outlookEvents(userIds: string[], start: Date, end: Date, v
           account,
           `/me/calendarView?startDateTime=${encodeURIComponent(start.toISOString())}&endDateTime=${encodeURIComponent(end.toISOString())}&$top=100&$select=subject,start,end,isAllDay,isCancelled,showAs,sensitivity,location,attendees&$expand=${encodeURIComponent(`singleValueExtendedProperties($filter=id eq '${CRM_PROPERTY}')`)}`,
           { headers: { Prefer: 'outlook.timezone="UTC"' } },
-          3,
+          maxPages,
         );
         for (const e of rows) {
           if (e.isCancelled || e.singleValueExtendedProperties?.length) continue;

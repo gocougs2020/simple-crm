@@ -21,6 +21,33 @@ export function weekDays(monday: string) {
   return Array.from({ length: 7 }, (_, i) => addDays(monday, i));
 }
 
+/** The first of the month a YYYY-MM-DD falls in. */
+export function monthOf(ymd: string) {
+  return `${ymd.slice(0, 7)}-01`;
+}
+
+/** The first of the month `months` before or after a YYYY-MM-DD's month. */
+export function addMonths(ymd: string, months: number) {
+  const d = new Date(`${monthOf(ymd)}T12:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The days a month grid shows: whole weeks, Monday to Sunday, from the week
+ * the 1st falls in to the week the last day falls in (35 or 42 days, 28 for a
+ * February that starts on a Monday).
+ */
+export function monthGrid(ymd: string) {
+  const first = monthOf(ymd);
+  const last = addDays(addMonths(first, 1), -1);
+  const start = mondayOf(first);
+  const end = addDays(mondayOf(last), 6);
+  const days: string[] = [];
+  for (let d = start; d <= end; d = addDays(d, 1)) days.push(d);
+  return days;
+}
+
 /**
  * The days of `week` an event covers, so a multi-day event shows on each of
  * them (and one that began before the week still shows). All-day events are

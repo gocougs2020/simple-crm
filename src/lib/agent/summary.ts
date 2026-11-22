@@ -102,13 +102,14 @@ async function waitForSummary(entity: SummaryEntity, id: string, shown: Omit<Sum
 async function writeSummary(entity: SummaryEntity, id: string) {
   const ws = await getWorkspace();
   const today = new Intl.DateTimeFormat("en-US", { timeZone: ws.timezone, weekday: "long", year: "numeric", month: "long", day: "numeric" }).format(new Date());
+  const since = new Intl.DateTimeFormat("en-US", { timeZone: ws.timezone, month: "long", day: "numeric" }).format(new Date(Date.now() - 30 * 24 * 3600_000));
   const record = await recordContext(entity, id);
   const { text } = await generateText({
     model: aiGateway(appConfig.agent.summaryModel),
     reasoning: appConfig.agent.summaryReasoning,
-    system: summaryInstructions(entity, today),
+    system: summaryInstructions(entity, today, since),
     prompt: record,
-    // Reasoning counts toward this; the answer itself is two sentences.
+    // Reasoning counts toward this; the answer itself is three sentences.
     maxOutputTokens: 3_000,
   });
   const summary = cleanSummary(text);
@@ -143,6 +144,13 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
   const line = (label: string, value: unknown) => (value === null || value === undefined || value === "" ? null : `${label}: ${value}`);
   const sections: string[] = [];
   let scope: SQL | undefined;
+  /** Who matters to the account, marked on their activity so the summary can lead with them. */
+  const roles = new Map<string, string>();
+  const markRoles = (list: { id: string; decisionMaker: boolean }[], contactId?: string | null) => {
+    for (const p of list) if (p.decisionMaker) roles.set(p.id, "decision maker");
+    if (contactId) roles.set(contactId, roles.has(contactId) ? "main contact, decision maker" : "main contact");
+  };
+  const roleOf = (p: { id: string }) => (roles.get(p.id) ? ` (${roles.get(p.id)})` : "");
 
   if (entity === "client") {
     const row = await getClient(id);
@@ -181,7 +189,8 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
     }
     sections.push(await billingSection(await customersOfClient(id), d, client));
     const peopleIds = [...new Set([client.personId, ...accountPeople.map((p) => p.id)].filter((x): x is string => !!x))].slice(0, MAX_PEOPLE);
-    if (accountPeople.length) sections.push(["## People at the account", ...accountPeople.slice(0, MAX_PEOPLE).map((p) => `${personName(p)}${p.title ? `, ${p.title}` : ""}`)].join("\n"));
+    markRoles([...(person ? [person] : []), ...accountPeople], client.personId);
+    if (accountPeople.length) sections.push(["## People at the account", ...accountPeople.slice(0, MAX_PEOPLE).map((p) => `${personName(p)}${p.title ? `, ${p.title}` : ""}${roleOf(p)}`)].join("\n"));
     scope = or(eq(a.clientId, id), peopleIds.length ? inArray(a.personId, peopleIds) : undefined, client.organizationId ? eq(a.organizationId, client.organizationId) : undefined);
   } else if (entity === "organization") {
     const org = await getOrganization(id);
@@ -192,7 +201,8 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
       ["## Organization", line("Name", org.name), line("Website", org.domain), line("Industry", org.industry), line("Labels", labeled(org.tags)), line("Owner", member(org.ownerId)), line("Other fields", custom(org.custom))].filter(Boolean).join("\n"),
     );
     if (clients.length) sections.push(["## Clients", ...clients.map((c) => `${c.name}: ${c.category}, ${c.stageName}${c.mrr ? `, ${money(Number(c.mrr))}/mo` : c.value && c.category === "prospective" ? `, potential ${money(c.value)}` : ""}`)].join("\n"));
-    if (people.length) sections.push(["## People", ...people.slice(0, MAX_PEOPLE).map((p) => `${personName(p)}${p.title ? `, ${p.title}` : ""}`)].join("\n"));
+    markRoles(people);
+    if (people.length) sections.push(["## People", ...people.slice(0, MAX_PEOPLE).map((p) => `${personName(p)}${p.title ? `, ${p.title}` : ""}${roleOf(p)}`)].join("\n"));
     if (stripeIds.length) sections.push(await billingSection(stripeIds.slice(0, 3), d));
     const peopleIds = people.slice(0, MAX_PEOPLE).map((p) => p.id);
     scope = or(eq(a.organizationId, id), peopleIds.length ? inArray(a.personId, peopleIds) : undefined, clients.length ? inArray(a.clientId, clients.map((c) => c.id)) : undefined);
@@ -224,12 +234,12 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
     scope = eq(a.personId, id);
   }
 
-  sections.push(await activitySection(scope, d, member));
+  sections.push(await activitySection(scope, d, member, roles));
   return sections.filter(Boolean).join("\n\n");
 }
 
 /** Notes, calls, emails, texts, meetings and tasks: what's planned, then what happened, newest first. Campaign emails are left out. */
-async function activitySection(scope: SQL | undefined, d: (x: Date | null) => string | null, member: (id: string | null) => string | null) {
+async function activitySection(scope: SQL | undefined, d: (x: Date | null) => string | null, member: (id: string | null) => string | null, roles: Map<string, string>) {
   const db = await getDb();
   const notCampaign = sql`not exists (select 1 from outbound_emails oe where oe.id = ${a.emailId} and oe.campaign_id is not null)`;
   const cols = {
@@ -247,6 +257,7 @@ async function activitySection(scope: SQL | undefined, d: (x: Date | null) => st
     userId: a.userId,
     assigneeId: a.assigneeId,
     clientName: schema.clients.name,
+    personId: a.personId,
     firstName: schema.people.firstName,
     lastName: schema.people.lastName,
   };
@@ -261,7 +272,12 @@ async function activitySection(scope: SQL | undefined, d: (x: Date | null) => st
       .orderBy(desc(sql`coalesce(${a.occurredAt}, ${a.completedAt}, ${a.createdAt})`))
       .limit(MAX_HISTORY),
   ]);
-  const about = (r: (typeof planned)[number]) => r.clientName ?? (r.firstName ? personName({ firstName: r.firstName, lastName: r.lastName }) : null);
+  // The client it's on, or the person; with the person's part in the account (main contact, decision maker) when they have one.
+  const about = (r: (typeof planned)[number]) => {
+    const role = r.personId ? roles.get(r.personId) : undefined;
+    const who = r.firstName ? `${personName({ firstName: r.firstName, lastName: r.lastName })}${role ? `, ${role}` : ""}` : null;
+    return r.clientName ? (role && who ? `${r.clientName} · ${who}` : r.clientName) : who;
+  };
   const plannedLines = planned.map((r) =>
     activityLine({ when: d(r.dueAt) ?? "", type: r.type, status: `due${r.dueAt && r.dueAt < new Date() ? " (overdue)" : ""}, for ${member(r.assigneeId) ?? "nobody"}`, subject: r.subject, text: htmlToText(r.body), about: about(r) }),
   );

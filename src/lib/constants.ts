@@ -30,6 +30,9 @@ export type ManualKeyKind = (typeof manualKeyKinds)[number];
 export const entityTypes = ["person", "organization", "client"] as const;
 export type EntityType = (typeof entityTypes)[number];
 
+/** The Clients tab last opened in this browser session (src/components/clients/clients-view.tsx). */
+export const CLIENTS_TAB_COOKIE = "clients-tab";
+
 /**
  * Every client sits in one of three buckets. The bucket decides which stages
  * they move through and what their record shows: prospects get pipeline

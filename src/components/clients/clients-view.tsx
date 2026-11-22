@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useTransition } from "react";
+import { useEffect, useTransition } from "react";
 import { PlusIcon, Squares2X2Icon, TableCellsIcon } from "@heroicons/react/20/solid";
 import { BriefcaseIcon } from "@heroicons/react/24/outline";
 import { assignOwner, savePrefs, setArchived } from "@/actions/records";
@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Select } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
-import { churnReasons, clientCategories, clientCategoryLabels, clientHealthLabels, clientHealths, type ClientCategory } from "@/lib/constants";
+import { CLIENTS_TAB_COOKIE, churnReasons, clientCategories, clientCategoryLabels, clientHealthLabels, clientHealths, type ClientCategory } from "@/lib/constants";
 import { billingStatusLabels, billingStatuses, type BillingStatus } from "@/lib/stripe/rules";
 import type { ClientRow } from "@/lib/crm/records";
 import { formatDateOnly } from "@/lib/format";
@@ -31,6 +31,15 @@ import { HealthBadge } from "./client-controls";
 
 // The board (and drag and drop) is its own chunk, loaded only when the board view renders; the table never needs it.
 const ClientsBoard = dynamic(() => import("./board").then((m) => m.ClientsBoard));
+
+/**
+ * The tab last opened, for this browser session only (a cookie with no expiry
+ * ends when the browser closes): Clients opens on it again after a refresh or
+ * coming back from another page. The page reads it when the URL doesn't say.
+ */
+function rememberTab(category: ClientCategory) {
+  document.cookie = `${CLIENTS_TAB_COOKIE}=${category}; path=/; samesite=lax`;
+}
 
 const billingTone: Record<BillingStatus, Tone> = { past_due: "error", active: "success", trialing: "info", paused: "warning", canceled: "neutral", customer: "neutral" };
 
@@ -60,6 +69,9 @@ export function ClientsView({
   const [, start] = useTransition();
   const options = pipelines.filter((p) => p.category === category);
   const pipeline = options.find((p) => p.id === pipelineId) ?? null;
+
+  // A link straight to a tab (?category=current) counts as opening it.
+  useEffect(() => rememberTab(category), [category]);
 
   const switchView = (v: "board" | "table") => {
     set({ view: v });
@@ -229,7 +241,10 @@ export function ClientsView({
             key={c}
             type="button"
             aria-current={c === category ? "page" : undefined}
-            onClick={() => set({ category: c === "prospective" ? null : c, pipeline: null, health: null, service: null, reason: null, billing: null, product: null, sort: null, dir: null })}
+            onClick={() => {
+              rememberTab(c);
+              set({ category: c === "prospective" ? null : c, pipeline: null, health: null, service: null, reason: null, billing: null, product: null, sort: null, dir: null });
+            }}
             className={clsx("-mb-px border-b-2 px-2.5 py-2.5 text-[13.5px] font-medium", c === category ? "border-accent text-primary" : "border-transparent text-muted hover:text-secondary")}
           >
             {clientCategoryLabels[c].many}

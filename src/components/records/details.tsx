@@ -595,13 +595,19 @@ export type RelatedClient = { id: string; name: string; category: ClientCategory
 
 const categoryOrder: Record<ClientCategory, number> = { current: 0, prospective: 1, past: 2 };
 
+/**
+ * The clients a person or organization is part of. It's the first card on
+ * their page, above the details, so which account they belong to is always in
+ * view; with a client it's outlined in the accent color.
+ */
 export function RelatedClients({ clients, create }: { clients: RelatedClient[]; create: Parameters<typeof openCreate>[0] }) {
   const { money } = useApp();
   return (
     <SideCard
+      className={clients.length ? "border-accent" : undefined}
       title={
         <>
-          Clients <span className="font-medium text-muted tabular-nums">{clients.length || ""}</span>
+          {clients.length === 1 ? "Client" : "Clients"} <span className="font-medium text-muted tabular-nums">{clients.length > 1 ? clients.length : ""}</span>
         </>
       }
       action={

@@ -41,6 +41,9 @@ export const activityIcons: Record<ActivityType, typeof PhoneIcon> = {
   task: CheckCircleIcon,
 };
 
+/** The composer's tabs: what's written most, then what's planned, then the conversations. */
+export const composerOrder = ["note", "task", "meeting", "text", "email", "call"] as const satisfies readonly ActivityType[];
+
 export type Links = { personId?: string | null; organizationId?: string | null; clientId?: string | null };
 
 /**
@@ -53,7 +56,20 @@ export type Links = { personId?: string | null; organizationId?: string | null; 
  * so any of them can be picked instead, several can go on one email, and a
  * meeting can name who attended.
  */
-export function Composer({ links, recipient, contacts = [], initialType = "note" }: { links: Links; recipient?: Recipient | null; contacts?: Contact[]; initialType?: ActivityType }) {
+export function Composer({
+  links,
+  recipient,
+  contacts = [],
+  initialType = "note",
+  onDone,
+}: {
+  links: Links;
+  recipient?: Recipient | null;
+  contacts?: Contact[];
+  initialType?: ActivityType;
+  /** Called after a note, task, meeting or logged activity is saved (the Activities page closes its dialog). */
+  onDone?: () => void;
+}) {
   const [type, setType] = useState<ActivityType>(initialType);
   // Who a call or text is with. Starts on the contact; the dropdown offers everyone else.
   const [whoId, setWhoId] = useState<string | null>(recipient?.personId ?? null);
@@ -131,7 +147,7 @@ export function Composer({ links, recipient, contacts = [], initialType = "note"
         </ul>
       ) : null}
       <div role="tablist" aria-label="Add activity" className="flex gap-0.5 overflow-x-auto border-b border-line px-2 pt-1.5 [scrollbar-width:none]">
-        {(["note", "call", "email", "text", "meeting", "task"] as const).map((t) => {
+        {composerOrder.map((t) => {
           const Icon = activityIcons[t];
           const active = t === type;
           return (
@@ -164,6 +180,7 @@ export function Composer({ links, recipient, contacts = [], initialType = "note"
             onWho={setWhoId}
             draft={emailDraft}
             onDraftSent={emailDraft ? () => settle(emailDraft, "sent") : undefined}
+            onDone={onDone}
           />
         ) : type === "text" ? (
           <TextTab
@@ -173,15 +190,16 @@ export function Composer({ links, recipient, contacts = [], initialType = "note"
             who={textDraft || !contacts.length ? null : <WhoSelect id="text-who" label="To" contacts={contacts} value={who?.personId ?? null} onChange={setWhoId} needs="phone" />}
             draft={textDraft}
             onDraftSent={textDraft ? () => settle(textDraft, "sent") : undefined}
+            onDone={onDone}
           />
         ) : type === "call" ? (
           <>
             <WhoSelect id="call-who" label="With" contacts={contacts} value={who?.personId ?? null} onChange={setWhoId} needs="phone" />
             {who?.phone ? <CallNow links={links} recipient={who} /> : null}
-            <ActivityForm key={type} type={type} links={whoLinks} />
+            <ActivityForm key={type} type={type} links={whoLinks} onDone={onDone} />
           </>
         ) : (
-          <ActivityForm key={type} type={type} links={links} contacts={type === "meeting" ? contacts : undefined} />
+          <ActivityForm key={type} type={type} links={links} contacts={type === "meeting" ? contacts : undefined} onDone={onDone} />
         )}
       </div>
     </div>
@@ -189,9 +207,9 @@ export function Composer({ links, recipient, contacts = [], initialType = "note"
 }
 
 type Recipient = EmailRecipient & { phone?: string | null; textOptedOut?: boolean };
-type DraftProps = { draft?: PersonDraft | null; onDraftSent?: () => void };
+type DraftProps = { draft?: PersonDraft | null; onDraftSent?: () => void; onDone?: () => void };
 
-function EmailTab({ links, recipient: contact, contacts, who, onWho, draft, onDraftSent }: { links: Links; recipient?: EmailRecipient | null; contacts: Contact[]; who: Recipient | null; onWho: (personId: string) => void } & DraftProps) {
+function EmailTab({ links, recipient: contact, contacts, who, onWho, draft, onDraftSent, onDone }: { links: Links; recipient?: EmailRecipient | null; contacts: Contact[]; who: Recipient | null; onWho: (personId: string) => void } & DraftProps) {
   // Sending starts with the contact on the To line, or the first of the record's people who has an address.
   const recipient = contact?.email || draft ? contact : (contacts.find((c) => c.email) ?? contact);
   const [mode, setMode] = useState<"send" | "log">(recipient?.email ? "send" : "log");
@@ -213,7 +231,7 @@ function EmailTab({ links, recipient: contact, contacts, who, onWho, draft, onDr
       ) : mode === "log" ? (
         <>
           <WhoSelect id="email-who" label="With" contacts={contacts} value={who?.personId ?? null} onChange={onWho} />
-          <ActivityForm type="email" links={who && contacts.length ? { ...links, personId: who.personId } : links} />
+          <ActivityForm type="email" links={who && contacts.length ? { ...links, personId: who.personId } : links} onDone={onDone} />
         </>
       ) : null}
     </div>
@@ -221,7 +239,7 @@ function EmailTab({ links, recipient: contact, contacts, who, onWho, draft, onDr
 }
 
 /** Texting through the team's numbers when it's set up and the person has a phone; logging a text sent some other way otherwise. */
-function TextTab({ links, recipient, who, draft, onDraftSent }: { links: Links; recipient?: Recipient | null; /** The dropdown that picks who it's to, on a record with several people. */ who?: ReactNode } & DraftProps) {
+function TextTab({ links, recipient, who, draft, onDraftSent, onDone }: { links: Links; recipient?: Recipient | null; /** The dropdown that picks who it's to, on a record with several people. */ who?: ReactNode } & DraftProps) {
   const { comms } = useApp();
   const canSend = comms.texting && !!recipient?.phone;
   // Follows who's picked (sending when they have a phone) until the teammate chooses.
@@ -233,7 +251,7 @@ function TextTab({ links, recipient, who, draft, onDraftSent }: { links: Links; 
     return (
       <>
         {who}
-        <ActivityForm type="text" links={logLinks} />
+        <ActivityForm type="text" links={logLinks} onDone={onDone} />
       </>
     );
   return (
@@ -253,7 +271,7 @@ function TextTab({ links, recipient, who, draft, onDraftSent }: { links: Links; 
       {mode === "send" && recipient?.phone ? (
         <TextComposer recipient={{ personId: recipient.personId, name: recipient.name, phone: recipient.phone, optedOut: recipient.textOptedOut }} clientId={links.clientId} draft={draft} onDraftSent={onDraftSent} />
       ) : mode === "log" ? (
-        <ActivityForm type="text" links={logLinks} />
+        <ActivityForm type="text" links={logLinks} onDone={onDone} />
       ) : null}
     </div>
   );
@@ -273,7 +291,7 @@ function CallNow({ links, recipient }: { links: Links; recipient: Recipient }) {
   );
 }
 
-function ActivityForm({ type, links, contacts }: { type: ActivityType; links: Links; /** Meetings: the people who can be put on it. */ contacts?: Contact[] }) {
+function ActivityForm({ type, links, contacts, onDone }: { type: ActivityType; links: Links; /** Meetings: the people who can be put on it. */ contacts?: Contact[]; onDone?: () => void }) {
   const { workspace, viewer, services, canEdit } = useApp();
   // The teammate's own time zone (src/lib/time-zone.ts), so "now" reads as now to them wherever the workspace is set.
   const tz = workspace.timezone;
@@ -357,6 +375,7 @@ function ActivityForm({ type, links, contacts }: { type: ActivityType; links: Li
       }
       toast.success(forAssistant ? `${appConfig.agent.name} is on it. The answer lands on the task.` : isTask ? "Task added" : planned ? `${activityLabels[type]} scheduled` : `${activityLabels[type]} logged`);
       reset();
+      onDone?.();
     });
 
   return (

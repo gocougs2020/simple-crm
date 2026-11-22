@@ -57,7 +57,7 @@ export function RecordSummary({ entity, id, summary: initialSummary, summaryAt: 
             onClick={() => setOpen((v) => !v)}
             aria-expanded={open}
             title={at ? `Summarized ${formatAgo(at, workspace.timezone)}. Click to ${open ? "collapse" : "read it all"}.` : undefined}
-            className={clsx("min-w-0 flex-1 text-left text-[13.5px] leading-[1.55] text-secondary", !open && "line-clamp-4 sm:line-clamp-2", working && "opacity-80")}
+            className={clsx("min-w-0 flex-1 text-left text-[13.5px] leading-[1.55] text-secondary", !open && "line-clamp-6 sm:line-clamp-4", working && "opacity-80")}
           >
             {summary}
           </button>
