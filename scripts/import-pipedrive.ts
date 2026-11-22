@@ -646,6 +646,7 @@ async function runImport(db: Database) {
     else {
       const [row] = await db.insert(schema.clientServices).values(values).returning({ id: schema.clientServices.id });
       await links.save("client_service", d.id, row.id);
+      if (newOnly && !values.endedOn) ongoing.set(`${clientId}:${values.serviceId}`, row.id);
       if (newOnly) await db.insert(schema.events).values({ entityType: "client", entityId: clientId, action: "service_added", data: { name: role.service, source: SOURCE }, userId: actor.id });
       servicesAdded++;
     }
