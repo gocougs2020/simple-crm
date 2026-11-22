@@ -31,8 +31,8 @@ const donorOrder = (a: MergeCandidate, b: MergeCandidate) => (b.lastActivityAt?.
  * blanks come from the others; everything on the others moves to it and they
  * are deleted. The preview shows the result before anything changes.
  */
-export function MergeDialog({ entity, candidates, onClose, onMerged }: { entity: "person" | "organization"; candidates: MergeCandidate[]; onClose: () => void; onMerged: () => void }) {
-  const noun = entity === "person" ? { one: "person", many: "people" } : { one: "organization", many: "organizations" };
+export function MergeDialog({ entity, candidates, onClose, onMerged }: { entity: "person" | "organization" | "client"; candidates: MergeCandidate[]; onClose: () => void; onMerged: () => void }) {
+  const noun = { person: { one: "person", many: "people" }, organization: { one: "organization", many: "organizations" }, client: { one: "client", many: "clients" } }[entity];
   // Start with the most complete record, the oldest of those tied.
   const [keepId, setKeepId] = useState(() => [...candidates].sort((a, b) => filled(b) - filled(a) || a.createdAt.getTime() - b.createdAt.getTime())[0]?.id);
   const [pending, start] = useTransition();
@@ -121,7 +121,9 @@ export function MergeDialog({ entity, candidates, onClose, onMerged }: { entity:
         </table>
       </div>
       <p className="mt-3 text-[12.5px] text-muted">
-        {entity === "organization"
+        {entity === "client"
+          ? "Their services, performance numbers, notes, tasks, meetings, emails, calls, texts, files and history move to the client you keep. Their contacts and people are added to its people, and their organizations stay tied to it, each once, so everyone at them is its people too. It keeps its own category and stage."
+          : entity === "organization"
           ? "Their people, clients, notes, tasks, meetings, emails, calls, texts, files and history move to the organization you keep. If that leaves it with more than one client, those clients are combined into the one furthest along."
           : "Their notes, tasks, meetings, emails, calls, texts, files, clients and history move to the person you keep, along with every email address, phone number and organization they had. If anyone opted out of email or texts, the merged person has too."}
       </p>

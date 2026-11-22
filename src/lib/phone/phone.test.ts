@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { addDays, daysCovered, mondayOf, weekDays } from "../calendar-week";
+import { addDays, addMonths, daysCovered, mondayOf, monthGrid, weekDays } from "../calendar-week";
 import { digitsOf, formatPhone, matchKey, smsSegments, toE164 } from "./numbers";
 import { callOutcome, formatCallDuration, laterTextStatus, optKeyword } from "./rules";
 import { liveCheckDue } from "../live-rules";
@@ -81,6 +81,18 @@ describe("calendar weeks", () => {
     assert.equal(mondayOf("2026-11-23"), "2026-11-23");
     assert.deepEqual(weekDays("2026-12-28").slice(-2), ["2027-01-02", "2027-01-03"]);
     assert.equal(addDays("2026-03-01", -1), "2026-02-28");
+  });
+
+  it("lays a month out in whole weeks, Monday to Sunday", () => {
+    // November 2026 starts on a Sunday and ends on a Monday: six rows.
+    const nov = monthGrid("2026-11-22");
+    assert.equal(nov.length, 42);
+    assert.equal(nov[0], "2026-10-26");
+    assert.equal(nov.at(-1), "2026-12-06");
+    // February 2027 starts on a Monday and has 28 days: four rows.
+    assert.equal(monthGrid("2027-02-10").length, 28);
+    assert.equal(addMonths("2026-12-15", 1), "2027-01-01");
+    assert.equal(addMonths("2026-03-31", -1), "2026-02-01");
   });
 
   it("shows a multi-day event on every day it covers, including ones that began before the week", () => {

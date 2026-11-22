@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { Suspense } from "react";
 import { appConfig } from "@/app.config";
 import { ClientsView } from "@/components/clients/clients-view";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { requireUser } from "@/lib/auth";
-import { clientCategories, type ClientCategory } from "@/lib/constants";
+import { CLIENTS_TAB_COOKIE, clientCategories, type ClientCategory } from "@/lib/constants";
 import { getAppData } from "@/lib/crm/context";
 import { allClientTags, allStripeProducts, clientCounts, listClients } from "@/lib/crm/records";
 
@@ -23,7 +24,9 @@ const one = (v: string | string[] | undefined) => (typeof v === "string" ? v : u
 async function Clients({ searchParams }: Pick<PageProps<"/clients">, "searchParams">) {
   const sp = await searchParams;
   const [user, app] = await Promise.all([requireUser(), getAppData()]);
-  const category: ClientCategory = clientCategories.find((c) => c === one(sp.category)) ?? "prospective";
+  // The URL wins; otherwise the tab last opened in this browser session, then prospects.
+  const saved = (await cookies()).get(CLIENTS_TAB_COOKIE)?.value;
+  const category: ClientCategory = clientCategories.find((c) => c === one(sp.category)) ?? clientCategories.find((c) => c === saved) ?? "prospective";
   // The URL wins; otherwise each teammate's last choice, then the deployment's default.
   const view = one(sp.view) === "table" || one(sp.view) === "board" ? (one(sp.view) as "board" | "table") : (user.prefs.clientsView ?? appConfig.layout.defaultClientsView);
   const options = app.pipelines.filter((p) => p.category === category);

@@ -4,6 +4,7 @@ import clsx from "clsx";
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { CheckIcon, ClipboardDocumentIcon, PencilIcon } from "@heroicons/react/20/solid";
 import { Spinner } from "@/components/ui/button";
+import { cn } from "@/lib/cn";
 import { toast } from "@/components/ui/toast";
 
 type SaveResult = { ok: true } | { ok: false; error: string };
@@ -139,7 +140,7 @@ export function InlineField<T>({
 /** A titled card on a record page's side column. */
 export function SideCard({ title, action, children, className }: { title: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={clsx("rounded-xl border border-line bg-surface", className)}>
+    <section className={cn("rounded-xl border border-line bg-surface", className)}>
       <header className="flex items-center justify-between gap-2 px-4 pt-3 pb-1">
         <h2 className="text-[13px] font-semibold text-primary">{title}</h2>
         {action}

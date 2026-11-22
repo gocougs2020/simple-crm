@@ -8,6 +8,7 @@ import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { getDb, schema } from "@/db";
 import { monthlyPriceSql, type ActivityType, type EntityType } from "@/lib/constants";
 import { actorUserId, type Actor } from "@/lib/crm/actor";
+import { clientAtOrganization } from "@/lib/crm/client-organizations";
 import { asTimelineItem, lastContactOn, pinnedOn, plannedOn, timelinePage, type NoteReply } from "@/lib/crm/activities";
 import { effectiveTags, listLabels } from "@/lib/crm/labels";
 import { clientPeople as peopleOnClient, inOrganizations, likeTerm } from "@/lib/crm/records";
@@ -301,7 +302,7 @@ export async function listClients(
   if (f.pipelineId) where.push(eq(clients.pipelineId, f.pipelineId));
   if (f.stageId) where.push(eq(clients.stageId, f.stageId));
   if (f.personId) where.push(eq(clients.personId, f.personId));
-  if (f.organizationId) where.push(eq(clients.organizationId, f.organizationId));
+  if (f.organizationId) where.push(clientAtOrganization(f.organizationId));
   if (f.health) where.push(eq(clients.health, f.health as never));
   if (f.tag) where.push(sql`${clients.tags} ? ${f.tag}`);
   const rows = await selectClients(and(...where), limit + 1);

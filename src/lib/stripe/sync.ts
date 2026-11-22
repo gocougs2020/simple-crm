@@ -169,7 +169,8 @@ export async function syncStripe() {
 
 /**
  * Every email a client can be matched on, lowercased: its contact's, the
- * people added to it and everyone at its organization, other emails included.
+ * people added to it and everyone at its organizations (its main one and any
+ * kept from a merge), other emails included.
  * `only` narrows it to one client.
  */
 function clientEmails(only?: string): SQL {
@@ -184,6 +185,10 @@ function clientEmails(only?: string): SQL {
     select c.id, lower(e.email) from clients c join people p on p.organization_id = c.organization_id ${emails} where ${ok} ${one}
     union
     select c.id, lower(e.email) from clients c join person_organizations po on po.organization_id = c.organization_id join people p on p.id = po.person_id ${emails} where ${ok} ${one}
+    union
+    select c.id, lower(e.email) from clients c join client_organizations co on co.client_id = c.id join people p on p.organization_id = co.organization_id ${emails} where ${ok} ${one}
+    union
+    select c.id, lower(e.email) from clients c join client_organizations co on co.client_id = c.id join person_organizations po on po.organization_id = co.organization_id join people p on p.id = po.person_id ${emails} where ${ok} ${one}
   )`;
 }
 

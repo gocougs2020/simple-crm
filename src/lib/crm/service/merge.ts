@@ -10,7 +10,7 @@ import { id } from "@/lib/crm/schemas";
 import { ActionError, NotFoundError } from "@/lib/errors";
 
 /**
- * Merging people or organizations by hand: someone picks the records and
+ * Merging people, organizations or clients by hand: someone picks the records and
  * which one is kept. The kept record keeps every value it has; its blanks are
  * filled from the others (most recently active first), and everything on the
  * others (people, clients, notes, tasks, meetings, email, calls, texts,
@@ -100,5 +100,28 @@ export async function mergePeople(a: Actor, input: z.input<typeof mergeInput>) {
     await mergePeopleInto(t, { keep, donors, alsoAt: { survivor: at([keepId]), others: at(others) }, by: stamp(a) });
     const clientsMerged = hadClients ? await mergeDuplicateClients(t, { personId: keepId }, a) : 0;
     return { id: keepId, merged: donors.length, clientsMerged };
+  });
+}
+
+/**
+ * Merging clients by hand: the one picked is kept with every value it has and
+ * its own stage; blanks are filled from the others (most recently active
+ * first). Their services, metrics, notes, tasks, meetings, emails, calls,
+ * texts, files and history move to it, their people and organizations are
+ * added to it (each once), and then they're deleted.
+ */
+export async function mergeClients(a: Actor, input: z.input<typeof mergeInput>) {
+  assertCan(a, "records:write");
+  assertCan(a, "records:archive");
+  const { keepId, others } = parse(input);
+  return withTransaction(async (db: Database) => {
+    const t = db as unknown as MergeDatabase;
+    const rows = await t.select().from(clients).where(inArray(clients.id, [keepId, ...others])).for("update");
+    const keep = rows.find((r) => r.id === keepId);
+    if (!keep) throw new NotFoundError("The client to keep was deleted. Reload the page and pick another.");
+    const donors = rows.filter((r) => r.id !== keepId).sort(donorOrder);
+    if (donors.length !== others.length) throw new NotFoundError("Some of those clients were deleted or already merged. Reload the page and try again.");
+    await mergeClientsInto(t, { keep, donors, by: stamp(a) });
+    return { id: keepId, merged: donors.length, clientsMerged: 0 };
   });
 }

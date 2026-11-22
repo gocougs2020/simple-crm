@@ -70,9 +70,9 @@ export function AppShell({ counts, children }: { counts: Promise<SidebarCounts>;
   const nav: NavItem[] = [
     { href: "/", label: "Home", icon: HomeIcon },
     { href: "/clients", label: "Clients", icon: BriefcaseIcon },
+    { href: "/activities", label: "Activities", icon: CheckCircleIcon, badge: activitiesBadge },
     ...(comms.phone ? [{ href: "/messages", label: "Messages", icon: ChatBubbleLeftRightIcon, badge: (c: SidebarCounts) => ({ n: c.unreadTexts, label: "unread" }) }] : []),
     { href: "/email", label: "Email", icon: EnvelopeIcon, badge: (c) => ({ n: c.unread, label: "unread" }) },
-    { href: "/activities", label: "Activities", icon: CheckCircleIcon, badge: activitiesBadge },
     { href: "/people", label: "People", icon: UserIcon },
     { href: "/organizations", label: "Organizations", icon: BuildingOffice2Icon },
     { href: "/calendar", label: "Calendar", icon: CalendarDaysIcon },
@@ -394,7 +394,8 @@ function NavBadge({ counts, pick }: { counts: Promise<SidebarCounts>; pick: (c: 
 export function PageHeader({ title, count, children, sub }: { title: ReactNode; count?: number; children?: ReactNode; sub?: ReactNode }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-line px-4 py-3.5 lg:px-6">
-      <div className="min-w-0 flex-1">
+      {/* The title keeps at least 10rem: wider controls wrap below it on a phone instead of covering it. */}
+      <div className="min-w-0 flex-1 basis-40">
         <h1 className="flex items-baseline gap-2 text-page-title">
           {title}
           {count !== undefined ? <span className="text-[14px] font-medium text-muted tabular-nums">{count.toLocaleString()}</span> : null}

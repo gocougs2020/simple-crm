@@ -274,6 +274,13 @@
       "when": 1795227135828,
       "tag": "0038_conversation-updated-indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1795382409132,
+      "tag": "0039_client-organizations",
+      "breakpoints": true
     }
   ]
 }

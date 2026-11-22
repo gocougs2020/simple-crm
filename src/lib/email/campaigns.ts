@@ -44,9 +44,9 @@ function clientConditions(a: CampaignAudience): SQL[] {
   return client;
 }
 
-/** A client the person is tied to (its contact, or someone at its organization) that matches all of `conds`. */
+/** A client the person is tied to (its contact, or someone at one of its organizations) that matches all of `conds`. */
 const clientOf = (conds: SQL[]) =>
-  sql`clients c where c.archived_at is null and (c.person_id = ${people.id} or (c.organization_id is not null and c.organization_id = ${people.organizationId})) and ${sql.join(conds, sql` and `)}`;
+  sql`clients c where c.archived_at is null and (c.person_id = ${people.id} or (c.organization_id is not null and c.organization_id = ${people.organizationId}) or exists (select 1 from client_organizations co where co.client_id = c.id and co.organization_id = ${people.organizationId})) and ${sql.join(conds, sql` and `)}`;
 
 /** Who can get a campaign on this channel at all, whatever the filters. */
 function reachable(channel: CampaignChannel): SQL[] {

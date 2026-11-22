@@ -72,12 +72,13 @@ async function Person({ params }: Pick<PageProps<"/people/[id]">, "params">) {
       <RecordBody
         side={
           <>
+            {/* The client they belong to comes first, above the details. */}
+            <RelatedClients clients={clients} create={{ kind: "client", defaults: { personId: id, personName: name, organizationId: organization?.id, organizationName: organization?.name } }} />
             <PersonDetails person={person} organization={organization} />
             {organization ? <OrganizationCard org={organization} /> : null}
             {alsoAt.map((org) => (
               <OrganizationCard key={org.id} org={org} title="Also at" />
             ))}
-            <RelatedClients clients={clients} create={{ kind: "client", defaults: { personId: id, personName: name, organizationId: organization?.id, organizationName: organization?.name } }} />
             <FilesCard files={tl.files} emailFiles={tl.emailFiles} links={{ personId: id, organizationId: person.organizationId }} />
           </>
         }

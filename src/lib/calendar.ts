@@ -6,7 +6,7 @@ import { outlookEvents, type OutlookEvent } from "@/lib/microsoft/calendar";
 import { addDays } from "./calendar-week";
 
 /**
- * Calendar: a week of the team's meetings and calls. CRM meetings and
+ * Calendar: a week or a month of the team's meetings and calls. CRM meetings and
  * planned calls come from activities (everyone sees them: they're records);
  * Outlook events come live from each teammate's connected calendar, as much
  * as they share.
@@ -27,9 +27,10 @@ export type CrmEvent = {
   who: string | null;
 };
 
-export async function calendarWeek(input: { monday: string; userIds: string[]; viewerId: string; timezone: string }) {
-  const start = zonedTime(input.monday, "00:00", input.timezone);
-  const end = zonedTime(addDays(input.monday, 7), "00:00", input.timezone);
+/** The days from `from` (YYYY-MM-DD), `days` of them: a week, or the whole weeks a month grid shows. */
+export async function calendarRange(input: { from: string; days: number; userIds: string[]; viewerId: string; timezone: string }) {
+  const start = zonedTime(input.from, "00:00", input.timezone);
+  const end = zonedTime(addDays(input.from, input.days), "00:00", input.timezone);
   const db = await getDb();
   const when = sql`coalesce(${activities.dueAt}, ${activities.occurredAt})`;
   const crmRows = input.userIds.length
@@ -53,10 +54,10 @@ export async function calendarWeek(input: { monday: string; userIds: string[]; v
             lt(when, end),
           ),
         )
-        .limit(500)
+        .limit(input.days > 7 ? 1500 : 500)
     : Promise.resolve([]);
   // Outlook is read at the same time as the CRM's own meetings.
-  const [rows, outlook] = await Promise.all([crmRows, outlookEvents(input.userIds, start, end, input.viewerId)]);
+  const [rows, outlook] = await Promise.all([crmRows, outlookEvents(input.userIds, start, end, input.viewerId, input.days > 7 ? 8 : 3)]);
   const crm: CrmEvent[] = rows.map(({ a, personName, organizationName, clientName }) => ({
     id: a.id,
     userId: a.assigneeId,
@@ -88,4 +89,4 @@ async function linkAttendees(events: OutlookEvent[]) {
   });
 }
 
-export type CalendarWeek = Awaited<ReturnType<typeof calendarWeek>>;
+export type CalendarData = Awaited<ReturnType<typeof calendarRange>>;

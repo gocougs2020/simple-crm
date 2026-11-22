@@ -5,7 +5,8 @@ import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
 import { billingIntervalLabels } from "@/lib/constants";
 import { getAppData } from "@/lib/crm/context";
-import { clientsOfOrganization, getClient, getOrganization, getPerson, metricsOf, peopleOf, servicesOf } from "@/lib/crm/records";
+import { organizationsOfClient } from "@/lib/crm/client-organizations";
+import { clientPeople, clientsOfOrganization, getClient, getOrganization, getPerson, metricsOf, otherOrganizationsOfClient, peopleOf, servicesOf } from "@/lib/crm/records";
 import { formatMoney, personName } from "@/lib/format";
 import { htmlToText } from "@/lib/safe-html";
 import { stripeAccounts, stripeConfigured } from "@/lib/stripe";
@@ -29,6 +30,8 @@ const { activities: a } = schema;
 
 /** History lines sent to the model: newest first, and every open task or meeting. */
 const MAX_HISTORY = 60;
+/** Older notes, meetings and calls beyond those: where the account's story often is (why they left, what they struggled with). */
+const MAX_EARLIER = 25;
 const MAX_PLANNED = 25;
 const MAX_PEOPLE = 25;
 
@@ -102,13 +105,14 @@ async function waitForSummary(entity: SummaryEntity, id: string, shown: Omit<Sum
 async function writeSummary(entity: SummaryEntity, id: string) {
   const ws = await getWorkspace();
   const today = new Intl.DateTimeFormat("en-US", { timeZone: ws.timezone, weekday: "long", year: "numeric", month: "long", day: "numeric" }).format(new Date());
+  const since = new Intl.DateTimeFormat("en-US", { timeZone: ws.timezone, month: "long", day: "numeric" }).format(new Date(Date.now() - 30 * 24 * 3600_000));
   const record = await recordContext(entity, id);
   const { text } = await generateText({
     model: aiGateway(appConfig.agent.summaryModel),
     reasoning: appConfig.agent.summaryReasoning,
-    system: summaryInstructions(entity, today),
+    system: summaryInstructions(entity, today, since),
     prompt: record,
-    // Reasoning counts toward this; the answer itself is two sentences.
+    // Reasoning counts toward this; the answer itself is a few sentences.
     maxOutputTokens: 3_000,
   });
   const summary = cleanSummary(text);
@@ -143,13 +147,21 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
   const line = (label: string, value: unknown) => (value === null || value === undefined || value === "" ? null : `${label}: ${value}`);
   const sections: string[] = [];
   let scope: SQL | undefined;
+  /** Who matters to the account, marked on their activity so the summary can lead with them. */
+  const roles = new Map<string, string>();
+  const markRoles = (list: { id: string; decisionMaker: boolean }[], contactId?: string | null) => {
+    for (const p of list) if (p.decisionMaker) roles.set(p.id, "decision maker");
+    if (contactId) roles.set(contactId, roles.has(contactId) ? "main contact, decision maker" : "main contact");
+  };
+  const roleOf = (p: { id: string }) => (roles.get(p.id) ? ` (${roles.get(p.id)})` : "");
 
   if (entity === "client") {
     const row = await getClient(id);
     if (!row) throw new Error("Client not found.");
     const { client, person, organization } = row;
     const stage = app.pipelines.flatMap((p) => p.stages.map((s) => ({ ...s, pipeline: p.name }))).find((s) => s.id === client.stageId);
-    const [services, metrics, accountPeople] = await Promise.all([servicesOf(id), metricsOf(id), client.organizationId ? peopleOf(client.organizationId) : Promise.resolve([])]);
+    // Its people: the contact, the people added to it and everyone at the organizations it's tied to (its main one and any kept from a merge).
+    const [services, metrics, accountPeople, otherOrgs] = await Promise.all([servicesOf(id), metricsOf(id), clientPeople(client).then((rows) => rows.map((r) => r.person)), otherOrganizationsOfClient(id)]);
     sections.push(
       [
         "## Client",
@@ -169,20 +181,23 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
         line("Other fields", custom(client.custom)),
         line("Main contact", person ? `${personName(person)}${person.title ? `, ${person.title}` : ""}${person.email ? ` <${person.email}>` : ""}` : null),
         line("Organization", organization?.name),
+        line("Also tied to", otherOrgs.map((o) => o.name).join(", ")),
       ]
         .filter(Boolean)
         .join("\n"),
     );
     if (services.length) sections.push(["## Services", ...services.map((s) => `${s.name}: ${money(s.price, client.currency)} billed ${billingIntervalLabels[s.interval].label.toLowerCase()}, ${s.endedOn ? `ended ${d(s.endedOn)}` : s.startedOn ? `since ${d(s.startedOn)}` : "not started"}${s.note ? ` (${s.note})` : ""}`)].join("\n"));
     if (metrics.length) {
-      const latest = new Map<string, (typeof metrics)[number]>();
-      for (const m of metrics) latest.set(m.label, m);
-      sections.push(["## Performance (latest)", ...[...latest.values()].map((m) => `${m.label}: ${m.value} (${d(m.period)})`)].join("\n"));
+      // How each number has gone over time, not just where it is now: the last six readings, oldest first.
+      const byLabel = new Map<string, (typeof metrics)[number][]>();
+      for (const m of metrics) byLabel.set(m.label, [...(byLabel.get(m.label) ?? []), m]);
+      sections.push(["## Performance over time", ...[...byLabel].map(([label, list]) => `${label}: ${list.slice(-6).map((m) => `${m.value} (${d(m.period)})`).join(", ")}`)].join("\n"));
     }
     sections.push(await billingSection(await customersOfClient(id), d, client));
     const peopleIds = [...new Set([client.personId, ...accountPeople.map((p) => p.id)].filter((x): x is string => !!x))].slice(0, MAX_PEOPLE);
-    if (accountPeople.length) sections.push(["## People at the account", ...accountPeople.slice(0, MAX_PEOPLE).map((p) => `${personName(p)}${p.title ? `, ${p.title}` : ""}`)].join("\n"));
-    scope = or(eq(a.clientId, id), peopleIds.length ? inArray(a.personId, peopleIds) : undefined, client.organizationId ? eq(a.organizationId, client.organizationId) : undefined);
+    markRoles([...(person ? [person] : []), ...accountPeople], client.personId);
+    if (accountPeople.length) sections.push(["## People at the account", ...accountPeople.slice(0, MAX_PEOPLE).map((p) => `${personName(p)}${p.title ? `, ${p.title}` : ""}${roleOf(p)}`)].join("\n"));
+    scope = or(eq(a.clientId, id), peopleIds.length ? inArray(a.personId, peopleIds) : undefined, sql`${a.organizationId} in ${organizationsOfClient(id)}`);
   } else if (entity === "organization") {
     const org = await getOrganization(id);
     if (!org) throw new Error("Organization not found.");
@@ -192,7 +207,8 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
       ["## Organization", line("Name", org.name), line("Website", org.domain), line("Industry", org.industry), line("Labels", labeled(org.tags)), line("Owner", member(org.ownerId)), line("Other fields", custom(org.custom))].filter(Boolean).join("\n"),
     );
     if (clients.length) sections.push(["## Clients", ...clients.map((c) => `${c.name}: ${c.category}, ${c.stageName}${c.mrr ? `, ${money(Number(c.mrr))}/mo` : c.value && c.category === "prospective" ? `, potential ${money(c.value)}` : ""}`)].join("\n"));
-    if (people.length) sections.push(["## People", ...people.slice(0, MAX_PEOPLE).map((p) => `${personName(p)}${p.title ? `, ${p.title}` : ""}`)].join("\n"));
+    markRoles(people);
+    if (people.length) sections.push(["## People", ...people.slice(0, MAX_PEOPLE).map((p) => `${personName(p)}${p.title ? `, ${p.title}` : ""}${roleOf(p)}`)].join("\n"));
     if (stripeIds.length) sections.push(await billingSection(stripeIds.slice(0, 3), d));
     const peopleIds = people.slice(0, MAX_PEOPLE).map((p) => p.id);
     scope = or(eq(a.organizationId, id), peopleIds.length ? inArray(a.personId, peopleIds) : undefined, clients.length ? inArray(a.clientId, clients.map((c) => c.id)) : undefined);
@@ -224,12 +240,12 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
     scope = eq(a.personId, id);
   }
 
-  sections.push(await activitySection(scope, d, member));
+  sections.push(await activitySection(scope, d, member, roles));
   return sections.filter(Boolean).join("\n\n");
 }
 
 /** Notes, calls, emails, texts, meetings and tasks: what's planned, then what happened, newest first. Campaign emails are left out. */
-async function activitySection(scope: SQL | undefined, d: (x: Date | null) => string | null, member: (id: string | null) => string | null) {
+async function activitySection(scope: SQL | undefined, d: (x: Date | null) => string | null, member: (id: string | null) => string | null, roles: Map<string, string>) {
   const db = await getDb();
   const notCampaign = sql`not exists (select 1 from outbound_emails oe where oe.id = ${a.emailId} and oe.campaign_id is not null)`;
   const cols = {
@@ -247,6 +263,7 @@ async function activitySection(scope: SQL | undefined, d: (x: Date | null) => st
     userId: a.userId,
     assigneeId: a.assigneeId,
     clientName: schema.clients.name,
+    personId: a.personId,
     firstName: schema.people.firstName,
     lastName: schema.people.lastName,
   };
@@ -261,7 +278,21 @@ async function activitySection(scope: SQL | undefined, d: (x: Date | null) => st
       .orderBy(desc(sql`coalesce(${a.occurredAt}, ${a.completedAt}, ${a.createdAt})`))
       .limit(MAX_HISTORY),
   ]);
-  const about = (r: (typeof planned)[number]) => r.clientName ?? (r.firstName ? personName({ firstName: r.firstName, lastName: r.lastName }) : null);
+  // A long history is cut at the newest 60: what came before still counts, so the notes, meetings and calls before them go in briefly.
+  const when = sql`coalesce(${a.occurredAt}, ${a.completedAt}, ${a.createdAt})`;
+  const oldest = history.length === MAX_HISTORY ? history[history.length - 1] : null;
+  const earlier = oldest
+    ? await base()
+        .where(and(scope, inArray(a.type, ["note", "meeting", "call"]), or(sql`${a.completedAt} is not null`, sql`${a.dueAt} is null`), lt(when, oldest.occurredAt ?? oldest.completedAt ?? oldest.createdAt)))
+        .orderBy(desc(when))
+        .limit(MAX_EARLIER)
+    : [];
+  // The client it's on, or the person; with the person's part in the account (main contact, decision maker) when they have one.
+  const about = (r: (typeof planned)[number]) => {
+    const role = r.personId ? roles.get(r.personId) : undefined;
+    const who = r.firstName ? `${personName({ firstName: r.firstName, lastName: r.lastName })}${role ? `, ${role}` : ""}` : null;
+    return r.clientName ? (role && who ? `${r.clientName} · ${who}` : r.clientName) : who;
+  };
   const plannedLines = planned.map((r) =>
     activityLine({ when: d(r.dueAt) ?? "", type: r.type, status: `due${r.dueAt && r.dueAt < new Date() ? " (overdue)" : ""}, for ${member(r.assigneeId) ?? "nobody"}`, subject: r.subject, text: htmlToText(r.body), about: about(r) }),
   );
@@ -278,12 +309,29 @@ async function activitySection(scope: SQL | undefined, d: (x: Date | null) => st
       about: about(r),
     }),
   );
+  const earlierLines = earlier.map((r) =>
+    activityLine(
+      {
+        when: d(r.occurredAt ?? r.completedAt ?? r.createdAt) ?? "",
+        type: r.type,
+        status: "",
+        direction: r.direction,
+        outcome: r.outcome,
+        by: member(r.userId) ?? (r.direction === "inbound" ? "them" : null),
+        subject: r.subject,
+        text: htmlToText(r.body),
+        about: about(r),
+      },
+      300,
+    ),
+  );
   return [
     "## Planned (open tasks, calls and meetings)",
     ...(plannedLines.length ? plannedLines : ["Nothing planned."]),
     "",
     `## History (newest first${history.length === MAX_HISTORY ? `, latest ${MAX_HISTORY}` : ""})`,
     ...(historyLines.length ? historyLines : ["No activity logged yet."]),
+    ...(earlierLines.length ? ["", "## Earlier notes, meetings and calls (before the history above, newest first)", ...earlierLines] : []),
   ].join("\n");
 }
 

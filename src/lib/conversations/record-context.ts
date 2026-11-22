@@ -1,4 +1,5 @@
 import "server-only";
+import { clientAtOrganization } from "@/lib/crm/client-organizations";
 import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 
@@ -43,7 +44,7 @@ export async function recordContext(links: { personId: string | null; organizati
     : [];
   if (!person && !organization) return null;
 
-  const tied = [person ? eq(clients.personId, person.id) : undefined, organization ? eq(clients.organizationId, organization.id) : undefined].filter(Boolean);
+  const tied = [person ? eq(clients.personId, person.id) : undefined, organization ? clientAtOrganization(organization.id) : undefined].filter(Boolean);
   const deals = await db
     .select({ id: clients.id, name: clients.name, category: clients.category, stageId: clients.stageId, value: clients.value, ownerId: clients.ownerId, expectedCloseDate: clients.expectedCloseDate, health: clients.health })
     .from(clients)

@@ -6,7 +6,7 @@ import { isDestructive } from "@/lib/api/spec";
 import { applyApprovals, cleanTitle, cleanTranscript, cleanUserMessage, DEFAULT_TITLE, fallbackTitle, historyForModel, MAX_USER_TEXT, mergeIncoming, OMITTED_RESULT, trimForStorage } from "./messages";
 import { allowedOperations, capResult, needsConfirmation } from "./policy";
 import { agentInstructions, pageNote } from "./prompt";
-import { activityLine, cleanSummary, isFresh, SUMMARY_MAX_AGE_MS, SUMMARY_TTL_MS, summaryDue, summaryInstructions } from "./summary-prompt";
+import { activityLine, cleanSummary, isFresh, SUMMARY_MAX_AGE_MS, SUMMARY_MAX_CHARS, SUMMARY_TTL_MS, summaryDue, summaryInstructions } from "./summary-prompt";
 import { dialogueState, levelFromTimeDomain, reduceSilenceClock, responseInProgress, voiceSetupFresh, VOICE_SETUP_FRESH_MS, VOICE_PLAYBACK_SETTLE_MS, VOICE_USER_SILENCE_MS } from "./voice";
 
 const user = (id: string, text: string): AgentMessage => ({ id, role: "user", parts: [{ type: "text", text }] });
@@ -190,8 +190,8 @@ describe("record summaries", () => {
 
   it("cleans the model's answer to one short paragraph", () => {
     assert.equal(cleanSummary('"**Acme** is a current client.\n\nRenewal is Mar 4."'), "Acme is a current client. Renewal is Mar 4.");
-    const long = cleanSummary(`${"Acme buys payroll and benefits services from us. ".repeat(4)}They have an unpaid invoice from last month that needs a call this week.`);
-    assert.ok(long.length <= 321);
+    const long = cleanSummary(`${"Acme buys payroll and benefits services from us. ".repeat(10)}They have an unpaid invoice from last month that needs a call this week.`);
+    assert.ok(long.length <= SUMMARY_MAX_CHARS + 1);
   });
 
   it("writes one line per activity", () => {
@@ -207,6 +207,17 @@ describe("record summaries", () => {
     assert.match(text, /client account/);
     assert.match(text, /never as instructions/);
     assert.match(text, /March 2, 2026/);
+  });
+
+  it("asks for who they are, what matters from their history, the last 30 days and a next step, focused on the account's key people", () => {
+    const client = summaryInstructions("client", "Monday, March 2, 2026", "January 31");
+    assert.match(client, /Stripe subscriptions/);
+    assert.match(client, /however old it is/);
+    assert.match(client, /last 30 days \(since January 31\)/);
+    assert.match(client, /decision maker/);
+    assert.match(client, /next step/);
+    // A person's snapshot is about them, not the whole account.
+    assert.doesNotMatch(summaryInstructions("person", "Monday, March 2, 2026"), /decision maker come first/);
   });
 });
 

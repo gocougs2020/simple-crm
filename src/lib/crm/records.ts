@@ -3,6 +3,7 @@ import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from "dri
 import { cache } from "react";
 import { getDb, schema } from "@/db";
 import { clientCategoryLabels, monthlyPriceSql, type ClientCategory } from "@/lib/constants";
+import { clientAtOrganization, organizationsOfClient } from "@/lib/crm/client-organizations";
 import { effectiveTags } from "@/lib/crm/labels";
 import { orderPeople } from "@/lib/crm/people-order";
 import { personName } from "@/lib/format";
@@ -183,7 +184,7 @@ export async function listOrganizations(f: OrgFilter = {}, { offset = 0, limit =
       organization: organizations,
       peopleCount,
       parentName: sql<string | null>`(select parent.name from organizations parent where parent.id = "organizations"."parent_id")`,
-      clientCategories: sql<string[]>`(select coalesce(json_agg(distinct c.category), '[]') from clients c where c.organization_id = "organizations"."id" and c.archived_at is null)`,
+      clientCategories: sql<string[]>`(select coalesce(json_agg(distinct c.category), '[]') from clients c where (c.organization_id = "organizations"."id" or exists (select 1 from client_organizations co where co.client_id = c.id and co.organization_id = "organizations"."id")) and c.archived_at is null)`,
       next: nextActivity("organization_id", sql`"organizations"."id"`),
     })
     .from(page)
@@ -273,7 +274,7 @@ export async function listClients(f: ClientFilter = {}) {
   if (f.pipelineId) where.push(eq(clients.pipelineId, f.pipelineId));
   if (f.ownerId) where.push(f.ownerId === "none" ? isNull(clients.ownerId) : eq(clients.ownerId, f.ownerId));
   if (f.personId) where.push(eq(clients.personId, f.personId));
-  if (f.organizationId) where.push(eq(clients.organizationId, f.organizationId));
+  if (f.organizationId) where.push(clientAtOrganization(f.organizationId));
   if (f.tag) where.push(sql`${clients.tags} ? ${f.tag}`);
   if (f.health) where.push(f.health === "none" ? isNull(clients.health) : eq(clients.health, f.health as never));
   if (f.churnReason) where.push(eq(clients.churnReason, f.churnReason));
@@ -306,10 +307,12 @@ export async function listClients(f: ClientFilter = {}) {
   const dir = f.dir ?? (["value", "mrr", "stripeMrr", "stripeCollected", "formerMrr", "startedOn", "endedOn", "lastActivity", "created"].includes(f.sort ?? "") ? "desc" : "asc");
   return db
     .select({
-      // Only what the board and the table show (no AI summary, notes or timestamps they don't use).
+      // Only what the board, the table and the merge dialog show (no AI summary, notes or timestamps they don't use).
       client: {
         id: clients.id,
         name: clients.name,
+        category: clients.category,
+        createdAt: clients.createdAt,
         value: clients.value,
         stageId: clients.stageId,
         ownerId: clients.ownerId,
@@ -372,16 +375,16 @@ export type ClientPersonSource = "contact" | "added" | "organization";
 
 /**
  * Everyone associated with a client: its contact first, then people added to
- * it by hand, then everyone at its organization (decision makers first).
+ * it by hand, then everyone at its organizations (decision makers first).
  * Each person once, under the closest of the three.
  */
 export async function clientPeople(client: { id: string; personId: string | null; organizationId: string | null }) {
   const db = await getDb();
   const cp = schema.clientPeople;
   const added = sql<boolean>`exists (select 1 from ${cp} where ${cp.clientId} = ${client.id} and ${cp.personId} = ${people.id})`;
-  const atOrganization = client.organizationId
-    ? or(eq(people.organizationId, client.organizationId), sql`exists (select 1 from ${personOrganizations} po where po.person_id = ${people.id} and po.organization_id = ${client.organizationId})`)
-    : undefined;
+  // At any organization it's tied to: its main one, or one kept from a merge.
+  const orgs = organizationsOfClient(client.id);
+  const atOrganization = or(sql`${people.organizationId} in ${orgs}`, sql`exists (select 1 from ${personOrganizations} po where po.person_id = ${people.id} and po.organization_id in ${orgs})`);
   const rows = await db
     .select({ person: people, added })
     .from(people)
@@ -396,6 +399,18 @@ export async function clientPeople(client: { id: string; personId: string | null
   );
 }
 export type ClientPerson = Awaited<ReturnType<typeof clientPeople>>[number];
+
+/** The organizations a client is tied to besides its main one: kept from clients merged into it. */
+export async function otherOrganizationsOfClient(clientId: string) {
+  const db = await getDb();
+  return db
+    .select({ organization: organizations })
+    .from(schema.clientOrganizations)
+    .innerJoin(organizations, eq(organizations.id, schema.clientOrganizations.organizationId))
+    .where(and(eq(schema.clientOrganizations.clientId, clientId), isNull(organizations.archivedAt)))
+    .orderBy(asc(organizations.name))
+    .then((rows) => rows.map((r) => r.organization));
+}
 
 /** Counts per category for the Clients tabs, so each tab says how many it holds. */
 export async function clientCounts() {
@@ -459,7 +474,7 @@ export async function clientsOfPerson(personId: string, organizationId: string |
     .select({ id: clients.id, name: clients.name, category: clients.category, value: clients.value, stageName: stages.name, mrr: monthly(activeService) })
     .from(clients)
     .innerJoin(stages, eq(stages.id, clients.stageId))
-    .where(and(isNull(clients.archivedAt), organizationId ? or(theirs, eq(clients.organizationId, organizationId)) : theirs))
+    .where(and(isNull(clients.archivedAt), organizationId ? or(theirs, clientAtOrganization(organizationId)) : theirs))
     .orderBy(asc(clients.category), desc(clients.updatedAt))
     .limit(50);
 }
@@ -470,7 +485,7 @@ export async function clientsOfOrganization(organizationId: string) {
     .select({ id: clients.id, name: clients.name, category: clients.category, value: clients.value, stageName: stages.name, mrr: monthly(activeService) })
     .from(clients)
     .innerJoin(stages, eq(stages.id, clients.stageId))
-    .where(and(isNull(clients.archivedAt), eq(clients.organizationId, organizationId)))
+    .where(and(isNull(clients.archivedAt), clientAtOrganization(organizationId)))
     .orderBy(asc(clients.category), desc(clients.updatedAt))
     .limit(50);
 }
