@@ -470,10 +470,11 @@ export function ActivityItem({ row, context, attachments, selection }: { row: Ac
 
   return (
     <li className="relative flex gap-3">
-      <span className={clsx("relative z-10 mt-2.5 flex size-8 shrink-0 items-center justify-center rounded-full border", a.type === "note" ? "border-note-border bg-note-surface" : "border-line bg-surface")}>
+      {/* Yellow marks what's pinned, whatever kind of entry it is. */}
+      <span className={clsx("relative z-10 mt-2.5 flex size-8 shrink-0 items-center justify-center rounded-full border", pinned ? "border-note-border bg-note-surface" : "border-line bg-surface")}>
         <Icon className="size-4 text-secondary" aria-hidden />
       </span>
-      <article className={clsx("group min-w-0 flex-1 rounded-xl border px-3.5 py-3", selection?.selected ? "border-accent bg-accent-soft" : "bg-surface", !selection?.selected && (pinned ? "border-line-strong shadow-sm" : "border-line"))}>
+      <article className={clsx("group min-w-0 flex-1 rounded-xl border px-3.5 py-3", selection?.selected ? "border-accent bg-accent-soft" : pinned ? "border-note-border bg-note-surface shadow-sm" : "border-line bg-surface")}>
         <header className="flex items-start gap-2">
           <SelectBox selection={selection} label={a.subject ?? activityLabels[a.type]} className="mt-px" />
           <div className="min-w-0 flex-1 text-[13px] text-muted">

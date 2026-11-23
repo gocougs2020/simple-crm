@@ -82,7 +82,7 @@ Setup for Claude Code, Cursor, VS Code and Claude Desktop is on `/developers#mcp
 
 Two optional groups of operations let an agent work with the CRM's own agent (see [AGENT.md](AGENT.md#background-work)):
 
-- **Agent** (`/agent/tasks`, tools `start_background_task`, `start_bulk_background_task`, `list_background_tasks`, `get_background_task`, `cancel_background_task`): hand a longer job to the background worker, which does it as the key's teammate. Starting and stopping need edit access, so read-only keys and connected apps can't. Workspace keys can't either: a run always belongs to a teammate. These appear only where background work is set up.
+- **Agent** (`/agent/tasks`, tools `start_background_task`, `start_bulk_background_task`, `list_background_tasks`, `get_background_task`, `cancel_background_task`; and `/people/{id}/enrich`, `/organizations/{id}/enrich`, tools `enrich_person`, `enrich_organization`, see [Enrichment](AGENT.md#enrichment)): hand a longer job to the background worker, which does it as the key's teammate. Starting and stopping need edit access, so read-only keys and connected apps can't. Workspace keys can't either: a run always belongs to a teammate. These appear only where background work is set up.
 - **Drafts** (`/drafts`, tools `draft_message`, `list_drafts`): write an email or text for the key's teammate to review and send. There is no operation that sends a message or a draft: the teammate does that in the CRM.
 
 Tasks take `agent: true` on create and update to hand that task to the agent.

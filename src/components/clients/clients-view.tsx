@@ -110,12 +110,14 @@ export function ClientsView({
           return `${rows.length} ${rows.length === 1 ? "prospect" : "prospects"} · ${money(total)} potential · ${money(Math.round(weighted))} weighted`;
         })()
       : category === "current"
-        ? `${rows.length} ${rows.length === 1 ? "client" : "clients"} · ${money(rows.reduce((s, r) => s + Number(r.mrr), 0))}/mo · ${rows.filter((r) => r.client.health === "at_risk").length} at risk`
+        ? // Monthly revenue comes from Stripe when it's connected; the services tracked by hand are being phased out.
+          `${rows.length} ${rows.length === 1 ? "client" : "clients"} · ${money(rows.reduce((s, r) => s + Number(connected.stripe ? r.client.stripeMrr : r.mrr), 0))}/mo · ${rows.filter((r) => r.client.health === "at_risk").length} at risk`
         : `${rows.length} past ${rows.length === 1 ? "client" : "clients"} · ${rows.filter((r) => r.client.openToReturn).length} open to coming back`;
 
   const name: Column<ClientRow> = {
     key: "name",
-    label: "Client",
+    // Says which tab this is, in case it's missed: "Current client".
+    label: `${clientCategoryLabels[category].one} client`,
     sort: "name",
     className: "min-w-56",
     render: (r) => (
@@ -131,44 +133,34 @@ export function ClientsView({
     render: (r) => (r.personFirstName ? <Link href={`/people/${r.client.personId}`} className="hover:underline">{[r.personFirstName, r.personLastName].filter(Boolean).join(" ")}</Link> : <span className="text-faint">—</span>),
   };
   const stage: Column<ClientRow> = { key: "stage", label: "Stage", sort: "stage", mobile: "meta", render: (r) => <span className="whitespace-nowrap">{r.stageName}</span> };
-  /** What Stripe says: the status, the monthly amount and the products, from the daily sync. */
+  /** Whether they have a subscription running in Stripe, from the daily sync. */
   const billing: Column<ClientRow> = {
     key: "billing",
     label: "Stripe",
-    sort: "stripeMrr",
-    className: "max-w-64",
-    render: (r) =>
-      r.client.stripeStatus ? (
-        <span className="flex flex-wrap items-center gap-1">
-          <StatusBadge tone={billingTone[r.client.stripeStatus]}>{billingStatusLabels[r.client.stripeStatus]}</StatusBadge>
-          {r.client.stripeMrr ? <span className="text-[12.5px] text-secondary tabular-nums">{money(r.client.stripeMrr)}/mo</span> : null}
-          {r.client.stripeOwed ? <span className="text-[12.5px] text-warning tabular-nums">{money(r.client.stripeOwed)} owed</span> : null}
-          {r.client.stripeProducts.map((p) => (
-            <Tag key={p}>{p}</Tag>
-          ))}
-        </span>
-      ) : (
-        <span className="text-faint">—</span>
-      ),
+    sort: "stripeStatus",
+    mobile: "meta",
+    render: (r) => (
+      <span className="flex flex-wrap items-center gap-1">
+        {/* Not in Stripe at all reads the same as no subscription: nothing is billing them. */}
+        <StatusBadge tone={billingTone[r.client.stripeStatus ?? "customer"]}>{billingStatusLabels[r.client.stripeStatus ?? "customer"]}</StatusBadge>
+        {r.client.stripeOwed ? <span className="text-[12.5px] text-warning tabular-nums">{money(r.client.stripeOwed)} owed</span> : null}
+      </span>
+    ),
   };
-  /** What they actually paid through Stripe in the last 12 months, less refunds. */
-  const collectedCol: Column<ClientRow> = {
-    key: "collected",
-    label: "Collected, 12 mo",
-    sort: "stripeCollected",
-    align: "right",
-    render: (r) => (r.client.stripeCollected ? <span className="tabular-nums">{money(r.client.stripeCollected)}</span> : <span className="text-faint">—</span>),
-  };
-  const services = (active: boolean): Column<ClientRow> => ({
+  /**
+   * What they're signed up for: the products on their running Stripe
+   * subscriptions. Without Stripe connected, the services tracked by hand:
+   * the ones they have, or on the Past tab the ones they had.
+   */
+  const services: Column<ClientRow> = {
     key: "services",
-    label: active ? "Services" : "Had",
+    label: "Services",
     className: "max-w-64",
     render: (r) => {
-      const list = r.services.filter((s) => s.active === active);
+      const list = connected.stripe ? r.client.stripeProducts : [...new Set(r.services.filter((s) => s.active === (category !== "past")).map((s) => s.name))];
       return list.length ? (
         <span className="flex flex-wrap gap-1">
-          {/* The same service twice (two plans of it) shows once. */}
-          {[...new Set(list.map((s) => s.name))].map((name) => (
+          {list.map((name) => (
             <Tag key={name}>{name}</Tag>
           ))}
         </span>
@@ -176,7 +168,7 @@ export function ClientsView({
         <span className="text-faint">—</span>
       );
     },
-  });
+  };
   const tagCol: Column<ClientRow> = {
     key: "tags",
     label: "Labels",
@@ -203,30 +195,26 @@ export function ClientsView({
     sort,
     render: (r) => (r.client[field] ? <span className="whitespace-nowrap">{formatDateOnly(r.client[field]!, tz)}</span> : <span className="text-faint">—</span>),
   });
-  const monthly = (field: "mrr" | "formerMrr", label: string): Column<ClientRow> => ({
-    key: field,
-    label,
-    sort: field,
-    align: "right",
-    mobile: "end",
-    mobileRender: (r) => (Number(r[field]) ? <span className="tabular-nums">{money(Number(r[field]))}/mo</span> : null),
-    render: (r) => (Number(r[field]) ? <span className="tabular-nums">{money(Number(r[field]))}/mo</span> : <span className="text-faint">—</span>),
-  });
+  const health: Column<ClientRow> = { key: "health", label: "Health", mobile: "meta", mobileRender: (r) => (r.client.health ? <HealthBadge health={r.client.health} /> : null), render: (r) => (r.client.health ? <HealthBadge health={r.client.health} /> : <span className="text-faint">—</span>) };
+  const stripe = connected.stripe ? [billing] : [];
 
+  // One order on every tab: who, who has it, who we talk to, what's next, what they pay for, how it's going, where it stands, since when.
+  // Each tab puts its own "how it's going" and date in those places.
   const byCategory: Record<ClientCategory, Column<ClientRow>[]> = {
-    prospective: [name, { key: "value", label: "Potential value", sort: "value", align: "right", mobile: "end", render: (r) => <span className="tabular-nums">{money(r.client.value)}</span> }, contact, ...(connected.stripe ? [billing, collectedCol] : []), stage, next, date("expectedCloseDate", "Expected to sign", "expectedClose"), owner, last],
-    current: [name, monthly("mrr", "Monthly"), services(true), ...(connected.stripe ? [billing, collectedCol] : []), { key: "health", label: "Health", mobile: "meta", mobileRender: (r) => (r.client.health ? <HealthBadge health={r.client.health} /> : null), render: (r) => (r.client.health ? <HealthBadge health={r.client.health} /> : <span className="text-faint">—</span>) }, stage, next, date("startedOn", "Client since", "startedOn"), owner, last],
+    prospective: [name, owner, contact, next, ...stripe, services, { key: "value", label: "Potential value", sort: "value", align: "right", mobile: "end", render: (r) => <span className="tabular-nums">{money(r.client.value)}</span> }, stage, date("expectedCloseDate", "Expected to sign", "expectedClose"), last],
+    current: [name, owner, contact, next, ...stripe, services, health, stage, date("startedOn", "Client since", "startedOn"), last],
     past: [
       name,
-      monthly("formerMrr", "Was paying"),
-      services(false),
-      ...(connected.stripe ? [billing, collectedCol] : []),
+      owner,
+      contact,
+      next,
+      ...stripe,
+      services,
       { key: "reason", label: "Why they left", className: "max-w-56", render: (r) => (r.client.churnReason ? <span className="truncate">{r.client.churnReason}</span> : <span className="text-faint">—</span>) },
       { key: "return", label: "Win back", render: (r) => (r.client.openToReturn ? <span className="text-secondary">Open</span> : <span className="text-faint">Not interested</span>) },
       stage,
       date("endedOn", "Left", "endedOn"),
-      contact,
-      owner,
+      last,
     ],
   };
   const columns: Column<ClientRow>[] = [

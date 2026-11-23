@@ -9,6 +9,7 @@ import { appConfig } from "@/app.config";
 import { noteVersions } from "@/components/live-updates";
 import { agentRunActive, agentRunStatusLabels, type AgentRunStatus } from "@/lib/constants";
 import { Markdown } from "./agent-message";
+import { onAgentTasksChanged, takeStarted } from "./task-events";
 
 /** How often the list is read again while something is still going: often in a task's first minute, then less. */
 const POLL_MS = 4_000;
@@ -21,7 +22,7 @@ function keepLabel() {
   return m === 60 ? "an hour" : m % 60 === 0 ? `${m / 60} hours` : `${m} minutes`;
 }
 
-const sourceLabels: Record<AgentTask["source"], string> = { chat: "From chat", mention: "From a note", task: "From a task", bulk: "Bulk request", api: "From a connected app", schedule: "Scheduled job", email: "From an email" };
+const sourceLabels: Record<AgentTask["source"], string> = { chat: "From chat", mention: "From a note", task: "From a task", bulk: "Bulk request", api: "From a connected app", schedule: "Scheduled job", email: "From an email", enrich: "Enrich" };
 
 function StatusIcon({ status }: { status: AgentRunStatus }) {
   if (status === "running") return <ArrowPathIcon className="size-4 shrink-0 animate-spin text-accent" aria-hidden />;
@@ -141,6 +142,14 @@ export function AgentTasks({ open, threadId, refreshKey, onAnswer, onNavigate }:
   useEffect(() => {
     if (open) void load();
   }, [open, refreshKey, load]);
+  // Started from a record's page: read now, open or not, so the new task is followed.
+  useEffect(() => {
+    if (takeStarted()) void load();
+    return onAgentTasksChanged(() => {
+      takeStarted();
+      void load();
+    });
+  }, [load]);
 
   // Work that's going is followed with the panel closed too, so the page shows its changes as they land.
   const going = tasks.filter((t) => agentRunActive(t.status));
