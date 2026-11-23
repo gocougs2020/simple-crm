@@ -18,6 +18,7 @@ import type { CustomerBilling } from "@/lib/stripe/types";
 import { CancelSubscriptionDialog, EditSubscriptionDialog, NewSubscriptionDialog } from "./billing-manage";
 import { cancelsAt, day, isEnded, isLive, money, netOf, priceOf, SubBadge, subName, whenOf, type Sub } from "./billing-shared";
 import { PaymentCard } from "./payment-card";
+import { ProductNames } from "./product-tag";
 
 const statusTone: Record<BillingStatus, Tone> = { past_due: "error", active: "success", trialing: "info", paused: "warning", canceled: "neutral", customer: "neutral" };
 
@@ -143,7 +144,9 @@ export function BillingView({
               {live.slice(0, 6).map((s) => (
                 <li key={`${s.customer.account}:${s.id}`} className="text-[12.5px]">
                   <div className="flex min-w-0 items-center gap-1.5">
-                    <span className="min-w-0 truncate font-medium text-primary">{subName(s)}</span>
+                    <span className="min-w-0 truncate font-medium text-primary">
+                      <ProductNames names={s.items.map((i) => i.name)} />
+                    </span>
                     <SubBadge s={s} />
                   </div>
                   <p className="truncate text-[11.5px] text-muted tabular-nums">{[priceOf(s), netOf(s), whenOf(s)].filter(Boolean).join(" · ")}</p>
@@ -204,7 +207,9 @@ function SubscriptionCard({ s, c, isAdmin, onEdit, onCancel, onKeep, busy }: { s
     <li className={clsx("flex flex-col gap-2 rounded-xl border p-3.5 text-[13px]", ended ? "border-line bg-sunken/60" : ends ? "border-warning-border" : "border-line")}>
       <div className="flex items-start gap-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1">
-          <span className={clsx("min-w-0 font-semibold break-words", ended ? "text-secondary" : "text-primary")}>{subName(s, true)}</span>
+          <span className={clsx("min-w-0 font-semibold break-words", ended ? "text-secondary" : "text-primary")}>
+            <ProductNames names={s.items.map((i) => (i.quantity > 1 ? `${i.name} × ${i.quantity}` : i.name))} />
+          </span>
           <SubBadge s={s} />
         </div>
         <Menu>

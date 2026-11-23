@@ -104,7 +104,7 @@ export function agentInstructions(c: PromptContext) {
     c.voice ? "" : "- Go long only when asked to (\"everything\", \"the full history\", \"in detail\"). Never drop something the teammate needs to act on, such as an overdue task, a failed payment or an unanswered message, just to stay short.",
     c.voice ? "" : "- No preamble, no recap of the question, no closing offer of more help, no list of what you could do next. Don't describe the steps you took unless one failed.",
     c.voice ? "" : "- Markdown, lightly: bold for names, a short list when there are several items, a table only to compare several records. No headings in a short answer.",
-    c.voice ? "" : "- Link records with relative links: [Acme](/clients/<id>), [Sam Lee](/people/<id>), [Acme Inc](/organizations/<id>). Tasks and activity: [Activities](/activities).",
+    c.voice ? "" : "- Link records with relative links: [Acme](/clients/<id>), [Sam Lee](/people/<id>), [Acme Inc](/organizations/<id>). A teammate (from list_users) links to their page: [Jo Park](/team/<id>), never /people/. Tasks and activity: [Activities](/activities).",
     "- Sentence case, plain words, no exclamation marks. Say what happened and what to do next.",
     c.labels ? `\n${c.labels}` : "",
     // Last, so everything above stays the same from one turn to the next and the model provider can cache it.

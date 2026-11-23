@@ -652,7 +652,33 @@ export const clientStripeLinks = pgTable(
   (t) => [primaryKey({ columns: [t.clientId, t.account, t.customerId] })],
 );
 
-/** What the workspace sells. Managed in Settings → Services; clients are linked to the ones they use. */
+/**
+ * What each Stripe product means to the team ("ThirdPool Advanced": the
+ * benchmarks we deliver on it), keyed by the product's name as Stripe has it.
+ * Set in Settings → Services; shown wherever the product shows, and read by
+ * the agent. Matched without regard to case.
+ */
+export const productDescriptions = pgTable(
+  "product_descriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("product_descriptions_name_idx").on(sql`lower(${t.name})`)],
+);
+
+/**
+ * Retired: services tracked by hand, replaced by what Stripe reports
+ * (`clients.stripe_products`, described by `product_descriptions`). Nothing
+ * reads or writes these three tables any more; they're kept so the data
+ * isn't lost until a migration drops them.
+ *
+ * What the workspace sold. Clients were linked to the ones they used.
+ */
 export const services = pgTable("services", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
@@ -1085,7 +1111,13 @@ export type CampaignAudience = {
   stageIds?: string[];
   /** …with one of these client tags. */
   clientTags?: string[];
-  /** …who use (or, for past clients, used) one of these services. */
+  /** …subscribed in Stripe to one of these products now, by name (matched without regard to case). */
+  stripeProducts?: string[];
+  /**
+   * Retired: services tracked by hand, before Stripe drove them. Still
+   * applied to audiences saved with it, so they don't quietly widen; the
+   * filters only offer taking it off.
+   */
   serviceIds?: string[];
   /** …past clients who left for one of these reasons. */
   churnReasons?: string[];

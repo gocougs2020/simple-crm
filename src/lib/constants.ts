@@ -53,6 +53,7 @@ export const clientHealths = ["good", "watch", "at_risk"] as const;
 export type ClientHealth = (typeof clientHealths)[number];
 export const clientHealthLabels: Record<ClientHealth, string> = { good: "Healthy", watch: "Watch", at_risk: "At risk" };
 
+/** Billing periods of the retired hand-tracked services: still how their old history entries read. */
 export const billingIntervals = ["month", "four_weeks", "quarter", "year", "once"] as const;
 export type BillingInterval = (typeof billingIntervals)[number];
 export const billingIntervalLabels: Record<BillingInterval, { label: string; per: string }> = {
@@ -62,10 +63,6 @@ export const billingIntervalLabels: Record<BillingInterval, { label: string; per
   year: { label: "Yearly", per: "/yr" },
   once: { label: "One time", per: "" },
 };
-/** For monthly recurring revenue: how many of this interval fit in a month. Every 4 weeks is 13 payments a year, so a little more than one a month. One-time fees don't recur. */
-export const monthlyFactor: Record<BillingInterval, number> = { month: 1, four_weeks: 13 / 12, quarter: 1 / 3, year: 1 / 12, once: 0 };
-/** `monthlyFactor` in SQL, for a `client_services` row aliased `cs`. Keep the two in step. */
-export const monthlyPriceSql = "case cs.interval when 'month' then cs.price when 'four_weeks' then cs.price * 13 / 12.0 when 'quarter' then cs.price / 3.0 when 'year' then cs.price / 12.0 else 0 end";
 
 /** Why a client left. The list is a starting point; anything can be typed instead. */
 export const churnReasons = ["Price", "Switched to a competitor", "Budget cut", "Didn't see results", "Service issues", "No longer needed", "Business closed", "Contract ended"] as const;

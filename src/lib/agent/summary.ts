@@ -3,10 +3,10 @@ import { and, desc, eq, inArray, isNull, lt, or, sql, type SQL } from "drizzle-o
 import { generateText } from "ai";
 import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
-import { billingIntervalLabels } from "@/lib/constants";
 import { getAppData } from "@/lib/crm/context";
 import { organizationsOfClient } from "@/lib/crm/client-organizations";
-import { clientPeople, clientsOfOrganization, getClient, getOrganization, getPerson, metricsOf, otherOrganizationsOfClient, peopleOf, servicesOf } from "@/lib/crm/records";
+import { clientPeople, clientsOfOrganization, getClient, getOrganization, getPerson, metricsOf, otherOrganizationsOfClient, peopleOf } from "@/lib/crm/records";
+import { productDescriber } from "@/lib/product-rules";
 import { formatMoney, personName } from "@/lib/format";
 import { htmlToText } from "@/lib/safe-html";
 import { stripeAccounts, stripeConfigured } from "@/lib/stripe";
@@ -20,7 +20,8 @@ import { activityLine, cleanSummary, SUMMARY_LOCK_MS, summaryDue, summaryInstruc
  * The AI snapshot at the top of client, person and organization pages. It's
  * written from everything the CRM knows about the record (for a client or an
  * organization, the whole account: its people's notes, calls, emails, texts,
- * meetings and tasks, its services and its Stripe billing; for a person, just
+ * meetings and tasks, the Stripe products it pays for and what each delivers,
+ * and its Stripe billing; for a person, just
  * their own record), stored on the record, and shared by everyone who opens
  * it. After 24 hours it's still shown, and the next visit rewrites it.
  */
@@ -162,7 +163,7 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
     const { client, person, organization } = row;
     const stage = app.pipelines.flatMap((p) => p.stages.map((s) => ({ ...s, pipeline: p.name }))).find((s) => s.id === client.stageId);
     // Its people: the contact, the people added to it and everyone at the organizations it's tied to (its main one and any kept from a merge).
-    const [services, metrics, accountPeople, otherOrgs] = await Promise.all([servicesOf(id), metricsOf(id), clientPeople(client).then((rows) => rows.map((r) => r.person)), otherOrganizationsOfClient(id)]);
+    const [metrics, accountPeople, otherOrgs] = await Promise.all([metricsOf(id), clientPeople(client).then((rows) => rows.map((r) => r.person)), otherOrganizationsOfClient(id)]);
     sections.push(
       [
         "## Client",
@@ -187,7 +188,11 @@ export async function recordContext(entity: SummaryEntity, id: string): Promise<
         .filter(Boolean)
         .join("\n"),
     );
-    if (services.length) sections.push(["## Services", ...services.map((s) => `${s.name}: ${money(s.price, client.currency)} billed ${billingIntervalLabels[s.interval].label.toLowerCase()}, ${s.endedOn ? `ended ${d(s.endedOn)}` : s.startedOn ? `since ${d(s.startedOn)}` : "not started"}${s.note ? ` (${s.note})` : ""}`)].join("\n"));
+    // What they're subscribed to in Stripe, with what the team says each product delivers (Settings → Services).
+    if (client.stripeProducts.length) {
+      const describe = productDescriber(app.products);
+      sections.push(["## Services (their Stripe products)", ...client.stripeProducts.map((name) => `${name}${describe(name) ? `: ${describe(name)!.replace(/\s+/g, " ").slice(0, 500)}` : ""}`)].join("\n"));
+    }
     if (metrics.length) {
       // How each number has gone over time, not just where it is now: the last six readings, oldest first.
       const byLabel = new Map<string, (typeof metrics)[number][]>();

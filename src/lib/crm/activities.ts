@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, desc, eq, getTableColumns, gte, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
-import { interactionTypes, monthlyPriceSql, type ActivityType, type EntityType } from "@/lib/constants";
+import { interactionTypes, type ActivityType, type EntityType } from "@/lib/constants";
 import { ActionError } from "@/lib/auth";
 import { zonedTime } from "@/lib/format";
 import { inRecordView, onRecord } from "@/lib/crm/files";
@@ -395,6 +395,15 @@ export async function teamFeed(limit = 25) {
   });
 }
 
+/** What one teammate logged lately (notes, calls, meetings, email, finished tasks), newest first, for their teammate page. */
+export async function loggedBy(userId: string, limit = 20) {
+  return activityRows(and(eq(activities.userId, userId), isPast, notCampaignEmail), {
+    order: [desc(sql`coalesce(${activities.occurredAt}, ${activities.completedAt}, ${activities.createdAt})`)],
+    limit,
+    preview: true,
+  });
+}
+
 /** Midnight today, tomorrow, and the end of the 7th day, in the workspace's time zone, as UTC instants. */
 export function dayBounds(tz: string, now = new Date()) {
   const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
@@ -437,11 +446,8 @@ export async function clientStats(tz: string) {
       currentCount: sql<number>`count(*) filter (where ${clients.category} = 'current')::int`,
       signedThisMonth: sql<number>`count(*) filter (where ${clients.category} = 'current' and ${clients.startedOn} >= ${monthStart})::int`,
       leftThisMonth: sql<number>`count(*) filter (where ${clients.category} = 'past' and ${clients.endedOn} >= ${monthStart})::int`,
-      mrr: sql<number>`(
-        select coalesce(round(sum(${sql.raw(monthlyPriceSql)})), 0)::bigint
-        from client_services cs join clients c on c.id = cs.client_id
-        where c.category = 'current' and c.archived_at is null and (cs.ended_on is null or cs.ended_on > current_date)
-      )`,
+      // What Stripe bills current clients a month, after discounts.
+      mrr: sql<number>`coalesce(sum(${clients.stripeMrr}) filter (where ${clients.category} = 'current'), 0)::bigint`,
     })
     .from(clients)
     .where(isNull(clients.archivedAt));

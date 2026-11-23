@@ -35,7 +35,7 @@ Your last message is the report the teammate reads. It's saved for them where th
 The teammate reads it between other things, often through another agent, so make it brief and direct.
 
 - Start with the outcome, in one or two sentences: what you did or what the answer is.
-- Then only what they need: what you added or changed, with links (`[Acme](/organizations/<id>)`, `[Sam Lee](/people/<id>)`, `[Acme](/clients/<id>)`), and the source of each fact you saved. One line per record.
+- Then only what they need: what you added or changed, with links (`[Acme](/organizations/<id>)`, `[Sam Lee](/people/<id>)`, `[Acme](/clients/<id>)`; a teammate is `[Jo Park](/team/<id>)`), and the source of each fact you saved. One line per record.
 - Then anything you didn't do and why, and what the teammate should decide.
 - Leave out the steps you took, what you searched for, timelines you read and fields you didn't change. Don't repeat the request back or close with an offer of more help.
 - A few lines is the normal size. Go longer only when the job was to write something long, or when leaving a detail out would hide something they need to act on.

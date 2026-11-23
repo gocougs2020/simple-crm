@@ -186,11 +186,11 @@ function Column({ id, children }: { id: string; children: React.ReactNode }) {
   );
 }
 
-/** What a column adds up to: potential value for prospects, monthly revenue for current clients, what past ones paid. */
+/** What a column adds up to: potential value for prospects, what Stripe bills current clients a month. Past clients just count. */
 function ColumnTotal({ rows, category }: { rows: ClientRow[]; category: ClientCategory }) {
   const { money } = useApp();
   const n = `${rows.length} ${rows.length === 1 ? "client" : "clients"}`;
-  const total = category === "prospective" ? rows.reduce((s, r) => s + r.client.value, 0) : rows.reduce((s, r) => s + Number(category === "current" ? r.mrr : r.formerMrr), 0);
+  const total = category === "prospective" ? rows.reduce((s, r) => s + r.client.value, 0) : category === "current" ? rows.reduce((s, r) => s + Number(r.mrr), 0) : 0;
   return (
     <p className="text-[12px] text-muted tabular-nums">
       {total ? `${money(total)}${category === "prospective" ? "" : "/mo"} · ` : ""}
@@ -234,7 +234,7 @@ function Card({ row, dragging, rottingDays, category }: { row: ClientRow; draggi
   const who = row.organizationName && row.organizationName !== d.name ? row.organizationName : person;
   const days = daysSince(d.stageChangedAt);
   const rotting = rottingDays != null && days >= rottingDays;
-  const amount = category === "prospective" ? d.value : Number(category === "current" ? row.mrr : row.formerMrr);
+  const amount = category === "prospective" ? d.value : category === "current" ? Number(row.mrr) : 0;
   return (
     <article
       className={clsx(

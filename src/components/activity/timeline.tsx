@@ -285,7 +285,13 @@ function Who({ id, apiKeyId }: { id: string | null; apiKeyId?: string | null }) 
   if (!m && key) return <span className="font-medium text-primary">{key.name}</span>;
   return (
     <>
-      <span className="font-medium text-primary">{m ? (m.id === viewer.id ? "You" : m.name) : "Someone"}</span>
+      {m ? (
+        <Link href={`/team/${m.id}`} className="font-medium text-primary hover:underline">
+          {m.id === viewer.id ? "You" : m.name}
+        </Link>
+      ) : (
+        <span className="font-medium text-primary">Someone</span>
+      )}
       {m && key ? <span className="text-muted"> via {key.name}</span> : null}
     </>
   );

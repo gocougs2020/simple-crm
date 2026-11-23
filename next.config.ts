@@ -68,6 +68,9 @@ const nextConfig: NextConfig = {
     return [
       { source: "/deals", destination: "/clients", permanent: true },
       { source: "/deals/:id", destination: "/clients/:id", permanent: true },
+      // A teammate's page is /team/<id>; links written the other common ways land there too.
+      { source: "/users/:id", destination: "/team/:id", permanent: false },
+      { source: "/settings/team/:id", destination: "/team/:id", permanent: false },
     ];
   },
   async headers() {

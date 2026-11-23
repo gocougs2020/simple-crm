@@ -39,6 +39,8 @@ function clientConditions(a: CampaignAudience): SQL[] {
   if (a.stageIds?.length) client.push(sql`c.stage_id in (${list(a.stageIds)})`);
   if (a.clientTags?.length) client.push(sql`c.tags ?| array[${list(a.clientTags)}]`);
   if (a.churnReasons?.length) client.push(sql`c.churn_reason in (${list(a.churnReasons)})`);
+  if (a.stripeProducts?.length) client.push(sql`exists (select 1 from jsonb_array_elements_text(c.stripe_products) p where lower(p) in (${list(a.stripeProducts.map((n) => n.trim().toLowerCase()))}))`);
+  // Retired: an audience saved with the old services filter keeps meaning what it did (the rows are still there), until someone takes it off.
   if (a.serviceIds?.length) client.push(sql`exists (select 1 from client_services cs where cs.client_id = c.id and cs.service_id in (${list(a.serviceIds)}))`);
   if (a.openToReturnOnly) client.push(sql`(c.category <> 'past' or c.open_to_return)`);
   return client;

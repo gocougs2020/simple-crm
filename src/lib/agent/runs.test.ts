@@ -6,6 +6,7 @@ import { markdownToHtml } from "./markdown";
 import { allowedOperations } from "./policy";
 import { budgetRefusal, formatUsd, mentionsAgent, monthStart, runFailure, runMayUse, runMessage, runTitle, usdToMicro } from "./run-rules";
 import { signRunToken, verifyRunToken } from "./run-token";
+import { enrichMayUse } from "./enrich-rules";
 
 const caps = { monthlyBudgetUsd: 30, maxConcurrentPerUser: 3, maxRunUsd: 0.75, maxBulkRecords: 50 };
 
@@ -25,6 +26,15 @@ describe("background runs: what a run may do", () => {
     const viewer = allowedOperations((p) => roleCan("viewer", p), { features: ["background"] }).filter(runMayUse);
     assert.ok(viewer.length > 0);
     assert.ok(viewer.every((o) => o.method === "GET"));
+  });
+
+  it("gives an enrichment run reading tools and its own record's update tool, nothing else that writes", () => {
+    for (const entity of ["person", "organization"] as const) {
+      const run = memberTools.filter(runMayUse).filter((o) => enrichMayUse(o, entity));
+      const writes = run.filter((o) => o.method !== "GET").map((o) => o.tool);
+      assert.deepEqual(writes, [entity === "person" ? "update_person" : "update_organization"]);
+      assert.ok(run.some((o) => o.tool === "search"), "it can still search");
+    }
   });
 
   it("offers background tools only where background work is set up", () => {

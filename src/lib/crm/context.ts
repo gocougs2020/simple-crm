@@ -8,7 +8,8 @@ import { emailConfigured } from "@/lib/email";
 import { blobConfigured } from "@/lib/files";
 import { stripeConfigured } from "@/lib/stripe";
 import { listLabels } from "@/lib/crm/labels";
-import { parentOrganizations } from "@/lib/crm/records";
+import { listProductDescriptions } from "@/lib/crm/product-descriptions";
+import { allStripeProducts, parentOrganizations } from "@/lib/crm/records";
 import { getWorkspace } from "@/lib/workspace";
 import { getVapid } from "@/lib/push/vapid";
 
@@ -16,18 +17,16 @@ export type TeamMember = { id: string; name: string; email: string; role: string
 export type Stage = typeof schema.stages.$inferSelect;
 export type Pipeline = typeof schema.pipelines.$inferSelect & { stages: Stage[] };
 export type CustomField = typeof schema.customFields.$inferSelect;
-export type Service = typeof schema.services.$inferSelect;
-export type ServicePlan = typeof schema.servicePlans.$inferSelect;
 
 /**
  * Everything small and slow-changing the whole interface needs: the team, the
- * pipelines and their stages, custom field definitions, the services the
- * workspace sells, the parent organizations and workspace settings. Loaded once per request in the app layout and handed to the
+ * pipelines and their stages, custom field definitions, what each Stripe
+ * product delivers, the parent organizations and workspace settings. Loaded once per request in the app layout and handed to the
  * browser, so owner pickers and stage menus open instantly.
  */
 export const getAppData = cache(async () => {
   const db = await getDb();
-  const [ws, users, pipelines, stages, fields, services, plans, keys, parents, labels, vapid] = await Promise.all([
+  const [ws, users, pipelines, stages, fields, products, stripeProducts, keys, parents, labels, vapid] = await Promise.all([
     getWorkspace(),
     // Only what the team list shows: never the password hash or prefs, which go to the browser with this.
     db
@@ -45,8 +44,8 @@ export const getAppData = cache(async () => {
     db.select().from(schema.pipelines).orderBy(asc(schema.pipelines.position), asc(schema.pipelines.createdAt)),
     db.select().from(schema.stages).orderBy(asc(schema.stages.position)),
     db.select().from(schema.customFields).where(isNull(schema.customFields.archivedAt)).orderBy(asc(schema.customFields.position), asc(schema.customFields.createdAt)),
-    db.select().from(schema.services).orderBy(asc(schema.services.position), asc(schema.services.name)),
-    db.select().from(schema.servicePlans).orderBy(asc(schema.servicePlans.position), asc(schema.servicePlans.name)),
+    listProductDescriptions(),
+    stripeConfigured() ? allStripeProducts() : [],
     // Names only (revoked ones too), so history can say which key made a change.
     db.select({ id: schema.apiKeys.id, name: schema.apiKeys.name, kind: schema.apiKeys.kind }).from(schema.apiKeys),
     parentOrganizations(),
@@ -58,10 +57,10 @@ export const getAppData = cache(async () => {
     team: users.map((u): TeamMember => ({ id: u.id, name: u.name, email: u.email, role: u.role, title: u.title, active: !u.deactivatedAt && u.hasPassword })),
     pipelines: pipelines.map((p): Pipeline => ({ ...p, stages: stages.filter((s) => s.pipelineId === p.id) })),
     customFields: fields,
-    /** Everything the workspace sells, archived ones included so existing subscriptions still show their name. */
-    catalog: services,
-    /** Every service's plans, in order, archived ones included. */
-    plans,
+    /** What each Stripe product delivers (Settings → Services), by its Stripe name. */
+    products,
+    /** The Stripe products clients are on now, by name: the choices for filtering by what they're subscribed to. */
+    stripeProducts,
     /** Organizations marked as a parent, by name: the choices for an organization's parent, and for list and audience filters. */
     parentOrganizations: parents,
     /** What each label means and whether the app shows it (Settings → Labels). */

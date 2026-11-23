@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { emailText, forwardedAddresses, linkAddresses } from "./forwarded";
+import { emailText, forwardedAddresses, linkAddresses, provenForwards } from "./forwarded";
 
 describe("forwardedAddresses", () => {
   it("reads Gmail's forwarded block", () => {
@@ -59,5 +59,29 @@ describe("linkAddresses", () => {
 
   it("falls back to everyone when only teammates are on it", () => {
     assert.deepEqual(linkAddresses(["logan@ri.net"], team, []), ["logan@ri.net"]);
+  });
+});
+
+describe("provenForwards", () => {
+  type M = { id: string; quotes: string[] };
+  const quoted = (m: M) => m.quotes;
+
+  it("reads quoted addresses only from messages whose sender is proven", async () => {
+    const real: M = { id: "real", quotes: ["sheila@foxroach.com"] };
+    const forged: M = { id: "forged", quotes: ["victim@acme.com"] };
+    const proven = async (m: M) => m.id === "real";
+    assert.deepEqual(await provenForwards([forged, real], quoted, proven), ["sheila@foxroach.com"]);
+  });
+
+  it("asks for proof only when a message quotes someone, and lists each address once", async () => {
+    const asked: string[] = [];
+    const proven = async (m: M) => (asked.push(m.id), true);
+    const list = [
+      { id: "note", quotes: [] },
+      { id: "a", quotes: ["ana@acme.com", "ben@acme.com"] },
+      { id: "b", quotes: ["ben@acme.com"] },
+    ];
+    assert.deepEqual(await provenForwards(list, quoted, proven), ["ana@acme.com", "ben@acme.com"]);
+    assert.deepEqual(asked, ["a", "b"]);
   });
 });

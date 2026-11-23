@@ -37,9 +37,9 @@ export function summaryInstructions(entity: SummaryEntity, today: string, since?
   const account = entity !== "person";
   const who =
     entity === "client"
-      ? "Who this client is and where things stand: their stage, the Stripe subscriptions they're paying for now (by product, with the monthly amount) and the services they use. Mention billing trouble (past due, unpaid, cancelling) if there is any."
+      ? "Who this client is and where things stand: their stage, the Stripe subscriptions they're paying for now (by product, with the monthly amount), and what those products commit us to deliver when the services section says. Mention billing trouble (past due, unpaid, cancelling) if there is any."
       : entity === "organization"
-        ? "Who this organization is and how it relates to us: its clients and their stage, what they pay for in Stripe or the services they use, and who the main contact or decision makers are."
+        ? "Who this organization is and how it relates to us: its clients and their stage, what they pay for in Stripe, and who the main contact or decision makers are."
         : "Who this person is: their role, their organization and the client accounts they're part of.";
   return [
     `You write the snapshot at the top of a ${what}'s page in a small team's CRM. Teammates read it in a few seconds before a call, to know the account: what matters for selling to them, keeping them and managing them.`,
