@@ -38,7 +38,7 @@ pnpm import:pipedrive
 | `--no-users` | Don't add Pipedrive users who aren't teammates here (their records get no owner) |
 | `--as=you@company.com` | Record the import as this teammate instead of the owner |
 | `--since=14` | Only add what was created in Pipedrive in the last 14 days (or since a date: `--since=2026-11-08`). Records brought in before are still updated unless you add `--new-only` |
-| `--new-only` | Only add what's new; change nothing that's already here. See [Bringing over what's new](#bringing-over-whats-new) |
+| `--new-only` | Only add what's new; change nothing that's already here, except checking off activities marked done in Pipedrive. Without `--since`, it picks up from the last run. See [Bringing over what's new](#bringing-over-whats-new) |
 | `--reset` | Show what a reset would remove; `--reset --yes` removes everything the import added |
 
 ## How Pipedrive maps to the CRM
@@ -97,7 +97,8 @@ Files, leads (the Leads inbox) and Pipedrive projects aren't imported.
 Every imported record is remembered in `external_ids`, so a second run:
 
 - updates organizations, people and clients with Pipedrive's current values (including moving a client to its new stage or category, recorded in its history),
-- adds notes, activities and email that are new since, and
+- adds notes, activities and email that are new since,
+- checks off activities that came in planned and were marked done in Pipedrive since, and
 - leaves alone anything created in the CRM by hand.
 
 Edits made in the CRM to imported fields are overwritten by Pipedrive's values on the next run, so once the team works in the CRM, stop running the full import and use `--new-only` instead. Two exceptions: an email or phone that Pipedrive replaces is kept in the person's other emails and phones, and a record that duplicates were merged into (`pnpm run dedupe`) only has its blanks filled.
@@ -111,13 +112,16 @@ pnpm import:pipedrive --since=14 --new-only --dry-run
 pnpm import:pipedrive --since=14 --new-only
 ```
 
+After that, `pnpm import:pipedrive --new-only` (no `--since`) picks up from when the last run started, with an hour's overlap in case clocks disagree. Each run that finishes records when it started; one that stops partway doesn't, so the next run covers its window again.
+
 The dry run lists what will be added: new organizations and people (and which of them are already here), new deals, notes and activities by type. It adds, from the last 14 days:
 
 - **Organizations and people** created in Pipedrive. One that's already here is matched rather than added: an organization by its whole name (ignoring capitals); a person by the same name and a shared email or phone, or by an email only one person here has. A match only fills that record's blanks, as merging duplicates does.
 - **Deals.** A deal for an organization or person that's already a client joins that client: its stage, category and fields stay as the team left them (the run lists these deals, so you can move a client by hand if a deal changes that), and a new product deal adds its service unless the client already has that service going. A deal for someone who isn't a client yet becomes a new client, as in a full import; a stage it needs is added after the pipeline's other stages.
-- **Notes, activities (calls, meetings, texts, tasks) and email**, on the records they belong to.
+- **Notes, activities (calls, meetings, texts, tasks) and email**, on the records they belong to. An activity created earlier but marked done in the window comes in too.
+- **Activities marked done.** A call, meeting or task that came in still planned and was marked done in Pipedrive in the window is checked off here, with its outcome, duration and notes filled in where they're blank. One someone changed here after it was marked done in Pipedrive (reopened, say) is left as it is, and one deleted here stays deleted.
 
-Nothing that's here changes: names, owners, stages, fields, the order of stages, and records archived or edited by hand all stay as they are. Running it again adds only what's still new.
+Apart from checking off those activities, nothing that's here changes: names, owners, stages, fields, the order of stages, and records archived or edited by hand all stay as they are. Running it again adds only what's still new.
 
 ### Merged records
 

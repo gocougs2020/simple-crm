@@ -10,6 +10,8 @@
  *   pnpm import:pipedrive --since=14 --new-only
  *                                       only add what was created in Pipedrive in the last 14 days,
  *                                       onto the records here, and change nothing that's already here
+ *                                       (but check off activities marked done in Pipedrive since)
+ *   pnpm import:pipedrive --new-only    the same, since the last run
  *   pnpm import:pipedrive --reset       remove everything a previous import added
  *
  * Needs PIPEDRIVE_API_TOKEN. Writes to DATABASE_URL, or to the local embedded
@@ -197,8 +199,13 @@ async function runImport(db: Database) {
   const dryRun = flag("dry-run");
   // --since: only what was created in Pipedrive in the window is added. --new-only: nothing already here is changed.
   if (args.has("--since")) throw new Error("Give --since a number of days, like --since=14.");
-  const since = parseSince(option("since"));
   const newOnly = flag("new-only");
+  // Without --since, --new-only picks up from where the last run started (or from the beginning, before the first one).
+  const startedAt = new Date();
+  const lastRun = await lastRunAt(db);
+  // An hour's overlap, in case this computer's clock and Pipedrive's disagree: what's already here is skipped anyway.
+  const since = parseSince(option("since")) ?? (newOnly && lastRun ? new Date(lastRun.getTime() - 60 * 60 * 1000) : undefined);
+  if (newOnly && !option("since")) log(lastRun ? `Since the last run, ${stamp(lastRun)} (--since=14 for a set number of days)` : "No earlier run recorded: everything not brought in yet counts as new");
   const fresh = (at: string | null | undefined) => inWindow(time(at), since);
   const emailScope = flag("no-email") ? "none" : option("email") === "all" ? "all" : "clients";
   const api = new PipedriveApi(token, process.env.PIPEDRIVE_COMPANY_DOMAIN);
@@ -262,7 +269,9 @@ async function runImport(db: Database) {
   // Who's already here, for matching Pipedrive records that aren't mapped to anything (new ones, and ones whose record was removed by hand).
   const orgMatcher = new OrganizationMatcher(here.organizations);
   const personMatcher = new PersonMatcher(here.people);
-  if (newOnly || since) printWindow({ since, newOnly, orgs, persons, deals, notes, pdActivities, links, orgMatcher, personMatcher, fresh });
+  // Activities brought in while still open that were marked done in Pipedrive in the window.
+  const completed = await completedSince(db, links, pdActivities, since);
+  if (newOnly || since) printWindow({ since, newOnly, orgs, persons, deals, notes, pdActivities, links, orgMatcher, personMatcher, fresh, completed: completed.length });
   log(
     emailScope === "none"
       ? "\nEmail: skipped (--no-email)"
@@ -690,7 +699,8 @@ async function runImport(db: Database) {
 
   const typeNames = new Map(activityTypes.map((t) => [t.key_string, t.name]));
   const outcomeNames = new Map((activityFields.find((f) => f.key === "outcome")?.options ?? []).map((o) => [String(o.id), o.label.trim()]));
-  const newActivities = pdActivities.filter((a) => !links.get("activity", a.id) && fresh(a.add_time));
+  // New in the window, or created earlier and marked done in it.
+  const newActivities = pdActivities.filter((a) => !links.get("activity", a.id) && (fresh(a.add_time) || (a.done && fresh(a.marked_as_done_time))));
   const activityRows = newActivities.map((a) => ({ pd: a.id, values: { ...activityValues(a, typeNames, outcomeNames, user, now), ...linksFor(a.deal_id, a.org_id, a.person_id) } })).filter(attached);
   await insertActivities(db, links, "activity", activityRows);
   const byType = Object.entries(Object.groupBy(activityRows, (r) => r.values.type)).map(([t, list]) => `${list!.length} ${t}`);
@@ -720,6 +730,19 @@ async function runImport(db: Database) {
     log(`Email: ${added} messages added`);
   }
 
+  // Checked off in Pipedrive since: checked off here too, unless someone changed it here after that.
+  for (const { id, a, row } of completed) {
+    const v = activityValues(a, typeNames, outcomeNames, user, now);
+    await db
+      .update(schema.activities)
+      .set({ completedAt: v.completedAt, occurredAt: v.occurredAt, ...(row.outcome ? {} : { outcome: v.outcome }), ...(row.durationMinutes ? {} : { durationMinutes: v.durationMinutes }), ...(row.body ? {} : { body: v.body }), updatedAt: now })
+      .where(and(eq(schema.activities.id, id), isNull(schema.activities.completedAt)));
+  }
+  if (completed.length || newOnly || since) {
+    const byType = Object.entries(Object.groupBy(completed, (c) => activityTypeMap[c.a.type] ?? "task")).map(([t, list]) => `${list!.length} ${t}`);
+    log(`Marked done: ${completed.length} activities checked off in Pipedrive after they were brought in${byType.length ? ` (${byType.join(", ")})` : ""}`);
+  }
+
   // ── Last activity dates, for sorting and "needs attention".
   for (const [table, column] of [
     ["people", "person_id"],
@@ -731,6 +754,7 @@ async function runImport(db: Database) {
        where t.id = s.id and s.at is not null and (t.last_activity_at is null or t.last_activity_at < s.at)`),
     );
   }
+  await recordRun(db, actor.id, startedAt);
   log(`\nDone. ${api.requests} Pipedrive requests.`);
 }
 
@@ -1027,6 +1051,49 @@ async function localRecords(db: Database) {
   };
 }
 
+/** When the last run started (kept in external_ids as kind "run"), so the next --new-only run without --since picks up from there. */
+async function lastRunAt(db: Database) {
+  const [row] = await db
+    .select({ at: schema.externalIds.createdAt })
+    .from(schema.externalIds)
+    .where(and(eq(schema.externalIds.source, SOURCE), eq(schema.externalIds.kind, "run"), eq(schema.externalIds.externalId, "last")));
+  return row?.at;
+}
+
+async function recordRun(db: Database, actorId: string, startedAt: Date) {
+  await db
+    .insert(schema.externalIds)
+    .values({ source: SOURCE, kind: "run", externalId: "last", localId: actorId, createdAt: startedAt })
+    .onConflictDoUpdate({ target: [schema.externalIds.source, schema.externalIds.kind, schema.externalIds.externalId], set: { localId: actorId, createdAt: startedAt } });
+}
+
+/**
+ * Activities brought in while they were still open (planned calls, meetings, tasks) that were marked done in
+ * Pipedrive in the window, and are still open here. One someone changed here after it was marked done in
+ * Pipedrive (reopened it, say) is left as it is.
+ */
+async function completedSince(db: Database, links: Links, pdActivities: PdActivity[], since: Date | undefined) {
+  const done = pdActivities.filter((a) => a.done && links.get("activity", a.id) && inWindow(time(a.marked_as_done_time), since));
+  const open = new Map<string, { id: string; createdAt: Date; updatedAt: Date; outcome: string | null; durationMinutes: number | null; body: string | null }>();
+  for (const batch of chunks([...new Set(done.map((a) => links.get("activity", a.id)!))], 500)) {
+    const rows = await db
+      .select({ id: schema.activities.id, createdAt: schema.activities.createdAt, updatedAt: schema.activities.updatedAt, outcome: schema.activities.outcome, durationMinutes: schema.activities.durationMinutes, body: schema.activities.body })
+      .from(schema.activities)
+      .where(and(inArray(schema.activities.id, batch), isNull(schema.activities.completedAt)));
+    for (const r of rows) open.set(r.id, r);
+  }
+  return done.flatMap((a) => {
+    const row = open.get(links.get("activity", a.id)!);
+    if (!row) return [];
+    const doneAt = time(a.marked_as_done_time);
+    const editedHere = row.updatedAt.getTime() !== row.createdAt.getTime();
+    if (doneAt && editedHere && row.updatedAt.getTime() > doneAt.getTime()) return [];
+    return [{ id: row.id, a, row }];
+  });
+}
+
+const stamp = (d: Date) => `${d.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+
 const unplaced = (n: number) => (n > 0 ? `; ${n} left out: nothing here to put them on` : "");
 
 async function insertActivities(db: Database, links: Links, kind: "note" | "activity" | "email", rows: { pd: PdId; values: typeof schema.activities.$inferInsert }[]) {
@@ -1097,8 +1164,9 @@ function printWindow(o: {
   orgMatcher: OrganizationMatcher;
   personMatcher: PersonMatcher;
   fresh: (at: string | null | undefined) => boolean;
+  completed: number;
 }) {
-  const window = o.since ? `since ${o.since.toISOString().slice(0, 16).replace("T", " ")} UTC` : "at any time";
+  const window = o.since ? `since ${stamp(o.since)}` : "at any time";
   log(`\nNew in Pipedrive ${window}, not brought in yet${o.newOnly ? " (records already here are left as they are)" : ""}:`);
   const newOrgs = o.orgs.filter((r) => !o.links.get("organization", r.id) && o.fresh(r.add_time));
   const newPeople = o.persons.filter((r) => !o.links.get("person", r.id) && o.fresh(r.add_time));
@@ -1121,9 +1189,10 @@ function printWindow(o: {
   log(`  ${newDeals.length} deals`);
   for (const d of newDeals.slice(0, 30)) log(`      "${d.title}" (${d.status})`);
   log(`  ${o.notes.filter((n) => !o.links.get("note", n.id) && o.fresh(n.add_time)).length} notes`);
-  const acts = o.pdActivities.filter((a) => !o.links.get("activity", a.id) && o.fresh(a.add_time));
+  const acts = o.pdActivities.filter((a) => !o.links.get("activity", a.id) && (o.fresh(a.add_time) || (a.done && o.fresh(a.marked_as_done_time))));
   const byType = Object.entries(Object.groupBy(acts, (a) => a.type)).map(([t, list]) => `${list!.length} ${t}`);
   log(`  ${acts.length} activities${byType.length ? ` (${byType.join(", ")})` : ""}`);
+  log(`  ${o.completed} activities brought in as planned and marked done in Pipedrive since they were brought in: they're checked off here too`);
 }
 
 // ─── Reset ───────────────────────────────────────────────────────────────
