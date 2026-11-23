@@ -561,7 +561,7 @@ async function runImport(db: Database) {
         const person = plan.personId ? personIds.get(plan.personId) : null;
         id = (org ? byRecord.get(`org:${org}`) : undefined) ?? (!org && person ? byRecord.get(`person:${person}`) : undefined) ?? null;
         if (id) {
-          await links.match("client", plan.key, id);
+          await links.match("client", plan.key, id, ["client", "lead", "deal"]);
           await links.flush();
         }
       }
@@ -732,13 +732,17 @@ async function runImport(db: Database) {
         continue;
       }
       await ensureStage("prospective", LEADS_STAGE, { first: true, probability: 5 });
-      const values = leadValues(l, { orgName, personName, user, customValues, leadLabels, stageId: stageIds.get(`prospective:${LEADS_STAGE}`)!, pipelineId: pipelineIds.prospective, personId, organizationId });
+      const values = leadValues(l, { orgName, personName, user, customValues, tagValues, leadLabels, stageId: stageIds.get(`prospective:${LEADS_STAGE}`)!, pipelineId: pipelineIds.prospective, personId, organizationId });
       const createdAt = time(l.add_time) ?? now;
       const [row] = await db
         .insert(schema.clients)
         .values({ ...values, rank: nextRank(values.stageId), createdBy: actor.id, createdAt, archivedAt: l.is_archived ? (time(l.update_time) ?? now) : null })
         .returning({ id: schema.clients.id });
       await links.save("lead", l.id, row.id);
+      // Also the client for its organization (or person) in Pipedrive's terms, so a deal for them later finds it, as for a client made from deals.
+      const pdKey = l.organization_id ? `org:${l.organization_id}` : l.person_id && personOrgOf.get(l.person_id) ? `org:${personOrgOf.get(l.person_id)}` : l.person_id ? `person:${l.person_id}` : null;
+      const planKey = pdKey ? (clientAliases.get(pdKey) ?? pdKey) : null;
+      if (planKey && !links.get("client", planKey)) await links.save("client", planKey, row.id);
       await db.insert(schema.events).values({ entityType: "client", entityId: row.id, action: "created", data: { category: "prospective", stage: LEADS_STAGE, source: SOURCE, lead: { id: l.id, title: l.title } }, userId: actor.id });
       leadClient.set(l.id, row.id);
       if (key) byRecord.set(key, row.id);
@@ -966,7 +970,7 @@ function clientValues(plan: ClientPlan, lk: Lookup, c: Ctx) {
 
 function leadValues(
   l: PdLead,
-  c: Pick<Ctx, "orgName" | "personName" | "user" | "customValues"> & { leadLabels: Map<string, string>; stageId: string; pipelineId: string; personId: string | null; organizationId: string | null },
+  c: Pick<Ctx, "orgName" | "personName" | "user" | "customValues" | "tagValues"> & { leadLabels: Map<string, string>; stageId: string; pipelineId: string; personId: string | null; organizationId: string | null },
 ) {
   const name = (l.organization_id && c.orgName.get(l.organization_id)) || (l.person_id && c.personName.get(l.person_id)) || l.title || "Lead";
   const at = time(l.add_time) ?? new Date();
@@ -982,7 +986,8 @@ function leadValues(
     endedOn: null,
     churnReason: null,
     openToReturn: true,
-    tags: [...new Set((l.label_ids ?? []).map((id) => c.leadLabels.get(id)).filter((t): t is string => !!t).map((t) => t.slice(0, 40)))].slice(0, 30),
+    // Its labels, and a "Tags" custom field (deal fields), as tags.
+    tags: [...new Set([...(l.label_ids ?? []).map((id) => c.leadLabels.get(id)).filter((t): t is string => !!t), ...c.tagValues("client", l)].map((t) => t.slice(0, 40)))].slice(0, 30),
     personId: c.personId,
     organizationId: c.organizationId,
     ownerId: c.user(l.owner_id),
