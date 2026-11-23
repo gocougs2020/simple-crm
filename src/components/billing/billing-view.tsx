@@ -222,20 +222,10 @@ function ActivityTab({ rows: first, totals, filter, pageSize, accounts }: { rows
     {
       key: "links",
       label: "",
-      render: (r) => (
-        <span className="flex justify-end gap-3 text-[12.5px]">
-          {r.url ? (
-            <a href={r.url} target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
-              {r.kind === "invoice" ? "View" : "Receipt"}
-            </a>
-          ) : null}
-          {r.pdf ? (
-            <a href={r.pdf} target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
-              PDF
-            </a>
-          ) : null}
-        </span>
-      ),
+      // On a phone the links go on the row's second line; a row with none adds nothing there.
+      mobile: "meta",
+      mobileRender: (r) => (r.url || r.pdf ? <ActivityLinks row={r} /> : null),
+      render: (r) => <ActivityLinks row={r} />,
     },
   ];
 
@@ -307,6 +297,24 @@ function ActivityTab({ rows: first, totals, filter, pageSize, accounts }: { rows
       />
       {mapping ? <MapCustomerDialog target={mapping} onClose={() => setMapping(null)} /> : null}
     </>
+  );
+}
+
+/** The invoice page and PDF, or the payment's receipt, in Stripe. */
+function ActivityLinks({ row: r }: { row: ActivityRow }) {
+  return (
+    <span className="flex justify-end gap-3 text-[12.5px]">
+      {r.url ? (
+        <a href={r.url} target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
+          {r.kind === "invoice" ? "View" : "Receipt"}
+        </a>
+      ) : null}
+      {r.pdf ? (
+        <a href={r.pdf} target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
+          PDF
+        </a>
+      ) : null}
+    </span>
   );
 }
 
@@ -439,6 +447,12 @@ function MappingTab({ rows: first, total, filter, pageSize, accounts }: { rows: 
           {
             key: "map",
             label: "",
+            mobile: "meta" as const,
+            mobileRender: (r: MappingRow) => (
+              <button type="button" onClick={() => setMapping({ account: r.account, customerId: r.customerId, name: r.name, email: r.email })} className="font-medium text-accent hover:underline">
+                {r.clients.length ? "Add a client" : "Map to client"}
+              </button>
+            ),
             render: (r: MappingRow) => (
               <span className="flex justify-end">
                 <Button size="sm" variant={r.clients.length ? "ghost" : "outline"} onClick={() => setMapping({ account: r.account, customerId: r.customerId, name: r.name, email: r.email })}>

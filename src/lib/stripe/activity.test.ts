@@ -63,6 +63,16 @@ describe("Billing activity rows", () => {
     assert.equal(chargeActivity("a", charge({ status: "failed", failure_message: "Your card was declined." })).failure, "Your card was declined.");
   });
 
+  it("counts what was captured, not what was authorized", () => {
+    const held = chargeActivity("a", charge({ captured: false, amount_captured: 0 }));
+    assert.equal(held.status, "uncaptured");
+    assert.equal(held.amount, 50_000);
+    assert.equal(activityState(held), "pending");
+    const partial = chargeActivity("a", charge({ captured: true, amount_captured: 30_000, amount_refunded: 30_000 }));
+    assert.equal(partial.amount, 30_000);
+    assert.equal(activityState(partial), "refunded");
+  });
+
   it("names payment methods as people write them", () => {
     assert.equal(methodLabel({ type: "us_bank_account" }), "Bank account");
     assert.equal(methodLabel({ type: "sepa_debit" }), "Sepa debit");

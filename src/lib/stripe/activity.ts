@@ -16,9 +16,9 @@ export type ActivityRecord = {
   id: string;
   kind: ActivityKind;
   customerId: string | null;
-  /** Stripe's own status: an invoice's draft/open/paid/void/uncollectible, a payment's succeeded/pending/failed. */
+  /** Stripe's own status: an invoice's open/paid/void/uncollectible, a payment's succeeded/pending/failed, or "uncaptured" for a payment only authorized so far. */
   status: string;
-  /** An invoice's total, or what a payment charged, in cents. */
+  /** An invoice's total, or what a payment collected (what was authorized, for one not captured yet), in cents. */
   amount: number;
   /** Refunded off a payment. */
   refunded: number;
@@ -58,6 +58,8 @@ type InvoiceIn = {
 type ChargeIn = {
   id: string;
   amount: number;
+  amount_captured?: number | null;
+  captured?: boolean;
   amount_refunded: number;
   customer?: string | null;
   currency: string;
@@ -104,14 +106,20 @@ export function invoiceActivity(account: string, i: InvoiceIn): ActivityRecord |
   };
 }
 
+/**
+ * A payment as a row. One only authorized so far collected nothing yet, and
+ * one captured for less than was authorized collected what was captured, so
+ * refunds are weighed against that.
+ */
 export function chargeActivity(account: string, c: ChargeIn): ActivityRecord {
+  const uncaptured = c.status === "succeeded" && c.captured === false;
   return {
     account,
     id: c.id,
     kind: "payment",
     customerId: c.customer ?? null,
-    status: c.status,
-    amount: c.amount,
+    status: uncaptured ? "uncaptured" : c.status,
+    amount: uncaptured ? c.amount : (c.amount_captured ?? c.amount),
     refunded: c.amount_refunded ?? 0,
     remaining: 0,
     currency: c.currency,
@@ -155,6 +163,7 @@ export function activityState(r: { kind: ActivityKind; status: string; amount: n
     return "paid";
   }
   if (r.status === "failed" || r.status === "pending") return r.status;
+  if (r.status === "uncaptured") return "pending";
   if (r.refunded && r.refunded >= r.amount) return "refunded";
   return r.refunded ? "partly_refunded" : "succeeded";
 }

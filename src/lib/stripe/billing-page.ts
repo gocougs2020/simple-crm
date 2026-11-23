@@ -42,6 +42,7 @@ const stateSql = sql`case
          else 'paid' end
   else
     case when a.status in ('failed', 'pending') then a.status
+         when a.status = 'uncaptured' then 'pending'
          when a.refunded > 0 and a.refunded >= a.amount then 'refunded'
          when a.refunded > 0 then 'partly_refunded'
          else 'succeeded' end

@@ -2,7 +2,7 @@ import "server-only";
 import { and, eq, gte, lt, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { recordEvent } from "@/lib/crm/events";
-import { allCustomers, allSubscriptions, chargesSince, customersByEmail, invoicesSince, openInvoices, productNames, stripeAccounts, stripeConfigured, subscriptionsOf, type StripeCharge, type StripeCustomer, type StripeInvoice, type StripeSubscription } from "@/lib/stripe";
+import { allCustomers, allSubscriptions, chargesSince, customersByEmail, getInvoice, invoicesSince, openInvoices, productNames, stripeAccounts, stripeConfigured, subscriptionsOf, type StripeCharge, type StripeCustomer, type StripeInvoice, type StripeSubscription } from "@/lib/stripe";
 import { chargeActivity, invoiceActivity, type ActivityRecord } from "./activity";
 import { collected, discountShare, liveStatuses, monthlyAmount, netMonthly } from "./rules";
 
@@ -184,7 +184,33 @@ async function saveActivity(account: string, invoices: StripeInvoice[], charges:
   }
 }
 
-/** Whether an account's invoices and payments were ever copied: the first run copies all of history, later ones the last year. */
+/**
+ * Open invoices older than the daily window that Stripe no longer lists as
+ * open: paid, voided or written off since. Each is read again, so it doesn't
+ * stay unpaid on the Billing page. Every open invoice was just listed, so
+ * any not seen this run has changed.
+ */
+async function refreshClosedInvoices(account: string, started: Date) {
+  const db = await getDb();
+  const stale = await db
+    .select({ id: stripeActivity.id })
+    .from(stripeActivity)
+    .where(and(eq(stripeActivity.account, account), eq(stripeActivity.kind, "invoice"), eq(stripeActivity.status, "open"), lt(stripeActivity.syncedAt, started)))
+    .limit(500);
+  const found: StripeInvoice[] = [];
+  for (let i = 0; i < stale.length; i += 10) {
+    const got = await Promise.allSettled(stale.slice(i, i + 10).map((r) => getInvoice(account, r.id)));
+    for (const g of got) if (g.status === "fulfilled") found.push(g.value);
+  }
+  await saveActivity(account, found, [], started);
+}
+
+/**
+ * Whether the daily sync ever copied an account's invoices and payments: the
+ * first run copies all of history, later ones the last year. Only a full run
+ * writes activity until then (see `syncClient`), so a client looked up first
+ * can't make it skip the history.
+ */
 async function hasActivity(account: string) {
   const db = await getDb();
   const [row] = await db.select({ id: stripeActivity.id }).from(stripeActivity).where(eq(stripeActivity.account, account)).limit(1);
@@ -212,6 +238,7 @@ export async function syncStripe() {
       await saveCustomers(account, customers, started, moneyByCustomer(charges, unpaid, started));
       await saveSubscriptions(account, subscriptions, names, started);
       await saveActivity(account, [...invoices, ...unpaid], charges, started);
+      if (from) await refreshClosedInvoices(account, started);
       // Whatever this run didn't see was deleted in Stripe. Activity older than what was asked for is kept: it's history.
       await db.delete(stripeCustomers).where(and(eq(stripeCustomers.account, account), lt(stripeCustomers.syncedAt, started)));
       await db.delete(stripeSubscriptions).where(and(eq(stripeSubscriptions.account, account), lt(stripeSubscriptions.syncedAt, started)));
@@ -373,7 +400,8 @@ export async function syncClient(clientId: string) {
         // Customers this run didn't read (linked by hand, or matched earlier) still get what they paid and owe.
         for (const id of known.filter((k) => !found.some((c) => c.id === k))) await db.update(stripeCustomers).set(money.get(id) ?? noMoney).where(and(eq(stripeCustomers.account, account), eq(stripeCustomers.customerId, id)));
         // The payments and open invoices just read show on the Billing page now, not after the next daily run.
-        await saveActivity(account, unpaid, charges, now);
+        // Not before the first full run has copied the account's history: it would take these for that history.
+        if (await hasActivity(account)) await saveActivity(account, unpaid, charges, now);
         if (subs.length) await saveSubscriptions(account, subs, await productNames(account, [...new Set(subs.flatMap((s) => s.items.data.map((i) => i.price.product)))]), now);
       } catch (err) {
         fresh = false;

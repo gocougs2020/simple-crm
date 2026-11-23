@@ -35,7 +35,8 @@ const activityFilter = z.object({
 
 const mappingFilter = z.object({ q, mapped: z.enum(["mapped", "unmapped", "by_hand"]).optional(), account, sort: z.enum(mappingSorts).optional(), dir });
 
-const range = z.object({ offset: z.number().int().min(0).max(1_000_000), limit: z.number().int().min(1).max(500) });
+/** A refresh of a long-scrolled table asks for up to 2,000 rows at once (usePagedRows). */
+const range = z.object({ offset: z.number().int().min(0).max(1_000_000), limit: z.number().int().min(1).max(2000) });
 
 export async function moreBillingActivity(filter: z.input<typeof activityFilter>, r: z.input<typeof range>): Promise<Result<Awaited<ReturnType<typeof listBillingActivity>>>> {
   return run(async () => {
