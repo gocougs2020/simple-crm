@@ -6,6 +6,7 @@ import { assertCan, type Actor } from "@/lib/crm/actor";
 import { getOrganization, getPerson } from "@/lib/crm/records";
 import { ActionError, NotFoundError } from "@/lib/errors";
 import { personName } from "@/lib/format";
+import { rateLimit } from "@/lib/rate-limit";
 import { enrichPrompt, type EnrichEntity, type EnrichField } from "./enrich-rules";
 import { startRun } from "./runs";
 
@@ -23,13 +24,16 @@ export async function startEnrichment(actor: Actor, entity: EnrichEntity, id: st
   const db = await getDb();
   const record = entity === "person" ? await personRecord(id) : await organizationRecord(id);
   // One at a time per record: a second click while it's working would pay twice for the same note.
+  // The claim is one atomic upsert, so two requests at the same moment can't both get past it; the check below covers a run that's still going after that.
+  const busy = `${record.name} is already being enriched. Its note shows in the history when it's done.`;
+  if ((await rateLimit("enrich", `${entity}:${id}`, { limit: 1, windowMs: 60_000 })).limited) throw new ActionError(busy);
   const key = entity === "person" ? schema.agentRuns.personId : schema.agentRuns.organizationId;
   const [going] = await db
     .select({ id: schema.agentRuns.id })
     .from(schema.agentRuns)
     .where(and(eq(key, id), eq(schema.agentRuns.source, "enrich"), inArray(schema.agentRuns.status, ["queued", "running"])))
     .limit(1);
-  if (going) throw new ActionError(`${record.name} is already being enriched. Its note shows in the history when it's done.`);
+  if (going) throw new ActionError(busy);
   const fields = [...record.fields, ...(await customFields(entity, record.custom))];
   return startRun(actor, {
     source: "enrich",

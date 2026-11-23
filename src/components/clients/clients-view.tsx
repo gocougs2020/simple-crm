@@ -149,14 +149,15 @@ export function ClientsView({
   };
   /**
    * What they're signed up for: the products on their running Stripe
-   * subscriptions. Without Stripe connected, the services tracked by hand.
+   * subscriptions. Without Stripe connected, the services tracked by hand:
+   * the ones they have, or on the Past tab the ones they had.
    */
   const services: Column<ClientRow> = {
     key: "services",
     label: "Services",
     className: "max-w-64",
     render: (r) => {
-      const list = connected.stripe ? r.client.stripeProducts : [...new Set(r.services.filter((s) => s.active).map((s) => s.name))];
+      const list = connected.stripe ? r.client.stripeProducts : [...new Set(r.services.filter((s) => s.active === (category !== "past")).map((s) => s.name))];
       return list.length ? (
         <span className="flex flex-wrap gap-1">
           {list.map((name) => (
