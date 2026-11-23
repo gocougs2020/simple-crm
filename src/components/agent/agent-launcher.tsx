@@ -46,7 +46,7 @@ export function AgentLauncher({ configured }: { configured: boolean }) {
 export function VoiceOnDot() {
   return (
     <span className="pointer-events-none absolute -top-0.5 -right-0.5 flex size-3.5" aria-hidden>
-      <span className="absolute inset-0 animate-ping rounded-full bg-success opacity-60" />
+      <span className="absolute inset-0 rounded-full motion-safe:animate-ping bg-success opacity-60" />
       <span className="relative size-3.5 rounded-full border-2 border-surface bg-success" />
     </span>
   );
