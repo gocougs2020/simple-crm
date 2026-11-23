@@ -2,6 +2,7 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import * as runs from "@/lib/agent/runs";
+import { startEnrichment } from "@/lib/agent/enrich";
 import * as schedules from "@/lib/agent/schedules";
 import * as skills from "@/lib/agent/skills";
 import { can, type Actor } from "@/lib/crm/actor";
@@ -66,6 +67,8 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
     const run = await runs.startRun(a, { prompt: body.request, title: body.title, source: ctx.agent ? "chat" : "api", threadId: ctx.threadId, personId: body.personId, organizationId: body.organizationId, clientId: body.clientId });
     return q.toAgentTask(run);
   },
+  enrichPerson: async (a, { params }) => q.toAgentTask(await startEnrichment(a, "person", params.id)),
+  enrichOrganization: async (a, { params }) => q.toAgentTask(await startEnrichment(a, "organization", params.id)),
   listAgentTasks: async (a, { query }) => (await runs.listRuns(a, query)).map(q.toAgentTask),
   getAgentTask: async (a, { params }) => q.toAgentTask(await runs.getRun(a, params.id)),
   async startAgentBulk(a, { body }, ctx) {

@@ -87,7 +87,7 @@ Edit [`src/styles/theme.css`](../src/styles/theme.css) for every deployment of y
 | `--text-primary` … `--text-faint` | Titles, body, supporting copy, icons and placeholders |
 | `--border`, `--border-strong`, `--ring` | Lines and focus |
 | `--success`, `--warning`, `--error`, `--info`, `--neutral` (+ `-surface`, `-border`) | Status badges. Keep their meaning; adjust shades if needed |
-| `--note-surface`, `--note-border` | The soft yellow behind a note's icon on a timeline |
+| `--note-surface`, `--note-border` | The soft yellow behind a pinned entry on a timeline: its icon and its card |
 | `--toast-success-icon` | The check in a success toast (it sits on a dark background) |
 | `--agent-panel-opacity` | How solid the agent's panel is on a desktop (`80%`). `100%` makes it opaque; lower shows more of the page behind it |
 | `--live-highlight`, `--live-highlight-ring` | The glow on whatever just appeared or changed on an open page. A tint of the accent by default |

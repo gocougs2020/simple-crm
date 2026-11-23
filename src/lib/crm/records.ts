@@ -293,6 +293,8 @@ export async function listClients(f: ClientFilter = {}) {
     value: sql`${clients.value}`,
     mrr: sql`${mrr}`,
     stripeMrr: sql`${clients.stripeMrr}`,
+    // Worst news first, the same order as the billing statuses; not in Stripe last.
+    stripeStatus: sql`coalesce(array_position(array['past_due', 'active', 'trialing', 'paused', 'canceled', 'customer'], ${clients.stripeStatus}::text), 7)`,
     stripeCollected: sql`${clients.stripeCollected}`,
     formerMrr: sql`${formerMrr}`,
     stage: sql`${stages.position}`,

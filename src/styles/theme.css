@@ -51,7 +51,7 @@
   --neutral-surface: #f4f4f5;
   --neutral-border: #e4e4e7;
 
-  /* Notes: the soft yellow that marks a note on a timeline. */
+  /* Pinned: the soft yellow that marks a pinned entry (its icon and card) on a timeline. */
   --note-surface: #fefce8;
   --note-border: #fde68a;
 

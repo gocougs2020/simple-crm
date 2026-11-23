@@ -20,6 +20,7 @@ import { markdownToHtml } from "./markdown";
 import { MAX_STORED_CHARS } from "./messages";
 import { budgetRefusal, budgetUsedUp, MAX_RUN_RESULT, promptLimit, monthStart, runFailure, runMessage, runTitle, usdToMicro, type RunRecord } from "./run-rules";
 import { signRunToken, type RunClaims } from "./run-token";
+import { ENRICH_NOTE_SUBJECT } from "./enrich-rules";
 import { cadenceLabel } from "./schedule-rules";
 import { labelsSection } from "@/lib/crm/label-rules";
 import { listLabels } from "@/lib/crm/labels";
@@ -482,6 +483,26 @@ async function postToActivity(run: Run) {
   await activities.replyToNote(actor, source.id, { body: run.status === "done" ? answer : `<p><strong>${appConfig.agent.name} couldn't finish.</strong></p>${answer}` }, { handOff: false });
 }
 
+/**
+ * Enrichment always ends in a note on the record, written by the teammate
+ * through the agent: what it found and filled in, or why it couldn't finish.
+ * The CRM writes it from the run's answer, so a run that stops early still
+ * leaves one.
+ */
+async function postEnrichmentNote(run: Run) {
+  if (run.source !== "enrich" || !(run.personId || run.organizationId)) return;
+  const user = await userOf(run.userId);
+  if (!user) return;
+  const actor = await assistantActor(user);
+  if (!can(actor, "records:write")) return;
+  const body =
+    run.status === "done"
+      ? markdownToHtml(run.result ?? "")
+      : `<p><strong>${appConfig.agent.name} couldn't finish enriching this record.</strong> ${run.error ?? ""}</p><p>Anything it filled in before it stopped is in the history. Try Enrich again later.</p>`;
+  // The agent's own writing: it never hands work back to itself, whatever the text says.
+  await activities.logActivity(actor, { type: "note", subject: ENRICH_NOTE_SUBJECT, body, personId: run.personId, organizationId: run.organizationId }, { handOff: false });
+}
+
 /** Emails the answer back to whoever forwarded the email (src/lib/forwarding/inbound.ts). */
 async function postToEmail(run: Run) {
   if (run.source !== "email") return;
@@ -495,6 +516,7 @@ async function deliver(run: Run) {
     postToThread(run).catch((err) => console.error("[agent] thread", err)),
     postToActivity(run).catch((err) => console.error("[agent] activity", err)),
     postToEmail(run).catch((err) => console.error("[agent] email", err)),
+    postEnrichmentNote(run).catch((err) => console.error("[agent] enrich", err)),
   ]);
   // One notification for a bulk request, when its last record is done, instead of one per record.
   if (run.batchId) {
