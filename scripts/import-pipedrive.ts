@@ -10,8 +10,7 @@
  *   pnpm import:pipedrive --since=14 --new-only
  *                                       only add what was created in Pipedrive in the last 14 days,
  *                                       onto the records here, and change nothing that's already here
- *                                       (but check off activities marked done in Pipedrive since)
- *   pnpm import:pipedrive --new-only    the same, since the last run
+ *                                       (but check off activities marked done in Pipedrive in that time)
  *   pnpm import:pipedrive --reset       remove everything a previous import added
  *
  * Needs PIPEDRIVE_API_TOKEN. Writes to DATABASE_URL, or to the local embedded
@@ -200,12 +199,7 @@ async function runImport(db: Database) {
   // --since: only what was created in Pipedrive in the window is added. --new-only: nothing already here is changed.
   if (args.has("--since")) throw new Error("Give --since a number of days, like --since=14.");
   const newOnly = flag("new-only");
-  // Without --since, --new-only picks up from where the last run started (or from the beginning, before the first one).
-  const startedAt = new Date();
-  const lastRun = await lastRunAt(db);
-  // An hour's overlap, in case this computer's clock and Pipedrive's disagree: what's already here is skipped anyway.
-  const since = parseSince(option("since")) ?? (newOnly && lastRun ? new Date(lastRun.getTime() - 60 * 60 * 1000) : undefined);
-  if (newOnly && !option("since")) log(lastRun ? `Since the last run, ${stamp(lastRun)} (--since=14 for a set number of days)` : "No earlier run recorded: everything not brought in yet counts as new");
+  const since = parseSince(option("since"));
   const fresh = (at: string | null | undefined) => inWindow(time(at), since);
   const emailScope = flag("no-email") ? "none" : option("email") === "all" ? "all" : "clients";
   const api = new PipedriveApi(token, process.env.PIPEDRIVE_COMPANY_DOMAIN);
@@ -730,7 +724,7 @@ async function runImport(db: Database) {
     log(`Email: ${added} messages added`);
   }
 
-  // Checked off in Pipedrive since: checked off here too, unless someone changed it here after that.
+  // Checked off in Pipedrive in the window: checked off here too.
   for (const { id, a, row } of completed) {
     const v = activityValues(a, typeNames, outcomeNames, user, now);
     await db
@@ -754,7 +748,6 @@ async function runImport(db: Database) {
        where t.id = s.id and s.at is not null and (t.last_activity_at is null or t.last_activity_at < s.at)`),
     );
   }
-  await recordRun(db, actor.id, startedAt);
   log(`\nDone. ${api.requests} Pipedrive requests.`);
 }
 
@@ -1051,44 +1044,23 @@ async function localRecords(db: Database) {
   };
 }
 
-/** When the last run started (kept in external_ids as kind "run"), so the next --new-only run without --since picks up from there. */
-async function lastRunAt(db: Database) {
-  const [row] = await db
-    .select({ at: schema.externalIds.createdAt })
-    .from(schema.externalIds)
-    .where(and(eq(schema.externalIds.source, SOURCE), eq(schema.externalIds.kind, "run"), eq(schema.externalIds.externalId, "last")));
-  return row?.at;
-}
-
-async function recordRun(db: Database, actorId: string, startedAt: Date) {
-  await db
-    .insert(schema.externalIds)
-    .values({ source: SOURCE, kind: "run", externalId: "last", localId: actorId, createdAt: startedAt })
-    .onConflictDoUpdate({ target: [schema.externalIds.source, schema.externalIds.kind, schema.externalIds.externalId], set: { localId: actorId, createdAt: startedAt } });
-}
-
 /**
  * Activities brought in while they were still open (planned calls, meetings, tasks) that were marked done in
- * Pipedrive in the window, and are still open here. One someone changed here after it was marked done in
- * Pipedrive (reopened it, say) is left as it is.
+ * Pipedrive in the window (any time, without --since) and are still open here.
  */
 async function completedSince(db: Database, links: Links, pdActivities: PdActivity[], since: Date | undefined) {
   const done = pdActivities.filter((a) => a.done && links.get("activity", a.id) && inWindow(time(a.marked_as_done_time), since));
-  const open = new Map<string, { id: string; createdAt: Date; updatedAt: Date; outcome: string | null; durationMinutes: number | null; body: string | null }>();
+  const open = new Map<string, { id: string; outcome: string | null; durationMinutes: number | null; body: string | null }>();
   for (const batch of chunks([...new Set(done.map((a) => links.get("activity", a.id)!))], 500)) {
     const rows = await db
-      .select({ id: schema.activities.id, createdAt: schema.activities.createdAt, updatedAt: schema.activities.updatedAt, outcome: schema.activities.outcome, durationMinutes: schema.activities.durationMinutes, body: schema.activities.body })
+      .select({ id: schema.activities.id, outcome: schema.activities.outcome, durationMinutes: schema.activities.durationMinutes, body: schema.activities.body })
       .from(schema.activities)
       .where(and(inArray(schema.activities.id, batch), isNull(schema.activities.completedAt)));
     for (const r of rows) open.set(r.id, r);
   }
   return done.flatMap((a) => {
     const row = open.get(links.get("activity", a.id)!);
-    if (!row) return [];
-    const doneAt = time(a.marked_as_done_time);
-    const editedHere = row.updatedAt.getTime() !== row.createdAt.getTime();
-    if (doneAt && editedHere && row.updatedAt.getTime() > doneAt.getTime()) return [];
-    return [{ id: row.id, a, row }];
+    return row ? [{ id: row.id, a, row }] : [];
   });
 }
 
