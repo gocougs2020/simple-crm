@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getDb, schema } from "@/db";
 import type { EntityType } from "@/lib/constants";
 import { actorUserId, assertCan, stamp, type Actor } from "@/lib/crm/actor";
+import { homedOn } from "@/lib/crm/activity-archive";
 import { cleanCustomValues } from "@/lib/crm/custom-fields";
 import { appConfig } from "@/app.config";
 import { diff, eventRow, labelRelations, recordEvent, recordEvents } from "@/lib/crm/events";
@@ -252,14 +253,6 @@ export async function updatePerson(a: Actor, personId: string, patch: Partial<z.
 // ─── Archive (soft delete) ───────────────────────────────────────────────
 
 const tables = { person: people, organization: organizations, client: clients } as const;
-
-/** The activities a record is the home of: logged on it, not on a client (or person) that rolled up to it (src/lib/crm/activity-archive.ts). */
-function homedOn(entity: EntityType, ids: string[]) {
-  const { activities } = schema;
-  if (entity === "client") return inArray(activities.clientId, ids);
-  if (entity === "person") return and(isNull(activities.clientId), inArray(activities.personId, ids));
-  return and(isNull(activities.clientId), isNull(activities.personId), inArray(activities.organizationId, ids));
-}
 
 /**
  * Archived records disappear from lists and search but keep their history.

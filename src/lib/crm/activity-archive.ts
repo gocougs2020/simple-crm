@@ -1,4 +1,4 @@
-import { sql, type SQL } from "drizzle-orm";
+import { and, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { activities } from "@/db/schema";
 import type { EntityType } from "@/lib/constants";
 
@@ -49,6 +49,13 @@ export function homeIs(entity: EntityType, id: string | SQL, l: Links = own) {
   if (entity === "client") return sql`${l.clientId} = ${id}`;
   if (entity === "person") return sql`(${l.clientId} is null and ${l.personId} = ${id})`;
   return sql`(${l.clientId} is null and ${l.personId} is null and ${l.organizationId} = ${id})`;
+}
+
+/** The activities these records are the home of: archiving them archives exactly these. */
+export function homedOn(entity: EntityType, ids: string[]) {
+  if (entity === "client") return inArray(activities.clientId, ids);
+  if (entity === "person") return and(isNull(activities.clientId), inArray(activities.personId, ids))!;
+  return and(isNull(activities.clientId), isNull(activities.personId), inArray(activities.organizationId, ids))!;
 }
 
 /**
