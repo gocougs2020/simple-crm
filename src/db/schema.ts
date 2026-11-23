@@ -637,6 +637,44 @@ export const stripeSubscriptions = pgTable(
 );
 
 /**
+ * Every invoice and payment in the connected Stripe accounts, for the Billing
+ * page's activity table. The daily sync copies the last year each run (all
+ * of history the first time an account is seen) and keeps older rows, so the
+ * history only grows. Matched to clients through their customers, like
+ * subscriptions. Rules in src/lib/stripe/activity.ts.
+ */
+export const stripeActivity = pgTable(
+  "stripe_activity",
+  {
+    account: text("account").notNull(),
+    /** in_… for an invoice, ch_… for a payment. */
+    id: text("id").notNull(),
+    kind: text("kind").$type<"invoice" | "payment">().notNull(),
+    /** Null for a payment taken without a customer. */
+    customerId: text("customer_id"),
+    /** Stripe's status, as it has it. */
+    status: text("status").notNull(),
+    /** An invoice's total or what a payment charged, in cents. */
+    amount: bigint("amount", { mode: "number" }).notNull().default(0),
+    refunded: bigint("refunded", { mode: "number" }).notNull().default(0),
+    /** Left to pay on an open invoice. */
+    remaining: bigint("remaining", { mode: "number" }).notNull().default(0),
+    currency: text("currency").notNull().default("usd"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    number: text("number"),
+    description: text("description"),
+    method: text("method"),
+    failure: text("failure"),
+    url: text("url"),
+    pdf: text("pdf"),
+    invoiceId: text("invoice_id"),
+    syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.account, t.id] }), index("stripe_activity_created_idx").on(t.createdAt), index("stripe_activity_customer_idx").on(t.account, t.customerId)],
+);
+
+/**
  * Corrections to the email matching, made on a client's page: a customer
  * linked by hand (`linked`, for one whose email isn't on any of the client's
  * people) or a match that isn't theirs (`hidden`).

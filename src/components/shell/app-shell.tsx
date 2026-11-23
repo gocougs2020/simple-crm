@@ -13,6 +13,7 @@ import {
   Cog6ToothIcon,
   BriefcaseIcon,
   EnvelopeIcon,
+  CreditCardIcon,
   FolderIcon,
   HomeIcon,
   MagnifyingGlassIcon,
@@ -77,6 +78,8 @@ export function AppShell({ counts, children }: { counts: Promise<SidebarCounts>;
     { href: "/organizations", label: "Organizations", icon: BuildingOffice2Icon },
     { href: "/calendar", label: "Calendar", icon: CalendarDaysIcon },
     { href: "/files", label: "Files", icon: FolderIcon },
+    // Invoices and payments from Stripe, only when an account is connected.
+    ...(services.stripe ? [{ href: "/billing", label: "Billing", icon: CreditCardIcon }] : []),
     {
       href: "/chat",
       label: "Team chat",

@@ -170,6 +170,8 @@ export type StripeCharge = {
   amount: number;
   amount_refunded: number;
   amount_captured?: number | null;
+  /** False while a payment is only authorized: nothing was collected yet. */
+  captured?: boolean;
   customer?: string | null;
   currency: string;
   status: "succeeded" | "pending" | "failed";
@@ -178,6 +180,8 @@ export type StripeCharge = {
   description: string | null;
   failure_message: string | null;
   receipt_url: string | null;
+  /** The invoice this payment paid, when it paid one. */
+  invoice?: string | { id: string } | null;
   payment_method_details: { type: string; card?: { brand: string; last4: string } } | null;
 };
 
@@ -248,6 +252,10 @@ export const subscriptionsOf = (accountId: string, customerId: string) => listAl
 
 /** Payments since a time (unix seconds), for one customer or the whole account: what was actually collected. */
 export const chargesSince = (accountId: string, since: number, customerId?: string) => listAll<StripeCharge>(accountId, "charges", { "created[gte]": since, customer: customerId }, 200_000);
+/** Invoices made since a time (unix seconds), or ever without one, for the billing activity. Drafts come too; the sync leaves them out. */
+export const invoicesSince = (accountId: string, since?: number) => listAll<StripeInvoice>(accountId, "invoices", { "created[gte]": since }, 200_000);
+/** One invoice, for one the daily window no longer reaches. */
+export const getInvoice = (accountId: string, id: string) => get<StripeInvoice>(accountId, `invoices/${encodeURIComponent(id)}`);
 /** Invoices sent and not yet paid, for one customer or the whole account. */
 export const openInvoices = (accountId: string, customerId?: string) => listAll<StripeInvoice>(accountId, "invoices", { status: "open", customer: customerId });
 
