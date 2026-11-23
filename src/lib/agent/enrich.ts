@@ -4,10 +4,10 @@ import { getDb, schema } from "@/db";
 import type { CustomValues } from "@/db/schema";
 import { assertCan, type Actor } from "@/lib/crm/actor";
 import { getOrganization, getPerson } from "@/lib/crm/records";
-import { ActionError, NotFoundError } from "@/lib/errors";
+import { ActionError, ForbiddenError, NotFoundError } from "@/lib/errors";
 import { personName } from "@/lib/format";
 import { rateLimit } from "@/lib/rate-limit";
-import { enrichPrompt, type EnrichEntity, type EnrichField } from "./enrich-rules";
+import { enrichPrompt, enrichWriteProblem, sameId, type EnrichEntity, type EnrichField, type EnrichScope } from "./enrich-rules";
 import { startRun } from "./runs";
 
 /**
@@ -41,6 +41,24 @@ export async function startEnrichment(actor: Actor, entity: EnrichEntity, id: st
     prompt: enrichPrompt({ entity, id, name: record.name, context: record.context, fields }),
     ...(entity === "person" ? { personId: id } : { organizationId: id }),
   });
+}
+
+/**
+ * Refuses an enrichment run's update unless it only fills in empty fields on
+ * the record it was started on, read as they are now (MCP calls this before
+ * the update runs). The run reads pages anyone can write, so this is enforced
+ * here rather than trusted to its instructions.
+ */
+export async function assertEnrichWrite(scope: EnrichScope, target: { entity: EnrichEntity; id: unknown }, body: Record<string, unknown>) {
+  const sameRecord = !!scope.id && target.entity === scope.entity && sameId(target.id, scope.id);
+  const fields = sameRecord ? await currentFields(scope.entity, scope.id!) : [];
+  const problem = enrichWriteProblem(scope, target, body, fields);
+  if (problem) throw new ForbiddenError(problem);
+}
+
+async function currentFields(entity: EnrichEntity, id: string) {
+  const record = entity === "person" ? await personRecord(id) : await organizationRecord(id);
+  return [...record.fields, ...(await customFields(entity, record.custom))];
 }
 
 async function personRecord(id: string) {
