@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import clsx from "clsx";
 import { billingPrices, cancelStripeSubscription, createStripeSubscription, updateStripeSubscription } from "@/actions/billing";
 import { Button, Spinner } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
-import { per, prorationLabels, toCents, type Collection, type Proration } from "@/lib/stripe/changes";
+import { per, periodChangeLabels, prorationLabels, toCents, type Collection, type Proration } from "@/lib/stripe/changes";
 import type { CustomerBilling, StripePriceOption } from "@/lib/stripe/types";
 import { cancelsAt, day, everyWord, money, priceOf, subName, type Sub } from "./billing-shared";
 
@@ -18,7 +18,19 @@ import { cancelsAt, day, everyWord, money, priceOf, subName, type Sub } from "./
  * anything is sent.
  */
 
-const newKey = () => crypto.randomUUID();
+/**
+ * One idempotency key per distinct request. Trying the same request again
+ * (after a timeout, say) reuses its key, so Stripe answers with what it did the
+ * first time instead of doing it twice; changing anything makes a new request.
+ */
+function useRequestKey() {
+  const last = useRef<{ sig: string; key: string } | null>(null);
+  return (request: object) => {
+    const sig = JSON.stringify(request);
+    if (last.current?.sig !== sig) last.current = { sig, key: crypto.randomUUID() };
+    return last.current.key;
+  };
+}
 const dollars = (cents: number | null | undefined) => (cents == null ? "" : (cents / 100).toFixed(cents % 100 ? 2 : 0));
 const customerLabel = (c: CustomerBilling) => c.customer.name ?? c.customer.email ?? c.customer.id;
 const priceLabel = (p: StripePriceOption) => `${p.nickname ? `${p.nickname} · ` : ""}${money(p.unitAmount, p.currency)}${per(p.interval, p.intervalCount)}`;
@@ -138,7 +150,7 @@ export function NewSubscriptionDialog({ clientId, customers, initial, onClose }:
   const [method, setMethod] = useState("");
   const [days, setDays] = useState("30");
   const [trial, setTrial] = useState("");
-  const [key, setKey] = useState(newKey);
+  const keyFor = useRequestKey();
   const [pending, start] = useTransition();
 
   const price = prices?.find((p) => p.id === priceId) ?? null;
@@ -165,7 +177,7 @@ export function NewSubscriptionDialog({ clientId, customers, initial, onClose }:
   const submit = () =>
     start(async () => {
       if (!ready) return;
-      const r = await createStripeSubscription(clientId, {
+      const request = {
         account: c.account,
         customerId: c.customer.id,
         line: { priceId: price.id, amount: cents, quantity: qty },
@@ -173,12 +185,9 @@ export function NewSubscriptionDialog({ clientId, customers, initial, onClose }:
         daysUntilDue: collection === "send_invoice" ? Number(days) || 0 : null,
         paymentMethod: collection === "charge_automatically" ? method || null : null,
         trialDays: trialDays || null,
-        requestKey: key,
-      });
-      if (!r.ok) {
-        setKey(newKey());
-        return void toast.error(r.error);
-      }
+      };
+      const r = await createStripeSubscription(clientId, { ...request, requestKey: keyFor(request) });
+      if (!r.ok) return void toast.error(r.error);
       toast.success(trialDays ? `Subscription started. The free trial ends in ${trialDays} days.` : "Subscription started in Stripe");
       onClose();
     });
@@ -277,7 +286,7 @@ export function EditSubscriptionDialog({ clientId, customer, s, onClose }: { cli
   const [method, setMethod] = useState(s.paymentMethod ?? "");
   const [days, setDays] = useState(String(s.daysUntilDue ?? 30));
   const [proration, setProration] = useState<Proration>("create_prorations");
-  const [key, setKey] = useState(newKey);
+  const keyFor = useRequestKey();
   const [pending, start] = useTransition();
 
   const set = (i: number, patch: Partial<LineState>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
@@ -293,6 +302,14 @@ export function EditSubscriptionDialog({ clientId, customer, s, onClose }: { cli
   const valid = lines.every((l) => (l.amount.trim() === "" || toCents(l.amount) != null) && Number(l.quantity) >= 1);
   const dirty = changedLines.length > 0 || paymentChanged;
 
+  // Moving to another billing period starts a new one today: Stripe bills now whatever the proration.
+  const periodChanges = lines.some((l, i) => {
+    const p = prices?.find((x) => x.id === l.priceId);
+    return !!p && (p.interval !== s.items[i].interval || p.intervalCount !== s.items[i].intervalCount);
+  });
+  const labels = periodChanges ? periodChangeLabels : prorationLabels;
+  const chosen: Proration = periodChanges && proration === "create_prorations" ? "always_invoice" : proration;
+
   const after = lines
     .map((l, i) => {
       const p = prices?.find((x) => x.id === l.priceId);
@@ -306,20 +323,17 @@ export function EditSubscriptionDialog({ clientId, customer, s, onClose }: { cli
 
   const submit = () =>
     start(async () => {
-      const r = await updateStripeSubscription(clientId, {
+      const request = {
         account: customer.account,
         subscriptionId: s.id,
         lines: lines.map((l) => ({ id: l.id, priceId: l.priceId, amount: centsOf(l), quantity: Number(l.quantity) })),
-        proration,
+        proration: chosen,
         collection,
         daysUntilDue: collection === "send_invoice" ? Number(days) || 0 : null,
         paymentMethod: collection === "charge_automatically" ? method || null : null,
-        requestKey: key,
-      });
-      if (!r.ok) {
-        setKey(newKey());
-        return void toast.error(r.error);
-      }
+      };
+      const r = await updateStripeSubscription(clientId, { ...request, requestKey: keyFor(request) });
+      if (!r.ok) return void toast.error(r.error);
       toast.success("Subscription updated in Stripe");
       onClose();
     });
@@ -376,12 +390,12 @@ export function EditSubscriptionDialog({ clientId, customer, s, onClose }: { cli
         {changedLines.length ? (
           <fieldset className="flex flex-col gap-2">
             <legend className="mb-1.5 text-label">For the rest of this billing period</legend>
-            {(Object.keys(prorationLabels) as Proration[]).map((k) => (
-              <label key={k} className={clsx("flex cursor-pointer gap-3 rounded-lg border p-3 text-[13px]", proration === k ? "border-accent bg-accent-soft" : "border-line hover:border-line-strong")}>
-                <input type="radio" name="proration" className="mt-0.5 size-4 accent-[var(--accent)]" checked={proration === k} onChange={() => setProration(k)} />
+            {(Object.keys(labels) as Proration[]).map((k) => (
+              <label key={k} className={clsx("flex cursor-pointer gap-3 rounded-lg border p-3 text-[13px]", chosen === k ? "border-accent bg-accent-soft" : "border-line hover:border-line-strong")}>
+                <input type="radio" name="proration" className="mt-0.5 size-4 accent-[var(--accent)]" checked={chosen === k} onChange={() => setProration(k)} />
                 <span>
-                  <span className="block font-medium text-primary">{prorationLabels[k].label}</span>
-                  <span className="block text-muted">{prorationLabels[k].hint}</span>
+                  <span className="block font-medium text-primary">{labels[k]!.label}</span>
+                  <span className="block text-muted">{labels[k]!.hint}</span>
                 </span>
               </label>
             ))}
@@ -391,6 +405,7 @@ export function EditSubscriptionDialog({ clientId, customer, s, onClose }: { cli
         {dirty && valid ? (
           <Summary>
             {changedLines.length ? `${subName(s)} goes from ${priceOf(s) || "its current price"} to ${after}. ` : ""}
+            {periodChanges ? "The billing period changes, so a new period starts today and Stripe bills the new amount now. " : ""}
             {paymentChanged
               ? collection === "charge_automatically"
                 ? `Stripe will charge ${methodWords(customer.paymentMethods, method)} each time.`
@@ -410,18 +425,16 @@ export function CancelSubscriptionDialog({ clientId, customer, s, onClose }: { c
   // The end of the period they've paid for; a trial ends when the trial does.
   const periodEnd = s.status === "trialing" && s.trialEnd ? s.trialEnd : s.periodEnd;
   const [when, setWhen] = useState<"period_end" | "now">(scheduled || !periodEnd ? "now" : "period_end");
-  const [key, setKey] = useState(newKey);
+  const keyFor = useRequestKey();
   const [today] = useState(() => Math.floor(Date.now() / 1000));
   const [pending, start] = useTransition();
   const name = subName(s);
 
   const submit = () =>
     start(async () => {
-      const r = await cancelStripeSubscription(clientId, { account: customer.account, subscriptionId: s.id, when, requestKey: key });
-      if (!r.ok) {
-        setKey(newKey());
-        return void toast.error(r.error);
-      }
+      const request = { account: customer.account, subscriptionId: s.id, when };
+      const r = await cancelStripeSubscription(clientId, { ...request, requestKey: keyFor(request) });
+      if (!r.ok) return void toast.error(r.error);
       toast.success(when === "now" ? `${name} is canceled in Stripe` : `${name} cancels on ${r.data.endsAt ? day(r.data.endsAt) : "the last day of this period"}. Until then you can keep it from the billing details.`);
       onClose();
     });

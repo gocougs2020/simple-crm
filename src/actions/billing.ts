@@ -56,7 +56,19 @@ async function stripe<T>(fn: () => Promise<T>): Promise<T> {
     return await fn();
   } catch (err) {
     if (err instanceof StripeError) throw new ActionError(err.message);
+    // No answer doesn't mean nothing happened. The dialog sends the same request key again, so trying again can't do it twice.
+    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError"))
+      throw new ActionError("Stripe didn't answer in time, so this may already have gone through. Reload to check. Trying again with nothing changed won't do it twice.");
     throw err;
+  }
+}
+
+/** Once Stripe has made a change, failing to write it to history mustn't report the change as failed: someone would make it again. */
+async function noteChange(event: Parameters<typeof recordEvent>[0]) {
+  try {
+    await recordEvent(event);
+  } catch (err) {
+    console.error("[stripe] history after change", event.action, (err as Error).message);
   }
 }
 
@@ -139,7 +151,7 @@ export async function createStripeSubscription(clientId: string, input: z.input<
     const sub = await stripe(() =>
       createSubscription(v.account, newSubscriptionForm({ customer: v.customerId, lines: [l], collection: v.collection, daysUntilDue: v.daysUntilDue, paymentMethod: v.paymentMethod, trialDays: v.trialDays }), v.requestKey),
     );
-    await recordEvent({
+    await noteChange({
       entityType: "client",
       entityId: client.id,
       action: "stripe_subscription_created",
@@ -179,7 +191,7 @@ export async function updateStripeSubscription(clientId: string, input: z.input<
     const before = priceText(sub);
     const updated = await stripe(() => updateSubscription(v.account, sub.id, changeSubscriptionForm({ lines, proration: v.proration, collection: v.collection, daysUntilDue: v.daysUntilDue, paymentMethod: v.paymentMethod }), v.requestKey));
     const after = priceText(updated);
-    await recordEvent({
+    await noteChange({
       entityType: "client",
       entityId: client.id,
       action: "stripe_subscription_changed",
@@ -201,7 +213,7 @@ export async function cancelStripeSubscription(clientId: string, input: z.input<
     if (sub.status === "canceled" || sub.status === "incomplete_expired") throw new ActionError("This subscription has already ended.");
     const done = await stripe(() => cancelSubscription(v.account, sub.id, v.when, v.requestKey));
     const endsAt = v.when === "now" ? (done.ended_at ?? done.canceled_at ?? Math.floor(Date.now() / 1000)) : (done.cancel_at ?? periodEndOf(done));
-    await recordEvent({
+    await noteChange({
       entityType: "client",
       entityId: client.id,
       action: "stripe_subscription_canceled",
@@ -224,7 +236,7 @@ export async function keepStripeSubscription(clientId: string, input: z.input<ty
     if (sub.status === "canceled" || sub.status === "incomplete_expired") throw new ActionError("This subscription has already ended. Start a new one instead.");
     if (!sub.cancel_at_period_end && !sub.cancel_at) return;
     await stripe(() => keepSubscription(v.account, sub, v.requestKey));
-    await recordEvent({ entityType: "client", entityId: client.id, action: "stripe_subscription_kept", data: { subscription: sub.id, name: await nameOf(v.account, sub), account: stripeAccountLabel(v.account) }, userId: user.id });
+    await noteChange({ entityType: "client", entityId: client.id, action: "stripe_subscription_kept", data: { subscription: sub.id, name: await nameOf(v.account, sub), account: stripeAccountLabel(v.account) }, userId: user.id });
     await reread(client.id, v.account, sub.customer);
   });
 }

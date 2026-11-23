@@ -29,6 +29,16 @@ export const prorationLabels: Record<Proration, { label: string; hint: string }>
   none: { label: "No proration", hint: "Nothing changes for this period. The new amount starts at the next renewal." },
 };
 
+/**
+ * Moving to a different billing period (monthly to annual) starts a new period
+ * today, and Stripe bills the new amount straight away whatever the proration:
+ * the only choice left is whether the unused part of this period is credited.
+ */
+export const periodChangeLabels: Partial<Record<Proration, { label: string; hint: string }>> = {
+  always_invoice: { label: "Credit the unused part of this period", hint: "Stripe bills the new amount today and takes what's left of the current period off that invoice." },
+  none: { label: "No credit", hint: "Stripe bills the full new amount today, with nothing taken off for the current period." },
+};
+
 function lineForm(lines: Line[]): Form {
   const form: Form = {};
   lines.forEach((l, i) => {
