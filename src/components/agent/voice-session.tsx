@@ -108,11 +108,9 @@ export default function VoiceSession({
     return () => {
       window.clearTimeout(timer);
       restore();
-      if (started) {
-        callbacks.current.onTranscript(live.current.messages);
-        live.current.stopAudioCapture();
-        live.current.disconnect();
-      }
+      // useRealtime disposes the session itself on unmount (closing the socket and the audio), and its controls
+      // throw once it has let go, which would take the page down. So this only hands over what was said.
+      if (started) callbacks.current.onTranscript(live.current.messages);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the parent unmounts this to end the call
   }, []);
@@ -183,7 +181,13 @@ export default function VoiceSession({
   useEffect(() => {
     if (status !== "connected" || !captureStream) return;
     live.current.startAudioCapture(captureStream);
-    return () => live.current.stopAudioCapture();
+    return () => {
+      try {
+        live.current.stopAudioCapture();
+      } catch {
+        // Unmounting: the hook already stopped capture and let go of its controls.
+      }
+    };
   }, [status, captureStream]);
 
   return null;

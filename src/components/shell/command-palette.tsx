@@ -11,6 +11,7 @@ import {
   Cog6ToothIcon,
   BriefcaseIcon,
   EnvelopeIcon,
+  CreditCardIcon,
   FolderIcon,
   HomeIcon,
   MagnifyingGlassIcon,
@@ -53,7 +54,7 @@ export function CommandPalette() {
     () => false,
   );
   const router = useRouter();
-  const { viewer } = useApp();
+  const { viewer, services } = useApp();
   const [q, setQ] = useState("");
   const [recent, setRecent] = useState<RecentRecord[]>([]);
   const [results, setResults] = useState<Awaited<ReturnType<typeof searchEverything>> | null>(null);
@@ -125,6 +126,7 @@ export function CommandPalette() {
         { id: "go-orgs", group: "Go to", label: "Organizations", icon: BuildingOffice2Icon, run: go("/organizations") },
         { id: "go-activities", group: "Go to", label: "Activities", icon: CheckCircleIcon, run: go("/activities") },
         { id: "go-files", group: "Go to", label: "Files", icon: FolderIcon, run: go("/files") },
+        ...(services.stripe ? [{ id: "go-billing", group: "Go to", label: "Billing", icon: CreditCardIcon, run: go("/billing") }] : []),
         { id: "go-email", group: "Go to", label: "Inbox", icon: EnvelopeIcon, run: go("/email") },
         { id: "go-settings", group: "Go to", label: "Settings", icon: Cog6ToothIcon, run: go("/settings") },
       ];
@@ -140,7 +142,7 @@ export function CommandPalette() {
       { id: "create-org", group: "Create", label: `New organization “${term}”`, icon: PlusIcon, run: () => (setOpen(false), openCreate({ kind: "organization", defaults: { name: term } })) },
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `go` and `result` only close over the router and the viewer
-  }, [q, results, recent]);
+  }, [q, results, recent, services.stripe]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- keep the highlight on the first result as results change
   useEffect(() => setActive(0), [items]);

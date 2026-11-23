@@ -80,7 +80,7 @@ async function Organization({ params }: Pick<PageProps<"/organizations/[id]">, "
         side={
           <>
             {/* The client they belong to comes first, above the details. */}
-            <RelatedClients clients={clients} create={{ kind: "client", defaults: { organizationId: id, organizationName: org.name, name: org.name } }} />
+            <RelatedClients subject={org.name} clients={clients} create={{ kind: "client", defaults: { organizationId: id, organizationName: org.name, name: org.name } }} />
             <OrganizationDetails org={org} parent={parent ? { id: parent.id, name: parent.name } : null} childCount={children.length} />
             {org.isParent ? <RelatedOrganizations parent={{ id, name: org.name }} organizations={children} /> : null}
             <RelatedPeople people={people} organization={org} />

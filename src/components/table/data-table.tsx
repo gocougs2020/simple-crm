@@ -35,6 +35,7 @@ export function DataTable<T>({
   rowId,
   href,
   mine,
+  flag,
   defaultSort,
   bulk,
   empty,
@@ -43,8 +44,11 @@ export function DataTable<T>({
   columns: Column<T>[];
   rows: T[];
   rowId: (row: T) => string;
-  href: (row: T) => string;
+  /** Where a click on the row goes; null leaves the row unclickable. */
+  href: (row: T) => string | null;
   mine?: (row: T) => boolean;
+  /** Rows that need someone's attention: tinted, with a warning edge. */
+  flag?: (row: T) => boolean;
   defaultSort?: string;
   /** `ids` are the selected rows' ids; `selected` the rows themselves. */
   bulk?: (ids: string[], clear: () => void, selected: T[]) => ReactNode;
@@ -56,7 +60,7 @@ export function DataTable<T>({
   const prefetched = useRef(new Set<string>());
   const prefetchRow = (row: T) => {
     const url = href(row);
-    if (prefetched.current.has(url) || url.startsWith("/api/")) return;
+    if (!url || prefetched.current.has(url) || url.startsWith("/api/")) return;
     prefetched.current.add(url);
     router.prefetch(url);
   };
@@ -89,6 +93,7 @@ export function DataTable<T>({
   const open = (e: MouseEvent, row: T) => {
     if ((e.target as HTMLElement).closest("a,button,input,label")) return;
     const url = href(row);
+    if (!url) return;
     if (e.metaKey || e.ctrlKey || url.startsWith("/api/")) window.open(url, "_blank");
     else router.push(url);
   };
@@ -200,6 +205,7 @@ export function DataTable<T>({
                   "flex min-h-14 cursor-pointer items-center gap-3 border-t border-line px-3.5 py-2.5 transition-colors first:border-t-0 active:bg-sunken",
                   selected.has(id) && "bg-accent-soft",
                   mine?.(row) && "shadow-[inset_2px_0_0_var(--accent)]",
+                  flag?.(row) && "bg-warning-surface/40 shadow-[inset_3px_0_0_var(--warning)]",
                 )}
               >
                 {selecting ? <input type="checkbox" className="size-5 shrink-0 cursor-pointer accent-[var(--accent)]" checked={selected.has(id)} onChange={() => toggle(id)} aria-label="Select row" /> : null}
@@ -216,7 +222,7 @@ export function DataTable<T>({
                   ) : null}
                 </div>
                 {end ? <div className="shrink-0 text-right text-[13.5px] font-medium text-primary tabular-nums">{(end.mobileRender ?? end.render)(row)}</div> : null}
-                {!selecting ? <ChevronRightIcon className="-mr-1 size-4 shrink-0 text-faint" aria-hidden /> : null}
+                {!selecting && href(row) ? <ChevronRightIcon className="-mr-1 size-4 shrink-0 text-faint" aria-hidden /> : null}
               </li>
             );
           })}
@@ -270,6 +276,7 @@ export function DataTable<T>({
             {rows.map((row) => {
               const id = rowId(row);
               const isMine = mine?.(row);
+              const flagged = flag?.(row);
               return (
                 <tr
                   key={id}
@@ -277,10 +284,10 @@ export function DataTable<T>({
                   onPointerEnter={() => prefetchRow(row)}
                   onFocusCapture={() => prefetchRow(row)}
                   onClick={(e) => open(e, row)}
-                  className={clsx("table-row-link border-t border-line first:border-t-0", selected.has(id) && "bg-accent-soft")}
+                  className={clsx("border-t border-line first:border-t-0", href(row) && "table-row-link", selected.has(id) ? "bg-accent-soft" : flagged && "bg-warning-surface/40")}
                 >
                   {bulk ? (
-                    <td className={clsx("w-11 p-0", isMine && "shadow-[inset_2px_0_0_var(--accent)]")}>
+                    <td className={clsx("w-11 p-0", flagged ? "shadow-[inset_3px_0_0_var(--warning)]" : isMine && "shadow-[inset_2px_0_0_var(--accent)]")}>
                       <label className="flex h-11 cursor-pointer items-center justify-center px-3">
                         <input
                           type="checkbox"
@@ -293,7 +300,7 @@ export function DataTable<T>({
                     </td>
                   ) : null}
                   {columns.map((c, i) => (
-                    <td key={c.key} className={clsx("h-11 px-3 py-1.5 whitespace-nowrap", c.align === "right" && "text-right", !bulk && i === 0 && isMine && "shadow-[inset_2px_0_0_var(--accent)]", c.className)}>
+                    <td key={c.key} className={clsx("h-11 px-3 py-1.5 whitespace-nowrap", c.align === "right" && "text-right", !bulk && i === 0 && (flagged ? "shadow-[inset_3px_0_0_var(--warning)]" : isMine && "shadow-[inset_2px_0_0_var(--accent)]"), c.className)}>
                       {c.render(row)}
                     </td>
                   ))}
