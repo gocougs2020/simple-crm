@@ -43,6 +43,9 @@ export type PdPerson = {
   label_ids?: number[];
   labels?: PdLabel[];
   email_messages_count?: number;
+  /** Only with `persons({ mailTimes: true })`. */
+  last_incoming_mail_time?: string | null;
+  last_outgoing_mail_time?: string | null;
   custom_fields?: Record<string, unknown> | null;
 };
 
@@ -98,6 +101,25 @@ export type PdActivity = {
   note: string | null;
   outcome?: unknown;
 };
+
+/** A lead in Pipedrive's Leads inbox. Its custom field values sit at the top level, under the deal fields' keys. */
+export type PdLead = {
+  id: string;
+  title: string;
+  owner_id: PdId | null;
+  creator_id?: PdId | null;
+  label_ids?: string[] | null;
+  person_id: PdId | null;
+  organization_id: PdId | null;
+  source_name?: string | null;
+  is_archived: boolean;
+  value?: { amount: number; currency: string } | null;
+  expected_close_date?: string | null;
+  add_time: string;
+  update_time?: string | null;
+  [key: string]: unknown;
+};
+export type PdLeadLabel = { id: string; name: string };
 
 export type PdActivityType = { key_string: string; name: string; active_flag: boolean };
 
@@ -201,7 +223,15 @@ export class PipedriveApi {
   activityTypes = async () => (await this.get<{ data: PdActivityType[] }>("/v1/activityTypes")).data ?? [];
   fields = (entity: "deal" | "person" | "organization" | "activity") => this.allV1<PdField>(`/v1/${entity}Fields`);
   organizations = () => this.allV2<PdOrganization>("/api/v2/organizations", { include_labels: true });
-  persons = () => this.allV2<PdPerson>("/api/v2/persons", { include_labels: true, include_fields: "email_messages_count" });
+  /** With `mailTimes`, also when each person last sent or got email, so a `--since` run only reads the mail of people with new mail. Accounts that don't offer those fields get people without them. */
+  async persons({ mailTimes = false } = {}) {
+    const base = { include_labels: true, include_fields: "email_messages_count" };
+    if (!mailTimes) return this.allV2<PdPerson>("/api/v2/persons", base);
+    return this.allV2<PdPerson>("/api/v2/persons", { ...base, include_fields: "email_messages_count,last_incoming_mail_time,last_outgoing_mail_time" }).catch((err) => {
+      if (err instanceof Error && / 400 /.test(err.message)) return this.allV2<PdPerson>("/api/v2/persons", base);
+      throw err;
+    });
+  }
   /** Live and archived deals. Pipedrive lists archived deals separately; older plans without archiving answer 404 there. */
   async deals() {
     const params = { status: "open,won,lost", include_labels: true, include_fields: "first_won_time" };
@@ -213,6 +243,27 @@ export class PipedriveApi {
     return [...live, ...archived.map((d) => ({ ...d, is_archived: true }))];
   }
   activities = () => this.allV2<PdActivity>("/api/v2/activities");
+  /**
+   * Every lead in the Leads inbox, archived ones too. The leads list doesn't always say whether more
+   * pages follow, so pages are read until one comes back short. Accounts without leads get none.
+   */
+  async leads(): Promise<PdLead[]> {
+    const out: PdLead[] = [];
+    const limit = 500;
+    try {
+      for (let start = 0; ; start += limit) {
+        const page = await this.get<{ data: PdLead[] | null; additional_data?: { pagination?: { more_items_in_collection?: boolean } } }>("/v1/leads", { archived_status: "all", start, limit });
+        const rows = page.data ?? [];
+        out.push(...rows);
+        const more = page.additional_data?.pagination?.more_items_in_collection;
+        if (more === false || rows.length < limit) return out;
+      }
+    } catch (err) {
+      if (err instanceof Error && / (403|404) /.test(err.message)) return out;
+      throw err;
+    }
+  }
+  leadLabels = async () => (await this.get<{ data: PdLeadLabel[] | null }>("/v1/leadLabels").catch(() => ({ data: [] as PdLeadLabel[] }))).data ?? [];
   notes = () => this.allV1<PdNote>("/v1/notes");
 
   /** A person's email, bodies included. The v1 endpoint wraps each message as `{ data: message }`. */
