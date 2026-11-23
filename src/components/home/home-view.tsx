@@ -34,7 +34,7 @@ export function HomeView({
   stages: StageSummary[];
   pipelineName: string | null;
 }) {
-  const { viewer, money, member } = useApp();
+  const { viewer, money, member, services } = useApp();
   const max = Math.max(1, ...stages.map((s) => s.value));
   return (
     <div className="mx-auto max-w-[1280px] px-4 py-6 lg:px-6">
@@ -44,7 +44,7 @@ export function HomeView({
       <dl className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Due today or overdue" value={stats.dueNow.toLocaleString()} tone={stats.dueNow ? "warn" : undefined} />
         <Stat label="Prospects" value={stats.prospectCount.toLocaleString()} detail={`${money(stats.prospectValue, { compact: true })} potential`} />
-        <Stat label="Current clients" value={stats.currentCount.toLocaleString()} detail={`${money(stats.mrr, { compact: stats.mrr >= 1e8 })}/mo`} />
+        <Stat label="Current clients" value={stats.currentCount.toLocaleString()} detail={services.stripe ? `${money(stats.mrr, { compact: stats.mrr >= 1e8 })}/mo in Stripe` : undefined} />
         <Stat
           label="This month"
           value={`${stats.signedThisMonth} signed`}

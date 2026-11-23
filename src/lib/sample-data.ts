@@ -5,7 +5,7 @@ import { rankBetween } from "./rank";
 
 /**
  * Fills an empty workspace with a small, realistic set of organizations,
- * people, clients in each category, services and activity so the interface
+ * people, clients in each category with Stripe billing, product descriptions and activity so the interface
  * can be tried out. Development
  * only (Settings → Workspace shows the button when not on Vercel).
  */
@@ -51,16 +51,11 @@ export async function loadSampleData(userId: string) {
     .returning();
   const [maya, , priya, cole, elena, sam, , luis] = people;
 
-  const services = await db
-    .insert(schema.services)
-    .values([
-      { name: "Retained recruiting", description: "Dedicated recruiter, unlimited roles", price: 450_000, interval: "month", position: 0 },
-      { name: "Contract staffing", description: "Hourly contractors, billed monthly", price: 220_000, interval: "month", position: 1 },
-      { name: "Executive search", description: "One leadership placement", price: 2_500_000, interval: "once", position: 2 },
-      { name: "Employer branding", description: "Careers page, job ads and reporting", price: 1_800_000, interval: "year", position: 3 },
-    ])
-    .returning();
-  const [retained, contract, , branding] = services;
+  // What clients have comes from Stripe; these say what two of the products deliver (Settings → Services).
+  await db.insert(schema.productDescriptions).values([
+    { name: "Retained recruiting", description: "A dedicated recruiter on unlimited roles. Shortlist of three within 10 business days of each kickoff; 45 days to fill on average.", updatedBy: userId },
+    { name: "Contract staffing", description: "Hourly contractors, billed monthly. Shifts covered within 48 hours of a request.", updatedBy: userId },
+  ]);
 
   type Row = { name: string; value?: number; stage: { id: string; pipelineId: string; name: string }; personId: string; organizationId: string; daysIn: number; extra?: Partial<typeof schema.clients.$inferInsert> };
   const at = (list: { stages: { id: string; pipelineId: string; name: string }[] }, i: number) => list.stages[Math.min(i, list.stages.length - 1)];
@@ -98,23 +93,18 @@ export async function loadSampleData(userId: string) {
     { name: "Clearwater Software", value: 6_000_000, stage: at(prospective, 4), personId: sam.id, organizationId: clearwater.id, daysIn: 6 },
   ]);
   const currents = await insertClients("current", [
-    { name: "Bitterroot Logistics", stage: at(current, 1), personId: maya.id, organizationId: bitterroot.id, daysIn: 40, extra: { startedOn: ymd(-210), health: "good", tags: ["2026 cohort"] } },
-    { name: "Payette Brewing Co.", stage: at(current, 2), personId: elena.id, organizationId: payette.id, daysIn: 5, extra: { startedOn: ymd(-340), health: "watch" } },
+    // As the daily Stripe sync would leave them, so the tables, totals and summaries have something to show.
+    { name: "Bitterroot Logistics", stage: at(current, 1), personId: maya.id, organizationId: bitterroot.id, daysIn: 40, extra: { startedOn: ymd(-210), health: "good", tags: ["2026 cohort"], stripeStatus: "active", stripeMrr: 600_000, stripeProducts: ["Employer branding", "Retained recruiting"] } },
+    { name: "Payette Brewing Co.", stage: at(current, 2), personId: elena.id, organizationId: payette.id, daysIn: 5, extra: { startedOn: ymd(-340), health: "watch", stripeStatus: "past_due", stripeMrr: 180_000, stripeOwed: 180_000, stripeProducts: ["Contract staffing"] } },
   ]);
   const pasts = await insertClients("past", [
-    { name: "Teton Outfitters", stage: at(past, 1), personId: luis.id, organizationId: teton.id, daysIn: 60, extra: { startedOn: ymd(-500), endedOn: ymd(-60), churnReason: "Budget cut", openToReturn: true, tags: ["win-back"] } },
+    { name: "Teton Outfitters", stage: at(past, 1), personId: luis.id, organizationId: teton.id, daysIn: 60, extra: { startedOn: ymd(-500), endedOn: ymd(-60), churnReason: "Budget cut", openToReturn: true, tags: ["win-back"], stripeStatus: "canceled" } },
   ]);
   const [sawtoothClient, owyheeClient, clearwaterClient] = prospects;
   const [bitterrootClient, payetteClient] = currents;
   const [tetonClient] = pasts;
   const created = [...prospects, ...currents, ...pasts];
 
-  await db.insert(schema.clientServices).values([
-    { clientId: bitterrootClient.id, serviceId: retained.id, price: retained.price, interval: "month", startedOn: ymd(-210) },
-    { clientId: bitterrootClient.id, serviceId: branding.id, price: branding.price, interval: "year", startedOn: ymd(-120) },
-    { clientId: payetteClient.id, serviceId: contract.id, price: 180_000, interval: "month", startedOn: ymd(-340), note: "Seasonal rate" },
-    { clientId: tetonClient.id, serviceId: retained.id, price: 400_000, interval: "month", startedOn: ymd(-500), endedOn: ymd(-60) },
-  ]);
   const months = [-150, -120, -90, -60, -30, 0];
   await db.insert(schema.clientMetrics).values([
     ...months.map((m, i) => ({ clientId: bitterrootClient.id, label: "Hires placed", value: [1, 2, 2, 3, 4, 4][i], period: ymd(m), userId })),

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { agentDraftKinds, activityTypes, billingIntervals, clientCategories, clientHealths, entityTypes } from "@/lib/constants";
+import { agentDraftKinds, activityTypes, clientCategories, clientHealths, entityTypes } from "@/lib/constants";
 
 /** Files sent through the REST API or MCP: the file itself, before base64 (which adds a third). */
 export const MAX_API_FILE_MB = 3;
@@ -116,7 +116,6 @@ export const clientInput = z.object({
 export const clientCreateInput = clientInput.extend({
   category: z.enum(clientCategories).describe("prospective, current or past. Decides which pipelines it can move through."),
   stageId: optionalId.describe("A stage in one of the category's pipelines. Defaults to the first stage of the first pipeline."),
-  serviceIds: z.array(id).max(50).optional().describe("Current and past clients: services they use (or used), at the catalog price."),
 });
 
 export const moveInput = z.object({
@@ -130,17 +129,6 @@ export const categoryInput = z.object({
   on: optionalDate.describe("Becoming current: client since. Becoming past: left on. Defaults to today in the workspace's time zone."),
   churnReason: optionalText(300).describe("Becoming past: why they left."),
   openToReturn: z.boolean().optional().describe("Becoming past: whether they'd consider coming back."),
-  endServices: z.boolean().optional().describe("Becoming past: end the services they still have, on the same day. Defaults to true."),
-  serviceIds: z.array(z.uuid()).max(50).optional().describe("Becoming current: start these services."),
-});
-
-export const subscriptionInput = z.object({
-  planId: optionalId.describe("One of the service's plans, from GET /services. Null for no plan."),
-  price: z.number().int().min(0).max(1e13).optional().describe("In cents. Defaults to the plan's price, or the service's catalog price with no plan."),
-  interval: z.enum(billingIntervals).optional().describe("month, four_weeks (13 payments a year), quarter, year or once. Defaults to the plan's or the service's."),
-  startedOn: optionalDate,
-  endedOn: optionalDate.describe("Set to end the service. Ended services stop counting toward monthly revenue."),
-  note: optionalText(300).describe("Defaults to the plan's description when a plan is picked."),
 });
 
 export const metricInput = z.object({

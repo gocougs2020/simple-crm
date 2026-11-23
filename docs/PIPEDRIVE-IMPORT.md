@@ -43,6 +43,8 @@ pnpm import:pipedrive
 
 ## How Pipedrive maps to the CRM
 
+Services now come from Stripe ([ARCHITECTURE.md](ARCHITECTURE.md#data-model)): the services and their client rows the import writes below land in the retired `services` tables, which the app no longer shows. Say what each product delivers in Settings → Services instead.
+
 ### Deals become one client per organization
 
 Pipedrive keeps a deal per pipeline, so an organization that bought two products has three or more deals. Here they collapse into **one client per organization** (or per person, for deals with no organization), and the products it uses are tracked as services on that client.

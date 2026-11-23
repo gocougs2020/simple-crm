@@ -115,7 +115,7 @@ export const moves: Record<ClientCategory, { to: ClientCategory; label: string; 
 const moveIcons: Record<ClientCategory, typeof CheckBadgeIcon> = { current: CheckBadgeIcon, past: ArrowRightStartOnRectangleIcon, prospective: ArrowUturnLeftIcon };
 
 /** The record header's category buttons: sign a prospect, mark a client as left, win one back. */
-export function CategoryActions({ clientId, name, category, previousServiceIds }: { clientId: string; name: string; category: ClientCategory; previousServiceIds?: string[] }) {
+export function CategoryActions({ clientId, name, category }: { clientId: string; name: string; category: ClientCategory }) {
   const [to, setTo] = useState<ClientCategory | null>(null);
   const [primary, ...rest] = moves[category];
   const Icon = moveIcons[primary.to];
@@ -143,7 +143,7 @@ export function CategoryActions({ clientId, name, category, previousServiceIds }
           </Menu>
         ) : null}
       </div>
-      {to ? <ChangeCategoryDialog clientId={clientId} name={name} from={category} to={to} previousServiceIds={previousServiceIds} onClose={() => setTo(null)} /> : null}
+      {to ? <ChangeCategoryDialog clientId={clientId} name={name} from={category} to={to} onClose={() => setTo(null)} /> : null}
     </>
   );
 }
@@ -157,7 +157,6 @@ export function ChangeCategoryDialog({
   name,
   from,
   to,
-  previousServiceIds,
   onClose,
   onDone,
 }: {
@@ -165,19 +164,15 @@ export function ChangeCategoryDialog({
   name: string;
   from: ClientCategory;
   to: ClientCategory;
-  /** Winning a past client back: what they had before, offered again. */
-  previousServiceIds?: string[];
   onClose: () => void;
   onDone?: () => void;
 }) {
-  const { pipelines, catalog, workspace } = useApp();
+  const { pipelines, workspace } = useApp();
   const options = useMemo(() => pipelines.filter((p) => p.category === to).flatMap((p) => p.stages.map((s) => ({ id: s.id, label: pipelines.filter((x) => x.category === to).length > 1 ? `${p.name}: ${s.name}` : s.name }))), [pipelines, to]);
   const [stageId, setStageId] = useState(options[0]?.id ?? "");
   const [on, setOn] = useState(dayFromToday(workspace.timezone));
   const [reason, setReason] = useState("");
   const [openToReturn, setOpenToReturn] = useState(true);
-  const [endServices, setEndServices] = useState(true);
-  const [serviceIds, setServiceIds] = useState<string[]>(() => (from === "past" ? (previousServiceIds ?? []).filter((id) => catalog.some((s) => s.id === id && !s.archivedAt)) : []));
   const [pending, start] = useTransition();
   const title = to === "current" ? (from === "past" ? `Win back ${name}` : `${name} signed`) : to === "past" ? `${name} left` : `Move ${name} to prospects`;
 
@@ -189,8 +184,6 @@ export function ChangeCategoryDialog({
         on: to === "prospective" ? null : on,
         churnReason: to === "past" ? reason || null : null,
         openToReturn,
-        endServices,
-        serviceIds: to === "current" ? serviceIds : undefined,
       });
       if (!r.ok) return void toast.error(r.error);
       toast.success(to === "current" ? `${name} is now a current client` : to === "past" ? `${name} moved to past clients` : `${name} moved to prospects`);
@@ -247,24 +240,7 @@ export function ChangeCategoryDialog({
               <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Or write your own" className="mt-2" aria-label="Reason" />
             </div>
             <Checkbox checked={openToReturn} onChange={(e) => setOpenToReturn(e.target.checked)} label="Open to coming back (include in win-back campaigns)" />
-            {from === "current" ? <Checkbox checked={endServices} onChange={(e) => setEndServices(e.target.checked)} label="End their services on the same day" /> : null}
           </>
-        ) : null}
-        {to === "current" && catalog.some((s) => !s.archivedAt) ? (
-          <div>
-            <p className="mb-1.5 text-[13px] font-medium text-primary">
-              Start services <span className="font-normal text-muted">(optional)</span>
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {catalog
-                .filter((s) => !s.archivedAt)
-                .map((s) => (
-                  <Chip key={s.id} on={serviceIds.includes(s.id)} onClick={() => setServiceIds(serviceIds.includes(s.id) ? serviceIds.filter((x) => x !== s.id) : [...serviceIds, s.id])}>
-                    {s.name}
-                  </Chip>
-                ))}
-            </div>
-          </div>
         ) : null}
       </div>
     </Dialog>

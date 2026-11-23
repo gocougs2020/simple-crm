@@ -6,7 +6,9 @@ import type { SkillRow } from "@/lib/agent/skills";
 import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { getDb, schema } from "@/db";
-import { monthlyPriceSql, type ActivityType, type EntityType } from "@/lib/constants";
+import type { ActivityType, EntityType } from "@/lib/constants";
+import { listProductDescriptions, stripeProductUsage } from "@/lib/crm/product-descriptions";
+import { productDescriber, productKey } from "@/lib/product-rules";
 import { actorUserId, type Actor } from "@/lib/crm/actor";
 import { clientAtOrganization } from "@/lib/crm/client-organizations";
 import { asTimelineItem, lastContactOn, pinnedOn, plannedOn, timelinePage, type NoteReply } from "@/lib/crm/activities";
@@ -220,10 +222,8 @@ export async function getOrganization(ctx: Ctx, id: string) {
 
 // ─── Clients ─────────────────────────────────────────────────────────────
 
-const mrr = sql<number>`(
-  select coalesce(round(sum(${sql.raw(monthlyPriceSql)})), 0)::bigint
-  from client_services cs where cs.client_id = ${clients.id} and (cs.ended_on is null or cs.ended_on > current_date)
-)`;
+/** What Stripe bills them a month, after discounts (the same as billing.mrr). */
+const mrr = sql<number>`${clients.stripeMrr}`;
 const clientSelect = {
   client: clients,
   stageName: stages.name,
@@ -328,32 +328,6 @@ export async function clientPeople(ctx: Ctx, clientId: string) {
     const org = orgs.find((o) => o.id === r.person.organizationId);
     return { ...toPerson(ctx, { person: r.person, organizationName: org?.name ?? null, organizationTags: org?.tags ?? null }), source: r.source };
   });
-}
-
-export async function clientServices(clientId: string) {
-  const db = await getDb();
-  await assertExists("client", clientId);
-  const rows = await db
-    .select({ cs: schema.clientServices, name: schema.services.name, plan: schema.servicePlans.name, position: schema.services.position })
-    .from(schema.clientServices)
-    .innerJoin(schema.services, eq(schema.services.id, schema.clientServices.serviceId))
-    .leftJoin(schema.servicePlans, eq(schema.servicePlans.id, schema.clientServices.planId))
-    .where(eq(schema.clientServices.clientId, clientId))
-    .orderBy(asc(schema.services.position), asc(schema.services.name));
-  const today = new Date().toISOString().slice(0, 10);
-  return rows.map(({ cs, name, plan }) => ({
-    id: cs.id,
-    serviceId: cs.serviceId,
-    name,
-    planId: cs.planId,
-    plan,
-    price: Number(cs.price),
-    interval: cs.interval,
-    startedOn: cs.startedOn,
-    endedOn: cs.endedOn,
-    active: !cs.endedOn || cs.endedOn > today,
-    note: cs.note,
-  }));
 }
 
 export async function clientMetrics(clientId: string, label?: string) {
@@ -524,21 +498,20 @@ export async function listLabelDefinitions() {
   return (await listLabels()).map((l) => ({ name: l.name, description: l.description, hidden: l.hidden }));
 }
 
+/**
+ * What the workspace sells: each product in the connected Stripe accounts'
+ * subscriptions, with what the team says it delivers and how many clients
+ * are on it now, plus products described before Stripe has them.
+ */
 export async function listServices() {
-  const db = await getDb();
-  const [rows, plans] = await Promise.all([
-    db.select().from(schema.services).orderBy(asc(schema.services.position), asc(schema.services.name)),
-    db.select().from(schema.servicePlans).orderBy(asc(schema.servicePlans.position), asc(schema.servicePlans.name)),
-  ]);
-  return rows.map((s) => ({
-    id: s.id,
-    name: s.name,
-    description: s.description,
-    price: Number(s.price),
-    interval: s.interval,
-    archived: !!s.archivedAt,
-    plans: plans.filter((p) => p.serviceId === s.id).map((p) => ({ id: p.id, name: p.name, description: p.description, price: Number(p.price), interval: p.interval, archived: !!p.archivedAt })),
-  }));
+  const [described, usage] = await Promise.all([listProductDescriptions(), stripeProductUsage()]);
+  const describe = productDescriber(described);
+  const names = new Map<string, string>();
+  for (const u of usage) names.set(productKey(u.name), u.name);
+  for (const d of described) if (!names.has(productKey(d.name))) names.set(productKey(d.name), d.name);
+  return [...names.values()]
+    .sort((a, b) => a.localeCompare(b))
+    .map((name) => ({ name, description: describe(name), clients: usage.find((u) => productKey(u.name) === productKey(name))?.clients ?? 0 }));
 }
 
 export const toUser = (u: typeof users.$inferSelect) => ({ id: u.id, name: u.name, email: u.email, role: u.role, title: u.title, active: !u.deactivatedAt && !!u.passwordHash });

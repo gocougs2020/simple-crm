@@ -61,7 +61,9 @@ describe("router", () => {
     assert.deepEqual(matchRoute("GET", ["people"]), { ok: true, id: "listPeople", params: {} });
     assert.deepEqual(matchRoute("GET", ["people", id]), { ok: true, id: "getPerson", params: { id } });
     assert.deepEqual(matchRoute("POST", ["people", id, "restore"]), { ok: true, id: "restorePerson", params: { id } });
-    assert.deepEqual(matchRoute("PATCH", ["clients", id, "services", "x"]), { ok: true, id: "updateClientService", params: { id, subscriptionId: "x" } });
+    assert.deepEqual(matchRoute("DELETE", ["clients", id, "metrics", "x"]), { ok: true, id: "deleteClientMetric", params: { id, metricId: "x" } });
+    // A client's services come from Stripe now: the old sub-resource is gone.
+    assert.deepEqual(matchRoute("PATCH", ["clients", id, "services", "x"]), { ok: false, status: 404 });
   });
   it("answers 405 with the allowed methods, and 404 for unknown paths", () => {
     const m = matchRoute("PUT", ["people", id]);
@@ -141,8 +143,9 @@ describe("docs helpers", () => {
     assert.deepEqual(f.find((x) => x.name === "email")?.required, false);
   });
   it("builds curl examples with placeholders", () => {
-    const c = curlFor(operations.updateClientService);
-    assert.match(c, /-X PATCH "\$CRM_URL\/api\/v1\/clients\/\$ID\/services\/\$SUBSCRIPTION_ID"/);
+    const c = curlFor(operations.deleteClientMetric);
+    assert.match(c, /-X DELETE "\$CRM_URL\/api\/v1\/clients\/\$ID\/metrics\/\$METRIC_ID"/);
+    assert.match(curlFor(operations.updatePerson), /-X PATCH "\$CRM_URL\/api\/v1\/people\/\$ID"/);
     assert.ok(exampleBody(operations.createTask));
   });
 });

@@ -8,7 +8,7 @@ import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
 import { ActionError, actionAdmin, actionUser, hashToken, randomToken, revokeSessions } from "@/lib/auth";
 import { emailBrand } from "@/lib/brand";
-import { billingIntervals, clientCategories, clientCategoryLabels, customFieldTypes, entityTypes, userRoles, type ClientCategory } from "@/lib/constants";
+import { clientCategories, clientCategoryLabels, customFieldTypes, entityTypes, userRoles, type ClientCategory } from "@/lib/constants";
 import { defaultStages } from "@/lib/crm/defaults";
 import { sendEmail } from "@/lib/email";
 import { siteOrigin } from "@/lib/origin";
@@ -16,7 +16,7 @@ import { hashPassword, passwordProblem, verifyPassword } from "@/lib/password";
 import { loadSampleData } from "@/lib/sample-data";
 import InviteEmail from "@/emails/invite";
 
-const { users, pipelines, stages, clients, customFields, workspace, services, servicePlans } = schema;
+const { users, pipelines, stages, clients, customFields, workspace } = schema;
 const uuid = z.uuid();
 
 // ─── Profile ─────────────────────────────────────────────────────────────
@@ -268,136 +268,39 @@ export async function deleteStage(stageId: string, moveTo: string | null): Promi
   });
 }
 
-// ─── Services ────────────────────────────────────────────────────────────
+// ─── Services (Stripe products) ─────────────────────────────────────────
 
-const serviceInput = z.object({
-  name: z.string().trim().min(1, "Name the service.").max(80),
-  description: z
-    .string()
-    .trim()
-    .max(300)
-    .nullable()
-    .optional()
-    .transform((v) => v || null),
-  price: z.number().int().min(0, "Prices can't be negative.").max(1e13),
-  interval: z.enum(billingIntervals),
+const productInput = z.object({
+  name: z.string().trim().min(1, "Name the Stripe product.").max(200, "Keep the name to 200 characters."),
+  description: z.string().trim().max(2000, "Keep the description to 2,000 characters."),
 });
 
-/** Adds a service to the catalog, or edits one. Changing the price doesn't change what existing clients pay. */
-export async function saveService(serviceId: string | null, input: z.input<typeof serviceInput>): Promise<Result<{ id: string }>> {
+/**
+ * Says what a Stripe product delivers, by its name as Stripe has it.
+ * An empty description removes it. `current` is the name it's saved under
+ * now, when that's being changed (a product renamed in Stripe).
+ */
+export async function saveProductDescription(current: string | null, input: z.input<typeof productInput>): Promise<Result<{ name: string }>> {
   return run(async () => {
-    await actionAdmin();
-    const data = serviceInput.parse(input);
+    const admin = await actionAdmin();
+    const data = productInput.parse(input);
     const db = await getDb();
-    const [dupe] = await db
-      .select({ id: services.id })
-      .from(services)
-      .where(and(sql`lower(${services.name}) = lower(${data.name})`, isNull(services.archivedAt), serviceId ? ne(services.id, uuid.parse(serviceId)) : undefined))
-      .limit(1);
-    if (dupe) throw new ActionError(`There's already a service called ${data.name}.`);
-    if (serviceId) {
-      await db.update(services).set(data).where(eq(services.id, uuid.parse(serviceId)));
-      refresh();
-      return { id: serviceId };
+    const t = schema.productDescriptions;
+    const key = (name: string) => sql`lower(${t.name}) = lower(${name})`;
+    if (current !== null && current.trim().toLowerCase() !== data.name.toLowerCase()) {
+      const [taken] = await db.select({ id: t.id }).from(t).where(key(data.name));
+      if (taken) throw new ActionError(`${data.name} already has a description. Edit that one instead.`);
     }
-    const [{ max }] = await db.select({ max: sql<number>`coalesce(max(${services.position}), -1)::int` }).from(services);
-    const [row] = await db.insert(services).values({ ...data, position: max + 1 }).returning({ id: services.id });
-    refresh();
-    return row;
-  });
-}
-
-/** Archived services can't be added to clients; the clients who have them keep them. */
-export async function archiveService(serviceId: string, archived: boolean): Promise<Result> {
-  return run(async () => {
-    await actionAdmin();
-    const db = await getDb();
-    await db
-      .update(services)
-      .set({ archivedAt: archived ? new Date() : null })
-      .where(eq(services.id, uuid.parse(serviceId)));
-    refresh();
-  });
-}
-
-export async function reorderServices(ids: string[]): Promise<Result> {
-  return run(async () => {
-    await actionAdmin();
-    const db = await getDb();
-    for (const [i, id] of z.array(uuid).max(200).parse(ids).entries()) await db.update(services).set({ position: i }).where(eq(services.id, id));
-    refresh();
-  });
-}
-
-// ─── Plans of a service ──────────────────────────────────────────────────
-
-const planInput = z.object({
-  name: z.string().trim().min(1, "Name the plan.").max(80),
-  description: z
-    .string()
-    .trim()
-    .max(300)
-    .nullable()
-    .optional()
-    .transform((v) => v || null),
-  price: z.number().int().min(0, "Prices can't be negative.").max(1e13),
-  interval: z.enum(billingIntervals),
-});
-
-/** Adds a plan to a service, or edits one. Changing the price doesn't change what existing clients pay. */
-export async function savePlan(serviceId: string, planId: string | null, input: z.input<typeof planInput>): Promise<Result<{ id: string }>> {
-  return run(async () => {
-    await actionAdmin();
-    const data = planInput.parse(input);
-    const db = await getDb();
-    const service = uuid.parse(serviceId);
-    const [dupe] = await db
-      .select({ id: servicePlans.id })
-      .from(servicePlans)
-      .where(and(eq(servicePlans.serviceId, service), sql`lower(${servicePlans.name}) = lower(${data.name})`, isNull(servicePlans.archivedAt), planId ? ne(servicePlans.id, uuid.parse(planId)) : undefined))
-      .limit(1);
-    if (dupe) throw new ActionError(`This service already has a plan called ${data.name}.`);
-    if (planId) {
-      await db
-        .update(servicePlans)
-        .set(data)
-        .where(and(eq(servicePlans.id, uuid.parse(planId)), eq(servicePlans.serviceId, service)));
-      refresh();
-      return { id: planId };
+    // Renamed: the old name's description moves to the new one.
+    if (current !== null && current.trim().toLowerCase() !== data.name.toLowerCase()) await db.delete(t).where(key(current));
+    if (!data.description) await db.delete(t).where(key(data.name));
+    else {
+      const [row] = await db.update(t).set({ name: data.name, description: data.description, updatedBy: admin.id, updatedAt: new Date() }).where(key(data.name)).returning({ id: t.id });
+      // The unique index on lower(name) turns a race between two admins into a refusal, not a second row.
+      if (!row) await db.insert(t).values({ name: data.name, description: data.description, updatedBy: admin.id });
     }
-    const [parent] = await db.select({ id: services.id }).from(services).where(eq(services.id, service));
-    if (!parent) throw new ActionError("That service was removed. Reload and try again.");
-    const [{ max }] = await db.select({ max: sql<number>`coalesce(max(${servicePlans.position}), -1)::int` }).from(servicePlans).where(eq(servicePlans.serviceId, service));
-    const [row] = await db.insert(servicePlans).values({ ...data, serviceId: service, position: max + 1 }).returning({ id: servicePlans.id });
     refresh();
-    return row;
-  });
-}
-
-/** Archived plans can't be picked for clients; the clients who are on them keep them. */
-export async function archivePlan(planId: string, archived: boolean): Promise<Result> {
-  return run(async () => {
-    await actionAdmin();
-    const db = await getDb();
-    await db
-      .update(servicePlans)
-      .set({ archivedAt: archived ? new Date() : null })
-      .where(eq(servicePlans.id, uuid.parse(planId)));
-    refresh();
-  });
-}
-
-export async function reorderPlans(serviceId: string, ids: string[]): Promise<Result> {
-  return run(async () => {
-    await actionAdmin();
-    const db = await getDb();
-    const service = uuid.parse(serviceId);
-    for (const [i, id] of z.array(uuid).max(200).parse(ids).entries())
-      await db
-        .update(servicePlans)
-        .set({ position: i })
-        .where(and(eq(servicePlans.id, id), eq(servicePlans.serviceId, service)));
-    refresh();
+    return { name: data.name };
   });
 }
 

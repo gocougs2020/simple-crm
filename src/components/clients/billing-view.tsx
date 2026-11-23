@@ -1,5 +1,6 @@
 "use client";
 
+import { ProductNames } from "./product-tag";
 import { useState, useTransition, type ReactNode } from "react";
 import { ArrowPathIcon, ArrowTopRightOnSquareIcon, EllipsisHorizontalIcon, LinkIcon } from "@heroicons/react/20/solid";
 import { findStripeCustomers, linkStripeCustomer, refreshStripe, removeStripeCustomer } from "@/actions/clients";
@@ -158,7 +159,9 @@ export function BillingView({
               {live.slice(0, 6).map((s) => (
                 <li key={`${s.customer.account}:${s.id}`} className="text-[12.5px]">
                   <div className="flex items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate font-medium text-primary">{s.items.map((i) => i.name).join(", ")}</span>
+                    <span className="min-w-0 flex-1 truncate font-medium text-primary">
+                      <ProductNames names={s.items.map((i) => i.name)} />
+                    </span>
                     <SubBadge s={s} />
                   </div>
                   <p className="truncate text-[11.5px] text-muted tabular-nums">{[priceOf(s), netOf(s), whenOf(s), several ? s.customer.accountLabel : null].filter(Boolean).join(" · ")}</p>
@@ -299,7 +302,9 @@ function BillingDetails({ clientId, customers, several, canEdit, onClose }: { cl
               {[...c.subscriptions.filter(isLive), ...c.subscriptions.filter((s) => !isLive(s))].map((s) => (
                 <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-2 text-[13px]">
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium text-primary">{s.items.map((i) => (i.quantity > 1 ? `${i.name} × ${i.quantity}` : i.name)).join(", ")}</span>
+                    <span className="block truncate font-medium text-primary">
+                      <ProductNames names={s.items.map((i) => (i.quantity > 1 ? `${i.name} × ${i.quantity}` : i.name))} />
+                    </span>
                     <span className="block text-[12px] text-muted tabular-nums">{[`Started ${day(s.started)}`, whenOf(s), s.trialEnd && s.status === "trialing" ? `trial ends ${day(s.trialEnd)}` : null].filter(Boolean).join(" · ")}</span>
                   </span>
                   <SubBadge s={s} />

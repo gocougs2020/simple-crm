@@ -9,7 +9,7 @@ import type { CampaignAudience } from "@/db/schema";
 import { appConfig } from "@/app.config";
 import { churnReasons, clientCategories, clientCategoryLabels } from "@/lib/constants";
 
-type ListKey = "tags" | "excludeTags" | "ownerIds" | "clientCategories" | "pipelineIds" | "stageIds" | "serviceIds" | "churnReasons" | "clientTags" | "organizationIndustries" | "organizationIds";
+type ListKey = "tags" | "excludeTags" | "ownerIds" | "clientCategories" | "pipelineIds" | "stageIds" | "stripeProducts" | "churnReasons" | "clientTags" | "organizationIndustries" | "organizationIds";
 
 /** Whether any filter is set, so the summary can say "everyone" or "people who match all of these". */
 export function hasFilters(a: CampaignAudience) {
@@ -38,7 +38,7 @@ export function AudienceFilters({
   industries?: string[];
   readOnly?: boolean;
 }) {
-  const { team, pipelines, catalog, customFields, parentOrganizations, labels } = useApp();
+  const { team, pipelines, stripeProducts, customFields, parentOrganizations, labels } = useApp();
   const toggle = (key: ListKey, value: string) =>
     onChange((a) => {
       const list = (a[key] ?? []) as string[];
@@ -142,7 +142,7 @@ export function AudienceFilters({
           />
         ))}
       </div>
-      <ClientFilters audience={audience} onChange={onChange} toggle={toggle} pipelines={pipelines} catalog={catalog} clientTags={clientLabels} />
+      <ClientFilters audience={audience} onChange={onChange} toggle={toggle} pipelines={pipelines} stripeProducts={stripeProducts} clientTags={clientLabels} />
     </div>
   );
 }
@@ -165,14 +165,14 @@ function ClientFilters({
   onChange,
   toggle,
   pipelines,
-  catalog,
+  stripeProducts,
   clientTags,
 }: {
   audience: CampaignAudience;
   onChange: (fn: (a: CampaignAudience) => CampaignAudience) => void;
   toggle: (key: ListKey, value: string) => void;
   pipelines: ReturnType<typeof useApp>["pipelines"];
-  catalog: ReturnType<typeof useApp>["catalog"];
+  stripeProducts: string[];
   clientTags: string[];
 }) {
   const categories = audience.clientCategories ?? [];
@@ -180,7 +180,8 @@ function ClientFilters({
   const chosen = audience.pipelineIds ?? [];
   const shownPipelines = inCategory.filter((p) => !chosen.length || chosen.includes(p.id));
   const multi = shownPipelines.length > 1;
-  const services = catalog.filter((s) => !s.archivedAt || audience.serviceIds?.includes(s.id));
+  // A product chosen earlier stays offered, so it can be taken off after nobody's on it any more.
+  const products = [...new Set([...stripeProducts, ...(audience.stripeProducts ?? [])])];
   const showPast = !categories.length || categories.includes("past");
   const reasons = [...new Set([...churnReasons, ...(audience.churnReasons ?? [])])];
   return (
@@ -193,7 +194,15 @@ function ClientFilters({
         selected={audience.stageIds ?? []}
         onToggle={(v) => toggle("stageIds", v)}
       />
-      <ChipGroup label="Using or used" options={services.map((s) => ({ value: s.id, label: s.name }))} selected={audience.serviceIds ?? []} onToggle={(v) => toggle("serviceIds", v)} empty="No services yet. Add them in Settings → Services." />
+      <ChipGroup label="Subscribed to" options={products.map((p) => ({ value: p, label: p }))} selected={audience.stripeProducts ?? []} onToggle={(v) => toggle("stripeProducts", v)} empty="No clients are subscribed to anything in Stripe yet." />
+      {audience.serviceIds?.length ? (
+        <p className="flex flex-wrap items-center gap-2 text-[12.5px] text-muted">
+          Also filters by {audience.serviceIds.length === 1 ? "a service" : `${audience.serviceIds.length} services`} tracked by hand, from before services came from Stripe.
+          <button type="button" className="font-medium text-primary underline-offset-2 hover:underline disabled:opacity-50" onClick={() => onChange((a) => ({ ...a, serviceIds: undefined }))}>
+            Take it off
+          </button>
+        </p>
+      ) : null}
       <ChipGroup label="Client labeled" options={clientTags.map((t) => ({ value: t, label: t }))} selected={audience.clientTags ?? []} onToggle={(v) => toggle("clientTags", v)} empty="No labels on clients yet. Add them from a client's page." />
       {showPast ? (
         <>

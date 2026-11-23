@@ -281,6 +281,13 @@
       "when": 1795382409132,
       "tag": "0039_client-organizations",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1795457211904,
+      "tag": "0040_product-descriptions",
+      "breakpoints": true
     }
   ]
 }

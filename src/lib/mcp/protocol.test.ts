@@ -74,8 +74,9 @@ describe("MCP tools from operations", () => {
   });
 
   it("split arguments back into params, query and body", () => {
-    const split = splitArguments(operations.updateClientService, { id: "c", subscriptionId: "s", price: 100, junk: 1 });
-    assert.deepEqual(split, { params: { id: "c", subscriptionId: "s" }, query: undefined, body: { price: 100 } });
+    const split = splitArguments(operations.updatePerson, { id: "p", firstName: "Sam", junk: 1 });
+    assert.deepEqual(split, { params: { id: "p" }, query: undefined, body: { firstName: "Sam" } });
+    assert.deepEqual(splitArguments(operations.deleteClientMetric, { id: "c", metricId: "m" }).params, { id: "c", metricId: "m" });
     assert.deepEqual(splitArguments(operations.listPeople, { q: "sam", limit: 5 }).query, { q: "sam", limit: 5 });
   });
 });
