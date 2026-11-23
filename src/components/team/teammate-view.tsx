@@ -31,6 +31,10 @@ export function TeammateView({ teammate: t, planned, plannedCount, overdue, rece
   const { viewer, workspace, money } = useApp();
   const you = t.id === viewer.id;
   const first = t.name.split(" ")[0];
+  // Name the tab, or the Clients page opens the one this viewer last used; the table shows every pipeline, where the board shows one.
+  const prospects = owned.clients.prospective ?? 0;
+  const current = owned.clients.current ?? 0;
+  const clientsHref = `/clients?owner=${t.id}&category=${!prospects && current ? "current" : "prospective"}&view=table`;
   const status = t.deactivatedAt ? <StatusBadge>Deactivated</StatusBadge> : t.invited ? <StatusBadge tone="warning">Invite sent</StatusBadge> : null;
   return (
     <div className="mx-auto max-w-[1280px] px-4 py-6 lg:px-6">
@@ -64,7 +68,7 @@ export function TeammateView({ teammate: t, planned, plannedCount, overdue, rece
 
       <dl className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Open tasks and plans" value={plannedCount} detail={overdue ? `${overdue} overdue` : undefined} tone={overdue ? "warn" : undefined} href={`/activities?who=${t.id}`} />
-        <Stat label="Clients they own" value={(owned.clients.prospective ?? 0) + (owned.clients.current ?? 0)} detail={`${owned.clients.prospective ?? 0} prospects, ${owned.clients.current ?? 0} current`} href={`/clients?owner=${t.id}`} />
+        <Stat label="Clients they own" value={prospects + current} detail={`${prospects} prospects, ${current} current`} href={clientsHref} />
         <Stat label="People they own" value={owned.people} href={`/people?owner=${t.id}`} />
         <Stat label="Organizations they own" value={owned.organizations} href={`/organizations?owner=${t.id}`} />
       </dl>
@@ -115,7 +119,7 @@ export function TeammateView({ teammate: t, planned, plannedCount, overdue, rece
               <h2 id="clients" className="text-[13px] font-semibold text-primary">
                 Their clients
               </h2>
-              <Link href={`/clients?owner=${t.id}`} className="text-[12.5px] text-muted hover:text-primary">
+              <Link href={clientsHref} className="text-[12.5px] text-muted hover:text-primary">
                 See all
               </Link>
             </div>
