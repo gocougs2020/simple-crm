@@ -16,6 +16,7 @@ import { fromAs, getResend, sendEmail } from "@/lib/email";
 import { loadAttachments, resolveAttachments } from "@/lib/email/attachments";
 import { assertInboxInScope, InboxError } from "@/lib/email/inbox";
 import { fillMergeTags, fillMergeTagsHtml, mergeValues } from "@/lib/email/merge-tags";
+import { outlookSignature, workspaceSignature } from "@/lib/email/signature";
 import { microsoftConfigured } from "@/lib/microsoft/config";
 import { accountOf, GraphError } from "@/lib/microsoft/graph";
 import { sendFromMailbox } from "@/lib/microsoft/mail";
@@ -50,6 +51,8 @@ const sendInput = z.object({
   attachmentIds: z.array(z.uuid()).max(20).optional(),
   /** Send a copy to me (BCC). */
   copyMe: z.boolean().optional(),
+  /** From Outlook: whether the sender's signature goes under it. Left out, it's their default (Settings → Email and calendar). */
+  signature: z.boolean().optional(),
 });
 
 
@@ -120,9 +123,7 @@ export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise
     const html = fillMergeTagsHtml(sanitizeHtml(data.body), values);
     if (!htmlToText(html)) throw new ActionError("Write the email first.");
     const brand = await emailBrand();
-    const signature = brand.signature
-      ? fillMergeTags(brand.signature.replace(/\{\{\s*sender_title\s*\}\}/gi, user.title ?? ""), values).replace(/\n{2,}/g, "\n").trim()
-      : null;
+    const signature = workspaceSignature(brand.signature, user, (text) => fillMergeTags(text, values));
 
     const [outbound] = await db
       .insert(outboundEmails)
@@ -135,7 +136,7 @@ export async function sendRecordEmail(input: z.input<typeof sendInput>): Promise
     if (mailbox) {
       try {
         // From their own Outlook it reads like any email they send there: no branded layout around it.
-        const sent = await sendFromMailbox(mailbox, { to: plan.to, cc, bcc: data.copyMe ? [user.email] : undefined, replyTo, subject, html: plainEmailHtml(html, signature), attachments: files });
+        const sent = await sendFromMailbox(mailbox, { to: plan.to, cc, bcc: data.copyMe ? [user.email] : undefined, replyTo, subject, html: plainEmailHtml(html, outlookSignature(user, signature, data.signature)), attachments: files });
         await db.update(outboundEmails).set({ messageId: sent.messageId }).where(eq(outboundEmails.id, outbound.id));
       } catch (err) {
         await db.delete(outboundEmails).where(eq(outboundEmails.id, outbound.id));

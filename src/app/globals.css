@@ -286,6 +286,84 @@
   }
 }
 
+/*
+ * An email signature, in the editor and under an email in the composer: set
+ * like it goes out from Outlook (src/emails/plain.ts), Aptos 12pt with lines
+ * close together, so what's written is what's sent.
+ */
+@utility prose-signature {
+  font-family: Aptos, Calibri, Arial, Helvetica, sans-serif;
+  font-size: 16px;
+  line-height: 1.35;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+  & p {
+    margin: 0;
+  }
+  & a {
+    color: LinkText;
+    text-decoration: underline;
+  }
+  & ul,
+  & ol {
+    margin: 0;
+    padding-left: 1.25em;
+  }
+  & ul {
+    list-style: disc;
+  }
+  & ol {
+    list-style: decimal;
+  }
+  & hr {
+    border: none;
+    border-top: 1px solid var(--border-strong);
+    margin: 8px 0;
+  }
+  & img {
+    display: inline-block;
+    max-width: 100%;
+    height: auto;
+    vertical-align: middle;
+  }
+  & [data-resize-container] {
+    vertical-align: middle;
+  }
+  & [data-resize-handle] {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    opacity: 0;
+    z-index: 1;
+  }
+  & [data-resize-handle="top-left"] {
+    transform: translate(-50%, -50%);
+    cursor: nwse-resize;
+  }
+  & [data-resize-handle="bottom-right"] {
+    transform: translate(50%, 50%);
+    cursor: nwse-resize;
+  }
+  & [data-resize-handle="top-right"] {
+    transform: translate(50%, -50%);
+    cursor: nesw-resize;
+  }
+  & [data-resize-handle="bottom-left"] {
+    transform: translate(-50%, 50%);
+    cursor: nesw-resize;
+  }
+  & [data-resize-container]:hover [data-resize-handle],
+  & .ProseMirror-selectednode [data-resize-handle] {
+    opacity: 1;
+  }
+  & .ProseMirror-selectednode img,
+  & img.ProseMirror-selectednode {
+    outline: 2px solid var(--ring);
+  }
+}
+
 /* The editor's empty-state placeholder (TipTap). */
 .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);

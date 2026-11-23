@@ -34,6 +34,44 @@ export function discountShare(invoice: { subtotal?: number | null; total_discoun
   return Math.min(1, Math.max(0, off / invoice.subtotal));
 }
 
+/** What a subscription bills next, inferred from it rather than asked of Stripe: when, and roughly how much. */
+export type NextCharge = {
+  /** Unix seconds: the end of the current period, or of the trial. */
+  at: number;
+  /** In cents, after the discount its latest invoice had; null when every line is usage based. */
+  amount: number | null;
+  /** Some lines are usage based, so the amount covers only the fixed ones. */
+  partial: boolean;
+};
+
+/**
+ * The next time a subscription bills: when its current period (or trial)
+ * ends, for the fixed price lines at the discount its latest invoice had.
+ * Null when nothing more is billed: it's paused, ended, unpaid, or set to
+ * cancel by then. Tax, proration and credits aren't counted, so it's an
+ * estimate, not Stripe's upcoming invoice.
+ */
+export function nextCharge(s: {
+  status: string;
+  periodEnd: number | null;
+  trial_end: number | null;
+  cancel_at: number | null;
+  cancel_at_period_end: boolean;
+  discountShare: number;
+  items: { quantity: number | null; price: { unit_amount: number | null; recurring: Recurring } }[];
+}): NextCharge | null {
+  if (!["active", "trialing", "past_due"].includes(s.status)) return null;
+  const at = s.status === "trialing" && s.trial_end ? s.trial_end : s.periodEnd;
+  if (!at) return null;
+  if (s.cancel_at_period_end && (!s.periodEnd || at >= s.periodEnd)) return null;
+  if (s.cancel_at && s.cancel_at <= at) return null;
+  const fixed = s.items.filter((i) => i.price.unit_amount != null && i.price.recurring?.usage_type !== "metered");
+  const partial = fixed.length < s.items.length;
+  if (!fixed.length) return { at, amount: null, partial };
+  const list = fixed.reduce((sum, i) => sum + (i.price.unit_amount ?? 0) * (i.quantity ?? 1), 0);
+  return { at, amount: Math.round(list * (1 - s.discountShare)), partial };
+}
+
 /** The monthly amount after discounts. */
 export const netMonthly = (monthly: number, share: number) => Math.round(monthly * (1 - share));
 

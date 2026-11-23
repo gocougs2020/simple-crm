@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { disconnectMicrosoft, disconnectTeammateMicrosoft, myMailFolders, syncMyMailbox, updateMicrosoftAccount } from "@/actions/accounts";
+import dynamic from "next/dynamic";
+import { disconnectMicrosoft, disconnectTeammateMicrosoft, myMailFolders, syncMyMailbox, updateEmailSignature, updateMicrosoftAccount } from "@/actions/accounts";
 import { syncSummary } from "@/components/email/outlook-list";
 import { useApp } from "@/components/app-context";
 import { StatusBadge } from "@/components/ui/badge";
@@ -27,6 +28,14 @@ type Account = {
   lastError: string | null;
 };
 
+/** Tiptap loads only when this page opens, like the other text boxes (src/components/ui/rich-text.tsx). */
+const SignatureEditor = dynamic(() => import("./signature-editor").then((m) => m.SignatureEditor), {
+  ssr: false,
+  loading: () => <div className="h-[154px] rounded-lg border border-line bg-surface" />,
+});
+
+type Signature = { html: string; auto: boolean; workspace: boolean };
+
 type Connection = {
   userId: string;
   userName: string;
@@ -48,6 +57,7 @@ export function AccountSettings({
   account,
   stats,
   team,
+  signature,
   sync,
   notice,
 }: {
@@ -56,6 +66,8 @@ export function AccountSettings({
   stats: { imported: number; private: number; withheld: number; unscreened: number } | null;
   /** Everyone else's connections, for owners only; null for everybody else. */
   team: Connection[] | null;
+  /** Their own email signature, and whether the workspace has one to fall back on. */
+  signature: Signature;
   sync: { everyMinutes: number; screening: boolean; screenReady: boolean; category: string | null };
   notice: { connected: string | null; error: string | null };
 }) {
@@ -167,6 +179,8 @@ export function AccountSettings({
           </div>
         )}
       </Section>
+
+      <SignatureSettings key={`${signature.html}|${signature.auto}`} signature={signature} connected={!!account} />
 
       {account?.syncMail ? <SyncControls key={`${account.blocked.join()}|${(account.mailFolders ?? []).map((f) => f.id).join()}`} account={account} /> : null}
 
@@ -409,5 +423,58 @@ function SyncControls({ account }: { account: Account }) {
         </div>
       </Section>
     </>
+  );
+}
+
+/**
+ * The teammate's own email signature, for email they send from their Outlook:
+ * written in a rich editor, and set to go on every email or only when they
+ * add it. The composer lets them add or take it off each email either way.
+ */
+function SignatureSettings({ signature, connected }: { signature: Signature; connected: boolean }) {
+  const { services } = useApp();
+  const [html, setHtml] = useState(signature.html);
+  const [auto, setAuto] = useState(signature.auto);
+  /** Bumped to put the editor back to what's saved. */
+  const [version, setVersion] = useState(0);
+  const [pending, start] = useTransition();
+  const changed = html !== signature.html || auto !== signature.auto;
+  const save = () =>
+    start(async () => {
+      const r = await updateEmailSignature({ html, auto });
+      if (!r.ok) return void toast.error(r.error);
+      toast.success(html ? "Signature saved" : signature.html ? "Signature removed" : "Saved");
+    });
+  return (
+    <Section
+      title="Email signature"
+      description={`Goes under email you send from your Outlook through the CRM, to a person, an organization or a client's contacts.${connected ? "" : " Connect your Microsoft account above to send with it."}`}
+    >
+      <div className="flex flex-col gap-3 p-5">
+        <SignatureEditor key={version} value={signature.html} onChange={setHtml} canUpload={services.blob} />
+        <p className="-mt-1 text-fine">Images are public so inboxes can show them. Drag a corner of an image to resize it.{!html && signature.workspace ? " Until you make your own, the workspace's signature from the brand kit is used." : ""}</p>
+        <Checkbox checked={auto} onChange={(e) => setAuto(e.target.checked)} label={<span className="text-[13.5px]">Add my signature to every email I send from Outlook</span>} />
+        <p className="-mt-2 pl-6 text-fine">{auto ? "It's already there when you start an email. Take it off any one before sending." : "Add it to an email from the composer when you want it."}</p>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" loading={pending} disabled={!changed} onClick={save}>
+            Save signature
+          </Button>
+          {changed ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={pending}
+              onClick={() => {
+                setHtml(signature.html);
+                setAuto(signature.auto);
+                setVersion((v) => v + 1);
+              }}
+            >
+              Discard changes
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </Section>
   );
 }
