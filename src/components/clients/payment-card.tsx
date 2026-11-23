@@ -21,7 +21,6 @@ export function PaymentCard({ m }: { m: PaymentMethod }) {
         "bg-gradient-to-br from-accent to-accent-hover",
         m.expired && "opacity-75",
       )}
-      aria-label={`${m.label}${m.isDefault ? ", default" : ""}${m.expires ? `, ${m.expired ? "expired" : "expires"} ${m.expires}` : ""}`}
     >
       {/* A soft ring in the corner, the way printed cards have one. */}
       <span aria-hidden className="pointer-events-none absolute -top-16 -right-16 size-44 rounded-full bg-accent-foreground/[0.06]" />
@@ -46,6 +45,7 @@ export function PaymentCard({ m }: { m: PaymentMethod }) {
           {bank ? "•••• " : "•••• •••• •••• "}
           {m.last4 ?? "····"}
         </p>
+        <span className="sr-only">{m.last4 ? `Ending in ${m.last4}` : "Number not shown"}</span>
       </div>
 
       <div className="relative flex items-end justify-between gap-3 text-[11px]">
