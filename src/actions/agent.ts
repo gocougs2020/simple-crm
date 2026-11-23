@@ -172,7 +172,7 @@ export async function cancelAgentBatch(batchId: string): Promise<Result<{ stoppe
  */
 export async function enrichRecord(entity: string, id: string): Promise<Result<{ taskId: string; error: string | null }>> {
   return run(async () => {
-    const user = await actionUser();
+    const user = await actionCan("records:write");
     const which = z.enum(enrichEntities).parse(entity);
     const recordId = z.uuid("That record doesn't exist.").parse(id);
     const started = await startEnrichment(sessionActor(user), which, recordId);

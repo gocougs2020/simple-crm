@@ -2,7 +2,7 @@ import "server-only";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { CustomValues } from "@/db/schema";
-import type { Actor } from "@/lib/crm/actor";
+import { assertCan, type Actor } from "@/lib/crm/actor";
 import { getOrganization, getPerson } from "@/lib/crm/records";
 import { ActionError, NotFoundError } from "@/lib/errors";
 import { personName } from "@/lib/format";
@@ -18,6 +18,8 @@ import { startRun } from "./runs";
  * something the web knows about.
  */
 export async function startEnrichment(actor: Actor, entity: EnrichEntity, id: string) {
+  // Checked before the record is read; startRun checks again, with the rest of what starting work needs.
+  assertCan(actor, "records:write");
   const db = await getDb();
   const record = entity === "person" ? await personRecord(id) : await organizationRecord(id);
   // One at a time per record: a second click while it's working would pay twice for the same note.
