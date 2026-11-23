@@ -520,6 +520,10 @@ async function runImport(db: Database) {
     for (const c of [...existingClients.values()].sort((a, b) => Number(!!a.archivedAt) - Number(!!b.archivedAt) || a.createdAt.getTime() - b.createdAt.getTime())) {
       for (const k of [c.organizationId && `org:${c.organizationId}`, !c.organizationId && c.personId && `person:${c.personId}`]) if (k && !byRecord.has(k)) byRecord.set(k, c.id);
     }
+    // Then the organizations and people a client is also tied to (kept when clients were merged), so their new deals join it too.
+    const also = await alsoTied(db, existingClients);
+    for (const r of also.organizations) if (!byRecord.has(`org:${r.organizationId}`)) byRecord.set(`org:${r.organizationId}`, r.clientId);
+    for (const r of also.people) if (!byRecord.has(`person:${r.personId}`)) byRecord.set(`person:${r.personId}`, r.clientId);
     for (const plan of [...plans].sort((a, b) => Date.parse(a.lead.add_time) - Date.parse(b.lead.add_time))) {
       const added = plan.deals.filter((d) => newDeals.has(d.id));
       let id = links.get("client", plan.key) ?? plan.deals.map((d) => links.get("deal", d.id)).find(Boolean) ?? null;
@@ -684,6 +688,8 @@ async function runImport(db: Database) {
     for (const c of [...existingClients.values()].sort((a, b) => Number(!!a.archivedAt) - Number(!!b.archivedAt) || a.createdAt.getTime() - b.createdAt.getTime())) {
       for (const k of [c.organizationId, c.personId]) if (k && !clientOf.has(k)) clientOf.set(k, c.id);
     }
+    const also = await alsoTied(db, existingClients);
+    for (const r of [...also.organizations.map((o) => ({ id: o.organizationId, clientId: o.clientId })), ...also.people.map((p) => ({ id: p.personId, clientId: p.clientId }))]) if (!clientOf.has(r.id)) clientOf.set(r.id, r.clientId);
   }
   const linksFor = (dealId: PdId | null | undefined, orgId: PdId | null | undefined, personId: PdId | null | undefined) => {
     const org = orgId ?? (personId ? personOrg.get(personId) : null) ?? (dealId ? dealOrg.get(dealId) : null) ?? null;
@@ -1090,6 +1096,20 @@ async function completedSince(db: Database, links: Links, pdActivities: PdActivi
 }
 
 const stamp = (d: Date) => `${d.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+
+/** The organizations and people clients are also tied to besides their main ones, live clients first, then the oldest. */
+async function alsoTied(db: Database, clients: Map<string, { archivedAt: Date | null; createdAt: Date }>) {
+  const [organizations, people] = await Promise.all([
+    db.select({ clientId: schema.clientOrganizations.clientId, organizationId: schema.clientOrganizations.organizationId }).from(schema.clientOrganizations),
+    db.select({ clientId: schema.clientPeople.clientId, personId: schema.clientPeople.personId }).from(schema.clientPeople),
+  ]);
+  const rank = (id: string) => {
+    const c = clients.get(id);
+    return c ? (c.archivedAt ? 1 : 0) * 1e15 + c.createdAt.getTime() : Infinity;
+  };
+  const order = (a: { clientId: string }, b: { clientId: string }) => rank(a.clientId) - rank(b.clientId);
+  return { organizations: organizations.sort(order), people: people.sort(order) };
+}
 
 const unplaced = (n: number) => (n > 0 ? `; ${n} left out: nothing here to put them on` : "");
 
