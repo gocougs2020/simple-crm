@@ -956,6 +956,9 @@ const fieldText = (v: unknown, label: string | null | undefined, member: (id: st
   return String(v);
 };
 
+/** "Dec 3, 2026": for a date that has to read the same whenever the history is opened. */
+const calendarDay = (iso: string, tz: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: tz });
+
 /** One line of history: who changed what, from what, to what. */
 /** History the CRM writes by itself, which reads as a sentence with no one in front. */
 const systemEvents = new Set(["email_bounced", "email_complained", "texts_opted_out", "texts_opted_in", "billing_changed"]);
@@ -982,6 +985,11 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
     /** Duplicates merged into this record (scripts/dedupe.ts). */
     merged?: { name: string }[];
     deleted?: { name: string }[];
+    /** Stripe subscription changes made from the billing card. */
+    price?: string | null;
+    when?: "now" | "period_end";
+    endsAt?: string | null;
+    trialEnds?: string | null;
   };
   const cat = (c?: string) => (c && c in clientCategoryLabels ? clientCategoryLabels[c as ClientCategory].one.toLowerCase() : c);
   let text: React.ReactNode;
@@ -1028,6 +1036,46 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
         <>
           linked the Stripe customer {d.name ?? ""}
           {d.account ? ` (${d.account})` : ""}
+        </>
+      );
+      icon = <CreditCardIcon className="size-3.5" />;
+      break;
+    case "stripe_subscription_created":
+      text = (
+        <>
+          started a Stripe subscription to <strong className="font-medium text-secondary">{d.name}</strong>
+          {d.price ? ` at ${d.price}` : ""}
+          {d.trialEnds ? `, free until ${calendarDay(d.trialEnds, tz)}` : ""}
+        </>
+      );
+      icon = <CreditCardIcon className="size-3.5" />;
+      break;
+    case "stripe_subscription_changed":
+      text = (
+        <>
+          changed the Stripe subscription <strong className="font-medium text-secondary">{d.name}</strong>
+          {d.from && d.to ? ` from ${d.from} to ${d.to}` : ""}
+        </>
+      );
+      icon = <CreditCardIcon className="size-3.5" />;
+      break;
+    case "stripe_subscription_canceled":
+      text =
+        d.when === "now" ? (
+          <>
+            canceled the Stripe subscription <strong className="font-medium text-secondary">{d.name}</strong>, effective immediately
+          </>
+        ) : (
+          <>
+            set the Stripe subscription <strong className="font-medium text-secondary">{d.name}</strong> to cancel{d.endsAt ? ` on ${calendarDay(d.endsAt, tz)}` : " at the end of its billing period"}
+          </>
+        );
+      icon = <XCircleIcon className="size-3.5" />;
+      break;
+    case "stripe_subscription_kept":
+      text = (
+        <>
+          took back the cancellation of the Stripe subscription <strong className="font-medium text-secondary">{d.name}</strong>
         </>
       );
       icon = <CreditCardIcon className="size-3.5" />;

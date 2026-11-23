@@ -23,13 +23,38 @@ export type CustomerBilling = {
     endedAt: number | null;
     trialEnd: number | null;
     periodEnd: number | null;
+    collection: "charge_automatically" | "send_invoice";
+    daysUntilDue: number | null;
+    /** The saved method this subscription charges, when it has its own; otherwise the customer's default. */
+    paymentMethod: string | null;
     /** Monthly amount at list price, and what discounts take off it. */
     monthly: number;
     discount: number;
-    items: { name: string; amount: number | null; quantity: number; currency: string; interval: string | null; intervalCount: number }[];
+    items: { id: string; priceId: string; productId: string; name: string; amount: number | null; quantity: number; currency: string; interval: string | null; intervalCount: number }[];
   }[];
   invoices: { id: string; number: string | null; status: "draft" | "open" | "paid" | "uncollectible" | "void" | null; overdue: boolean; total: number; discount: number; remaining: number; currency: string; created: number; dueDate: number | null; url: string | null; pdf: string | null }[];
-  charges: { id: string; amount: number; refunded: boolean; currency: string; status: "succeeded" | "pending" | "failed"; created: number; description: string | null; failure: string | null; receipt: string | null; method: string | null }[];
+  charges: { id: string; amount: number; refunded: boolean; refundedAmount: number; currency: string; status: "succeeded" | "pending" | "failed"; created: number; description: string | null; failure: string | null; receipt: string | null; method: string | null }[];
   /** Null when the key can't read payment methods. */
-  paymentMethods: { id: string; type: string; isDefault: boolean; label: string; expires: string | null; expired: boolean }[] | null;
+  paymentMethods: PaymentMethod[] | null;
 };
+
+/** A saved card or bank account, with what its face shows. */
+export type PaymentMethod = {
+  id: string;
+  type: string;
+  kind: "card" | "bank" | "other";
+  isDefault: boolean;
+  /** "Visa ···· 4242", for lists and menus. */
+  label: string;
+  /** Card brand ("visa") or bank name. */
+  brand: string | null;
+  last4: string | null;
+  /** "credit", "debit", "checking", "savings". */
+  detail: string | null;
+  holder: string | null;
+  expires: string | null;
+  expired: boolean;
+};
+
+/** A price a subscription can be started on or moved to, for the plan pickers. */
+export type StripePriceOption = { id: string; productId: string; productName: string; nickname: string | null; unitAmount: number; currency: string; interval: "day" | "week" | "month" | "year"; intervalCount: number };

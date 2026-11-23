@@ -1,6 +1,6 @@
 import "server-only";
 import { cachedBillingFor, type Billing } from "@/lib/stripe";
-import { monthlyAmount, netMonthly } from "./rules";
+import { brandName, monthlyAmount, netMonthly } from "./rules";
 import { customersOfClient, syncClient } from "./sync";
 import type { CustomerBilling } from "./types";
 
@@ -30,29 +30,44 @@ function slim(b: Billing, c: { matchedEmail: string | null; byHand: boolean; col
       endedAt: s.ended_at,
       trialEnd: s.trial_end,
       periodEnd: s.periodEnd,
+      collection: s.collection_method ?? "charge_automatically",
+      daysUntilDue: s.days_until_due ?? null,
+      paymentMethod: typeof s.default_payment_method === "object" ? (s.default_payment_method?.id ?? null) : (s.default_payment_method ?? null),
       monthly: monthlyAmount(s.items),
       discount: monthlyAmount(s.items) - netMonthly(monthlyAmount(s.items), s.discountShare),
-      items: s.items.map((i) => ({ name: i.name, amount: i.price.unit_amount, quantity: i.quantity ?? 1, currency: i.price.currency, interval: i.price.recurring?.interval ?? null, intervalCount: i.price.recurring?.interval_count ?? 1 })),
+      items: s.items.map((i) => ({ id: i.id, priceId: i.price.id, productId: i.price.product, name: i.name, amount: i.price.unit_amount, quantity: i.quantity ?? 1, currency: i.price.currency, interval: i.price.recurring?.interval ?? null, intervalCount: i.price.recurring?.interval_count ?? 1 })),
     })),
     invoices: b.invoices.map((i) => ({ id: i.id, number: i.number, status: i.status, overdue: i.overdue, total: i.total, discount: (i.total_discount_amounts ?? []).reduce((sum, d) => sum + d.amount, 0), remaining: i.amount_remaining, currency: i.currency, created: i.created, dueDate: i.due_date, url: i.hosted_invoice_url, pdf: i.invoice_pdf ?? null })),
     charges: b.charges.map((c) => ({
       id: c.id,
       amount: c.amount,
       refunded: c.refunded,
+      refundedAmount: c.amount_refunded ?? 0,
       currency: c.currency,
       status: c.status,
       created: c.created,
       description: c.description,
       failure: c.failure_message,
       receipt: c.receipt_url,
-      method: c.payment_method_details?.card ? `${c.payment_method_details.card.brand} ···· ${c.payment_method_details.card.last4}` : (c.payment_method_details?.type ?? null),
+      method: c.payment_method_details?.card
+        ? `${brandName(c.payment_method_details.card.brand)} ···· ${c.payment_method_details.card.last4}`
+        : c.payment_method_details?.type === "us_bank_account"
+          ? "Bank account"
+          : c.payment_method_details?.type
+            ? brandName(c.payment_method_details.type)
+            : null,
     })),
     paymentMethods: b.paymentMethods
       ? b.paymentMethods.map((m) => ({
           id: m.id,
           type: m.type,
+          kind: m.card ? "card" : m.us_bank_account ? "bank" : "other",
           isDefault: m.isDefault,
-          label: m.card ? `${m.card.brand} ···· ${m.card.last4}` : m.us_bank_account ? `${m.us_bank_account.bank_name ?? "Bank account"} ···· ${m.us_bank_account.last4 ?? ""}` : m.type.replace(/_/g, " "),
+          label: m.card ? `${brandName(m.card.brand)} ···· ${m.card.last4}` : m.us_bank_account ? `${m.us_bank_account.bank_name ?? "Bank account"} ···· ${m.us_bank_account.last4 ?? ""}` : brandName(m.type),
+          brand: m.card?.brand ?? m.us_bank_account?.bank_name ?? null,
+          last4: m.card?.last4 ?? m.us_bank_account?.last4 ?? null,
+          detail: m.card?.funding ?? m.us_bank_account?.account_type ?? null,
+          holder: m.billing_details?.name ?? b.customer.name ?? null,
           expires: m.card ? `${String(m.card.exp_month).padStart(2, "0")}/${String(m.card.exp_year).slice(-2)}` : null,
           expired: m.card ? new Date(m.card.exp_year, m.card.exp_month, 1).getTime() < Date.now() : false,
         }))

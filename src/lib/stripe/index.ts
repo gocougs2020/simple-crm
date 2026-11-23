@@ -1,11 +1,15 @@
 import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
 import { parseStripeAccounts, type StripeAccount } from "./accounts";
+import type { Form } from "./changes";
+import type { StripePriceOption } from "./types";
 import { discountShare } from "./rules";
 
 /**
- * Read-only Stripe, for one or more Stripe accounts. Plain REST with a
- * restricted key per account; nothing here can charge or change anything.
+ * Stripe, for one or more Stripe accounts. Plain REST with a restricted key
+ * per account. Almost everything here reads; the few changes (starting,
+ * editing and canceling subscriptions, at the bottom) are for admins only
+ * (src/actions/billing.ts) and need a key with write access to Subscriptions.
  *
  * Each account is one environment variable: STRIPE_SECRET_KEY_<NAME> (and
  * STRIPE_SECRET_KEY, the account called "default"). The daily sync
@@ -18,7 +22,7 @@ const accounts = parseStripeAccounts(process.env);
 /** A local stand-in for Stripe's API, for development and tests only. Refused on Vercel like the other local fallbacks. */
 const base = (!process.env.VERCEL && process.env.STRIPE_API_URL) || "https://api.stripe.com";
 
-export type { StripeAccount };
+export type { StripeAccount, StripePriceOption };
 
 /** The connected accounts, without their keys. */
 export function stripeAccounts(): { id: string; label: string }[] {
@@ -37,9 +41,14 @@ export class StripeError extends Error {}
 
 type Params = Record<string, string | string[] | number | undefined>;
 
-async function get<T>(accountId: string, path: string, params: Params = {}): Promise<T> {
+function accountOf(accountId: string) {
   const account = accounts.find((a) => a.id === accountId);
   if (!account) throw new StripeError("That Stripe account isn't connected anymore. Check the STRIPE_SECRET_KEY variables in the environment.");
+  return account;
+}
+
+async function get<T>(accountId: string, path: string, params: Params = {}): Promise<T> {
+  const account = accountOf(accountId);
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v === undefined) continue;
@@ -54,6 +63,25 @@ async function get<T>(accountId: string, path: string, params: Params = {}): Pro
   const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
   if (!res.ok) throw new StripeError(body?.error?.message ?? `Stripe answered ${res.status}.`);
   return body as T;
+}
+
+/** A change. Stripe replays the answer for a repeated idempotency key, so a double click can't start two subscriptions. */
+async function send<T>(accountId: string, method: "POST" | "DELETE", path: string, form: Form = {}, idempotencyKey?: string): Promise<T> {
+  const account = accountOf(accountId);
+  const body = new URLSearchParams();
+  for (const [k, v] of Object.entries(form)) if (v !== undefined) body.set(k, String(v));
+  const res = await fetch(`${base}/v1/${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${account.key}`, "Content-Type": "application/x-www-form-urlencoded", ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}) },
+    body: body.size ? body : undefined,
+    cache: "no-store",
+    signal: AbortSignal.timeout(30_000),
+  });
+  const json = (await res.json().catch(() => null)) as { error?: { message?: string; type?: string } } | null;
+  if (res.status === 403 || json?.error?.type === "permission_error")
+    throw new StripeError(`Nothing changed: the Stripe key${accounts.length > 1 ? ` for ${account.label}` : ""} can only read billing. Give it write access to Subscriptions in Stripe to make changes from here.`);
+  if (!res.ok) throw new StripeError(json?.error?.message ?? `Stripe answered ${res.status}.`);
+  return json as T;
 }
 
 type List<T> = { data: T[]; has_more: boolean; next_page?: string | null };
@@ -107,10 +135,14 @@ export type StripeSubscription = {
   ended_at: number | null;
   trial_end: number | null;
   current_period_end?: number;
+  collection_method?: "charge_automatically" | "send_invoice";
+  days_until_due?: number | null;
+  default_payment_method?: string | { id: string } | null;
   /** Expanded where the list asks for it: what was last billed, for discounts. */
   latest_invoice?: string | { id: string; subtotal?: number | null; total?: number | null; total_discount_amounts?: { amount: number }[] | null } | null;
   items: { data: { id: string; quantity: number | null; current_period_end?: number; price: StripePrice }[] };
 };
+
 
 export type StripeInvoice = {
   id: string;
@@ -152,7 +184,8 @@ export type StripePaymentMethod = {
   type: string;
   created: number;
   card?: { brand: string; last4: string; exp_month: number; exp_year: number; funding?: string } | null;
-  us_bank_account?: { bank_name: string | null; last4: string | null } | null;
+  us_bank_account?: { bank_name: string | null; last4: string | null; account_type?: string | null; account_holder_type?: string | null } | null;
+  billing_details?: { name: string | null } | null;
 };
 
 export function stripeDashboardUrl(accountId: string, customerId: string) {
@@ -275,4 +308,41 @@ export async function cachedBillingFor(accountId: string, customerId: string): P
   cacheTag(stripeCustomerTag(accountId, customerId));
   cacheLife({ stale: 60, revalidate: 120, expire: 120 });
   return billingFor(accountId, customerId);
+}
+
+// ─── Changes, for admins ─────────────────────────────────────────────────
+
+const sub = (id: string) => `subscriptions/${encodeURIComponent(id)}`;
+
+export const getSubscription = (accountId: string, id: string) => get<StripeSubscription>(accountId, sub(id));
+export const getPrice = (accountId: string, id: string) => get<StripePrice & { active: boolean }>(accountId, `prices/${encodeURIComponent(id)}`);
+
+/**
+ * The fixed, recurring prices in an account whose product is still sold, for
+ * starting a subscription or moving one to another plan. Usage-based and
+ * tiered prices have no single amount and are left out.
+ */
+export async function recurringPrices(accountId: string): Promise<StripePriceOption[]> {
+  type Expanded = Omit<StripePrice, "product"> & { active: boolean; product: string | { id: string; name: string; active: boolean; deleted?: boolean } };
+  const list = await listAll<Expanded>(accountId, "prices", { active: "true", type: "recurring", "expand[]": ["data.product"] }, 1000);
+  const out: StripePriceOption[] = [];
+  for (const p of list) {
+    const product = typeof p.product === "object" ? p.product : null;
+    if (!product || product.deleted || !product.active || p.unit_amount == null || !p.recurring || p.recurring.usage_type === "metered") continue;
+    out.push({ id: p.id, productId: product.id, productName: product.name, nickname: p.nickname, unitAmount: p.unit_amount, currency: p.currency, interval: p.recurring.interval, intervalCount: p.recurring.interval_count || 1 });
+  }
+  return out.sort((a, b) => a.productName.localeCompare(b.productName) || a.unitAmount - b.unitAmount);
+}
+
+export const createSubscription = (accountId: string, form: Form, idempotencyKey: string) => send<StripeSubscription>(accountId, "POST", "subscriptions", form, idempotencyKey);
+export const updateSubscription = (accountId: string, id: string, form: Form, idempotencyKey: string) => send<StripeSubscription>(accountId, "POST", sub(id), form, idempotencyKey);
+
+/** Ends a subscription now (Stripe bills nothing more and refunds nothing), or at the end of the period they've paid for. */
+export function cancelSubscription(accountId: string, id: string, when: "now" | "period_end", idempotencyKey: string) {
+  return when === "now" ? send<StripeSubscription>(accountId, "DELETE", sub(id), {}, idempotencyKey) : send<StripeSubscription>(accountId, "POST", sub(id), { cancel_at_period_end: true }, idempotencyKey);
+}
+
+/** Takes back a cancellation that hasn't happened yet. */
+export function keepSubscription(accountId: string, s: { id: string; cancel_at_period_end: boolean }, idempotencyKey: string) {
+  return send<StripeSubscription>(accountId, "POST", sub(s.id), s.cancel_at_period_end ? { cancel_at_period_end: false } : { cancel_at: "" }, idempotencyKey);
 }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseStripeAccounts } from "./accounts";
+import { changeSubscriptionForm, newSubscriptionForm, per, toCents } from "./changes";
 import { collected, discountShare, monthlyAmount, netMonthly, perMonth, rollUpStatus } from "./rules";
 
 describe("Stripe accounts from the environment", () => {
@@ -93,5 +94,58 @@ describe("Discounts and what was collected", () => {
     assert.equal(collected({ status: "succeeded", amount: 135_000, amount_refunded: 35_000 }), 100_000);
     assert.equal(collected({ status: "failed", amount: 135_000 }), 0);
     assert.equal(collected({ status: "pending", amount: 135_000 }), 0);
+  });
+});
+
+describe("Subscription changes as Stripe forms", () => {
+  it("starts a subscription on a price, failing outright when the first charge doesn't go through", () => {
+    assert.deepEqual(newSubscriptionForm({ customer: "cus_1", lines: [{ price: "price_1", quantity: 2 }], collection: "charge_automatically", paymentMethod: "pm_1" }), {
+      customer: "cus_1",
+      "items[0][price]": "price_1",
+      "items[0][quantity]": 2,
+      collection_method: "charge_automatically",
+      days_until_due: undefined,
+      default_payment_method: "pm_1",
+      trial_period_days: undefined,
+      payment_behavior: "error_if_incomplete",
+    });
+  });
+
+  it("bills a different amount with a one-off price on the same product and period", () => {
+    const form = newSubscriptionForm({
+      customer: "cus_1",
+      lines: [{ price: "price_1", custom: { product: "prod_1", currency: "usd", unitAmount: 45_000, interval: "month", intervalCount: 1 }, quantity: 1 }],
+      collection: "send_invoice",
+      daysUntilDue: 14,
+      trialDays: 30,
+    });
+    assert.equal(form["items[0][price]"], undefined);
+    assert.equal(form["items[0][price_data][product]"], "prod_1");
+    assert.equal(form["items[0][price_data][unit_amount]"], 45_000);
+    assert.equal(form["items[0][price_data][recurring][interval]"], "month");
+    assert.equal(form.days_until_due, 14);
+    assert.equal(form.default_payment_method, undefined);
+    assert.equal(form.trial_period_days, 30);
+    assert.equal(form.payment_behavior, undefined);
+  });
+
+  it("changes a line in place and prorates only when a line changed", () => {
+    const changed = changeSubscriptionForm({ lines: [{ id: "si_1", price: "price_2", quantity: 3 }], proration: "always_invoice", collection: "charge_automatically", paymentMethod: "pm_2" });
+    assert.equal(changed["items[0][id]"], "si_1");
+    assert.equal(changed["items[0][price]"], "price_2");
+    assert.equal(changed.proration_behavior, "always_invoice");
+    const paymentOnly = changeSubscriptionForm({ lines: [], proration: "always_invoice", collection: "charge_automatically", paymentMethod: null });
+    assert.equal(paymentOnly.proration_behavior, undefined);
+    // No method picked: the subscription falls back to the customer's default.
+    assert.equal(paymentOnly.default_payment_method, "");
+  });
+
+  it("reads typed amounts as cents", () => {
+    assert.equal(toCents("$1,250.5"), 125_050);
+    assert.equal(toCents("99"), 9_900);
+    assert.equal(toCents("12.345"), null);
+    assert.equal(toCents("abc"), null);
+    assert.equal(per("month", 3), "/3 months");
+    assert.equal(per("year"), "/year");
   });
 });
