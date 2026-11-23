@@ -127,6 +127,11 @@ export function ClientsView({
       </span>
     ),
   };
+  const contact: Column<ClientRow> = {
+    key: "person",
+    label: "Contact",
+    render: (r) => (r.personFirstName ? <Link href={`/people/${r.client.personId}`} className="hover:underline">{[r.personFirstName, r.personLastName].filter(Boolean).join(" ")}</Link> : <span className="text-faint">—</span>),
+  };
   const stage: Column<ClientRow> = { key: "stage", label: "Stage", sort: "stage", mobile: "meta", render: (r) => <span className="whitespace-nowrap">{r.stageName}</span> };
   /** Whether they have a subscription running in Stripe, from the daily sync. */
   const billing: Column<ClientRow> = {
@@ -192,14 +197,15 @@ export function ClientsView({
   const health: Column<ClientRow> = { key: "health", label: "Health", mobile: "meta", mobileRender: (r) => (r.client.health ? <HealthBadge health={r.client.health} /> : null), render: (r) => (r.client.health ? <HealthBadge health={r.client.health} /> : <span className="text-faint">—</span>) };
   const stripe = connected.stripe ? [billing] : [];
 
-  // One order on every tab: who, who has it, what's next, what they pay for, how it's going, where it stands, since when.
+  // One order on every tab: who, who has it, who we talk to, what's next, what they pay for, how it's going, where it stands, since when.
   // Each tab puts its own "how it's going" and date in those places.
   const byCategory: Record<ClientCategory, Column<ClientRow>[]> = {
-    prospective: [name, owner, next, ...stripe, services, { key: "value", label: "Potential value", sort: "value", align: "right", mobile: "end", render: (r) => <span className="tabular-nums">{money(r.client.value)}</span> }, stage, date("expectedCloseDate", "Expected to sign", "expectedClose"), last],
-    current: [name, owner, next, ...stripe, services, health, stage, date("startedOn", "Client since", "startedOn"), last],
+    prospective: [name, owner, contact, next, ...stripe, services, { key: "value", label: "Potential value", sort: "value", align: "right", mobile: "end", render: (r) => <span className="tabular-nums">{money(r.client.value)}</span> }, stage, date("expectedCloseDate", "Expected to sign", "expectedClose"), last],
+    current: [name, owner, contact, next, ...stripe, services, health, stage, date("startedOn", "Client since", "startedOn"), last],
     past: [
       name,
       owner,
+      contact,
       next,
       ...stripe,
       services,
