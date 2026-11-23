@@ -18,10 +18,12 @@ import {
   UserIcon,
 } from "@heroicons/react/24/outline";
 import { searchEverything } from "@/actions/records";
+import { useApp } from "@/components/app-context";
 import { Kbd } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/button";
 import { appConfig } from "@/app.config";
 import { openAssistant } from "@/components/agent/agent-store";
+import { loadRecent, rememberRecent, type RecentKind, type RecentRecord } from "@/lib/recent-records";
 import { openCreate } from "./create-store";
 
 let open = false;
@@ -34,7 +36,13 @@ export const openPalette = () => setOpen(true);
 
 type Item = { id: string; group: string; label: string; detail?: string; icon: ComponentType<{ className?: string }>; run: () => void };
 
-/** ⌘K: find any person, organization or client, jump anywhere, or create something. */
+const recordKinds: Record<RecentKind, { path: string; icon: ComponentType<{ className?: string }> }> = {
+  client: { path: "/clients", icon: BriefcaseIcon },
+  person: { path: "/people", icon: UserIcon },
+  organization: { path: "/organizations", icon: BuildingOffice2Icon },
+};
+
+/** ⌘K: find any person, organization or client, jump anywhere, or create something. The last three records opened from it come first. */
 export function CommandPalette() {
   const isOpen = useSyncExternalStore(
     (l) => {
@@ -45,7 +53,9 @@ export function CommandPalette() {
     () => false,
   );
   const router = useRouter();
+  const { viewer } = useApp();
   const [q, setQ] = useState("");
+  const [recent, setRecent] = useState<RecentRecord[]>([]);
   const [results, setResults] = useState<Awaited<ReturnType<typeof searchEverything>> | null>(null);
   const [active, setActive] = useState(0);
   const [pending, start] = useTransition();
@@ -67,6 +77,16 @@ export function CommandPalette() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Recents are read when it opens, so another tab's searches show too. However it closed (Esc, or picking
+  // something, which closes it without onOpenChange), it opens empty, with the recents on top.
+  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect -- localStorage is only there in the browser, after mount */
+    if (isOpen) return setRecent(loadRecent(viewer.id));
+    setQ("");
+    setResults(null);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [isOpen, viewer.id]);
+
   useEffect(() => {
     const term = q.trim();
     if (!term) return;
@@ -79,9 +99,20 @@ export function CommandPalette() {
     router.push(href);
   };
 
+  // Opening a record from search remembers it for next time.
+  const openRecord = (r: RecentRecord) => () => {
+    setRecent(rememberRecent(viewer.id, r));
+    go(`${recordKinds[r.kind].path}/${r.id}`)();
+  };
+  const result = (kind: RecentKind, group: string, r: { id: string; label: string; detail?: string | null }): Item => {
+    const record: RecentRecord = { kind, id: r.id, label: r.label, ...(r.detail ? { detail: r.detail } : {}) };
+    return { id: `${kind[0]}${r.id}`, group, label: r.label, detail: r.detail ?? undefined, icon: recordKinds[kind].icon, run: openRecord(record) };
+  };
+
   const items = useMemo<Item[]>(() => {
     if (!q.trim()) {
       return [
+        ...recent.map((r) => ({ ...result(r.kind, "Recent", r), id: `recent-${r.kind}-${r.id}` })),
         { id: "new-client", group: "Create", label: "New client", icon: PlusIcon, run: () => (setOpen(false), openCreate({ kind: "client" })) },
         { id: "new-person", group: "Create", label: "New person", icon: PlusIcon, run: () => (setOpen(false), openCreate({ kind: "person" })) },
         { id: "new-org", group: "Create", label: "New organization", icon: PlusIcon, run: () => (setOpen(false), openCreate({ kind: "organization" })) },
@@ -101,15 +132,15 @@ export function CommandPalette() {
     if (!results) return [];
     const term = q.trim();
     return [
-      ...results.clients.map((r): Item => ({ id: `c${r.id}`, group: "Clients", label: r.label, detail: r.detail, icon: BriefcaseIcon, run: go(`/clients/${r.id}`) })),
-      ...results.people.map((r): Item => ({ id: `p${r.id}`, group: "People", label: r.label, detail: r.detail, icon: UserIcon, run: go(`/people/${r.id}`) })),
-      ...results.organizations.map((r): Item => ({ id: `o${r.id}`, group: "Organizations", label: r.label, detail: r.detail, icon: BuildingOffice2Icon, run: go(`/organizations/${r.id}`) })),
+      ...results.clients.map((r) => result("client", "Clients", r)),
+      ...results.people.map((r) => result("person", "People", r)),
+      ...results.organizations.map((r) => result("organization", "Organizations", r)),
       ...(appConfig.agent.enabled ? [{ id: "ask-term", group: "Agent", label: `Ask ${appConfig.agent.name} “${term}”`, icon: SparklesIcon, run: () => (setOpen(false), openAssistant(term)) }] : []),
       { id: "create-person", group: "Create", label: `New person “${term}”`, icon: PlusIcon, run: () => (setOpen(false), openCreate({ kind: "person", defaults: { firstName: term } })) },
       { id: "create-org", group: "Create", label: `New organization “${term}”`, icon: PlusIcon, run: () => (setOpen(false), openCreate({ kind: "organization", defaults: { name: term } })) },
     ];
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `go` only closes over the router
-  }, [q, results]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `go` and `result` only close over the router and the viewer
+  }, [q, results, recent]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- keep the highlight on the first result as results change
   useEffect(() => setActive(0), [items]);
@@ -122,13 +153,7 @@ export function CommandPalette() {
   return (
     <D.Root
       open={isOpen}
-      onOpenChange={(v) => {
-        setOpen(v);
-        if (!v) {
-          setQ("");
-          setResults(null);
-        }
-      }}
+      onOpenChange={setOpen}
     >
       <D.Portal>
         <D.Overlay className="fixed inset-0 z-50 animate-fade-in bg-overlay" />

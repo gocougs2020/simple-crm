@@ -167,20 +167,25 @@ export async function cancelAgentBatch(batchId: string): Promise<Result<{ stoppe
  * The AI snapshot at the top of a client, person or organization page,
  * rewritten first when it's missing or more than a day old. Anyone who can
  * read the record can ask; the snapshot is shared, so it's written once a day
- * however many people open the record.
+ * however many people open the record. `refresh` rewrites it now (the
+ * refresh button), with a tighter hourly limit since each one is paid for.
  */
-export async function recordSummary(entity: string, id: string): Promise<Result<Summary>> {
+export async function recordSummary(entity: string, id: string, refresh = false): Promise<Result<Summary>> {
   return run(async () => {
     const user = await actionCan("records:read");
     const which = z.enum(["client", "person", "organization"]).parse(entity);
     const recordId = z.uuid("That record doesn't exist.").parse(id);
+    const again = z.boolean().parse(refresh);
     if (!aiFeatures().summaries) throw new ActionError(aiOffMessage("summaries"));
     if ((await rateLimit("summary", user.id, { limit: 120, windowMs: 3600_000 })).limited) throw new ActionError("That's a lot of summaries this hour. Try again later.");
+    if (again && (await rateLimit("summary-refresh", user.id, { limit: 20, windowMs: 3600_000 })).limited) {
+      throw new ActionError("You've refreshed summaries 20 times this hour. The current one stays, and you can refresh again later.");
+    }
     try {
-      return await ensureSummary(which, recordId);
+      return await ensureSummary(which, recordId, { refresh: again });
     } catch (err) {
       console.error("[summary]", err);
-      throw new ActionError("The summary couldn't be written just now. It tries again the next time someone opens this page.");
+      throw new ActionError("The summary couldn't be written just now. Refresh to try again, or it tries again the next time someone opens this page.");
     }
   });
 }
