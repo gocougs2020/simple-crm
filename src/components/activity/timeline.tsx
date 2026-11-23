@@ -445,7 +445,9 @@ export function ActivityItem({ row, context, attachments, selection }: { row: Ac
               : `sent from ${row.inboxAddress ?? "an inbox"}`
             : row.campaignId
               ? "sent the campaign"
-              : a.emailId || a.inboxThreadId
+              : a.inboxThreadId && a.direction === "inbound"
+                ? "forwarded an email"
+                : a.emailId || a.inboxThreadId
                 ? "sent an email"
             : a.direction === "inbound"
               ? "logged an email received"
