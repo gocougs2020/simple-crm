@@ -258,9 +258,14 @@ export async function countStripeCustomers(f: MappingFilter) {
   return n(r?.n);
 }
 
-/** When the sync last copied an account, for the page to say how fresh it is. */
+/**
+ * When the daily sync last copied every connected account, for the page to
+ * say how fresh it is. A full run removes each customer it didn't see, so the
+ * oldest customer's stamp is when it ran; a single client looked up since only
+ * moves some of them forward. The least fresh account counts.
+ */
 export async function lastStripeSync() {
   const db = await getDb();
-  const [r] = rowsOf<{ at: Date | string | null }>(await db.execute(sql`select max(synced_at) as at from stripe_activity where ${connected(sql`account`)}`));
+  const [r] = rowsOf<{ at: Date | string | null }>(await db.execute(sql`select min(at) as at from (select min(synced_at) as at from stripe_customers where ${connected(sql`account`)} group by account) s`));
   return iso(r?.at ?? null);
 }
