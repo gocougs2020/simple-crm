@@ -61,13 +61,21 @@ export type IncomingPerson = Omit<MatchPerson, "id">;
 export class PersonMatcher {
   private byKey = new Map<string, string>();
   private byEmail = new Map<string, Set<string>>();
+  private names = new Map<string, { firstName: string; lastName: string | null }>();
   /** Add people in the order they should win a tie: the first one added for a key is the match. */
   constructor(people: MatchPerson[] = []) {
     for (const p of people) this.add(p);
   }
   add(p: MatchPerson) {
+    if (!this.names.has(p.id)) this.names.set(p.id, { firstName: p.firstName, lastName: p.lastName });
     for (const k of personMatchKeys(p)) if (!this.byKey.has(k)) this.byKey.set(k, p.id);
     for (const e of [p.email, ...(p.otherEmails ?? [])].map(emailKey).filter(Boolean)) this.byEmail.set(e, new Set([...(this.byEmail.get(e) ?? []), p.id]));
+  }
+  /** Someone matched to a person here, whose emails and phones that person now has too: later matches can use them, with that person's own name. */
+  extend(id: string, p: IncomingPerson) {
+    this.add({ ...p, id });
+    const name = this.names.get(id);
+    if (name) this.add({ ...p, ...name, id });
   }
   find(p: IncomingPerson): string | null {
     for (const k of personMatchKeys(p)) {

@@ -144,4 +144,4 @@ Pipedrive accounts collect duplicates. After importing, run `pnpm run dedupe` to
 pnpm import:pipedrive --reset --yes
 ```
 
-Removes the imported clients, people, organizations, notes, activities, email and custom fields, and the stages, services and deactivated teammates the import added when nothing else uses them.
+Removes the imported clients, people, organizations, notes, activities, email and custom fields, and the stages, services and deactivated teammates the import added when nothing else uses them. Records made in the CRM by hand that a `--new-only` run matched Pipedrive records to are kept.

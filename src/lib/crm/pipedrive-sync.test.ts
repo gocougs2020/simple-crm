@@ -75,6 +75,14 @@ describe("PersonMatcher", () => {
     assert.equal(here.find({ firstName: "Bob", lastName: null, email: null, phone: "555-010-2000" }), null);
     assert.equal(here.find({ firstName: "Ada", lastName: "Lovelace", email: null, phone: null }), null);
   });
+  it("finds a person by the emails and phones a match gave them, under their own name", () => {
+    const m = new PersonMatcher([{ id: "ada", firstName: "Ada", lastName: "Lovelace", email: "ada@acme.com", phone: null }]);
+    const incoming = { firstName: "Ada", lastName: "L.", email: "ada@acme.com", phone: "555-123-4567" };
+    assert.equal(m.find(incoming), "ada");
+    assert.equal(m.find({ firstName: "Ada", lastName: "Lovelace", email: null, phone: "555-123-4567" }), null);
+    m.extend("ada", incoming);
+    assert.equal(m.find({ firstName: "Ada", lastName: "Lovelace", email: null, phone: "555-123-4567" }), "ada");
+  });
   it("finds people added during the run", () => {
     here.add({ id: "new", firstName: "Grace", lastName: "Hopper", email: "grace@navy.mil", phone: null });
     assert.equal(here.find({ firstName: "Grace", lastName: "Hopper", email: "grace@navy.mil", phone: null }), "new");

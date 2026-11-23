@@ -131,6 +131,16 @@ class Links {
     }
     return { moved, dropped };
   }
+  /**
+   * Maps a Pipedrive record to one that's already here (--new-only matching). When the import didn't
+   * bring that record in (someone made it here), it's also marked "matched", so --reset leaves it alone.
+   */
+  async match(kind: string, id: PdId | string, localId: string) {
+    let imported = false;
+    for (const [key, l] of this.map) if (l === localId && key.startsWith(`${kind}:`)) imported = true;
+    if (!imported) this.add(`matched:${kind}`, localId, localId);
+    this.add(kind, id, localId);
+  }
   /** Forgets a mapping. */
   async remove(kind: string, id: PdId | string) {
     this.map.delete(`${kind}:${id}`);
@@ -424,6 +434,7 @@ async function runImport(db: Database) {
       fresh: (r) => fresh(personCreated.get(r.pd)),
       match: (r) => personMatcher.find(r.values),
       remember: (id, r) => personMatcher.add({ id, ...r.values }),
+      extend: (id, r) => personMatcher.extend(id, r.values),
     });
     log(`People: ${counts.created} added, ${counts.matched} matched to people already here`);
   } else {
@@ -516,7 +527,10 @@ async function runImport(db: Database) {
         const org = plan.orgId ? orgIds.get(plan.orgId) : null;
         const person = plan.personId ? personIds.get(plan.personId) : null;
         id = (org ? byRecord.get(`org:${org}`) : undefined) ?? (!org && person ? byRecord.get(`person:${person}`) : undefined) ?? null;
-        if (id) await links.save("client", plan.key, id);
+        if (id) {
+          await links.match("client", plan.key, id);
+          await links.flush();
+        }
       }
       if (id && existingClients.has(id)) {
         // Already a client here: the new deals join it, and its stage, category and fields stay as the team left them.
@@ -970,7 +984,14 @@ async function addNew<V extends Record<string, unknown>>(
   rows: { pd: PdId; values: V; createdAt: Date }[],
   actorId: string,
   ids: Map<PdId, string>,
-  o: { fresh: (r: { pd: PdId; values: V }) => boolean; match: (r: { pd: PdId; values: V }) => string | null; remember: (id: string, r: { pd: PdId; values: V }) => void },
+  o: {
+    fresh: (r: { pd: PdId; values: V }) => boolean;
+    match: (r: { pd: PdId; values: V }) => string | null;
+    /** A record this run added, for later records to match. */
+    remember: (id: string, r: { pd: PdId; values: V }) => void;
+    /** A record here that a match filled blanks on, for later records to match on what it gained. */
+    extend?: (id: string, r: { pd: PdId; values: V }) => void;
+  },
 ) {
   const table = kind === "organization" ? schema.organizations : schema.people;
   let created = 0;
@@ -984,10 +1005,14 @@ async function addNew<V extends Record<string, unknown>>(
     const isNew = o.fresh(r);
     const found = o.match(r);
     if (found) {
-      links.add(kind, r.pd, found);
+      await links.match(kind, r.pd, found);
       ids.set(r.pd, found);
       matched++;
-      if (isNew) await fillBlanks(db, kind, found, r.values);
+      if (isNew) {
+        await fillBlanks(db, kind, found, r.values);
+        // It now has this record's emails and phones too: later records in this run can match on them.
+        o.extend?.(found, r);
+      }
       continue;
     }
     if (!isNew) continue;
@@ -1172,7 +1197,9 @@ function printWindow(o: {
 /** Removes everything a Pipedrive import added. Records people created by hand since are left alone. */
 async function reset(db: Database) {
   const rows = await db.select().from(schema.externalIds).where(eq(schema.externalIds.source, SOURCE));
-  const of = (...kinds: string[]) => [...new Set(rows.filter((r) => kinds.includes(r.kind) || kinds.some((k) => k.endsWith("*") && r.kind.startsWith(k.slice(0, -1)))).map((r) => r.localId))];
+  // Records made here by hand that a --new-only run matched Pipedrive records to: the import didn't add them, so a reset keeps them.
+  const keep = new Set(rows.filter((r) => r.kind.startsWith("matched:")).map((r) => r.localId));
+  const of = (...kinds: string[]) => [...new Set(rows.filter((r) => kinds.includes(r.kind) || kinds.some((k) => k.endsWith("*") && r.kind.startsWith(k.slice(0, -1)))).map((r) => r.localId))].filter((id) => !keep.has(id));
   const del = async (ids: string[], fn: (batch: string[]) => Promise<unknown>) => {
     for (const batch of chunks(ids, 500)) await fn(batch);
   };
