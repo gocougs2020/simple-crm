@@ -138,6 +138,8 @@ export type StripeSubscription = {
   collection_method?: "charge_automatically" | "send_invoice";
   days_until_due?: number | null;
   default_payment_method?: string | { id: string } | null;
+  /** Payment collection paused in Stripe: the subscription stays active, but nothing is collected until `resumes_at` (or until someone resumes it). */
+  pause_collection?: { behavior: "keep_as_draft" | "mark_uncollectible" | "void"; resumes_at: number | null } | null;
   /** Expanded where the list asks for it: what was last billed, for discounts. */
   latest_invoice?: string | { id: string; subtotal?: number | null; total?: number | null; total_discount_amounts?: { amount: number }[] | null } | null;
   items: { data: { id: string; quantity: number | null; current_period_end?: number; price: StripePrice }[] };

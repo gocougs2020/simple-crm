@@ -48,7 +48,8 @@ export type NextCharge = {
  * The next time a subscription bills: when its current period (or trial)
  * ends, for the fixed price lines at the discount its latest invoice had.
  * Null when nothing more is billed: it's paused, ended, unpaid, or set to
- * cancel by then. Tax, proration and credits aren't counted, so it's an
+ * cancel by then, or its payment collection is paused past then (Stripe
+ * keeps such a subscription active). Tax, proration and credits aren't counted, so it's an
  * estimate, not Stripe's upcoming invoice.
  */
 export function nextCharge(s: {
@@ -57,6 +58,7 @@ export function nextCharge(s: {
   trial_end: number | null;
   cancel_at: number | null;
   cancel_at_period_end: boolean;
+  pause_collection?: { resumes_at: number | null } | null;
   discountShare: number;
   items: { quantity: number | null; price: { unit_amount: number | null; recurring: Recurring } }[];
 }): NextCharge | null {
@@ -65,6 +67,7 @@ export function nextCharge(s: {
   if (!at) return null;
   if (s.cancel_at_period_end && (!s.periodEnd || at >= s.periodEnd)) return null;
   if (s.cancel_at && s.cancel_at <= at) return null;
+  if (s.pause_collection && (!s.pause_collection.resumes_at || s.pause_collection.resumes_at > at)) return null;
   const fixed = s.items.filter((i) => i.price.unit_amount != null && i.price.recurring?.usage_type !== "metered");
   const partial = fixed.length < s.items.length;
   if (!fixed.length) return { at, amount: null, partial };

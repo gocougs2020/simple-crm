@@ -171,6 +171,12 @@ describe("The next charge of a subscription", () => {
     assert.equal(nextCharge({ ...base, periodEnd: null }), null);
   });
 
+  it("is nothing while payment collection is paused, unless it resumes first", () => {
+    assert.equal(nextCharge({ ...base, pause_collection: { resumes_at: null } }), null);
+    assert.equal(nextCharge({ ...base, pause_collection: { resumes_at: 3_000 } }), null);
+    assert.equal(nextCharge({ ...base, pause_collection: { resumes_at: 1_500 } })?.at, 2_000);
+  });
+
   it("says when usage-based lines aren't in the amount", () => {
     const metered = { quantity: 1, price: { unit_amount: 10, recurring: { ...monthly, usage_type: "metered" } } };
     assert.deepEqual(nextCharge({ ...base, items: [...base.items, metered] }), { at: 2_000, amount: 10_000, partial: true });
