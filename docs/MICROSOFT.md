@@ -31,7 +31,7 @@ Each teammate can connect their own Microsoft 365 mailbox and calendar (Outlook 
 
 5. Each teammate opens **Settings → Email and calendar → Connect Microsoft account**.
 
-The cron (`/api/cron/microsoft`, every quarter hour in `vercel.json`) does the syncing; it skips the quarter hours that don't fit `microsoft.syncEveryMinutes`, so 30 or 60 lets Neon sleep longer.
+The cron dispatcher (`/api/cron/tick`, every quarter hour in `vercel.json`, see `src/lib/cron-tick.ts`) does the syncing: it runs the Microsoft 365 sync on the quarter hours that fit `microsoft.syncEveryMinutes` and skips the rest, so 30 or 60 lets Neon sleep longer. `/api/cron/microsoft` runs the same sync when called by hand with the cron secret (`?force` syncs whatever the time); it has no schedule of its own.
 
 ## Settings (per deployment)
 
