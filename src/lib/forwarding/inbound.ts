@@ -207,6 +207,39 @@ const dnsLookup = async (name: string) => {
   }
 };
 
+/**
+ * Whether an email Resend received was provably sent by this address: its
+ * only From line is that address, and the sending domain signed it (DKIM
+ * aligned with the From domain, or DMARC passing at a receiver this
+ * deployment trusts), the same proof forwarding asks for. Used to credit mail
+ * a teammate forwarded into a team inbox to them. Anything that can't be
+ * checked (Resend or DNS not answering, no raw message) is false, so mail
+ * is never credited on a From line alone.
+ */
+export async function provenSender(resendEmailId: string, address: string): Promise<boolean> {
+  try {
+    const resend = getResend();
+    if (!resend) return false;
+    const { data: email } = await resend.emails.receiving.get(resendEmailId);
+    const raw = email?.raw?.download_url ? await fetchRaw(email.raw.download_url) : null;
+    if (!raw) return false;
+    const headers = splitMessage(raw).headers.map((h) => ({ name: h.name, value: headerValue(h) }));
+    const fromLines = headers.filter((h) => h.name === "from");
+    const from = fromLines.length === 1 ? fromAddresses(fromLines[0].value) : [];
+    if (from.length !== 1 || from[0] !== address.toLowerCase()) return false;
+    const sender = checkSender({
+      fromDomain: from[0].split("@")[1] ?? "",
+      dkim: await verifyDkim(raw, dnsLookup),
+      authResults: headers.filter((h) => h.name === "authentication-results").map((h) => h.value),
+      trusted: trustedAuthservIds(),
+    });
+    return sender.ok;
+  } catch (err) {
+    console.error("[inbox] couldn't check who sent", resendEmailId, (err as Error).message);
+    return false;
+  }
+}
+
 async function processForward(row: Forward, hit: { conversationKey: string | null }, user: User) {
   const db = await getDb();
   // No limit before the checks: anything that refuses unproven mail would let forged mail lock real senders out.

@@ -11,7 +11,7 @@ import { htmlToText, sanitizeHtml } from "@/lib/safe-html";
 import { deliveryEvents } from "./delivery-status";
 import { forwardedAddresses, linkAddresses } from "./forwarded";
 import { inboundEmail } from "@/lib/push/triggers";
-import { forwardingAvailability } from "@/lib/forwarding/inbound";
+import { forwardingAvailability, provenSender } from "@/lib/forwarding/inbound";
 
 const { inboxThreads, inboxMessages, inboxSends, activities, outboundEmails } = schema;
 
@@ -261,9 +261,10 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
         continue;
       }
     }
-    // Credit only, by the From line: Resend's inbox API doesn't say whether the sender was authenticated, so
-    // a forged From is possible (it was already shown as the sender). Nothing else follows from it: no assignee.
-    const forwardedBy = fromTeammate(m);
+    // Credited to the teammate only when their domain's signature proves they sent it: a From line alone can be
+    // forged, and credit makes it read as their own action. Unproven, it stays mail that arrived, as before.
+    const teammate = activityId ? null : fromTeammate(m);
+    const forwardedBy = teammate && (await provenSender(m.id, address(m.from))) ? teammate : null;
     if (!activityId) {
       const [a] = await db
         .insert(activities)
