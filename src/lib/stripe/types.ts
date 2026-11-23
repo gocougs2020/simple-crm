@@ -1,5 +1,7 @@
 /** What the billing card gets from the server. Free of server-only imports so the browser can share the types. */
 
+import type { NextCharge } from "./rules";
+
 export type SubStatus = "active" | "past_due" | "unpaid" | "canceled" | "incomplete" | "incomplete_expired" | "trialing" | "paused";
 
 /** One Stripe customer on a client, trimmed to what the page shows (src/lib/stripe/client-billing.ts). */
@@ -30,6 +32,8 @@ export type CustomerBilling = {
     /** Monthly amount at list price, and what discounts take off it. */
     monthly: number;
     discount: number;
+    /** What it bills next and when, inferred from its period and prices (`nextCharge`); null when nothing more is billed. */
+    next: NextCharge | null;
     items: { id: string; priceId: string; productId: string; name: string; amount: number | null; quantity: number; currency: string; interval: string | null; intervalCount: number }[];
   }[];
   invoices: { id: string; number: string | null; status: "draft" | "open" | "paid" | "uncollectible" | "void" | null; overdue: boolean; total: number; discount: number; remaining: number; currency: string; created: number; dueDate: number | null; url: string | null; pdf: string | null }[];

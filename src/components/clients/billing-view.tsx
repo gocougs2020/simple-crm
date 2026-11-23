@@ -2,8 +2,9 @@
 
 import { useState, useTransition, type ReactNode } from "react";
 import clsx from "clsx";
-import { ArrowPathIcon, ArrowTopRightOnSquareIcon, BanknotesIcon, DocumentTextIcon, EllipsisHorizontalIcon, LinkIcon, PencilSquareIcon, PlusIcon, XCircleIcon } from "@heroicons/react/20/solid";
+import { ArrowPathIcon, ArrowTopRightOnSquareIcon, BanknotesIcon, CalendarDaysIcon, DocumentTextIcon, EllipsisHorizontalIcon, LinkIcon, PencilSquareIcon, PlusIcon, XCircleIcon } from "@heroicons/react/20/solid";
 import { keepStripeSubscription } from "@/actions/billing";
+import { Segmented } from "@/components/activity/composer";
 import { findStripeCustomers, linkStripeCustomer, refreshStripe, removeStripeCustomer } from "@/actions/clients";
 import { useApp } from "@/components/app-context";
 import { SideCard } from "@/components/records/inline-field";
@@ -194,15 +195,24 @@ function Block({ title, count, action, children }: { title: string; count?: numb
   );
 }
 
-/** One subscription as a card: what it is, what it bills, when it started and ends, and what an admin can do with it. */
+/** How a subscription is paid: "Charges Visa ···· 4242", or "Invoiced, due in 30 days". */
+function methodOf(s: Sub, c: CustomerBilling) {
+  if (s.collection === "send_invoice") return `Invoiced, due in ${s.daysUntilDue ?? 30} days`;
+  const m = c.paymentMethods?.find((x) => (s.paymentMethod ? x.id === s.paymentMethod : x.isDefault));
+  return m ? `Charges ${m.label}` : "Charges automatically";
+}
+
+/** "Next charge", or "First charge" at the end of a trial, or "Next invoice" for one that's invoiced. */
+const nextLabel = (s: Sub) => (s.collection === "send_invoice" ? "Next invoice" : s.status === "trialing" ? "First charge" : "Next charge");
+/** The next charge's amount, or what's left to work out when part of it is usage based. */
+const nextAmount = (s: Sub) => (!s.next ? "" : s.next.amount == null ? "Usage based" : `${money(s.next.amount, s.currency)}${s.next.partial ? " + usage" : ""}`);
+
+/** One subscription as a card: what it is, what it bills, when it started and ends, when it bills next, and what an admin can do with it. */
 function SubscriptionCard({ s, c, isAdmin, onEdit, onCancel, onKeep, busy }: { s: Sub; c: CustomerBilling; isAdmin: boolean; onEdit: () => void; onCancel: () => void; onKeep: () => void; busy: boolean }) {
   const ends = cancelsAt(s);
   const ended = isEnded(s);
   const url = c.dashboardUrl.replace(/customers\/[^/]+$/, `subscriptions/${s.id}`);
-  const method = s.collection === "send_invoice" ? `Invoiced, due in ${s.daysUntilDue ?? 30} days` : (() => {
-    const m = c.paymentMethods?.find((x) => (s.paymentMethod ? x.id === s.paymentMethod : x.isDefault));
-    return m ? `Charges ${m.label}` : "Charges automatically";
-  })();
+  const method = methodOf(s, c);
   return (
     <li className={clsx("flex flex-col gap-2 rounded-xl border p-3.5 text-[13px]", ended ? "border-line bg-sunken/60" : ends ? "border-warning-border" : "border-line")}>
       <div className="flex items-start gap-2">
@@ -258,6 +268,16 @@ function SubscriptionCard({ s, c, isAdmin, onEdit, onCancel, onKeep, busy }: { s
         </div>
       </dl>
 
+      {s.next ? (
+        <div className="flex items-center gap-2 rounded-lg bg-sunken px-2.5 py-2 text-[12px] tabular-nums">
+          <CalendarDaysIcon className="size-3.5 shrink-0 text-faint" aria-hidden />
+          <span className="min-w-0 flex-1 truncate">
+            <span className="text-muted">{nextLabel(s)} </span>
+            <span className="font-medium text-primary">{day(s.next.at)}</span>
+          </span>
+          <span className="shrink-0 font-semibold text-primary">{nextAmount(s)}</span>
+        </div>
+      ) : null}
       {s.status === "trialing" && s.trialEnd ? <p className="text-[12px] text-info">Free trial until {day(s.trialEnd)}</p> : null}
       {!ended ? <p className="truncate text-[12px] text-muted">{method}</p> : null}
 
@@ -277,16 +297,27 @@ function SubscriptionCard({ s, c, isAdmin, onEdit, onCancel, onKeep, busy }: { s
 
 type HistoryRow = {
   id: string;
-  kind: "invoice" | "payment";
+  kind: "invoice" | "payment" | "scheduled";
+  /** Which of the invoices and payments views it shows in. A scheduled charge makes an invoice, and a payment when it's charged automatically. */
+  shows: HistoryView[];
   created: number;
   title: string;
   detail: ReactNode;
   status: { label: string; tone: Tone } | null;
-  amount: number;
+  /** Null for a scheduled charge that's all usage based. */
+  amount: number | null;
   owed: number | null;
   currency: string;
   links: { label: string; href: string }[];
 };
+
+type HistoryView = "all" | "invoice" | "payment";
+const historyViews: { value: HistoryView; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "invoice", label: "Invoices" },
+  { value: "payment", label: "Payments" },
+];
+const kindLabel: Record<HistoryRow["kind"], string> = { invoice: "Invoice", payment: "Payment", scheduled: "Scheduled" };
 
 const invoiceStatus = (i: CustomerBilling["invoices"][number]): HistoryRow["status"] => {
   if (!i.status) return null;
@@ -311,6 +342,7 @@ function historyOf(c: CustomerBilling): HistoryRow[] {
     (i): HistoryRow => ({
       id: i.id,
       kind: "invoice",
+      shows: ["all", "invoice"],
       created: i.created,
       title: i.number ?? "Invoice",
       detail: [i.discount ? `${money(i.discount, i.currency)} off` : null, i.status === "open" && i.dueDate ? `due ${day(i.dueDate)}` : null].filter(Boolean).join(" · "),
@@ -325,6 +357,7 @@ function historyOf(c: CustomerBilling): HistoryRow[] {
     (x): HistoryRow => ({
       id: x.id,
       kind: "payment",
+      shows: ["all", "payment"],
       created: x.created,
       title: x.method ?? "Payment",
       detail: x.status === "failed" && x.failure ? <span className="text-error">{x.failure}</span> : (x.description ?? ""),
@@ -338,10 +371,39 @@ function historyOf(c: CustomerBilling): HistoryRow[] {
   return [...invoices, ...payments].sort((a, b) => b.created - a.created);
 }
 
+/**
+ * The next charge of each subscription still billing, soonest first, for the
+ * top of the history. Worked out from the subscription, so they're estimates:
+ * nothing is scheduled in Stripe until the invoice is made.
+ */
+function scheduledOf(c: CustomerBilling): HistoryRow[] {
+  const credit = Math.max(0, -c.customer.balance);
+  return c.subscriptions
+    .filter((s) => s.next)
+    .map((s): HistoryRow => {
+      const next = s.next!;
+      return {
+        id: `next:${s.id}`,
+        kind: "scheduled",
+        shows: s.collection === "send_invoice" ? ["all", "invoice"] : ["all", "invoice", "payment"],
+        created: next.at,
+        title: subName(s, true),
+        detail: [`${nextLabel(s)} · ${methodOf(s, c)}`, next.partial ? "plus usage" : null, credit ? `${money(credit, c.customer.currency ?? s.currency)} credit applies first` : null].filter(Boolean).join(" · "),
+        status: { label: "Scheduled", tone: "info" },
+        amount: next.amount,
+        owed: null,
+        currency: s.currency,
+        links: [],
+      };
+    })
+    .sort((a, b) => a.created - b.created);
+}
+
 /** Everything about each customer: who they are in Stripe, every subscription, saved cards and payment methods, and their billing history. */
 function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClose }: { clientId: string; customers: CustomerBilling[]; several: boolean; canEdit: boolean; isAdmin: boolean; onClose: () => void }) {
   const [shown, setShown] = useState(0);
   const [allHistory, setAllHistory] = useState(false);
+  const [view, setView] = useState<HistoryView>("all");
   const [editing, setEditing] = useState<Sub | null>(null);
   const [canceling, setCanceling] = useState<Sub | null>(null);
   const [creating, setCreating] = useState(false);
@@ -351,7 +413,11 @@ function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClos
   const c = customers[index];
   const label = (x: CustomerBilling) => x.customer.name ?? x.customer.email ?? x.customer.id;
   const history = historyOf(c);
-  const rows = allHistory ? history : history.slice(0, 15);
+  const scheduled = scheduledOf(c).filter((r) => r.shows.includes(view));
+  const past = history.filter((r) => r.shows.includes(view));
+  const rows = [...scheduled, ...(allHistory ? past : past.slice(0, 15))];
+  // The customer's default card or bank account always comes first.
+  const methods = c.paymentMethods ? [...c.paymentMethods].sort((a, b) => Number(b.isDefault) - Number(a.isDefault)) : null;
   const currency = c.customer.currency ?? c.invoices[0]?.currency ?? null;
   const open = c.invoices.filter((i) => i.status === "open");
   const overdue = overdueOf(c.invoices);
@@ -393,6 +459,7 @@ function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClos
               onClick={() => {
                 setShown(i);
                 setAllHistory(false);
+                setView("all");
               }}
               className={i === index ? "rounded-full bg-accent px-3 py-1 text-[12.5px] font-medium text-accent-foreground" : "rounded-full bg-sunken px-3 py-1 text-[12.5px] font-medium text-secondary hover:text-primary"}
             >
@@ -467,12 +534,12 @@ function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClos
           )}
         </Block>
 
-        <Block title="Saved cards and payment methods" count={c.paymentMethods?.length}>
-          {c.paymentMethods === null ? (
+        <Block title="Saved cards and payment methods" count={methods?.length}>
+          {methods === null ? (
             <p className="text-[13px] text-muted">This Stripe key can&apos;t read payment methods. Give it read access to Payment Methods to see saved cards here.</p>
-          ) : c.paymentMethods.length ? (
+          ) : methods.length ? (
             <ul className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
-              {c.paymentMethods.map((m) => (
+              {methods.map((m) => (
                 <PaymentCard key={m.id} m={m} />
               ))}
             </ul>
@@ -481,8 +548,8 @@ function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClos
           )}
         </Block>
 
-        <Block title="Invoices and payments" count={history.length}>
-          {history.length ? (
+        <Block title="Invoices and payments" count={history.length} action={history.length || scheduled.length ? <Segmented value={view} onChange={setView} options={historyViews} /> : null}>
+          {rows.length ? (
             <>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-[13px]">
@@ -501,12 +568,12 @@ function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClos
                   </thead>
                   <tbody className="divide-y divide-line">
                     {rows.map((r) => (
-                      <tr key={r.id}>
+                      <tr key={r.id} className={r.kind === "scheduled" ? "bg-info-surface/50" : undefined}>
                         <td className="py-1.5 pr-3 whitespace-nowrap text-muted tabular-nums">{day(r.created)}</td>
                         <td className="py-1.5 pr-3 whitespace-nowrap">
                           <span className="inline-flex items-center gap-1 text-[12px] font-medium text-secondary">
-                            {r.kind === "invoice" ? <DocumentTextIcon className="size-3.5 text-faint" aria-hidden /> : <BanknotesIcon className="size-3.5 text-faint" aria-hidden />}
-                            {r.kind === "invoice" ? "Invoice" : "Payment"}
+                            {r.kind === "invoice" ? <DocumentTextIcon className="size-3.5 text-faint" aria-hidden /> : r.kind === "payment" ? <BanknotesIcon className="size-3.5 text-faint" aria-hidden /> : <CalendarDaysIcon className="size-3.5 text-info" aria-hidden />}
+                            {kindLabel[r.kind]}
                           </span>
                         </td>
                         <td className="max-w-72 py-1.5 pr-3">
@@ -514,7 +581,7 @@ function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClos
                           {r.detail ? <span className="block truncate text-[12px] text-muted">{r.detail}</span> : null}
                         </td>
                         <td className="py-1.5 pr-3">{r.status ? <StatusBadge tone={r.status.tone}>{r.status.label}</StatusBadge> : null}</td>
-                        <td className="py-1.5 pr-3 text-right text-primary tabular-nums">{money(r.amount, r.currency)}</td>
+                        <td className="py-1.5 pr-3 text-right text-primary tabular-nums">{r.amount == null ? <span className="text-muted">Usage based</span> : money(r.amount, r.currency)}</td>
                         <td className="py-1.5 pr-3 text-right tabular-nums">{r.owed ? money(r.owed, r.currency) : <span className="text-faint">—</span>}</td>
                         <td className="py-1.5 text-right whitespace-nowrap">
                           {r.links.map((l, i) => (
@@ -528,15 +595,16 @@ function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClos
                   </tbody>
                 </table>
               </div>
-              {history.length > rows.length ? (
+              {scheduled.length ? <p className="mt-1.5 text-[12px] text-muted">Scheduled charges are worked out from each subscription&apos;s period, price and discount. Tax and usage aren&apos;t included until Stripe makes the invoice.</p> : null}
+              {past.length > rows.length - scheduled.length ? (
                 <Button size="sm" variant="ghost" className="mt-1 -ml-2 text-muted" onClick={() => setAllHistory(true)}>
-                  Show all {history.length}
+                  Show all {past.length}
                 </Button>
               ) : null}
               {c.invoices.length >= 60 || c.charges.length >= 25 ? <p className="mt-1 text-[12px] text-muted">The latest 60 invoices and 25 payments. Open the customer in Stripe for older ones.</p> : null}
             </>
           ) : (
-            <p className="text-[13px] text-muted">No invoices or payments yet.</p>
+            <p className="text-[13px] text-muted">{history.length ? `No ${view === "invoice" ? "invoices" : "payments"} yet. Switch to All to see everything.` : "No invoices or payments yet."}</p>
           )}
         </Block>
       </div>

@@ -75,6 +75,97 @@ export function sanitizeHtml(input: string | null | undefined): string {
   return out.join("").trim();
 }
 
+const SIGNATURE_ALLOWED = new Set(["p", "br", "strong", "em", "u", "s", "a", "ul", "ol", "li", "hr", "span", "img"]);
+const SIGNATURE_VOID = new Set(["br", "hr", "img"]);
+
+/** Only a color and a font size survive on a span: `color:#1f2937` or `rgb(…)`, `font-size:14px`. */
+function signatureStyle(attrs: string) {
+  const raw = /\bstyle\s*=\s*("([^"]*)"|'([^']*)')/i.exec(attrs);
+  if (!raw) return "";
+  const kept: string[] = [];
+  for (const rule of decodeEntities(raw[2] ?? raw[3] ?? "").split(";")) {
+    const [prop, ...rest] = rule.split(":");
+    const name = prop?.trim().toLowerCase();
+    const value = rest.join(":").trim().toLowerCase();
+    if (name === "color" && /^(#[0-9a-f]{3,8}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(,\s*(0|1|0?\.\d+)\s*)?\))$/.test(value)) kept.push(`color:${value.replace(/\s+/g, "")}`);
+    if (name === "font-size" && /^\d{1,2}px$/.test(value) && Number.parseInt(value) >= 8) kept.push(`font-size:${value}`);
+  }
+  return kept.join(";");
+}
+
+/** An image's address: http(s) only, never data: or javascript:, so it loads in every inbox and carries nothing. */
+function imageSrc(attrs: string) {
+  const raw = /\bsrc\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
+  const src = raw ? decodeEntities(raw[2] ?? raw[3] ?? raw[4] ?? "").trim() : "";
+  return /^https?:\/\/[^\s"'<>]+$/i.test(src) ? src : null;
+}
+
+const attr = (attrs: string, name: string) => {
+  const raw = new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`, "i").exec(attrs);
+  return raw ? decodeEntities(raw[2] ?? raw[3] ?? raw[4] ?? "") : null;
+};
+
+/**
+ * Allow-list sanitizer for a teammate's email signature. Like `sanitizeHtml`,
+ * everything is rebuilt from scratch, with a little more allowed because a
+ * signature is about how it looks: images (http(s) only, with a size and
+ * alt text), and a color and font size on text. No other attribute or style
+ * survives.
+ */
+export function sanitizeSignatureHtml(input: string | null | undefined): string {
+  if (!input) return "";
+  const html = input.replace(/<!--[\s\S]*?-->/g, "").replace(DROP_CONTENT, "");
+  const out: string[] = [];
+  const open: string[] = [];
+  const tag = /<\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9]*)([^>]*)>/g;
+  let last = 0;
+  for (const m of html.matchAll(tag)) {
+    out.push(escapeText(html.slice(last, m.index)));
+    last = m.index + m[0].length;
+    const closing = !!m[1];
+    const lower = m[2].toLowerCase();
+    const name = lower === "b" ? "strong" : lower === "i" ? "em" : lower === "div" ? "p" : lower;
+    if (!SIGNATURE_ALLOWED.has(name)) continue;
+    if (closing) {
+      const at = open.lastIndexOf(name);
+      if (at < 0) continue;
+      while (open.length > at) out.push(`</${open.pop()}>`);
+      continue;
+    }
+    if (name === "img") {
+      const src = imageSrc(m[3]);
+      if (!src) continue;
+      const size = (n: string) => {
+        const v = Number.parseInt(attr(m[3], n) ?? "", 10);
+        return v > 0 && v <= 1200 ? ` ${n}="${v}"` : "";
+      };
+      const alt = attr(m[3], "alt");
+      out.push(`<img src="${escapeAttr(src)}" alt="${escapeAttr(alt ?? "")}"${size("width")}${size("height")}>`);
+      continue;
+    }
+    if (SIGNATURE_VOID.has(name)) {
+      out.push(`<${name}>`);
+      continue;
+    }
+    if (name === "a") {
+      const href = safeHref(attr(m[3], "href") ?? "");
+      out.push(href && !href.startsWith("/") ? `<a href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">` : "<a>");
+    } else if (name === "span") {
+      const style = signatureStyle(m[3]);
+      out.push(style ? `<span style="${escapeAttr(style)}">` : "<span>");
+    } else {
+      out.push(`<${name}>`);
+    }
+    open.push(name);
+  }
+  out.push(escapeText(html.slice(last)));
+  while (open.length) out.push(`</${open.pop()}>`);
+  return out.join("").trim();
+}
+
+/** Whether a signature has anything in it: words or an image. */
+export const signatureHasContent = (html: string | null | undefined) => !!html && (!!htmlToText(html) || /<img\s/i.test(html));
+
 /** Plain text from rich text HTML, for previews, search and validation. */
 export function htmlToText(html: string | null | undefined) {
   if (!html) return "";

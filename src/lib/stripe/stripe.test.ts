@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseStripeAccounts } from "./accounts";
 import { changeSubscriptionForm, newSubscriptionForm, per, toCents } from "./changes";
-import { collected, discountShare, monthlyAmount, netMonthly, perMonth, rollUpStatus } from "./rules";
+import { collected, discountShare, monthlyAmount, netMonthly, nextCharge, perMonth, rollUpStatus } from "./rules";
 
 describe("Stripe accounts from the environment", () => {
   it("reads one account per STRIPE_SECRET_KEY variable, named by its suffix", () => {
@@ -147,5 +147,39 @@ describe("Subscription changes as Stripe forms", () => {
     assert.equal(toCents("abc"), null);
     assert.equal(per("month", 3), "/3 months");
     assert.equal(per("year"), "/year");
+  });
+});
+
+describe("The next charge of a subscription", () => {
+  const monthly = { interval: "month" as const, interval_count: 1 };
+  const base = { status: "active", periodEnd: 2_000, trial_end: null, cancel_at: null, cancel_at_period_end: false, discountShare: 0, items: [{ quantity: 2, price: { unit_amount: 5_000, recurring: monthly } }] };
+
+  it("is the end of the period, for the fixed lines after the discount", () => {
+    assert.deepEqual(nextCharge(base), { at: 2_000, amount: 10_000, partial: false });
+    assert.deepEqual(nextCharge({ ...base, discountShare: 0.25 }), { at: 2_000, amount: 7_500, partial: false });
+  });
+
+  it("is the end of the trial while trialing", () => {
+    assert.equal(nextCharge({ ...base, status: "trialing", trial_end: 1_500 })?.at, 1_500);
+  });
+
+  it("is nothing when it's paused, ended, unpaid or cancels first", () => {
+    for (const status of ["paused", "canceled", "unpaid", "incomplete"]) assert.equal(nextCharge({ ...base, status }), null);
+    assert.equal(nextCharge({ ...base, cancel_at_period_end: true }), null);
+    assert.equal(nextCharge({ ...base, cancel_at: 2_000 }), null);
+    assert.equal(nextCharge({ ...base, cancel_at: 5_000 })?.at, 2_000);
+    assert.equal(nextCharge({ ...base, periodEnd: null }), null);
+  });
+
+  it("is nothing while payment collection is paused, unless it resumes first", () => {
+    assert.equal(nextCharge({ ...base, pause_collection: { resumes_at: null } }), null);
+    assert.equal(nextCharge({ ...base, pause_collection: { resumes_at: 3_000 } }), null);
+    assert.equal(nextCharge({ ...base, pause_collection: { resumes_at: 1_500 } })?.at, 2_000);
+  });
+
+  it("says when usage-based lines aren't in the amount", () => {
+    const metered = { quantity: 1, price: { unit_amount: 10, recurring: { ...monthly, usage_type: "metered" } } };
+    assert.deepEqual(nextCharge({ ...base, items: [...base.items, metered] }), { at: 2_000, amount: 10_000, partial: true });
+    assert.deepEqual(nextCharge({ ...base, items: [metered] }), { at: 2_000, amount: null, partial: true });
   });
 });

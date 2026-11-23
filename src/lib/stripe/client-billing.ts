@@ -1,6 +1,6 @@
 import "server-only";
 import { cachedBillingFor, type Billing } from "@/lib/stripe";
-import { brandName, monthlyAmount, netMonthly } from "./rules";
+import { brandName, monthlyAmount, netMonthly, nextCharge } from "./rules";
 import { customersOfClient, syncClient } from "./sync";
 import type { CustomerBilling } from "./types";
 
@@ -35,6 +35,7 @@ function slim(b: Billing, c: { matchedEmail: string | null; byHand: boolean; col
       paymentMethod: typeof s.default_payment_method === "object" ? (s.default_payment_method?.id ?? null) : (s.default_payment_method ?? null),
       monthly: monthlyAmount(s.items),
       discount: monthlyAmount(s.items) - netMonthly(monthlyAmount(s.items), s.discountShare),
+      next: nextCharge(s),
       items: s.items.map((i) => ({ id: i.id, priceId: i.price.id, productId: i.price.product, name: i.name, amount: i.price.unit_amount, quantity: i.quantity ?? 1, currency: i.price.currency, interval: i.price.recurring?.interval ?? null, intervalCount: i.price.recurring?.interval_count ?? 1 })),
     })),
     invoices: b.invoices.map((i) => ({ id: i.id, number: i.number, status: i.status, overdue: i.overdue, total: i.total, discount: (i.total_discount_amounts ?? []).reduce((sum, d) => sum + d.amount, 0), remaining: i.amount_remaining, currency: i.currency, created: i.created, dueDate: i.due_date, url: i.hosted_invoice_url, pdf: i.invoice_pdf ?? null })),

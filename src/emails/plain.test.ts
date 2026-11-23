@@ -23,4 +23,10 @@ describe("plainEmailHtml", () => {
     assert.ok(out.includes("<div>Jordan Lee<br>Sales &lt;Acme&gt;</div>"));
     assert.ok(!plainEmailHtml("<p>Thanks</p>", "  ").includes("<div></div>"));
   });
+
+  it("adds a teammate's own signature as HTML, with tight lines and sized images", () => {
+    const out = plainEmailHtml("<p>Thanks</p>", { html: `<p><strong>Jordan</strong></p><p></p><p><img src="https://acme.com/a.png" alt="" width="120"></p>` });
+    assert.ok(out.includes(`<div><p style="margin:0"><strong>Jordan</strong></p><p style="margin:0">&nbsp;</p><p style="margin:0"><img src="https://acme.com/a.png" alt="" width="120" style="border:0;max-width:100%;height:auto"></p></div>`));
+    assert.ok(!plainEmailHtml("<p>Thanks</p>", { html: " " }).includes("<div></div>"));
+  });
 });

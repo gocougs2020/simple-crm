@@ -8,6 +8,7 @@ import { accountOf } from "@/lib/microsoft/graph";
 import { mailboxStats, teamConnections } from "@/lib/microsoft/mail";
 import { screeningOn } from "@/lib/microsoft/screen";
 import { aiGatewayAvailable } from "@/lib/agent/config";
+import { emailBrand } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "Email and calendar" };
 
@@ -27,6 +28,7 @@ async function Accounts({ searchParams }: Pick<PageProps<"/settings/accounts">, 
   const stats = account ? await mailboxStats(account.id) : null;
   // Owners see who's connected and can cut a connection; nothing of anyone's mail.
   const team = configured && user.role === "owner" ? await teamConnections() : null;
+  const workspaceSignature = configured ? !!(await emailBrand()).signature?.trim() : false;
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? null;
   return (
     <AccountSettings
@@ -51,6 +53,7 @@ async function Accounts({ searchParams }: Pick<PageProps<"/settings/accounts">, 
       }
       stats={stats}
       team={team ? team.filter((c) => c.userId !== user.id).map((c) => ({ ...c, lastSyncAt: c.lastSyncAt?.toISOString() ?? null })) : null}
+      signature={{ html: user.emailSignature ?? "", auto: user.signatureAuto, workspace: workspaceSignature }}
       sync={{ everyMinutes: syncEveryMinutes(), screening: screeningOn(), screenReady: aiGatewayAvailable(), category: withheldCategory() }}
       notice={{ connected: one(params.connected), error: one(params.error) }}
     />

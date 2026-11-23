@@ -92,7 +92,7 @@ export function BrandSettings({ brand }: { brand: BrandKit }) {
           <Field label="Postal address" hint="Required by law (CAN-SPAM) in marketing email. Shown in every email footer.">
             {(p) => <Textarea {...p} value={kit.postalAddress} onChange={set("postalAddress")} rows={2} placeholder="123 Main St, Boise, ID 83702" />}
           </Field>
-          <Field label="Signature" optional hint="Added under one-off emails. {{sender_name}} and {{sender_title}} fill in for whoever sends.">
+          <Field label="Signature" optional hint="Added under one-off emails. {{sender_name}} and {{sender_title}} fill in for whoever sends. Teammates who write their own in Email and calendar use theirs on email from their Outlook.">
             {(p) => <Textarea {...p} value={kit.signature} onChange={set("signature")} rows={3} placeholder={"{{sender_name}}\n{{sender_title}}\nAcme · (208) 555-0100"} className="font-mono text-[13px]" />}
           </Field>
           <div className="flex justify-end">

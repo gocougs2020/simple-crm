@@ -75,6 +75,10 @@ export const users = pgTable(
     role: text("role").$type<UserRole>().notNull().default("member"),
     title: text("title"),
     prefs: jsonb("prefs").$type<UserPrefs>().notNull().default({}),
+    /** Their own email signature, as sanitized HTML (`sanitizeSignatureHtml`). Added to email they send from their connected Outlook. */
+    emailSignature: text("email_signature"),
+    /** Whether the signature goes on every Outlook email to start with. They can still add or take it off each email. */
+    signatureAuto: boolean("signature_auto").notNull().default(true),
     /** Deactivated teammates can't sign in, but everything they did stays attributed to them. */
     deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),

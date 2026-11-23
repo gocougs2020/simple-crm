@@ -20,5 +20,5 @@ export const config = {
   // secrets (cron, webhooks, the REST API, MCP, the OAuth endpoints, and the agent's background agent under /eve with the report it sends back), OAuth discovery documents, static files, and what an
   // installed app needs before sign-in (manifest, icons, service worker).
   // The OAuth consent page (/oauth/authorize) stays behind it: signed-out visitors sign in first and come back.
-  matcher: ["/((?!sign-in|setup|forgot|reset|invite|unsubscribe|share/|developers|brand/logo|api/cron|api/webhooks|api/v1|api/mcp|api/oauth|api/agent/runs/report|eve/|\\.well-known|_next/|favicon|icon|apple-icon|manifest.webmanifest|sw.js|robots.txt).*)"],
+  matcher: ["/((?!sign-in|setup|forgot|reset|invite|unsubscribe|share/|developers|brand/logo|brand/signature|api/cron|api/webhooks|api/v1|api/mcp|api/oauth|api/agent/runs/report|eve/|\\.well-known|_next/|favicon|icon|apple-icon|manifest.webmanifest|sw.js|robots.txt).*)"],
 };

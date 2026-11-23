@@ -9,9 +9,12 @@ import { ActionError, actionEditor, actionOwner, actionUser } from "@/lib/auth";
 import { recordEvent } from "@/lib/crm/events";
 import { calendarSharings } from "@/lib/constants";
 import { microsoftConfigured } from "@/lib/microsoft/config";
+import { emailBrand } from "@/lib/brand";
+import { composerSignature } from "@/lib/email/signature";
 import { accountOf, GraphError } from "@/lib/microsoft/graph";
 import { clearPrivateMail, INBOX, listMailFolders, removePrivateEmail, removeSyncedMail, SENT_ITEMS, shareSyncedEmail, syncMailbox, unshareSyncedEmail } from "@/lib/microsoft/mail";
 import { MAX_BLOCKED, parseBlockList } from "@/lib/microsoft/sync-rules";
+import { sanitizeSignatureHtml, signatureHasContent } from "@/lib/safe-html";
 
 /**
  * A teammate's own connected Microsoft 365 account: what it's used for, who
@@ -29,6 +32,35 @@ export async function myMailbox() {
   const account = await accountOf(user.id);
   if (!account || !account.sendMail) return null;
   return { email: account.email, name: account.name, needsReconnect: account.status !== "active" };
+}
+
+/** The signature the composer offers under email from the teammate's Outlook: their own, or the workspace's. Null when there's neither. */
+export async function myEmailSignature() {
+  const user = await actionUser();
+  return composerSignature(user, (await emailBrand()).signature);
+}
+
+const signatureInput = z.object({
+  /** The signature as the editor wrote it. Sanitized before it's saved; empty removes it. */
+  html: z.string().max(100_000, "That signature is too long. Use smaller or fewer images, or shorten it."),
+  /** Put it on every Outlook email to start with. */
+  auto: z.boolean(),
+});
+
+/** Saves the teammate's own email signature, and whether it goes on every email they send from Outlook. */
+export async function updateEmailSignature(input: z.input<typeof signatureInput>): Promise<Result> {
+  return run(async () => {
+    const user = await actionUser();
+    const data = signatureInput.parse(input);
+    const html = sanitizeSignatureHtml(data.html);
+    if (html.length > 20_000) throw new ActionError("That signature is too long. Shorten it, or use fewer images.");
+    const db = await getDb();
+    await db
+      .update(schema.users)
+      .set({ emailSignature: signatureHasContent(html) ? html : null, signatureAuto: data.auto })
+      .where(eq(schema.users.id, user.id));
+    refresh();
+  });
 }
 
 const settingsInput = z.object({

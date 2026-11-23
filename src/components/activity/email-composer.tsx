@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { DocumentDuplicateIcon } from "@heroicons/react/20/solid";
+import Link from "next/link";
+import { DocumentDuplicateIcon, PlusIcon, XMarkIcon } from "@heroicons/react/20/solid";
+import { myEmailSignature } from "@/actions/accounts";
 import { listTemplates, sendRecordEmail } from "@/actions/email";
 import { listSendingInboxes } from "@/actions/inbox";
 import { Button } from "@/components/ui/button";
@@ -20,6 +22,7 @@ import { PeopleChips, type Contact } from "./people-picker";
 export type EmailRecipient = { personId: string; name: string; email: string | null };
 type Template = Awaited<ReturnType<typeof listTemplates>>[number];
 type SendingInbox = Awaited<ReturnType<typeof listSendingInboxes>>[number];
+type Signature = Awaited<ReturnType<typeof myEmailSignature>>;
 
 const noEmail = (c: Contact) => (c.email ? null : "No email address");
 const splitAddresses = (s: string) =>
@@ -85,9 +88,21 @@ export function EmailComposer({
   // A draft's files come with it; the teammate can remove any before sending.
   const [attachments, setAttachments] = useState<EmailAttachment[]>(draft?.attachments ?? []);
   const [uploading, setUploading] = useState(false);
+  /** The signature an Outlook email can carry (undefined while it loads), and whether this one does. */
+  const [signature, setSignature] = useState<Signature | undefined>(undefined);
+  const [withSignature, setWithSignature] = useState(false);
+  const hasMailbox = !!comms.mailbox;
 
   useEffect(() => {
     listTemplates().then(setTemplates, () => setTemplates([]));
+    if (hasMailbox)
+      myEmailSignature().then(
+        (sig) => {
+          setSignature(sig);
+          setWithSignature(!!sig?.auto);
+        },
+        () => setSignature(null),
+      );
 
     listSendingInboxes().then(
       (list) => {
@@ -96,7 +111,7 @@ export function EmailComposer({
       },
       () => setInboxes([]),
     );
-  }, []);
+  }, [hasMailbox]);
 
   const insertTag = (tag: string) => {
     const text = `{{${tag}}}`;
@@ -128,6 +143,8 @@ export function EmailComposer({
         body,
         attachmentIds: attachments.map((a) => a.fileId),
         copyMe,
+        // Only once it's loaded: until then the server uses the teammate's default.
+        signature: viaMailbox && signature !== undefined ? withSignature : undefined,
       });
       if (!r.ok) return void toast.error(r.error);
       const others = toIds.length - 1 + ccIds.length + ccList.length;
@@ -142,6 +159,7 @@ export function EmailComposer({
       setAttachments([]);
       setReplyTo(viewer.email);
       setEditReplyTo(false);
+      setWithSignature(!!signature?.auto);
     });
   };
 
@@ -232,6 +250,29 @@ export function EmailComposer({
           dictation
         />
       </div>
+      {viaMailbox && signature ? (
+        withSignature ? (
+          <div className="rounded-lg border border-dashed border-line px-3 pt-1.5 pb-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11.5px] text-muted">{signature.own ? "Your signature" : "Workspace signature"}</span>
+              <button type="button" onClick={() => setWithSignature(false)} className="-mr-1.5 inline-flex h-7 items-center gap-1 rounded px-1.5 text-[12px] text-muted hover:bg-sunken hover:text-primary">
+                <XMarkIcon className="size-3.5" aria-hidden />
+                Remove signature
+              </button>
+            </div>
+            <div className="prose-signature" dangerouslySetInnerHTML={{ __html: signature.html }} />
+          </div>
+        ) : (
+          <button type="button" onClick={() => setWithSignature(true)} className="inline-flex h-7 items-center gap-1 self-start rounded px-1.5 text-[12.5px] text-muted hover:bg-sunken hover:text-primary">
+            <PlusIcon className="size-3.5" aria-hidden />
+            Add signature
+          </button>
+        )
+      ) : viaMailbox && signature === null ? (
+        <Link href="/settings/accounts" className="self-start text-[12px] text-muted underline-offset-2 hover:text-primary hover:underline">
+          Set up an email signature
+        </Link>
+      ) : null}
       <AttachmentPicker value={attachments} onChange={setAttachments} links={{ personId: recipient.personId, clientId: links.clientId ?? null }} onUploadingChange={setUploading} />
       <div className="flex flex-wrap items-center gap-3">
         <Checkbox checked={copyMe} onChange={(e) => setCopyMe(e.target.checked)} label={<span className="text-[13px]">Send me a copy</span>} />
