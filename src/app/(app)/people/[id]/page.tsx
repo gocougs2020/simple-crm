@@ -17,6 +17,7 @@ import { PageSkeleton } from "@/components/ui/skeleton";
 import { recordTimeline } from "@/lib/crm/activities";
 import { clientsOfPerson, getPerson, otherOrganizationsOf } from "@/lib/crm/records";
 import { personName } from "@/lib/format";
+import { isTeammate } from "@/lib/crm/teammates";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 
@@ -45,6 +46,8 @@ async function Person({ params }: Pick<PageProps<"/people/[id]">, "params">) {
     // A link to a record that was merged away opens the one it was merged into.
     const current = await currentRecordId("person", id);
     if (current !== id) redirect(`/people/${current}`);
+    // A teammate linked as if they were a contact (the agent, an old note) opens their teammate page.
+    if (await isTeammate(id)) redirect(`/team/${id}`);
     notFound();
   }
   const { person, organization } = row;

@@ -13,6 +13,8 @@ import { rateLimit } from "@/lib/rate-limit";
 import { resourceMetadataUrl, scopesSupported } from "@/lib/oauth/core";
 import { runActor } from "@/lib/agent/run-actor";
 import { runMayUse } from "@/lib/agent/run-rules";
+import { enrichMayUse, enrichUpdateTool } from "@/lib/agent/enrich-rules";
+import { assertEnrichWrite } from "@/lib/agent/enrich";
 import { RUN_TOKEN_PREFIX } from "@/lib/agent/run-token";
 import { keyFromHeaders } from "@/lib/api/key-format";
 import { handleMessage, offered, RpcError, splitArguments, toolFor, toolOperations, type JsonRpcResponse, type McpServer, type Tool, type ToolCallResult } from "./protocol";
@@ -61,8 +63,10 @@ function serverFor(actor: Actor & { kind: "user" }, origin: string): McpServer {
   const allowed = (p: Parameters<typeof can>[1]) => can(actor, p);
   const features = enabledFeatures();
   // The agent's own background run gets the teammate's tools minus what needs a person watching (archive, delete, merge) and starting more runs.
+  // An enrichment run gets less again: reading, and updating the one record it's enriching.
+  const { enriching } = actor;
   const tools = allDefinitions()
-    .filter(({ op }) => allowed(op.permission) && offered(op, features) && (!actor.runId || runMayUse(op)))
+    .filter(({ op }) => allowed(op.permission) && offered(op, features) && (!actor.runId || runMayUse(op)) && (!enriching || enrichMayUse(op, enriching.entity)))
     .map(({ tool }) => tool);
   return {
     info: { name: "crm", title: appConfig.brand.name, version: "1.0.0" },
@@ -71,9 +75,14 @@ function serverFor(actor: Actor & { kind: "user" }, origin: string): McpServer {
     async callTool(name, args): Promise<ToolCallResult> {
       const op = toolOperations.find((o) => o.tool === name)!;
       try {
+        const input = splitArguments(operations[op.id], toolArguments(operations[op.id], args));
+        // Checked before the update, against the record as it is now: only its empty fields, only that record.
+        if (enriching && op.tool === enrichUpdateTool(enriching.entity)) {
+          await assertEnrichWrite(enriching, { entity: enriching.entity, id: input.params?.id }, (input.body ?? {}) as Record<string, unknown>);
+        }
         // The same as the in-app agent gets: smaller default lists, no HTML body beside its plain text, and a size cap.
         // Both copies stay: the MCP spec asks for the JSON as text too, for clients that don't read structuredContent.
-        const result = capResult(toolResult(await executeOperation(actor, op.id, splitArguments(operations[op.id], toolArguments(operations[op.id], args)), { origin })));
+        const result = capResult(toolResult(await executeOperation(actor, op.id, input, { origin })));
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result as Record<string, unknown> };
       } catch (err) {
         const e = toApiError(err);

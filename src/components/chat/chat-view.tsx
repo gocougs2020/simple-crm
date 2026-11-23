@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import clsx from "clsx";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { ArrowUpIcon, PaperClipIcon, PencilSquareIcon, TrashIcon, XMarkIcon } from "@heroicons/react/20/solid";
@@ -295,9 +296,9 @@ function Message({ message: m, grouped, team, mine, mentionsMe, highlight }: { m
           <p className="text-[14px] leading-6 break-words whitespace-pre-wrap text-primary">
             {segments.map((s, i) =>
               s.kind === "mention" ? (
-                <span key={i} className={clsx("rounded px-0.5 font-medium", s.userId === viewer.id ? "bg-warning-surface text-warning" : "bg-accent-soft text-accent-soft-foreground")}>
+                <Link key={i} href={`/team/${s.userId}`} className={clsx("rounded px-0.5 font-medium hover:underline", s.userId === viewer.id ? "bg-warning-surface text-warning" : "bg-accent-soft text-accent-soft-foreground")}>
                   {s.text}
-                </span>
+                </Link>
               ) : s.kind === "link" ? (
                 <a key={i} href={s.href} target="_blank" rel="noopener noreferrer" className="text-accent underline underline-offset-2 hover:text-accent-hover">
                   {s.text}

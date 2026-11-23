@@ -278,6 +278,7 @@ const backTargets: { pattern: RegExp; href: string; label: string }[] = [
   { pattern: /^\/clients\/[^/]+/, href: "/clients", label: "Clients" },
   { pattern: /^\/people\/[^/]+/, href: "/people", label: "People" },
   { pattern: /^\/organizations\/[^/]+/, href: "/organizations", label: "Organizations" },
+  { pattern: /^\/team\/[^/]+/, href: "/settings/team", label: "Team" },
   { pattern: /^\/email\/campaigns\/[^/]+/, href: "/email/campaigns", label: "Campaigns" },
   { pattern: /^\/email\/audiences\/[^/]+/, href: "/email/audiences", label: "Audiences" },
   { pattern: /^\/email\/templates\/[^/]+/, href: "/email/templates", label: "Templates" },

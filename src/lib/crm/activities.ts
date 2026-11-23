@@ -395,6 +395,15 @@ export async function teamFeed(limit = 25) {
   });
 }
 
+/** What one teammate logged lately (notes, calls, meetings, email, finished tasks), newest first, for their teammate page. */
+export async function loggedBy(userId: string, limit = 20) {
+  return activityRows(and(eq(activities.userId, userId), isPast, notCampaignEmail), {
+    order: [desc(sql`coalesce(${activities.occurredAt}, ${activities.completedAt}, ${activities.createdAt})`)],
+    limit,
+    preview: true,
+  });
+}
+
 /** Midnight today, tomorrow, and the end of the 7th day, in the workspace's time zone, as UTC instants. */
 export function dayBounds(tz: string, now = new Date()) {
   const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
