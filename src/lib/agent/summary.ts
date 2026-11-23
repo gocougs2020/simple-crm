@@ -62,14 +62,15 @@ async function readSummary(entity: SummaryEntity, id: string) {
 
 /**
  * The record's snapshot, rewritten first when it's missing, or more than a
- * day old with something new on the record, or a week old (`summaryDue`).
+ * day old with something new on the record, or a week old (`summaryDue`),
+ * or whenever a teammate asks for a fresh one (`refresh`).
  * If someone else is already rewriting it, waits for theirs.
  */
-export async function ensureSummary(entity: SummaryEntity, id: string): Promise<Summary> {
+export async function ensureSummary(entity: SummaryEntity, id: string, opts: { refresh?: boolean } = {}): Promise<Summary> {
   const current = await readSummary(entity, id);
   if (!current) return { summary: null, summaryAt: null, refreshing: false };
   const shown = { summary: current.summary, summaryAt: current.summaryAt?.toISOString() ?? null };
-  if (!summaryDue(current)) return { ...shown, refreshing: false };
+  if (!opts.refresh && !summaryDue(current)) return { ...shown, refreshing: false };
 
   // Claim the rewrite: only one visitor at a time pays for it. A claim older than SUMMARY_LOCK_MS was abandoned.
   const db = await getDb();

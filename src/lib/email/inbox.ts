@@ -7,8 +7,9 @@ import { getDb, schema } from "@/db";
 import { touch } from "@/lib/crm/events";
 import { linksForEmails } from "@/lib/crm/match";
 import { emailDomainsScoped, getResend, inEmailScope } from "@/lib/email";
-import { sanitizeHtml } from "@/lib/safe-html";
+import { htmlToText, sanitizeHtml } from "@/lib/safe-html";
 import { deliveryEvents } from "./delivery-status";
+import { forwardedAddresses, linkAddresses } from "./forwarded";
 import { inboundEmail } from "@/lib/push/triggers";
 import { forwardingAvailability } from "@/lib/forwarding/inbound";
 
@@ -176,8 +177,8 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
   messages.sort((a, b) => a.received_at.localeCompare(b.received_at));
 
   const participants = [...new Set(messages.flatMap((m) => [m.from, ...m.to, ...m.cc].map(address)).filter((a) => a && !ours.has(a)))];
-  // What's already stored of these emails (one read for both uses below), and the thread, together.
-  const [known, [existing]] = await Promise.all([
+  // What's already stored of these emails (one read for both uses below), the thread, and which participants are teammates, together.
+  const [known, [existing], teammates] = await Promise.all([
     messages.length
       ? db
           .select({ id: inboxMessages.resendEmailId, hidden: sql<boolean>`${inboxMessages.hiddenAt} is not null`, linked: sql<boolean>`${inboxMessages.activityId} is not null` })
@@ -185,11 +186,18 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
           .where(inArray(inboxMessages.resendEmailId, messages.map((m) => m.id)))
       : [],
     db.select().from(inboxThreads).where(eq(inboxThreads.resendThreadId, resendThreadId)),
+    teammatesByAddress(participants),
   ]);
+  // Mail into the inbox from a teammate is theirs: usually a thread they forwarded so it lands on a record.
+  // Its own From and To are the teammate and the inbox, so the records it's about come from the headers it quotes.
+  const fromTeammate = (m: GetInboxThreadEmailResponseSuccess) => (m.direction === "inbound" ? (teammates.get(address(m.from)) ?? null) : null);
+  const forwarded = messages.filter(fromTeammate).flatMap((m) => forwardedAddresses(m.text ?? htmlToText(m.html)).filter((a) => !ours.has(a)));
   // Messages someone deleted from the records stay out of the snippet too.
   const hidden = new Set(known.filter((k) => k.hidden).map((k) => k.id));
   const last = messages.filter((m) => !hidden.has(m.id)).at(-1);
-  const links = existing?.linkedByHand ? { personId: existing.personId, organizationId: existing.organizationId, clientId: existing.clientId } : await findLinks(participants);
+  const links = existing?.linkedByHand
+    ? { personId: existing.personId, organizationId: existing.organizationId, clientId: existing.clientId }
+    : await findLinks(linkAddresses(participants, new Set([...teammates.keys(), ...(await teammatesByAddress(forwarded.filter((a) => !teammates.has(a)))).keys()]), forwarded));
   const values = {
     resendThreadId,
     resendInboxId: inboxId,
@@ -253,10 +261,13 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
         continue;
       }
     }
+    // Credit only, by the From line: Resend's inbox API doesn't say whether the sender was authenticated, so
+    // a forged From is possible (it was already shown as the sender). Nothing else follows from it: no assignee.
+    const forwardedBy = fromTeammate(m);
     if (!activityId) {
       const [a] = await db
         .insert(activities)
-        .values({ type: "email", direction: m.direction, subject: m.subject, body: body || null, occurredAt: sentAt, userId: null, inboxThreadId: thread.id, ...links })
+        .values({ type: "email", direction: m.direction, subject: m.subject, body: body || null, occurredAt: sentAt, userId: forwardedBy, inboxThreadId: thread.id, ...links })
         .returning({ id: activities.id });
       activityId = a.id;
       created = true;
@@ -275,11 +286,23 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
     if (!created) await db.update(activities).set({ inboxThreadId: thread.id, ...links }).where(eq(activities.id, activityId));
     // Sent from the inbox page: credit whoever sent it. Read after the activity exists, so a send recorded at any moment is caught here or by `creditSender`.
     if (created && m.direction === "outbound") await creditActivity(activityId, m.id);
-    if (m.direction === "inbound") await inboundEmail({ id: m.id, from: m.from, subject: m.subject, sentAt, threadId: thread.id, ...links });
+    // A teammate's own forward isn't news from a contact.
+    if (m.direction === "inbound" && !forwardedBy) await inboundEmail({ id: m.id, from: m.from, subject: m.subject, sentAt, threadId: thread.id, ...links });
   }
   if (existing && !existing.linkedByHand && (existing.personId !== links.personId || existing.organizationId !== links.organizationId || existing.clientId !== links.clientId)) await applyThreadLinks(thread.id);
   else if (thread.lastMessageAt) await touch(links, thread.lastMessageAt);
   return thread;
+}
+
+/** Active teammates among these addresses, by their sign-in address. */
+async function teammatesByAddress(addresses: string[]) {
+  if (!addresses.length) return new Map<string, string>();
+  const db = await getDb();
+  const rows = await db
+    .select({ id: schema.users.id, email: sql<string>`lower(${schema.users.email})` })
+    .from(schema.users)
+    .where(and(inArray(sql`lower(${schema.users.email})`, addresses), isNull(schema.users.deactivatedAt)));
+  return new Map(rows.map((r) => [r.email, r.id]));
 }
 
 /** Credits an email's activity to the teammate who sent it from the inbox page, if one did and nobody is credited yet. */

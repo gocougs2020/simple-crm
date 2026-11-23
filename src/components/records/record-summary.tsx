@@ -2,11 +2,12 @@
 
 import clsx from "clsx";
 import { useEffect, useState } from "react";
-import { SparklesIcon } from "@heroicons/react/24/outline";
+import { ArrowPathIcon, SparklesIcon } from "@heroicons/react/24/outline";
 import { recordSummary } from "@/actions/agent";
 import { appConfig } from "@/app.config";
 import { useApp } from "@/components/app-context";
 import { Spinner } from "@/components/ui/button";
+import { toast } from "@/components/ui/toast";
 import { formatAgo } from "@/lib/format";
 import { isFresh, type SummaryEntity } from "@/lib/agent/summary-prompt";
 
@@ -14,7 +15,8 @@ import { isFresh, type SummaryEntity } from "@/lib/agent/summary-prompt";
  * The AI snapshot at the top of a record: who they are, the latest that
  * matters, what needs attention. Shown straight from the record; when it's
  * missing or more than a day old, a new one is written while the old one
- * stays on screen, with "Re-summarizing…" in the corner.
+ * stays on screen, with "Re-summarizing…" in the corner. The refresh button
+ * under the sparkle rewrites it on demand.
  */
 export function RecordSummary({ entity, id, summary: initialSummary, summaryAt: initialAt }: { entity: SummaryEntity; id: string; summary: string | null; summaryAt: Date | string | null }) {
   const { services, workspace } = useApp();
@@ -43,14 +45,48 @@ export function RecordSummary({ entity, id, summary: initialSummary, summaryAt: 
     };
   }, [entity, id, needsWriting]);
 
+  const refresh = async () => {
+    if (working) return;
+    setWorking(true);
+    setFailed("");
+    const r = await recordSummary(entity, id, true);
+    setWorking(false);
+    if (!r.ok) {
+      // With a summary on screen it stays; the toast says why it wasn't rewritten.
+      if (summary) toast.error(r.error);
+      else setFailed(r.error);
+      return;
+    }
+    if (r.data.summary) {
+      setSummary(r.data.summary);
+      setAt(r.data.summaryAt);
+    }
+  };
+
   // Summaries switched off on this deployment: nothing shows, not even an old one.
   if (!appConfig.agent.summaries) return null;
   if (!summary && !working && (!services.ai.summaries || !failed)) return null;
+  const canRefresh = services.ai.summaries && (!!summary || !!failed);
 
   return (
     <section aria-label="AI summary" className={clsx("relative rounded-xl border border-line bg-surface px-4 pt-3", working ? "pb-7" : "pb-3.5")}>
-      <div className="flex items-start gap-2.5">
-        <SparklesIcon className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden />
+      <div className="flex items-stretch gap-2.5">
+        {/* The sparkle at the top, refresh pinned to the bottom of the same column. */}
+        <div className="flex shrink-0 flex-col items-center justify-between gap-2">
+          <SparklesIcon className="mt-0.5 size-4 text-muted" aria-hidden />
+          {canRefresh ? (
+            <button
+              type="button"
+              onClick={refresh}
+              disabled={working}
+              aria-label="Refresh summary"
+              title={working ? "Summarizing…" : at ? `Summarized ${formatAgo(at, workspace.timezone)}. Refresh to write it again from the latest on this record.` : "Write the summary again"}
+              className="-m-1 flex size-6 items-center justify-center rounded-md text-faint hover:bg-sunken hover:text-secondary disabled:pointer-events-none pointer-coarse:size-8 pointer-coarse:-m-2"
+            >
+              <ArrowPathIcon className={clsx("size-4", working && "animate-spin")} aria-hidden />
+            </button>
+          ) : null}
+        </div>
         {summary ? (
           <button
             type="button"
