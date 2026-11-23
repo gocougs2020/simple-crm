@@ -6,11 +6,22 @@
  * Outlook's "From: / Sent: / To:" lines, and "On …, Name <a@b> wrote:".
  */
 
+import { htmlToText } from "@/lib/safe-html";
+
 const ADDRESS = /[a-z0-9._%+'-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
 /** A quoted header line, as mail apps write them in plain text (Outlook bolds the label in its text part: "*From:*"). */
 const HEADER_LINE = /^[\s>*]*(from|to|cc|reply-to)\s*\*?\s*:/i;
 /** Gmail's and Apple Mail's attribution line above a quote. */
 const WROTE_LINE = /\bwrote:\s*$/i;
+
+/**
+ * An email's text to read headers from: its plain-text part, or its HTML with
+ * each block on its own line. Gmail's HTML forward puts every header in its
+ * own <div>, which `htmlToText` would run together on one line.
+ */
+export function emailText(m: { text: string | null; html: string | null }) {
+  return m.text ?? htmlToText(m.html?.replace(/<\/(div|tr)>/gi, "$&\n") ?? null);
+}
 
 /** Every address in the quoted headers of a forwarded or replied-to email, lowercased, in the order they appear, once each. */
 export function forwardedAddresses(text: string | null | undefined): string[] {

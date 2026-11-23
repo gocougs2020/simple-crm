@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { forwardedAddresses, linkAddresses } from "./forwarded";
+import { emailText, forwardedAddresses, linkAddresses } from "./forwarded";
 
 describe("forwardedAddresses", () => {
   it("reads Gmail's forwarded block", () => {
@@ -31,6 +31,18 @@ describe("forwardedAddresses", () => {
   it("ignores addresses in the body and quoted text that aren't headers", () => {
     assert.deepEqual(forwardedAddresses("Write to help@example.com\n> from now on, email me at a@b.com"), []);
     assert.deepEqual(forwardedAddresses(null), []);
+  });
+});
+
+describe("emailText", () => {
+  it("keeps an HTML-only forward's headers on their own lines", () => {
+    const html =
+      '<div dir="ltr">Log this please<br><div class="gmail_quote"><div>---------- Forwarded message ---------</div><div>From: <strong>Sheila McCool</strong> &lt;<a href="mailto:sheila@foxroach.com">sheila@foxroach.com</a>&gt;</div><div>Date: Mon, Nov 23, 2026</div><div>To: Recruiting Insight &lt;solutions@ri.net&gt;</div><div>Cc: &lt;ap@foxroach.com&gt;</div></div></div>';
+    assert.deepEqual(forwardedAddresses(emailText({ text: null, html })), ["sheila@foxroach.com", "solutions@ri.net", "ap@foxroach.com"]);
+  });
+
+  it("prefers the plain-text part", () => {
+    assert.equal(emailText({ text: "From: a@b.com", html: "<div>From: c@d.com</div>" }), "From: a@b.com");
   });
 });
 

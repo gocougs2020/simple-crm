@@ -7,9 +7,9 @@ import { getDb, schema } from "@/db";
 import { touch } from "@/lib/crm/events";
 import { linksForEmails } from "@/lib/crm/match";
 import { emailDomainsScoped, getResend, inEmailScope } from "@/lib/email";
-import { htmlToText, sanitizeHtml } from "@/lib/safe-html";
+import { sanitizeHtml } from "@/lib/safe-html";
 import { deliveryEvents } from "./delivery-status";
-import { forwardedAddresses, linkAddresses } from "./forwarded";
+import { emailText, forwardedAddresses, linkAddresses } from "./forwarded";
 import { inboundEmail } from "@/lib/push/triggers";
 import { forwardingAvailability, provenSender } from "@/lib/forwarding/inbound";
 
@@ -191,7 +191,7 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
   // Mail into the inbox from a teammate is theirs: usually a thread they forwarded so it lands on a record.
   // Its own From and To are the teammate and the inbox, so the records it's about come from the headers it quotes.
   const fromTeammate = (m: GetInboxThreadEmailResponseSuccess) => (m.direction === "inbound" ? (teammates.get(address(m.from)) ?? null) : null);
-  const forwarded = messages.filter(fromTeammate).flatMap((m) => forwardedAddresses(m.text ?? htmlToText(m.html)).filter((a) => !ours.has(a)));
+  const forwarded = messages.filter(fromTeammate).flatMap((m) => forwardedAddresses(emailText(m)).filter((a) => !ours.has(a)));
   // Messages someone deleted from the records stay out of the snippet too.
   const hidden = new Set(known.filter((k) => k.hidden).map((k) => k.id));
   const last = messages.filter((m) => !hidden.has(m.id)).at(-1);
