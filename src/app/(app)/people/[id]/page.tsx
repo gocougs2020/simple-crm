@@ -76,7 +76,7 @@ async function Person({ params }: Pick<PageProps<"/people/[id]">, "params">) {
         side={
           <>
             {/* The client they belong to comes first, above the details. */}
-            <RelatedClients clients={clients} create={{ kind: "client", defaults: { personId: id, personName: name, organizationId: organization?.id, organizationName: organization?.name } }} />
+            <RelatedClients subject={name} clients={clients} create={{ kind: "client", defaults: { personId: id, personName: name, organizationId: organization?.id, organizationName: organization?.name } }} />
             <PersonDetails person={person} organization={organization} />
             {organization ? <OrganizationCard org={organization} /> : null}
             {alsoAt.map((org) => (

@@ -17,6 +17,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { toast } from "@/components/ui/toast";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button, Spinner } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { Checkbox, Input, Select, Textarea } from "@/components/ui/field";
 import type { schema } from "@/db";
 import { churnReasons, clientHealthLabels, clientHealths, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
@@ -633,30 +634,32 @@ const categoryOrder: Record<ClientCategory, number> = { current: 0, prospective:
 /**
  * The clients a person or organization is part of. It's the first card on
  * their page, above the details, so which account they belong to is always in
- * view; with a client it's outlined in the accent color.
+ * view; with a client it's outlined in the accent color. Adding a client when
+ * they already have one asks first.
  */
-export function RelatedClients({ clients, create }: { clients: RelatedClient[]; create: Parameters<typeof openCreate>[0] }) {
+export function RelatedClients({ subject, clients, create }: { subject: string; clients: RelatedClient[]; create: Parameters<typeof openCreate>[0] }) {
   const { money } = useApp();
+  const [confirming, setConfirming] = useState(false);
+  const sorted = [...clients].sort((a, b) => categoryOrder[a.category] - categoryOrder[b.category]);
   return (
-    <SideCard
-      className={clients.length ? "border-accent" : undefined}
-      title={
-        <>
-          {clients.length === 1 ? "Client" : "Clients"} <span className="font-medium text-muted tabular-nums">{clients.length > 1 ? clients.length : ""}</span>
-        </>
-      }
-      action={
-        <Button size="sm" variant="ghost" className="-mr-2" onClick={() => openCreate(create)}>
-          <PlusIcon />
-          Client
-        </Button>
-      }
-    >
-      {clients.length ? (
-        <ul className="-mx-2">
-          {[...clients]
-            .sort((a, b) => categoryOrder[a.category] - categoryOrder[b.category])
-            .map((d) => (
+    <>
+      <SideCard
+        className={clients.length ? "border-accent" : undefined}
+        title={
+          <>
+            {clients.length === 1 ? "Client" : "Clients"} <span className="font-medium text-muted tabular-nums">{clients.length > 1 ? clients.length : ""}</span>
+          </>
+        }
+        action={
+          <Button size="sm" variant="ghost" className="-mr-2" onClick={() => (clients.length ? setConfirming(true) : openCreate(create))}>
+            <PlusIcon />
+            Client
+          </Button>
+        }
+      >
+        {clients.length ? (
+          <ul className="-mx-2">
+            {sorted.map((d) => (
               <li key={d.id}>
                 <Link href={`/clients/${d.id}`} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-sunken">
                   <BriefcaseIcon className="size-4 shrink-0 text-faint" aria-hidden />
@@ -671,11 +674,67 @@ export function RelatedClients({ clients, create }: { clients: RelatedClient[]; 
                 </Link>
               </li>
             ))}
-        </ul>
-      ) : (
-        <p className="py-1 text-[12.5px] text-muted">Not a client yet.</p>
-      )}
-    </SideCard>
+          </ul>
+        ) : (
+          <p className="py-1 text-[12.5px] text-muted">Not a client yet.</p>
+        )}
+      </SideCard>
+      {confirming ? (
+        <AnotherClientDialog
+          subject={subject}
+          clients={sorted}
+          onClose={() => setConfirming(false)}
+          onContinue={() => {
+            setConfirming(false);
+            openCreate(create);
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Before a second client for the same person or organization: most need only
+ * one, so it shows the ones they have and lets the user go ahead anyway.
+ */
+function AnotherClientDialog({ subject, clients, onClose, onContinue }: { subject: string; clients: RelatedClient[]; onClose: () => void; onContinue: () => void }) {
+  const one = clients.length === 1;
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
+      size="sm"
+      title={`${subject} is already connected to ${one ? "a client" : `${clients.length} clients`}`}
+      description={`People and organizations usually need only one client. Open ${one ? "it" : "one of them"} below, or create another if this is a separate relationship.`}
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={onContinue}>
+            Create another client
+          </Button>
+        </>
+      }
+    >
+      <ul className="-mx-2">
+        {clients.map((d) => (
+          <li key={d.id}>
+            <Link href={`/clients/${d.id}`} onClick={onClose} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-sunken">
+              <BriefcaseIcon className="size-4 shrink-0 text-faint" aria-hidden />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-medium text-primary">{d.name}</span>
+                <span className="block truncate text-[11.5px] text-muted">{d.stageName}</span>
+              </span>
+              <CategoryBadge category={d.category} />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Dialog>
   );
 }
 
