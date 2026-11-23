@@ -33,7 +33,7 @@ pnpm import:pipedrive
 | Option | What it does |
 | --- | --- |
 | `--dry-run` | Show the plan, write nothing |
-| `--email=all` | Import email for everyone. By default only people tied to a client (its contact, or anyone at its organization) get their email imported, because the rest is mostly outreach and can run to hundreds of thousands of messages |
+| `--email=all` | Import email for everyone. By default only people tied to a client or an open lead (its contact, or anyone at its organization) get their email imported, because the rest is mostly outreach and can run to hundreds of thousands of messages |
 | `--no-email` | Skip email. Email is read person by person, so it's most of the run time |
 | `--no-users` | Don't add Pipedrive users who aren't teammates here (their records get no owner) |
 | `--as=you@company.com` | Record the import as this teammate instead of the owner |
@@ -86,11 +86,22 @@ A prospect whose only sales deals are lost keeps the stage the deal was lost in 
 | People | People: name, primary email and phone, organization, owner. Labels and the "Tags" field become tags; "Title Specific" becomes the title |
 | Custom fields | Custom fields with the same name, type and options (organizations, people, and deals → clients). On a client, the furthest deal's values come first; multi-option fields combine across deals |
 | Product deals | A service on the client per deal: started on the deal's Start Date (or first won date), ended on its End Date (or when it was paused, terminated or lost) when it stopped. Price is the deal's MRR when filled in (monthly), otherwise the deal value as a yearly price, since deal values here are annual contract values; check odd ones in each client's Services card. The deal title, Products and Plan / Level go in the service's note. Migration `0022` then archives the imported "Products" client field, since services and their plans say the same thing; restore it in Settings → Fields if you want it back |
-| Notes | Notes, pinned if pinned in Pipedrive, on the person, organization and client |
+| Leads | Prospective clients in "Leads inbox", or joined to the client already here for their organization or person |
+| Notes | Notes, pinned if pinned in Pipedrive, on the person, organization and client (a lead's notes on its client) |
 | Activities | Calls, meetings (and lunches), emails, texts and tasks (deadlines and custom types become tasks, with the type in the subject). Done ones are history; open ones are planned with their due date |
 | Email | Email activities with the full message, sender and recipients, for people tied to a client (`--email=all` for everyone). Pipedrive's click-tracking links are replaced with the original links |
 
-Files, leads (the Leads inbox) and Pipedrive projects aren't imported.
+Files and Pipedrive projects aren't imported.
+
+### Leads become prospective clients in "Leads inbox"
+
+Each lead in Pipedrive's Leads inbox (archived ones too) comes over once:
+
+- When its organization (or, without one, its person) is already a client here, the lead joins that client, which stays in its stage; the run lists these.
+- Otherwise it becomes a prospective client in the **Leads inbox** stage, placed first in the prospective pipeline: named after its organization, person or title, with its value, expected close date, owner, labels (as tags) and custom fields. An archived lead comes in archived.
+- Its notes and activities come with it, and its person and organization when they aren't here yet. Notes and activities brought in before on the lead's person show on its client too.
+
+Leads were never part of earlier imports, so every lead not brought in yet comes over whatever its date, `--since` included. After that run they're all here, and later runs only add new ones. The email of people on leads that aren't archived comes over like a client's, within the window.
 
 ## Running it again
 
@@ -118,6 +129,7 @@ The dry run lists what will be added: new organizations and people (and which of
 
 - **Organizations and people** created in Pipedrive. One that's already here is matched rather than added: an organization by its whole name (ignoring capitals); a person by the same name and a shared email or phone, or by an email only one person here has. A match only fills that record's blanks, as merging duplicates does.
 - **Deals.** A deal for an organization or person that's already a client joins that client: its stage, category and fields stay as the team left them (the run lists these deals, so you can move a client by hand if a deal changes that), and a new product deal adds its service unless the client already has that service going. A deal for someone who isn't a client yet becomes a new client, as in a full import; a stage it needs is added after the pipeline's other stages.
+- **Leads**, all of them on the first run: see [Leads become prospective clients](#leads-become-prospective-clients-in-leads-inbox).
 - **Notes, activities (calls, meetings, texts, tasks) and email**, on the records they belong to. An activity created earlier but marked done in the window comes in too.
 - **Activities marked done.** A call, meeting or task that came in still planned and was marked done in Pipedrive in the window is checked off here, with its outcome, duration and notes filled in where they're blank. One deleted here stays deleted.
 

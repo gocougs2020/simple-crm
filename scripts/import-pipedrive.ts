@@ -13,6 +13,9 @@
  *                                       (but check off activities marked done in Pipedrive in that time)
  *   pnpm import:pipedrive --reset       remove everything a previous import added
  *
+ * Leads in the Leads inbox become prospective clients in a "Leads inbox" stage (or join the client
+ * already here for their organization or person), whatever their date, the first time they come over.
+ *
  * Needs PIPEDRIVE_API_TOKEN. Writes to DATABASE_URL, or to the local embedded
  * database in .data/ when it isn't set (stop `pnpm dev` first: only one
  * process can open it).
@@ -27,11 +30,13 @@ import { emailKey, keepContactsOnImport, planOrganizationMerge, planPersonMerge,
 import { followMerges, inWindow, mergedInto, OrganizationMatcher, parseSince, PersonMatcher } from "@/lib/crm/pipedrive-sync";
 import { rankBetween } from "@/lib/rank";
 import { sanitizeHtml, textToHtml } from "@/lib/safe-html";
-import { mapLimit, PipedriveApi, type PdActivity, type PdDeal, type PdField, type PdId, type PdMailMessage, type PdUser } from "./pipedrive/api";
+import { mapLimit, PipedriveApi, type PdActivity, type PdDeal, type PdField, type PdId, type PdLead, type PdMailMessage, type PdUser } from "./pipedrive/api";
 import { dealCategory, openToReturn, pipelineRole, planClients, planStages, productEnded, stageName, type ClientPlan, type Lookup } from "./pipedrive/plan";
 
 type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
 const SOURCE = "pipedrive" as const;
+/** The prospective stage leads from Pipedrive's Leads inbox land in. */
+const LEADS_STAGE = "Leads inbox";
 
 for (const f of [".env.local", ".env"]) if (existsSync(f)) process.loadEnvFile(f);
 const args = new Set(process.argv.slice(2));
@@ -135,9 +140,9 @@ class Links {
    * Maps a Pipedrive record to one that's already here (--new-only matching). When the import didn't
    * bring that record in (someone made it here), it's also marked "matched", so --reset leaves it alone.
    */
-  async match(kind: string, id: PdId | string, localId: string) {
+  async match(kind: string, id: PdId | string, localId: string, owners: string[] = [kind]) {
     let imported = false;
-    for (const [key, l] of this.map) if (l === localId && key.startsWith(`${kind}:`)) imported = true;
+    for (const [key, l] of this.map) if (l === localId && owners.some((k) => key.startsWith(`${k}:`))) imported = true;
     if (!imported) this.add(`matched:${kind}`, localId, localId);
     this.add(kind, id, localId);
   }
@@ -241,6 +246,9 @@ async function runImport(db: Database) {
   log(`  ${notes.length} notes`);
   const pdActivities = (await api.activities()).filter((a) => !a.is_deleted);
   log(`  ${pdActivities.length} activities`);
+  const leads = await api.leads();
+  log(`  ${leads.length} leads`);
+  const leadLabels = new Map((await api.leadLabels()).map((l) => [l.id, l.name]));
 
   const lk: Lookup = { pipelines: new Map(pipelines.map((p) => [p.id, p])), stages: new Map(stages.map((s) => [s.id, s])) };
   const links = new Links(db);
@@ -249,11 +257,19 @@ async function runImport(db: Database) {
   // A mapping that still names a merged-away record follows its "merged" history to the kept one.
   const here = await localRecords(db);
   const resolver = (kind: "person" | "organization" | "client") => (id: string) => followMerges(id, (x) => here[kind].ids.has(x), here[kind].into);
-  const repaired = (["person", "organization", "client", "deal", "client_archived"] as const).map((kind) => links.repair(kind, resolver(kind === "deal" || kind === "client_archived" ? "client" : kind), newOnly));
+  const repaired = (["person", "organization", "client", "deal", "client_archived", "lead"] as const).map((kind) => links.repair(kind, resolver(kind === "deal" || kind === "client_archived" || kind === "lead" ? "client" : kind), newOnly));
   const movedLinks = repaired.reduce((n, r) => n + r.moved, 0);
   const droppedLinks = repaired.reduce((n, r) => n + r.dropped, 0);
   if (movedLinks) log(`  ${movedLinks} Pipedrive records point at a record they were merged into here`);
   if (droppedLinks) log(`  ${droppedLinks} Pipedrive records point at nothing here any more (removed by hand); they're matched by name, email or phone instead`);
+  // Leads were never part of earlier imports: every one not brought in yet comes over whatever its date (and --since),
+  // with its notes and activities, and its person and organization when they aren't here.
+  const newLeads = leads.filter((l) => !links.get("lead", l.id));
+  const newLeadIds = new Set(newLeads.map((l) => l.id));
+  const leadPeople = new Set(newLeads.map((l) => l.person_id).filter((id): id is PdId => !!id));
+  const personOrgOf = new Map(persons.map((p) => [p.id, p.org_id]));
+  const leadOrgs = new Set([...newLeads.map((l) => l.organization_id), ...[...leadPeople].map((id) => personOrgOf.get(id))].filter((id): id is PdId => !!id));
+  const fromLead = (lead: string | null | undefined) => !!lead && newLeadIds.has(lead);
   // Clients merged by `pnpm run dedupe` stand for several Pipedrive organizations: plan their deals together, as one client.
   const clientAliases = links.aliases("client");
   const plans = planClients(deals, lk, (key) => clientAliases.get(key) ?? key);
@@ -265,8 +281,10 @@ async function runImport(db: Database) {
   // Email: by default only for people tied to a client that isn't archived (its contact, or anyone at its organization). Everyone's mail is often mostly cold outreach.
   const activePlans = plans.filter((p) => !p.archivedAt);
   // Every deal's organization and person, not only the lead deal's: a client that duplicates were merged into has the people of each.
-  const clientOrgs = new Set(activePlans.flatMap((p) => [p.orgId, ...p.deals.map((d) => d.org_id)]).filter(Boolean));
-  const clientPeople = new Set(activePlans.flatMap((p) => [p.personId, ...p.deals.map((d) => d.person_id)]).filter(Boolean));
+  // And the people and organizations on leads that aren't archived: they're prospective clients too.
+  const openLeads = leads.filter((l) => !l.is_archived);
+  const clientOrgs = new Set([...activePlans.flatMap((p) => [p.orgId, ...p.deals.map((d) => d.org_id)]), ...openLeads.map((l) => l.organization_id)].filter(Boolean));
+  const clientPeople = new Set([...activePlans.flatMap((p) => [p.personId, ...p.deals.map((d) => d.person_id)]), ...openLeads.map((l) => l.person_id)].filter(Boolean));
   // With --since, only people whose last email is in the window (when Pipedrive says; otherwise their mail is read and filtered by date).
   const newMail = (p: (typeof persons)[number]) => !since || (p.last_incoming_mail_time === undefined && p.last_outgoing_mail_time === undefined) || fresh(p.last_incoming_mail_time) || fresh(p.last_outgoing_mail_time);
   const mailPeople = emailScope === "none" ? [] : persons.filter((p) => (p.email_messages_count ?? 1) > 0 && newMail(p) && (emailScope === "all" || clientPeople.has(p.id) || (p.org_id && clientOrgs.has(p.org_id))));
@@ -275,7 +293,8 @@ async function runImport(db: Database) {
   const personMatcher = new PersonMatcher(here.people);
   // Activities brought in while still open that were marked done in Pipedrive in the window.
   const completed = await completedSince(db, links, pdActivities, since);
-  if (newOnly || since) printWindow({ since, newOnly, orgs, persons, deals, notes, pdActivities, links, orgMatcher, personMatcher, fresh, completed: completed.length });
+  if (newOnly || since) printWindow({ since, newOnly, orgs, persons, deals, notes, pdActivities, links, orgMatcher, personMatcher, fresh, completed: completed.length, fromLead, leadOrgs, leadPeople });
+  log(`\nLeads: ${newLeads.length} not brought in yet${newLeads.length ? ` (${newLeads.filter((l) => l.is_archived).length} archived), whatever their date: each joins the client for its organization or person, or becomes a prospective client in "${LEADS_STAGE}"` : ""}`);
   log(
     emailScope === "none"
       ? "\nEmail: skipped (--no-email)"
@@ -293,6 +312,7 @@ async function runImport(db: Database) {
   for (const r of [...orgs, ...persons, ...deals]) if (r.owner_id) referenced.add(r.owner_id);
   for (const a of pdActivities) for (const id of [a.owner_id, a.creator_user_id]) if (id) referenced.add(id);
   for (const n of notes) if (n.user_id) referenced.add(n.user_id);
+  for (const l of leads) if (l.owner_id) referenced.add(l.owner_id);
   const userIds = new Map<PdId, string>();
   let usersAdded = 0;
   for (const u of pdUsers) {
@@ -385,13 +405,13 @@ async function runImport(db: Database) {
   const orgCreated = new Map(orgs.map((o) => [o.id, o.add_time]));
   if (newOnly) {
     const counts = await addNew(db, links, "organization", orgRows, actor.id, orgIds, {
-      fresh: (r) => fresh(orgCreated.get(r.pd)),
+      fresh: (r) => fresh(orgCreated.get(r.pd)) || leadOrgs.has(r.pd),
       match: (r) => orgMatcher.find(orgName.get(r.pd)),
       remember: (id, r) => orgMatcher.add({ id, name: r.values.name }),
     });
     log(`Organizations: ${counts.created} added, ${counts.matched} matched to ones already here`);
   } else {
-    const orgCounts = await upsert(db, links, "organization", schema.organizations, orgRows.filter((r) => links.get("organization", r.pd) || fresh(orgCreated.get(r.pd))), actor.id, orgIds);
+    const orgCounts = await upsert(db, links, "organization", schema.organizations, orgRows.filter((r) => links.get("organization", r.pd) || fresh(orgCreated.get(r.pd)) || leadOrgs.has(r.pd)), actor.id, orgIds);
     log(`Organizations: ${orgCounts.created} added, ${orgCounts.updated} updated`);
   }
   for (const o of orgs) if (!orgIds.has(o.id) && links.get("organization", o.id)) orgIds.set(o.id, links.get("organization", o.id)!);
@@ -431,14 +451,14 @@ async function runImport(db: Database) {
       return { ...r, values: { ...r.values, otherEmails, otherPhones } };
     });
     const counts = await addNew(db, links, "person", rows, actor.id, personIds, {
-      fresh: (r) => fresh(personCreated.get(r.pd)),
+      fresh: (r) => fresh(personCreated.get(r.pd)) || leadPeople.has(r.pd),
       match: (r) => personMatcher.find(r.values),
       remember: (id, r) => personMatcher.add({ id, ...r.values }),
       extend: (id, r) => personMatcher.extend(id, r.values),
     });
     log(`People: ${counts.created} added, ${counts.matched} matched to people already here`);
   } else {
-    const personCounts = await upsert(db, links, "person", schema.people, personRows.filter((r) => links.get("person", r.pd) || fresh(personCreated.get(r.pd))), actor.id, personIds);
+    const personCounts = await upsert(db, links, "person", schema.people, personRows.filter((r) => links.get("person", r.pd) || fresh(personCreated.get(r.pd)) || leadPeople.has(r.pd)), actor.id, personIds);
     log(`People: ${personCounts.created} added, ${personCounts.updated} updated`);
   }
   for (const p of persons) if (!personIds.has(p.id) && links.get("person", p.id)) personIds.set(p.id, links.get("person", p.id)!);
@@ -469,16 +489,25 @@ async function runImport(db: Database) {
       stageIds.set(`${category}:${s.name}`, row.id);
       ordered.push(row.id);
     }
-    // Pipedrive's stages first, in Pipedrive's order; anything else keeps its order after them.
-    const rest = existing.filter((e) => !ordered.includes(e.id)).map((e) => e.id);
-    await Promise.all([...ordered, ...rest].map((id, position) => db.update(schema.stages).set({ position }).where(eq(schema.stages.id, id))));
+    // The Leads inbox first (prospects), then Pipedrive's stages in Pipedrive's order; anything else keeps its order after them.
+    const inbox = category === "prospective" ? existing.filter((e) => e.name === LEADS_STAGE && !ordered.includes(e.id)).map((e) => e.id) : [];
+    const rest = existing.filter((e) => !ordered.includes(e.id) && !inbox.includes(e.id)).map((e) => e.id);
+    await Promise.all([...inbox, ...ordered, ...rest].map((id, position) => db.update(schema.stages).set({ position }).where(eq(schema.stages.id, id))));
   }
   await links.flush();
-  const ensureStage = async (category: ClientCategory, name: string) => {
+  /** A stage a new client needs: the one with that name in the category's pipeline, or a new one after the others (or before them, with `first`). */
+  const ensureStage = async (category: ClientCategory, name: string, { first = false, probability: given }: { first?: boolean; probability?: number } = {}) => {
     if (stageIds.has(`${category}:${name}`)) return;
-    const [last] = await db.select({ position: schema.stages.position }).from(schema.stages).where(eq(schema.stages.pipelineId, pipelineIds[category])).orderBy(sql`${schema.stages.position} desc`).limit(1);
-    const probability = stagePlan[category].find((s) => s.name === name)?.probability ?? 0;
-    const [row] = await db.insert(schema.stages).values({ pipelineId: pipelineIds[category], name, probability, rottingDays: null, position: (last?.position ?? -1) + 1 }).returning();
+    const here = await db.select().from(schema.stages).where(eq(schema.stages.pipelineId, pipelineIds[category]));
+    const same = here.find((st) => st.name === name);
+    if (same) {
+      stageIds.set(`${category}:${name}`, same.id);
+      return;
+    }
+    const positions = here.map((st) => st.position);
+    const position = first ? Math.min(0, ...positions) - 1 : Math.max(-1, ...positions) + 1;
+    const probability = given ?? stagePlan[category].find((st) => st.name === name)?.probability ?? 0;
+    const [row] = await db.insert(schema.stages).values({ pipelineId: pipelineIds[category], name, probability, rottingDays: null, position }).returning();
     await links.save("stage", `${category}:${name}`, row.id);
     stageIds.set(`${category}:${name}`, row.id);
     log(`  Added the stage "${name}" to the ${category} pipeline`);
@@ -675,11 +704,68 @@ async function runImport(db: Database) {
   await links.flush();
   log(`Services on clients: ${servicesAdded} added`);
 
+  // ── Leads: each one not brought in yet joins the client here for its organization or person (which stays as it is),
+  // or becomes a prospective client in the Leads inbox stage.
+  const leadClient = new Map<string, string>();
+  for (const l of leads) if (links.get("lead", l.id)) leadClient.set(l.id, links.get("lead", l.id)!);
+  if (newLeads.length) {
+    const clientsHere = new Map((await db.select({ id: schema.clients.id, organizationId: schema.clients.organizationId, personId: schema.clients.personId, archivedAt: schema.clients.archivedAt, createdAt: schema.clients.createdAt }).from(schema.clients)).map((c) => [c.id, c]));
+    const byRecord = new Map<string, string>();
+    for (const c of [...clientsHere.values()].sort((a, b) => Number(!!a.archivedAt) - Number(!!b.archivedAt) || a.createdAt.getTime() - b.createdAt.getTime())) {
+      for (const k of [c.organizationId && `org:${c.organizationId}`, !c.organizationId && c.personId && `person:${c.personId}`]) if (k && !byRecord.has(k)) byRecord.set(k, c.id);
+    }
+    const also = await alsoTied(db, clientsHere);
+    for (const r of also.organizations) if (!byRecord.has(`org:${r.organizationId}`)) byRecord.set(`org:${r.organizationId}`, r.clientId);
+    for (const r of also.people) if (!byRecord.has(`person:${r.personId}`)) byRecord.set(`person:${r.personId}`, r.clientId);
+    const names = new Map((await db.select({ id: schema.clients.id, name: schema.clients.name }).from(schema.clients)).map((c) => [c.id, c.name]));
+    let leadsAdded = 0;
+    const leadsJoined: string[] = [];
+    for (const l of [...newLeads].sort((a, b) => Date.parse(a.add_time) - Date.parse(b.add_time))) {
+      const personId = l.person_id ? (personIds.get(l.person_id) ?? null) : null;
+      const organizationId = (l.organization_id ? orgIds.get(l.organization_id) : null) ?? (l.person_id && personOrgOf.get(l.person_id) ? (orgIds.get(personOrgOf.get(l.person_id)!) ?? null) : null);
+      const key = organizationId ? `org:${organizationId}` : personId ? `person:${personId}` : null;
+      const found = key ? byRecord.get(key) : undefined;
+      if (found) {
+        await links.match("lead", l.id, found, ["client", "lead", "deal"]);
+        leadClient.set(l.id, found);
+        leadsJoined.push(`  ${names.get(found) ?? "?"}: "${l.title}"${l.is_archived ? " (archived)" : ""}`);
+        continue;
+      }
+      await ensureStage("prospective", LEADS_STAGE, { first: true, probability: 5 });
+      const values = leadValues(l, { orgName, personName, user, customValues, leadLabels, stageId: stageIds.get(`prospective:${LEADS_STAGE}`)!, pipelineId: pipelineIds.prospective, personId, organizationId });
+      const createdAt = time(l.add_time) ?? now;
+      const [row] = await db
+        .insert(schema.clients)
+        .values({ ...values, rank: nextRank(values.stageId), createdBy: actor.id, createdAt, archivedAt: l.is_archived ? (time(l.update_time) ?? now) : null })
+        .returning({ id: schema.clients.id });
+      await links.save("lead", l.id, row.id);
+      await db.insert(schema.events).values({ entityType: "client", entityId: row.id, action: "created", data: { category: "prospective", stage: LEADS_STAGE, source: SOURCE, lead: { id: l.id, title: l.title } }, userId: actor.id });
+      leadClient.set(l.id, row.id);
+      if (key) byRecord.set(key, row.id);
+      names.set(row.id, values.name);
+      leadsAdded++;
+    }
+    await links.flush();
+    log(`Leads: ${leadsAdded} added to "${LEADS_STAGE}", ${leadsJoined.length} joined clients already here`);
+    if (leadsJoined.length) log(`Leads on clients already here (their stage and category are left as they are):\n${leadsJoined.join("\n")}`);
+  }
+  const leadById = new Map(leads.map((l) => [l.id, l]));
+  // A lead's person and organization lead to its client, for what Pipedrive doesn't put on the lead itself (their email, say). Open leads first.
+  const leadClientOf = new Map<string, string>();
+  for (const l of [...leads].sort((a, b) => Number(a.is_archived) - Number(b.is_archived))) {
+    const id = leadClient.get(l.id);
+    if (!id) continue;
+    for (const k of [l.organization_id && `org:${l.organization_id}`, l.person_id && `person:${l.person_id}`]) if (k && !leadClientOf.has(k)) leadClientOf.set(k, id);
+  }
+
   // ── Timeline: notes, activities, email.
-  const clientFor = (dealId: PdId | null | undefined, orgId: PdId | null | undefined, personId: PdId | null | undefined) =>
+  const clientFor = (dealId: PdId | null | undefined, orgId: PdId | null | undefined, personId: PdId | null | undefined, leadId?: string | null) =>
     (dealId ? dealClient.get(dealId) : undefined) ??
+    (leadId ? leadClient.get(leadId) : undefined) ??
     (orgId ? clientIds.get(`org:${orgId}`) : undefined) ??
     (personId ? (clientIds.get(`person:${personId}`) ?? (personOrg.get(personId) ? clientIds.get(`org:${personOrg.get(personId)}`) : undefined)) : undefined) ??
+    (orgId ? leadClientOf.get(`org:${orgId}`) : undefined) ??
+    (personId ? (leadClientOf.get(`person:${personId}`) ?? (personOrg.get(personId) ? leadClientOf.get(`org:${personOrg.get(personId)}`) : undefined)) : undefined) ??
     null;
   const dealOrg = new Map(deals.map((d) => [d.id, d.org_id]));
   // --new-only: when Pipedrive's records don't lead to a client, the client here for the organization or person does.
@@ -691,21 +777,24 @@ async function runImport(db: Database) {
     const also = await alsoTied(db, existingClients);
     for (const r of [...also.organizations.map((o) => ({ id: o.organizationId, clientId: o.clientId })), ...also.people.map((p) => ({ id: p.personId, clientId: p.clientId }))]) if (!clientOf.has(r.id)) clientOf.set(r.id, r.clientId);
   }
-  const linksFor = (dealId: PdId | null | undefined, orgId: PdId | null | undefined, personId: PdId | null | undefined) => {
-    const org = orgId ?? (personId ? personOrg.get(personId) : null) ?? (dealId ? dealOrg.get(dealId) : null) ?? null;
+  const linksFor = (dealId: PdId | null | undefined, orgId: PdId | null | undefined, pdPersonId: PdId | null | undefined, leadId?: string | null) => {
+    // On a lead: its person and organization when the note or activity doesn't name them.
+    const lead = leadId ? leadById.get(leadId) : undefined;
+    const personId = pdPersonId ?? lead?.person_id ?? null;
+    const org = orgId ?? lead?.organization_id ?? (personId ? personOrg.get(personId) : null) ?? (dealId ? dealOrg.get(dealId) : null) ?? null;
     const local = { personId: personId ? (personIds.get(personId) ?? null) : null, organizationId: org ? (orgIds.get(org) ?? null) : null };
     // Someone whose Pipedrive organization isn't here is still at their organization here.
     if (newOnly && !local.organizationId && local.personId) local.organizationId = here.personOrg.get(local.personId) ?? null;
-    const clientId = clientFor(dealId, org, personId) ?? (newOnly ? ((local.organizationId && clientOf.get(local.organizationId)) || (local.personId && clientOf.get(local.personId)) || null) : null);
+    const clientId = clientFor(dealId, org, personId, leadId) ?? (newOnly ? ((local.organizationId && clientOf.get(local.organizationId)) || (local.personId && clientOf.get(local.personId)) || null) : null);
     return { ...local, clientId };
   };
   const attached = (r: { values: { personId?: string | null; organizationId?: string | null; clientId?: string | null } }) => !!(r.values.personId || r.values.organizationId || r.values.clientId);
 
-  const newNotes = notes.filter((n) => !links.get("note", n.id) && fresh(n.add_time));
+  const newNotes = notes.filter((n) => !links.get("note", n.id) && (fresh(n.add_time) || fromLead(n.lead_id)));
   const noteRows = newNotes
     .map((n) => {
       const at = time(n.add_time) ?? now;
-      return { pd: n.id, values: { type: "note" as const, body: cleanHtml(n.content), occurredAt: at, createdAt: at, updatedAt: at, pinned: !!(n.pinned_to_deal_flag || n.pinned_to_person_flag || n.pinned_to_organization_flag), userId: user(n.user_id), assigneeId: user(n.user_id), ...linksFor(n.deal_id, n.org_id, n.person_id) } };
+      return { pd: n.id, values: { type: "note" as const, body: cleanHtml(n.content), occurredAt: at, createdAt: at, updatedAt: at, pinned: !!(n.pinned_to_deal_flag || n.pinned_to_person_flag || n.pinned_to_organization_flag), userId: user(n.user_id), assigneeId: user(n.user_id), ...linksFor(n.deal_id, n.org_id, n.person_id, n.lead_id) } };
     })
     .filter((r) => r.values.body && attached(r));
   await insertActivities(db, links, "note", noteRows);
@@ -714,8 +803,8 @@ async function runImport(db: Database) {
   const typeNames = new Map(activityTypes.map((t) => [t.key_string, t.name]));
   const outcomeNames = new Map((activityFields.find((f) => f.key === "outcome")?.options ?? []).map((o) => [String(o.id), o.label.trim()]));
   // New in the window, or created earlier and marked done in it.
-  const newActivities = pdActivities.filter((a) => !links.get("activity", a.id) && (fresh(a.add_time) || (a.done && fresh(a.marked_as_done_time))));
-  const activityRows = newActivities.map((a) => ({ pd: a.id, values: { ...activityValues(a, typeNames, outcomeNames, user, now), ...linksFor(a.deal_id, a.org_id, a.person_id) } })).filter(attached);
+  const newActivities = pdActivities.filter((a) => !links.get("activity", a.id) && (fresh(a.add_time) || (a.done && fresh(a.marked_as_done_time)) || fromLead(a.lead_id)));
+  const activityRows = newActivities.map((a) => ({ pd: a.id, values: { ...activityValues(a, typeNames, outcomeNames, user, now), ...linksFor(a.deal_id, a.org_id, a.person_id, a.lead_id) } })).filter(attached);
   await insertActivities(db, links, "activity", activityRows);
   const byType = Object.entries(Object.groupBy(activityRows, (r) => r.values.type)).map(([t, list]) => `${list!.length} ${t}`);
   log(`Activities: ${activityRows.length} added${byType.length ? ` (${byType.join(", ")})` : ""}${unplaced(newActivities.length - activityRows.length)}`);
@@ -743,6 +832,17 @@ async function runImport(db: Database) {
     });
     log(`Email: ${added} messages added`);
   }
+
+  // Notes and activities brought in before on a lead's person, now that the lead is a client here: they show on it too.
+  let onLeads = 0;
+  for (const r of [...notes.map((n) => ({ kind: "note", id: n.id, lead: n.lead_id })), ...pdActivities.map((a) => ({ kind: "activity", id: a.id, lead: a.lead_id }))]) {
+    const local = links.get(r.kind, r.id);
+    const clientId = r.lead && newLeadIds.has(r.lead) ? leadClient.get(r.lead) : undefined;
+    if (!local || !clientId) continue;
+    const done = await db.update(schema.activities).set({ clientId }).where(and(eq(schema.activities.id, local), isNull(schema.activities.clientId))).returning({ id: schema.activities.id });
+    onLeads += done.length;
+  }
+  if (onLeads) log(`Notes and activities from before on a lead's person, now also on its client: ${onLeads}`);
 
   // Checked off in Pipedrive in the window: checked off here too.
   for (const { id, a, row } of completed) {
@@ -861,6 +961,35 @@ function clientValues(plan: ClientPlan, lk: Lookup, c: Ctx) {
     custom,
     stageChangedAt: changed,
     categoryChangedAt: changed,
+  };
+}
+
+function leadValues(
+  l: PdLead,
+  c: Pick<Ctx, "orgName" | "personName" | "user" | "customValues"> & { leadLabels: Map<string, string>; stageId: string; pipelineId: string; personId: string | null; organizationId: string | null },
+) {
+  const name = (l.organization_id && c.orgName.get(l.organization_id)) || (l.person_id && c.personName.get(l.person_id)) || l.title || "Lead";
+  const at = time(l.add_time) ?? new Date();
+  return {
+    name: name.trim().slice(0, 200),
+    category: "prospective" as const,
+    value: cents(l.value?.amount),
+    currency: l.value?.currency || "USD",
+    pipelineId: c.pipelineId,
+    stageId: c.stageId,
+    expectedCloseDate: day(l.expected_close_date),
+    startedOn: null,
+    endedOn: null,
+    churnReason: null,
+    openToReturn: true,
+    tags: [...new Set((l.label_ids ?? []).map((id) => c.leadLabels.get(id)).filter((t): t is string => !!t).map((t) => t.slice(0, 40)))].slice(0, 30),
+    personId: c.personId,
+    organizationId: c.organizationId,
+    ownerId: c.user(l.owner_id),
+    // Leads keep deal custom field values at the top level, under the same keys.
+    custom: c.customValues("client", l),
+    stageChangedAt: at,
+    categoryChangedAt: at,
   };
 }
 
@@ -1175,18 +1304,22 @@ function printWindow(o: {
   orgs: { id: PdId; name: string; add_time: string }[];
   persons: { id: PdId; name: string; add_time: string; first_name: string | null; last_name: string | null; emails?: { value: string }[] | null; phones?: { value: string }[] | null }[];
   deals: PdDeal[];
-  notes: { id: PdId; add_time: string }[];
+  notes: { id: PdId; add_time: string; lead_id: string | null }[];
   pdActivities: PdActivity[];
   links: Links;
   orgMatcher: OrganizationMatcher;
   personMatcher: PersonMatcher;
   fresh: (at: string | null | undefined) => boolean;
   completed: number;
+  fromLead: (lead: string | null | undefined) => boolean;
+  leadOrgs: Set<PdId>;
+  leadPeople: Set<PdId>;
 }) {
   const window = o.since ? `since ${stamp(o.since)}` : "at any time";
   log(`\nNew in Pipedrive ${window}, not brought in yet${o.newOnly ? " (records already here are left as they are)" : ""}:`);
-  const newOrgs = o.orgs.filter((r) => !o.links.get("organization", r.id) && o.fresh(r.add_time));
-  const newPeople = o.persons.filter((r) => !o.links.get("person", r.id) && o.fresh(r.add_time));
+  // With the ones a lead not brought in yet needs, whatever their date.
+  const newOrgs = o.orgs.filter((r) => !o.links.get("organization", r.id) && (o.fresh(r.add_time) || o.leadOrgs.has(r.id)));
+  const newPeople = o.persons.filter((r) => !o.links.get("person", r.id) && (o.fresh(r.add_time) || o.leadPeople.has(r.id)));
   if (o.newOnly) {
     const orgMatches = newOrgs.filter((r) => o.orgMatcher.find(r.name));
     const personMatches = newPeople.filter((p) => {
@@ -1205,8 +1338,8 @@ function printWindow(o: {
   const newDeals = o.deals.filter((d) => !o.links.get("deal", d.id) && o.fresh(d.add_time) && d.status !== "deleted" && !d.is_deleted);
   log(`  ${newDeals.length} deals`);
   for (const d of newDeals.slice(0, 30)) log(`      "${d.title}" (${d.status})`);
-  log(`  ${o.notes.filter((n) => !o.links.get("note", n.id) && o.fresh(n.add_time)).length} notes`);
-  const acts = o.pdActivities.filter((a) => !o.links.get("activity", a.id) && (o.fresh(a.add_time) || (a.done && o.fresh(a.marked_as_done_time))));
+  log(`  ${o.notes.filter((n) => !o.links.get("note", n.id) && (o.fresh(n.add_time) || o.fromLead(n.lead_id))).length} notes (with those on leads not brought in yet, whatever their date)`);
+  const acts = o.pdActivities.filter((a) => !o.links.get("activity", a.id) && (o.fresh(a.add_time) || (a.done && o.fresh(a.marked_as_done_time)) || o.fromLead(a.lead_id)));
   const byType = Object.entries(Object.groupBy(acts, (a) => a.type)).map(([t, list]) => `${list!.length} ${t}`);
   log(`  ${acts.length} activities${byType.length ? ` (${byType.join(", ")})` : ""}`);
   log(`  ${o.completed} activities brought in as planned and marked done in Pipedrive since they were brought in: they're checked off here too`);
@@ -1224,13 +1357,13 @@ async function reset(db: Database) {
     for (const batch of chunks(ids, 500)) await fn(batch);
   };
   if (!flag("yes")) {
-    log(`This removes ${of("client").length} clients, ${of("person").length} people, ${of("organization").length} organizations and ${of("note", "activity", "email").length} notes, activities and emails brought in from Pipedrive. Run again with --reset --yes to go ahead.`);
+    log(`This removes ${of("client", "lead").length} clients, ${of("person").length} people, ${of("organization").length} organizations and ${of("note", "activity", "email").length} notes, activities and emails brought in from Pipedrive. Run again with --reset --yes to go ahead.`);
     return;
   }
-  const records = [...of("client"), ...of("person"), ...of("organization")];
+  const records = [...of("client", "lead"), ...of("person"), ...of("organization")];
   await del(of("note", "activity", "email"), (b) => db.delete(schema.activities).where(inArray(schema.activities.id, b)));
   await del(records, (b) => db.delete(schema.events).where(inArray(schema.events.entityId, b)));
-  await del(of("client"), (b) => db.delete(schema.clients).where(inArray(schema.clients.id, b)));
+  await del(of("client", "lead"), (b) => db.delete(schema.clients).where(inArray(schema.clients.id, b)));
   await del(of("person"), (b) => db.delete(schema.people).where(inArray(schema.people.id, b)));
   await del(of("organization"), (b) => db.delete(schema.organizations).where(inArray(schema.organizations.id, b)));
   await del(of("field:*"), (b) => db.delete(schema.customFields).where(inArray(schema.customFields.id, b)));
