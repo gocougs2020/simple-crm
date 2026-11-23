@@ -97,6 +97,6 @@ The code is public; the data and secrets never are. This page is how that holds.
 
 ## Stripe
 
-- Read-only: the CRM only ever calls `GET` endpoints. Use a restricted key with read access per Stripe account; keys are never sent to the browser, and billing is fetched on the server. Only the fields a page shows reach the browser.
+- Mostly read-only. Everything the CRM shows comes from `GET` requests; the only writes start, change, cancel or un-cancel a subscription, from the client's billing details (`src/actions/billing.ts`). Those are **admins only** (checked on the server with `actionAdmin`, and the controls are hidden from everyone else), check that the subscription's customer is one of the client's, and are written to the client's history. They aren't API operations or MCP tools, so the agent can't change billing. A restricted key with read access per Stripe account is enough to see billing; add write access to Subscriptions only if admins should change billing here. With a read-only key, a change is refused by Stripe and the admin sees that nothing changed. Keys are never sent to the browser, and billing is fetched on the server. Only the fields a page shows reach the browser.
 - Customers are matched to clients by email, so anyone who can edit a person's email can change which Stripe customer shows on a client. Billing is visible to everyone who can see the client, the same as before.
 - `STRIPE_API_URL` points the client at a local stand-in for tests. It's ignored on Vercel.

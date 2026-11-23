@@ -62,3 +62,7 @@ export function rollUpStatus(statuses: string[]): BillingStatus {
   if (statuses.includes("paused")) return "paused";
   return statuses.length ? "canceled" : "customer";
 }
+
+const brands: Record<string, string> = { visa: "Visa", mastercard: "Mastercard", amex: "American Express", discover: "Discover", diners: "Diners Club", jcb: "JCB", unionpay: "UnionPay", cartes_bancaires: "Cartes Bancaires", eftpos_au: "eftpos" };
+/** A card brand or payment type as people write it: "visa" is Visa, "us_bank_account" is Us bank account. */
+export const brandName = (brand: string) => brands[brand] ?? (brand.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()) || "Card");

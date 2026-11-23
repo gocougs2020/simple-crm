@@ -6,7 +6,8 @@ import { BillingView } from "./billing-view";
 /**
  * Stripe billing on every client, prospects included: the customers whose
  * email is one of the client's people's, in every connected account, with
- * their subscriptions, invoices, payments and saved cards read live. Renders
+ * their subscriptions, invoices, payments and saved cards read live. Admins
+ * can start, change and cancel subscriptions from the details. Renders
  * in its own Suspense boundary so a slow Stripe never holds up the page.
  */
 export async function BillingCard({ clientId, syncedAt, suggest }: { clientId: string; syncedAt: Date | null; suggest: string | null }) {
@@ -14,7 +15,7 @@ export async function BillingCard({ clientId, syncedAt, suggest }: { clientId: s
     return (
       <SideCard title="Billing">
         <p className="py-1 text-[12.5px] text-muted">
-          Connect Stripe to see subscriptions, invoices and payments here. Add a restricted, read-only key to the environment as STRIPE_SECRET_KEY, or one per Stripe account as STRIPE_SECRET_KEY_NAME.
+          Connect Stripe to see subscriptions, invoices and payments here. Add a restricted key to the environment as STRIPE_SECRET_KEY, or one per Stripe account as STRIPE_SECRET_KEY_NAME. Read access is enough to see billing; admins need write access to Subscriptions to change it here.
         </p>
       </SideCard>
     );

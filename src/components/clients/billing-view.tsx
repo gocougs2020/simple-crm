@@ -1,8 +1,9 @@
 "use client";
 
-import { ProductNames } from "./product-tag";
 import { useState, useTransition, type ReactNode } from "react";
-import { ArrowPathIcon, ArrowTopRightOnSquareIcon, EllipsisHorizontalIcon, LinkIcon } from "@heroicons/react/20/solid";
+import clsx from "clsx";
+import { ArrowPathIcon, ArrowTopRightOnSquareIcon, BanknotesIcon, DocumentTextIcon, EllipsisHorizontalIcon, LinkIcon, PencilSquareIcon, PlusIcon, XCircleIcon } from "@heroicons/react/20/solid";
+import { keepStripeSubscription } from "@/actions/billing";
 import { findStripeCustomers, linkStripeCustomer, refreshStripe, removeStripeCustomer } from "@/actions/clients";
 import { useApp } from "@/components/app-context";
 import { SideCard } from "@/components/records/inline-field";
@@ -12,38 +13,35 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/field";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { toast } from "@/components/ui/toast";
-import { formatMoney } from "@/lib/format";
-import { billingStatusLabels, liveStatuses, rollUpStatus, type BillingStatus } from "@/lib/stripe/rules";
-import type { CustomerBilling, SubStatus } from "@/lib/stripe/types";
+import { billingStatusLabels, rollUpStatus, type BillingStatus } from "@/lib/stripe/rules";
+import type { CustomerBilling } from "@/lib/stripe/types";
+import { CancelSubscriptionDialog, EditSubscriptionDialog, NewSubscriptionDialog } from "./billing-manage";
+import { cancelsAt, day, isEnded, isLive, money, netOf, priceOf, SubBadge, subName, whenOf, type Sub } from "./billing-shared";
+import { PaymentCard } from "./payment-card";
+import { ProductNames } from "./product-tag";
 
-const day = (unix: number) => new Date(unix * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-const money = (cents: number, currency: string | null) => formatMoney(cents, (currency ?? "usd").toUpperCase());
-
-const subTone: Record<SubStatus, Tone> = { active: "success", trialing: "info", past_due: "error", unpaid: "error", incomplete: "warning", incomplete_expired: "neutral", canceled: "neutral", paused: "warning" };
-const subLabel: Record<SubStatus, string> = { active: "Active", trialing: "Trial", past_due: "Past due", unpaid: "Unpaid", incomplete: "Incomplete", incomplete_expired: "Expired", canceled: "Canceled", paused: "Paused" };
 const statusTone: Record<BillingStatus, Tone> = { past_due: "error", active: "success", trialing: "info", paused: "warning", canceled: "neutral", customer: "neutral" };
-const invoiceTone = { paid: "success", open: "warning", uncollectible: "error", void: "neutral", draft: "neutral" } as const;
 
-const isLive = (s: { status: string }) => (liveStatuses as readonly string[]).includes(s.status);
-const every = (i: { interval: string | null; intervalCount: number }) => (i.interval ? `/${i.intervalCount > 1 ? `${i.intervalCount} ` : ""}${i.interval}${i.intervalCount > 1 ? "s" : ""}` : "");
-const priceOf = (s: CustomerBilling["subscriptions"][number]) =>
-  s.items
-    .map((i) => (i.amount != null ? `${money(i.amount * i.quantity, i.currency)}${every(i)}` : null))
-    .filter(Boolean)
-    .join(" + ");
-/** What a subscription is billed after its discounts, when it has any: "$1,215/mo after discounts". */
-const netOf = (s: CustomerBilling["subscriptions"][number]) => (s.discount ? `${money(s.monthly - s.discount, s.currency)}/mo after discounts` : null);
-const whenOf = (s: CustomerBilling["subscriptions"][number]) => (s.endedAt ? `ended ${day(s.endedAt)}` : s.cancelAt ? `ends ${day(s.cancelAt)}` : s.cancelAtPeriodEnd && s.periodEnd ? `ends ${day(s.periodEnd)}` : s.periodEnd ? `renews ${day(s.periodEnd)}` : "");
-
-function SubBadge({ s }: { s: CustomerBilling["subscriptions"][number] }) {
-  return <StatusBadge tone={subTone[s.status]}>{s.cancelAtPeriodEnd && s.status === "active" ? "Canceling" : subLabel[s.status]}</StatusBadge>;
+/** One figure with its label, for the rows of numbers on the card and in the details. */
+function Stat({ label, value, note, tone }: { label: string; value: ReactNode; note?: ReactNode; tone?: "error" | "warning" }) {
+  return (
+    <div className="min-w-0">
+      <dt className="truncate text-[11.5px] text-muted">{label}</dt>
+      <dd className={clsx("truncate text-[14px] font-semibold tabular-nums", tone === "error" ? "text-error" : tone === "warning" ? "text-warning" : "text-primary")}>{value}</dd>
+      {note ? <dd className="truncate text-[11.5px] text-muted tabular-nums">{note}</dd> : null}
+    </div>
+  );
 }
+
+const overdueOf = (invoices: CustomerBilling["invoices"]) => invoices.filter((i) => i.status === "open" && i.overdue);
+const sum = (invoices: CustomerBilling["invoices"]) => invoices.reduce((t, i) => t + i.remaining, 0);
 
 /**
  * The billing card: what Stripe says about this client across every
- * connected account. The card is the highlights (status, monthly amount,
- * what's owed, running subscriptions); "See details" opens each customer's
- * subscriptions, saved cards, invoice history and payments.
+ * connected account. The card is the highlights (monthly amount, what's
+ * overdue, what they paid in the last 12 months, running subscriptions);
+ * "See details" opens each customer's subscriptions, saved cards and billing
+ * history. Admins can start, change and cancel subscriptions there.
  */
 export function BillingView({
   clientId,
@@ -62,9 +60,10 @@ export function BillingView({
   accounts: { id: string; label: string }[];
   suggest: string | null;
 }) {
-  const { canEdit } = useApp();
+  const { canEdit, isAdmin } = useApp();
   const [details, setDetails] = useState(false);
   const [linking, setLinking] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [pending, start] = useTransition();
   const several = accounts.length > 1;
 
@@ -72,13 +71,12 @@ export function BillingView({
   const live = subs.filter(isLive);
   const currency = live[0]?.currency ?? customers[0]?.customer.currency ?? customers[0]?.invoices[0]?.currency ?? "usd";
   const running = live.filter((s) => s.status !== "paused");
-  const discount = running.reduce((sum, s) => sum + s.discount, 0);
-  const monthly = running.reduce((sum, s) => sum + s.monthly, 0) - discount;
-  const collectedYear = customers.reduce((sum, c) => sum + c.collectedYear, 0);
-  const credit = customers.reduce((sum, c) => sum + Math.max(0, -c.customer.balance), 0);
-  const open = customers.flatMap((c) => c.invoices.filter((i) => i.status === "open"));
-  const owed = open.reduce((sum, i) => sum + i.remaining, 0);
-  const overdue = open.filter((i) => i.overdue).length;
+  const discount = running.reduce((t, s) => t + s.discount, 0);
+  const monthly = running.reduce((t, s) => t + s.monthly, 0) - discount;
+  const collectedYear = customers.reduce((t, c) => t + c.collectedYear, 0);
+  const credit = customers.reduce((t, c) => t + Math.max(0, -c.customer.balance), 0);
+  const overdue = customers.flatMap((c) => overdueOf(c.invoices));
+  const overdueOwed = sum(overdue);
   const status = customers.length ? rollUpStatus(subs.map((s) => s.status)) : null;
   const lastPaid = customers.flatMap((c) => c.charges.filter((x) => x.status === "succeeded" && !x.refunded)).sort((a, b) => b.created - a.created)[0];
   const delinquent = customers.some((c) => c.customer.delinquent);
@@ -101,6 +99,11 @@ export function BillingView({
         <MenuItem icon={<ArrowPathIcon />} onSelect={refresh}>
           Check Stripe now
         </MenuItem>
+        {isAdmin && customers.length ? (
+          <MenuItem icon={<PlusIcon />} onSelect={() => setCreating(true)}>
+            Start a subscription
+          </MenuItem>
+        ) : null}
         {canEdit ? (
           <MenuItem icon={<LinkIcon />} onSelect={() => setLinking(true)}>
             Link a customer by hand
@@ -128,43 +131,25 @@ export function BillingView({
         </p>
       ) : (
         <div className="flex flex-col gap-3">
-          <dl className="grid grid-cols-2 gap-x-2 gap-y-2.5">
-            <div>
-              <dt className="text-[11.5px] text-muted">Subscriptions</dt>
-              <dd className="text-[14px] font-semibold text-primary tabular-nums">{running.length ? `${money(monthly, currency)}/mo` : "None running"}</dd>
-              {discount ? <dd className="text-[11.5px] text-muted tabular-nums">after {money(discount, currency)}/mo in discounts</dd> : null}
-            </div>
-            <div>
-              <dt className="text-[11.5px] text-muted">Open invoices</dt>
-              <dd className={owed ? "text-[14px] font-semibold text-warning tabular-nums" : "text-[14px] font-semibold text-primary tabular-nums"}>
-                {money(owed, currency)}
-                {overdue ? <span className="ml-1 text-[11.5px] font-medium text-error">{overdue} overdue</span> : null}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[11.5px] text-muted">Collected, last 12 months</dt>
-              <dd className="text-[14px] font-semibold text-primary tabular-nums">{money(collectedYear, currency)}</dd>
-            </div>
-            {credit ? (
-              <div>
-                <dt className="text-[11.5px] text-muted">Credit on account</dt>
-                <dd className="text-[14px] font-semibold text-primary tabular-nums">{money(credit, currency)}</dd>
-              </div>
-            ) : null}
+          <dl className="grid grid-cols-3 gap-x-3">
+            <Stat label="Subscriptions" value={running.length ? `${money(monthly, currency)}/mo` : "None"} note={discount ? `${money(discount, currency)}/mo off` : undefined} />
+            <Stat label="Overdue invoices" value={money(overdueOwed, currency)} tone={overdueOwed ? "error" : undefined} note={overdue.length ? `${overdue.length} invoice${overdue.length === 1 ? "" : "s"}` : undefined} />
+            <Stat label="Collected LTM" value={money(collectedYear, currency)} />
           </dl>
+          {credit ? <p className="text-[11.5px] text-muted tabular-nums">{money(credit, currency)} credit on account</p> : null}
           {delinquent ? <p className="text-[12px] text-error">Stripe marks a customer here as delinquent: a recent payment failed.</p> : null}
 
           {live.length ? (
             <ul className="flex flex-col gap-1.5">
               {live.slice(0, 6).map((s) => (
                 <li key={`${s.customer.account}:${s.id}`} className="text-[12.5px]">
-                  <div className="flex items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate font-medium text-primary">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="min-w-0 truncate font-medium text-primary">
                       <ProductNames names={s.items.map((i) => i.name)} />
                     </span>
                     <SubBadge s={s} />
                   </div>
-                  <p className="truncate text-[11.5px] text-muted tabular-nums">{[priceOf(s), netOf(s), whenOf(s), several ? s.customer.accountLabel : null].filter(Boolean).join(" · ")}</p>
+                  <p className="truncate text-[11.5px] text-muted tabular-nums">{[priceOf(s), netOf(s), whenOf(s)].filter(Boolean).join(" · ")}</p>
                 </li>
               ))}
             </ul>
@@ -187,32 +172,191 @@ export function BillingView({
           </Button>
         </div>
       )}
-      {details ? <BillingDetails clientId={clientId} customers={customers} several={several} canEdit={canEdit} onClose={() => setDetails(false)} /> : null}
+      {details ? <BillingDetails clientId={clientId} customers={customers} several={several} canEdit={canEdit} isAdmin={isAdmin} onClose={() => setDetails(false)} /> : null}
+      {creating ? <NewSubscriptionDialog clientId={clientId} customers={customers} onClose={() => setCreating(false)} /> : null}
       {linking ? <StripeLinker clientId={clientId} suggest={suggest} several={several} onClose={() => setLinking(false)} /> : null}
     </SideCard>
   );
 }
 
-function Block({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
+function Block({ title, count, action, children }: { title: string; count?: number; action?: ReactNode; children: ReactNode }) {
   return (
     <section>
-      <h4 className="mb-1 text-[11.5px] font-semibold tracking-wide text-muted uppercase">
-        {title}
-        {count ? <span className="ml-1 font-medium tabular-nums">{count}</span> : null}
-      </h4>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h4 className="text-[11.5px] font-semibold tracking-wide text-muted uppercase">
+          {title}
+          {count ? <span className="ml-1 font-medium tabular-nums">{count}</span> : null}
+        </h4>
+        {action}
+      </div>
       {children}
     </section>
   );
 }
 
-/** Everything about each customer: who they are in Stripe, every subscription, saved cards, the invoice history and payments. */
-function BillingDetails({ clientId, customers, several, canEdit, onClose }: { clientId: string; customers: CustomerBilling[]; several: boolean; canEdit: boolean; onClose: () => void }) {
+/** One subscription as a card: what it is, what it bills, when it started and ends, and what an admin can do with it. */
+function SubscriptionCard({ s, c, isAdmin, onEdit, onCancel, onKeep, busy }: { s: Sub; c: CustomerBilling; isAdmin: boolean; onEdit: () => void; onCancel: () => void; onKeep: () => void; busy: boolean }) {
+  const ends = cancelsAt(s);
+  const ended = isEnded(s);
+  const url = c.dashboardUrl.replace(/customers\/[^/]+$/, `subscriptions/${s.id}`);
+  const method = s.collection === "send_invoice" ? `Invoiced, due in ${s.daysUntilDue ?? 30} days` : (() => {
+    const m = c.paymentMethods?.find((x) => (s.paymentMethod ? x.id === s.paymentMethod : x.isDefault));
+    return m ? `Charges ${m.label}` : "Charges automatically";
+  })();
+  return (
+    <li className={clsx("flex flex-col gap-2 rounded-xl border p-3.5 text-[13px]", ended ? "border-line bg-sunken/60" : ends ? "border-warning-border" : "border-line")}>
+      <div className="flex items-start gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1">
+          <span className={clsx("min-w-0 font-semibold break-words", ended ? "text-secondary" : "text-primary")}>
+            <ProductNames names={s.items.map((i) => (i.quantity > 1 ? `${i.name} × ${i.quantity}` : i.name))} />
+          </span>
+          <SubBadge s={s} />
+        </div>
+        <Menu>
+          <MenuTrigger asChild>
+            <button type="button" className="-mt-0.5 -mr-1 rounded p-1 text-faint hover:text-primary" aria-label={`More for ${subName(s)}`} disabled={busy}>
+              <EllipsisHorizontalIcon className="size-4" />
+            </button>
+          </MenuTrigger>
+          <MenuContent className="w-52">
+            {isAdmin && !ended ? (
+              <>
+                <MenuItem icon={<PencilSquareIcon />} onSelect={onEdit}>
+                  Change subscription
+                </MenuItem>
+                {ends ? (
+                  <MenuItem icon={<ArrowPathIcon />} onSelect={onKeep}>
+                    Keep subscription
+                  </MenuItem>
+                ) : null}
+                <MenuItem icon={<XCircleIcon />} destructive onSelect={onCancel}>
+                  {ends ? "Cancel now instead" : "Cancel subscription"}
+                </MenuItem>
+                <MenuSeparator />
+              </>
+            ) : null}
+            <MenuItem icon={<ArrowTopRightOnSquareIcon />} onSelect={() => window.open(url, "_blank", "noopener,noreferrer")}>
+              Open in Stripe
+            </MenuItem>
+          </MenuContent>
+        </Menu>
+      </div>
+
+      <div className="tabular-nums">
+        <p className={clsx("text-[15px] font-semibold", ended ? "text-secondary" : "text-primary")}>{priceOf(s) || "Usage based"}</p>
+        {s.discount ? <p className="text-[12px] text-muted">{netOf(s)}</p> : null}
+      </div>
+
+      <dl className="grid grid-cols-2 gap-2 text-[12px] tabular-nums">
+        <div>
+          <dt className="text-muted">Started</dt>
+          <dd className="text-secondary">{day(s.started)}</dd>
+        </div>
+        <div>
+          <dt className="text-muted">{s.endedAt ? "Ended" : ends ? "Ends" : s.periodEnd ? "Renews" : "Ends"}</dt>
+          <dd className={ends && !ended ? "font-medium text-warning" : "text-secondary"}>{s.endedAt ? day(s.endedAt) : ends ? day(ends) : s.periodEnd ? day(s.periodEnd) : "—"}</dd>
+        </div>
+      </dl>
+
+      {s.status === "trialing" && s.trialEnd ? <p className="text-[12px] text-info">Free trial until {day(s.trialEnd)}</p> : null}
+      {!ended ? <p className="truncate text-[12px] text-muted">{method}</p> : null}
+
+      {ends && !ended ? (
+        <div className="mt-auto flex flex-wrap items-center justify-between gap-2 rounded-lg bg-warning-surface px-2.5 py-2 text-[12px] text-warning">
+          <span>Set to cancel on {day(ends)}. Nothing more is billed.</span>
+          {isAdmin ? (
+            <Button size="sm" variant="outline" className="h-7" onClick={onKeep} loading={busy}>
+              Keep it
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+type HistoryRow = {
+  id: string;
+  kind: "invoice" | "payment";
+  created: number;
+  title: string;
+  detail: ReactNode;
+  status: { label: string; tone: Tone } | null;
+  amount: number;
+  owed: number | null;
+  currency: string;
+  links: { label: string; href: string }[];
+};
+
+const invoiceStatus = (i: CustomerBilling["invoices"][number]): HistoryRow["status"] => {
+  if (!i.status) return null;
+  if (i.status === "open") return i.overdue ? { label: "Overdue", tone: "error" } : { label: "Unpaid", tone: "warning" };
+  return { paid: { label: "Paid", tone: "success" as Tone }, void: { label: "Void", tone: "neutral" as Tone }, uncollectible: { label: "Uncollectible", tone: "error" as Tone }, draft: { label: "Draft", tone: "neutral" as Tone } }[i.status];
+};
+
+const paymentStatus = (x: CustomerBilling["charges"][number]): HistoryRow["status"] =>
+  x.status === "failed"
+    ? { label: "Failed", tone: "error" }
+    : x.status === "pending"
+      ? { label: "Pending", tone: "warning" }
+      : x.refunded
+        ? { label: "Refunded", tone: "neutral" }
+        : x.refundedAmount
+          ? { label: "Partly refunded", tone: "neutral" }
+          : { label: "Succeeded", tone: "success" };
+
+/** Invoices and payments in one list, newest first. */
+function historyOf(c: CustomerBilling): HistoryRow[] {
+  const invoices = c.invoices.map(
+    (i): HistoryRow => ({
+      id: i.id,
+      kind: "invoice",
+      created: i.created,
+      title: i.number ?? "Invoice",
+      detail: [i.discount ? `${money(i.discount, i.currency)} off` : null, i.status === "open" && i.dueDate ? `due ${day(i.dueDate)}` : null].filter(Boolean).join(" · "),
+      status: invoiceStatus(i),
+      amount: i.total,
+      owed: i.remaining || null,
+      currency: i.currency,
+      links: [i.url ? { label: "View", href: i.url } : null, i.pdf ? { label: "PDF", href: i.pdf } : null].filter((l): l is { label: string; href: string } => !!l),
+    }),
+  );
+  const payments = c.charges.map(
+    (x): HistoryRow => ({
+      id: x.id,
+      kind: "payment",
+      created: x.created,
+      title: x.method ?? "Payment",
+      detail: x.status === "failed" && x.failure ? <span className="text-error">{x.failure}</span> : (x.description ?? ""),
+      status: paymentStatus(x),
+      amount: x.amount,
+      owed: null,
+      currency: x.currency,
+      links: x.receipt ? [{ label: "Receipt", href: x.receipt }] : [],
+    }),
+  );
+  return [...invoices, ...payments].sort((a, b) => b.created - a.created);
+}
+
+/** Everything about each customer: who they are in Stripe, every subscription, saved cards and payment methods, and their billing history. */
+function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClose }: { clientId: string; customers: CustomerBilling[]; several: boolean; canEdit: boolean; isAdmin: boolean; onClose: () => void }) {
   const [shown, setShown] = useState(0);
-  const [allInvoices, setAllInvoices] = useState(false);
+  const [allHistory, setAllHistory] = useState(false);
+  const [editing, setEditing] = useState<Sub | null>(null);
+  const [canceling, setCanceling] = useState<Sub | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [keeping, setKeeping] = useState<string | null>(null);
   const [pending, start] = useTransition();
-  const c = customers[Math.min(shown, customers.length - 1)];
+  const index = Math.min(shown, customers.length - 1);
+  const c = customers[index];
   const label = (x: CustomerBilling) => x.customer.name ?? x.customer.email ?? x.customer.id;
-  const invoices = allInvoices ? c.invoices : c.invoices.slice(0, 12);
+  const history = historyOf(c);
+  const rows = allHistory ? history : history.slice(0, 15);
+  const currency = c.customer.currency ?? c.invoices[0]?.currency ?? null;
+  const open = c.invoices.filter((i) => i.status === "open");
+  const overdue = overdueOf(c.invoices);
+  const subs = [...c.subscriptions.filter((s) => !isEnded(s)), ...c.subscriptions.filter(isEnded)];
+
   const remove = () =>
     start(async () => {
       if (!confirm(`Take ${label(c)} off this client? Their billing stops showing here until someone links them again.`)) return;
@@ -221,8 +365,23 @@ function BillingDetails({ clientId, customers, several, canEdit, onClose }: { cl
       toast.success("Customer taken off this client");
       onClose();
     });
+  const keep = (s: Sub) =>
+    start(async () => {
+      setKeeping(s.id);
+      const r = await keepStripeSubscription(clientId, { account: c.account, subscriptionId: s.id, requestKey: crypto.randomUUID() });
+      setKeeping(null);
+      if (!r.ok) return void toast.error(r.error);
+      toast.success(`${subName(s)} won't cancel${s.periodEnd ? `. It renews on ${day(s.periodEnd)}` : ""}`);
+    });
+
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()} title="Billing" description="Read from Stripe just now; collected totals are from the last sync. Nothing here changes anything in Stripe." size="xl">
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title="Billing"
+      description={isAdmin ? "Read from Stripe just now; collected totals are from the last sync. Changes you make here happen in Stripe straight away." : "Read from Stripe just now; collected totals are from the last sync. Only admins can change billing."}
+      size="xl"
+    >
       {customers.length > 1 ? (
         <div className="mb-4 flex flex-wrap gap-1" role="tablist" aria-label="Stripe customers">
           {customers.map((x, i) => (
@@ -230,12 +389,12 @@ function BillingDetails({ clientId, customers, several, canEdit, onClose }: { cl
               key={`${x.account}:${x.customer.id}`}
               type="button"
               role="tab"
-              aria-selected={i === shown}
+              aria-selected={i === index}
               onClick={() => {
                 setShown(i);
-                setAllInvoices(false);
+                setAllHistory(false);
               }}
-              className={i === shown ? "rounded-full bg-accent px-3 py-1 text-[12.5px] font-medium text-accent-foreground" : "rounded-full bg-sunken px-3 py-1 text-[12.5px] font-medium text-secondary hover:text-primary"}
+              className={i === index ? "rounded-full bg-accent px-3 py-1 text-[12.5px] font-medium text-accent-foreground" : "rounded-full bg-sunken px-3 py-1 text-[12.5px] font-medium text-secondary hover:text-primary"}
             >
               {label(x)}
               {several ? <span className="opacity-70"> · {x.accountLabel}</span> : null}
@@ -244,75 +403,63 @@ function BillingDetails({ clientId, customers, several, canEdit, onClose }: { cl
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-5">
-        <header className="flex flex-wrap items-start gap-x-6 gap-y-2">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[15px] font-semibold text-primary">{label(c)}</p>
-            <p className="text-[12.5px] text-muted">
-              {[c.customer.email, several ? c.accountLabel : null, `Customer since ${day(c.customer.created)}`].filter(Boolean).join(" · ")}
-            </p>
-            <p className="text-[12px] text-faint">{c.byHand ? "Linked by hand" : c.matchedEmail ? `Matched on ${c.matchedEmail}` : ""}</p>
+      <div className="flex flex-col gap-6">
+        <header className="flex flex-col gap-4">
+          <div className="flex items-start gap-4">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[15px] font-semibold text-primary">{label(c)}</p>
+              <p className="text-[12.5px] text-muted">{[c.customer.email, several ? c.accountLabel : null, `Customer since ${day(c.customer.created)}`].filter(Boolean).join(" · ")}</p>
+              <p className="text-[12px] text-faint">{c.byHand ? "Linked by hand" : c.matchedEmail ? `Matched on ${c.matchedEmail}` : ""}</p>
+            </div>
+            <span className="flex shrink-0 items-center gap-1">
+              <a href={c.dashboardUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12.5px] font-medium text-secondary hover:bg-sunken hover:text-primary">
+                Open in Stripe
+                <ArrowTopRightOnSquareIcon className="size-3.5" />
+              </a>
+              {canEdit ? (
+                <Menu>
+                  <MenuTrigger asChild>
+                    <button type="button" className="rounded p-1 text-faint hover:text-primary" aria-label={`More for ${label(c)}`} disabled={pending}>
+                      <EllipsisHorizontalIcon className="size-4" />
+                    </button>
+                  </MenuTrigger>
+                  <MenuContent className="w-56">
+                    <MenuItem destructive onSelect={remove}>
+                      Not this client&apos;s customer
+                    </MenuItem>
+                    <MenuSeparator />
+                    <MenuItem onSelect={() => navigator.clipboard?.writeText(c.customer.id)}>Copy customer ID</MenuItem>
+                  </MenuContent>
+                </Menu>
+              ) : null}
+            </span>
           </div>
-          <dl className="flex flex-wrap gap-x-6 gap-y-2">
-            <div>
-              <dt className="text-[11.5px] text-muted">Collected, 12 months</dt>
-              <dd className="text-[14px] font-semibold text-primary tabular-nums">{money(c.collectedYear, c.customer.currency)}</dd>
-            </div>
-            <div>
-              <dt className="text-[11.5px] text-muted">Last 30 days</dt>
-              <dd className="text-[14px] font-semibold text-primary tabular-nums">{money(c.collectedMonth, c.customer.currency)}</dd>
-            </div>
-            <div>
-              <dt className="text-[11.5px] text-muted">{c.customer.balance < 0 ? "Credit" : "Balance"}</dt>
-              <dd className="text-[14px] font-semibold text-primary tabular-nums">{money(Math.abs(c.customer.balance), c.customer.currency)}</dd>
-            </div>
-            <div>
-              <dt className="text-[11.5px] text-muted">Open invoices</dt>
-              <dd className="text-[14px] font-semibold text-primary tabular-nums">{money(c.invoices.filter((i) => i.status === "open").reduce((s, i) => s + i.remaining, 0), c.customer.currency ?? c.invoices[0]?.currency ?? null)}</dd>
-            </div>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border border-line px-4 py-3 sm:grid-cols-5">
+            <Stat label="Collected LTM" value={money(c.collectedYear, currency)} />
+            <Stat label="Last 30 days" value={money(c.collectedMonth, currency)} />
+            <Stat label={c.customer.balance < 0 ? "Credit" : "Balance"} value={money(Math.abs(c.customer.balance), currency)} />
+            <Stat label="Open invoices" value={money(sum(open), currency)} note={open.length ? `${open.length} unpaid` : undefined} tone={sum(open) ? "warning" : undefined} />
+            <Stat label="Overdue invoices" value={money(sum(overdue), currency)} note={overdue.length ? `${overdue.length} past due` : undefined} tone={sum(overdue) ? "error" : undefined} />
           </dl>
-          <span className="flex items-center gap-1">
-            <a href={c.dashboardUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12.5px] font-medium text-secondary hover:bg-sunken hover:text-primary">
-              Open in Stripe
-              <ArrowTopRightOnSquareIcon className="size-3.5" />
-            </a>
-            {canEdit ? (
-              <Menu>
-                <MenuTrigger asChild>
-                  <button type="button" className="rounded p-1 text-faint hover:text-primary" aria-label={`More for ${label(c)}`} disabled={pending}>
-                    <EllipsisHorizontalIcon className="size-4" />
-                  </button>
-                </MenuTrigger>
-                <MenuContent className="w-56">
-                  <MenuItem destructive onSelect={remove}>
-                    Not this client&apos;s customer
-                  </MenuItem>
-                  <MenuSeparator />
-                  <MenuItem onSelect={() => navigator.clipboard?.writeText(c.customer.id)}>Copy customer ID</MenuItem>
-                </MenuContent>
-              </Menu>
-            ) : null}
-          </span>
         </header>
         {c.customer.delinquent ? <p className="text-[12.5px] text-error">Stripe marks this customer as delinquent: a recent payment failed.</p> : null}
 
-        <Block title="Subscriptions" count={c.subscriptions.length}>
-          {c.subscriptions.length ? (
-            <ul className="divide-y divide-line">
-              {[...c.subscriptions.filter(isLive), ...c.subscriptions.filter((s) => !isLive(s))].map((s) => (
-                <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-2 text-[13px]">
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium text-primary">
-                      <ProductNames names={s.items.map((i) => (i.quantity > 1 ? `${i.name} × ${i.quantity}` : i.name))} />
-                    </span>
-                    <span className="block text-[12px] text-muted tabular-nums">{[`Started ${day(s.started)}`, whenOf(s), s.trialEnd && s.status === "trialing" ? `trial ends ${day(s.trialEnd)}` : null].filter(Boolean).join(" · ")}</span>
-                  </span>
-                  <SubBadge s={s} />
-                  <span className="w-48 text-right tabular-nums">
-                    <span className="block text-primary">{priceOf(s) || "Usage based"}</span>
-                    {s.discount ? <span className="block text-[12px] text-muted">{netOf(s)}</span> : null}
-                  </span>
-                </li>
+        <Block
+          title="Subscriptions"
+          count={c.subscriptions.length}
+          action={
+            isAdmin ? (
+              <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
+                <PlusIcon />
+                New subscription
+              </Button>
+            ) : null
+          }
+        >
+          {subs.length ? (
+            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {subs.map((s) => (
+                <SubscriptionCard key={s.id} s={s} c={c} isAdmin={isAdmin} busy={pending && keeping === s.id} onEdit={() => setEditing(s)} onCancel={() => setCanceling(s)} onKeep={() => keep(s)} />
               ))}
             </ul>
           ) : (
@@ -324,13 +471,9 @@ function BillingDetails({ clientId, customers, several, canEdit, onClose }: { cl
           {c.paymentMethods === null ? (
             <p className="text-[13px] text-muted">This Stripe key can&apos;t read payment methods. Give it read access to Payment Methods to see saved cards here.</p>
           ) : c.paymentMethods.length ? (
-            <ul className="flex flex-wrap gap-2">
+            <ul className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
               {c.paymentMethods.map((m) => (
-                <li key={m.id} className="flex items-center gap-2 rounded-lg border border-line px-3 py-1.5 text-[13px]">
-                  <span className="font-medium text-primary capitalize">{m.label}</span>
-                  {m.expires ? <span className={m.expired ? "text-error tabular-nums" : "text-muted tabular-nums"}>{m.expired ? `Expired ${m.expires}` : `Expires ${m.expires}`}</span> : null}
-                  {m.isDefault ? <StatusBadge tone="info">Default</StatusBadge> : null}
-                </li>
+                <PaymentCard key={m.id} m={m} />
               ))}
             </ul>
           ) : (
@@ -338,18 +481,18 @@ function BillingDetails({ clientId, customers, several, canEdit, onClose }: { cl
           )}
         </Block>
 
-        <Block title="Invoices" count={c.invoices.length}>
-          {c.invoices.length ? (
+        <Block title="Invoices and payments" count={history.length}>
+          {history.length ? (
             <>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-[13px]">
                   <thead className="text-[11.5px] text-muted">
                     <tr>
                       <th className="py-1 pr-3 font-medium">Date</th>
-                      <th className="py-1 pr-3 font-medium">Invoice</th>
+                      <th className="py-1 pr-3 font-medium">Type</th>
+                      <th className="py-1 pr-3 font-medium">Details</th>
                       <th className="py-1 pr-3 font-medium">Status</th>
-                      <th className="py-1 pr-3 text-right font-medium">Discount</th>
-                      <th className="py-1 pr-3 text-right font-medium">Total</th>
+                      <th className="py-1 pr-3 text-right font-medium">Amount</th>
                       <th className="py-1 pr-3 text-right font-medium">Owed</th>
                       <th className="py-1 font-medium">
                         <span className="sr-only">Links</span>
@@ -357,71 +500,50 @@ function BillingDetails({ clientId, customers, several, canEdit, onClose }: { cl
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line">
-                    {invoices.map((i) => (
-                      <tr key={i.id}>
-                        <td className="py-1.5 pr-3 whitespace-nowrap text-muted tabular-nums">{day(i.created)}</td>
-                        <td className="py-1.5 pr-3 text-secondary">{i.number ?? "Invoice"}</td>
-                        <td className="py-1.5 pr-3">
-                          {i.status ? <StatusBadge tone={invoiceTone[i.status]}>{i.overdue ? "Overdue" : i.status[0].toUpperCase() + i.status.slice(1)}</StatusBadge> : null}
-                          {i.status === "open" && i.dueDate ? <span className="ml-1.5 text-[12px] text-muted">due {day(i.dueDate)}</span> : null}
+                    {rows.map((r) => (
+                      <tr key={r.id}>
+                        <td className="py-1.5 pr-3 whitespace-nowrap text-muted tabular-nums">{day(r.created)}</td>
+                        <td className="py-1.5 pr-3 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 text-[12px] font-medium text-secondary">
+                            {r.kind === "invoice" ? <DocumentTextIcon className="size-3.5 text-faint" aria-hidden /> : <BanknotesIcon className="size-3.5 text-faint" aria-hidden />}
+                            {r.kind === "invoice" ? "Invoice" : "Payment"}
+                          </span>
                         </td>
-                        <td className="py-1.5 pr-3 text-right text-muted tabular-nums">{i.discount ? `−${money(i.discount, i.currency)}` : <span className="text-faint">—</span>}</td>
-                        <td className="py-1.5 pr-3 text-right text-primary tabular-nums">{money(i.total, i.currency)}</td>
-                        <td className="py-1.5 pr-3 text-right tabular-nums">{i.remaining ? money(i.remaining, i.currency) : <span className="text-faint">—</span>}</td>
+                        <td className="max-w-72 py-1.5 pr-3">
+                          <span className="block truncate text-secondary">{r.title}</span>
+                          {r.detail ? <span className="block truncate text-[12px] text-muted">{r.detail}</span> : null}
+                        </td>
+                        <td className="py-1.5 pr-3">{r.status ? <StatusBadge tone={r.status.tone}>{r.status.label}</StatusBadge> : null}</td>
+                        <td className="py-1.5 pr-3 text-right text-primary tabular-nums">{money(r.amount, r.currency)}</td>
+                        <td className="py-1.5 pr-3 text-right tabular-nums">{r.owed ? money(r.owed, r.currency) : <span className="text-faint">—</span>}</td>
                         <td className="py-1.5 text-right whitespace-nowrap">
-                          {i.url ? (
-                            <a href={i.url} target="_blank" rel="noopener noreferrer" className="text-[12.5px] text-secondary underline-offset-2 hover:underline">
-                              View
+                          {r.links.map((l, i) => (
+                            <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" className={clsx("text-[12.5px] text-secondary underline-offset-2 hover:underline", i && "ml-3")}>
+                              {l.label}
                             </a>
-                          ) : null}
-                          {i.pdf ? (
-                            <a href={i.pdf} target="_blank" rel="noopener noreferrer" className="ml-3 text-[12.5px] text-secondary underline-offset-2 hover:underline">
-                              PDF
-                            </a>
-                          ) : null}
+                          ))}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              {c.invoices.length > invoices.length ? (
-                <Button size="sm" variant="ghost" className="mt-1 -ml-2 text-muted" onClick={() => setAllInvoices(true)}>
-                  Show all {c.invoices.length}
+              {history.length > rows.length ? (
+                <Button size="sm" variant="ghost" className="mt-1 -ml-2 text-muted" onClick={() => setAllHistory(true)}>
+                  Show all {history.length}
                 </Button>
               ) : null}
-              {c.invoices.length >= 60 ? <p className="mt-1 text-[12px] text-muted">The latest {c.invoices.length}. Open the customer in Stripe for older ones.</p> : null}
+              {c.invoices.length >= 60 || c.charges.length >= 25 ? <p className="mt-1 text-[12px] text-muted">The latest 60 invoices and 25 payments. Open the customer in Stripe for older ones.</p> : null}
             </>
           ) : (
-            <p className="text-[13px] text-muted">No invoices yet.</p>
-          )}
-        </Block>
-
-        <Block title="Payments" count={c.charges.length}>
-          {c.charges.length ? (
-            <ul className="divide-y divide-line">
-              {c.charges.map((x) => (
-                <li key={x.id} className="flex flex-wrap items-center gap-x-3 py-1.5 text-[13px]">
-                  <span className="w-28 shrink-0 text-muted tabular-nums">{day(x.created)}</span>
-                  <span className="min-w-0 flex-1 truncate text-secondary">
-                    <span className="capitalize">{x.method ?? "Payment"}</span>
-                    {x.status === "failed" && x.failure ? <span className="text-error"> · {x.failure}</span> : x.description ? <span className="text-muted"> · {x.description}</span> : null}
-                  </span>
-                  {x.status === "failed" ? <StatusBadge tone="error">Failed</StatusBadge> : x.refunded ? <StatusBadge tone="neutral">Refunded</StatusBadge> : x.status === "pending" ? <StatusBadge tone="warning">Pending</StatusBadge> : null}
-                  <span className="w-24 shrink-0 text-right text-primary tabular-nums">{money(x.amount, x.currency)}</span>
-                  {x.receipt ? (
-                    <a href={x.receipt} target="_blank" rel="noopener noreferrer" className="text-[12.5px] text-secondary underline-offset-2 hover:underline">
-                      Receipt
-                    </a>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-[13px] text-muted">No payments yet.</p>
+            <p className="text-[13px] text-muted">No invoices or payments yet.</p>
           )}
         </Block>
       </div>
+
+      {editing ? <EditSubscriptionDialog clientId={clientId} customer={c} s={editing} onClose={() => setEditing(null)} /> : null}
+      {canceling ? <CancelSubscriptionDialog clientId={clientId} customer={c} s={canceling} onClose={() => setCanceling(null)} /> : null}
+      {creating ? <NewSubscriptionDialog clientId={clientId} customers={customers} initial={index} onClose={() => setCreating(false)} /> : null}
     </Dialog>
   );
 }

@@ -85,6 +85,6 @@ The interface follows the HiringCenter design system for everything except color
 - **Category, not status.** A client's category (prospective, current, past) decides its pipeline, its page and its board's drop zones (Signed, Left, Won back). Stages stay free-form per pipeline, so each category moves through its own steps.
 - **Services instead of a plan field.** A catalog in Settings, linked per client with its own price and dates. Monthly revenue is computed from open services, and a past client's ended services are exactly "what their subscription had been".
 - **Performance is numbers over time.** Teams track different things (leads, hires, ad spend), so metrics are free-form labels with a value per period, shown with their trend.
-- **Stripe is read live, not synced.** Billing changes constantly and Stripe is the source of truth; a read-only key and one card per client avoid a sync job and stale numbers.
+- **Stripe is read live, not synced.** Billing changes constantly and Stripe is the source of truth; a read-only key and one card per client avoid a sync job and stale numbers. (Later: admins can start, change and cancel subscriptions from the card, which needs write access to Subscriptions; see ARCHITECTURE.md.)
 - **Inbox: Resend holds the mail, the CRM holds the links.** Threads are mirrored so they can be linked, searched and shown on timelines without a round trip, and every message becomes an email activity. Webhook first, cron as a safety net, a button for impatience.
 
