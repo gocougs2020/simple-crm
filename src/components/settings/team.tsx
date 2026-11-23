@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { EllipsisHorizontalIcon, PlusIcon } from "@heroicons/react/20/solid";
 import { inviteTeammate, resendInvite, setDeactivated, setRole } from "@/actions/settings";
@@ -42,7 +43,9 @@ export function TeamSettings({ rows }: { rows: TeamRow[] }) {
               <Avatar name={u.name} size="md" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[14px] font-medium text-primary">
-                  {u.name}
+                  <Link href={`/team/${u.id}`} className="hover:underline">
+                    {u.name}
+                  </Link>
                   {u.id === viewer.id ? <span className="font-normal text-muted"> (you)</span> : null}
                 </p>
                 <p className="truncate text-[12.5px] text-muted">
