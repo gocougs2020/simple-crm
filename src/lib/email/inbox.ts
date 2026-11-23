@@ -9,7 +9,7 @@ import { linksForEmails } from "@/lib/crm/match";
 import { emailDomainsScoped, getResend, inEmailScope } from "@/lib/email";
 import { sanitizeHtml } from "@/lib/safe-html";
 import { deliveryEvents } from "./delivery-status";
-import { emailText, forwardedAddresses, linkAddresses } from "./forwarded";
+import { emailText, forwardedAddresses, linkAddresses, provenForwards } from "./forwarded";
 import { inboundEmail } from "@/lib/push/triggers";
 import { forwardingAvailability, provenSender } from "@/lib/forwarding/inbound";
 
@@ -181,8 +181,15 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
   const [known, [existing], teammates] = await Promise.all([
     messages.length
       ? db
-          .select({ id: inboxMessages.resendEmailId, hidden: sql<boolean>`${inboxMessages.hiddenAt} is not null`, linked: sql<boolean>`${inboxMessages.activityId} is not null` })
+          .select({
+            id: inboxMessages.resendEmailId,
+            hidden: sql<boolean>`${inboxMessages.hiddenAt} is not null`,
+            linked: sql<boolean>`${inboxMessages.activityId} is not null`,
+            // Who it was credited to when it was logged: a teammate only once their signature proved they sent it.
+            creditedTo: activities.userId,
+          })
           .from(inboxMessages)
+          .leftJoin(activities, eq(activities.id, inboxMessages.activityId))
           .where(inArray(inboxMessages.resendEmailId, messages.map((m) => m.id)))
       : [],
     db.select().from(inboxThreads).where(eq(inboxThreads.resendThreadId, resendThreadId)),
@@ -191,13 +198,27 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
   // Mail into the inbox from a teammate is theirs: usually a thread they forwarded so it lands on a record.
   // Its own From and To are the teammate and the inbox, so the records it's about come from the headers it quotes.
   const fromTeammate = (m: GetInboxThreadEmailResponseSuccess) => (m.direction === "inbound" ? (teammates.get(address(m.from)) ?? null) : null);
-  const forwarded = messages.filter(fromTeammate).flatMap((m) => forwardedAddresses(emailText(m)).filter((a) => !ours.has(a)));
+  // Whether a teammate's message provably came from them (their domain signed it). A From line alone can be forged,
+  // so only proven mail is credited to them, and only its quoted headers choose the records the thread is filed on.
+  // A message logged before settled it then (credited or not); a new one is checked once, for both uses.
+  const settled = new Map(known.filter((k) => k.linked).map((k) => [k.id, k.creditedTo]));
+  const proofs = new Map<string, Promise<boolean>>();
+  const proven = (m: GetInboxThreadEmailResponseSuccess) => {
+    const teammate = fromTeammate(m);
+    if (!teammate) return Promise.resolve(false);
+    if (settled.has(m.id)) return Promise.resolve(settled.get(m.id) === teammate);
+    let proof = proofs.get(m.id);
+    if (!proof) proofs.set(m.id, (proof = provenSender(m.id, address(m.from))));
+    return proof;
+  };
+  const linksFor = async (forwarded: string[]) =>
+    findLinks(linkAddresses(participants, new Set([...teammates.keys(), ...(await teammatesByAddress(forwarded.filter((a) => !teammates.has(a)))).keys()]), forwarded));
   // Messages someone deleted from the records stay out of the snippet too.
   const hidden = new Set(known.filter((k) => k.hidden).map((k) => k.id));
   const last = messages.filter((m) => !hidden.has(m.id)).at(-1);
   const links = existing?.linkedByHand
     ? { personId: existing.personId, organizationId: existing.organizationId, clientId: existing.clientId }
-    : await findLinks(linkAddresses(participants, new Set([...teammates.keys(), ...(await teammatesByAddress(forwarded.filter((a) => !teammates.has(a)))).keys()]), forwarded));
+    : await linksFor(await provenForwards(messages, (m) => (fromTeammate(m) ? forwardedAddresses(emailText(m)).filter((a) => !ours.has(a)) : []), proven));
   const values = {
     resendThreadId,
     resendInboxId: inboxId,
@@ -264,7 +285,7 @@ export async function syncThread(inboxId: string, resendThreadId: string, ourAdd
     // Credited to the teammate only when their domain's signature proves they sent it: a From line alone can be
     // forged, and credit makes it read as their own action. Unproven, it stays mail that arrived, as before.
     const teammate = activityId ? null : fromTeammate(m);
-    const forwardedBy = teammate && (await provenSender(m.id, address(m.from))) ? teammate : null;
+    const forwardedBy = teammate && (await proven(m)) ? teammate : null;
     if (!activityId) {
       const [a] = await db
         .insert(activities)

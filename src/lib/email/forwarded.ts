@@ -51,3 +51,20 @@ export function linkAddresses(participants: string[], teammates: Set<string>, fo
   const outside = [...participants, ...forwarded].filter((a, i, all) => !teammates.has(a) && all.indexOf(a) === i);
   return outside.length ? outside : participants;
 }
+
+/**
+ * The addresses a thread's forwards quote, read only from the messages whose
+ * sender is proven to be a teammate. A From line alone can be forged, and the
+ * quoted headers decide which records the thread is filed on, so an unproven
+ * "forward" never chooses them. Proof is asked for only when a message quotes
+ * someone.
+ */
+export async function provenForwards<M>(messages: M[], quoted: (m: M) => string[], proven: (m: M) => Promise<boolean>) {
+  const found: string[] = [];
+  for (const m of messages) {
+    const addresses = quoted(m);
+    if (!addresses.length || !(await proven(m))) continue;
+    for (const a of addresses) if (!found.includes(a)) found.push(a);
+  }
+  return found;
+}
