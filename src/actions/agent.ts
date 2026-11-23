@@ -10,6 +10,8 @@ import { cleanTranscript } from "@/lib/agent/messages";
 import { deleteThread, ensureThread, getThread, listThreads, renameThread, saveMessages } from "@/lib/agent/threads";
 import { ActionError, actionCan, actionUser } from "@/lib/auth";
 import { aiFeatures, aiOffMessage } from "@/lib/agent/config";
+import { startEnrichment } from "@/lib/agent/enrich";
+import { enrichEntities } from "@/lib/agent/enrich-rules";
 import { cancelBatch, cancelRun, clearPanelRuns, listPanelRuns, type Run } from "@/lib/agent/runs";
 import { ensureSummary, type Summary } from "@/lib/agent/summary";
 import { sessionActor } from "@/lib/crm/actor";
@@ -160,6 +162,22 @@ export async function cancelAgentBatch(batchId: string): Promise<Result<{ stoppe
   return run(async () => {
     const user = await actionUser();
     return cancelBatch(sessionActor(user), z.uuid("That request doesn't exist.").parse(batchId));
+  });
+}
+
+/**
+ * Enrich on a person's or organization's page: the agent researches it on
+ * the web in the background, fills in what it's sure of and leaves a note
+ * with everything it found (src/lib/agent/enrich.ts).
+ */
+export async function enrichRecord(entity: string, id: string): Promise<Result<{ taskId: string; error: string | null }>> {
+  return run(async () => {
+    const user = await actionCan("records:write");
+    const which = z.enum(enrichEntities).parse(entity);
+    const recordId = z.uuid("That record doesn't exist.").parse(id);
+    const started = await startEnrichment(sessionActor(user), which, recordId);
+    // The worker can refuse it on the spot; the note saying so is already on the record.
+    return { taskId: started.id, error: started.status === "failed" ? (started.error ?? "The agent couldn't start.") : null };
   });
 }
 

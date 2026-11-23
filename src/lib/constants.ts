@@ -175,7 +175,7 @@ export const notificationGroups: { title: string; kinds: NotificationKind[] }[] 
 export const defaultNotificationKinds: NotificationKind[] = notificationKinds.filter((k) => k !== "chat_message");
 
 /** Where a background run of the agent came from (docs/AGENT.md). */
-export const agentRunSources = ["chat", "mention", "task", "bulk", "api", "schedule", "email"] as const;
+export const agentRunSources = ["chat", "mention", "task", "bulk", "api", "schedule", "email", "enrich"] as const;
 export type AgentRunSource = (typeof agentRunSources)[number];
 /** queued: accepted, not started. running: the agent is working. The rest are final. */
 export const agentRunStatuses = ["queued", "running", "done", "failed", "cancelled"] as const;

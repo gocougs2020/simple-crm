@@ -124,6 +124,7 @@ const answerGoes: Record<AgentRunSource, string> = {
   bulk: "Your answer is saved on this record's run and listed with the others. Keep it to a few lines.",
   schedule: "Your answer is saved on the run, and they're notified that it's ready. Lead with what changed or needs them since last time. If there's nothing to report, say so in one line.",
   email: "Your answer is emailed back to them as a reply, and they can answer it by replying. So unlike other background work, you may end with one short question when you need them to decide something; the next round brings you this conversation again with their answer.",
+  enrich: "Your answer is saved as a note on the record, as theirs via you, so don't add a note of your own. The request says how to lay it out.",
 };
 
 const asked: Record<AgentRunSource, string> = {
@@ -134,6 +135,7 @@ const asked: Record<AgentRunSource, string> = {
   bulk: "This is one record of a request that covers several. Work on this record only.",
   schedule: "This is a scheduled job they set up. Nobody asked just now.",
   email: "They emailed you at their private forwarding address.",
+  enrich: "They clicked Enrich on the record's page.",
 };
 
 /** The first message of a run: who it's for, the context a chat would have had, and the request. */

@@ -4,7 +4,10 @@ import clsx from "clsx";
 import Link from "next/link";
 import { StarToggle } from "@/components/phone/contact-actions";
 import { useRef, useState, useTransition } from "react";
-import { BriefcaseIcon, BuildingOffice2Icon, PlusIcon, XMarkIcon } from "@heroicons/react/20/solid";
+import { BriefcaseIcon, BuildingOffice2Icon, PlusIcon, SparklesIcon, XMarkIcon } from "@heroicons/react/20/solid";
+import { enrichRecord } from "@/actions/agent";
+import { agentTasksChanged } from "@/components/agent/task-events";
+import { appConfig } from "@/app.config";
 import { updateClient } from "@/actions/clients";
 import { updateOrganization, updatePerson } from "@/actions/records";
 import { CategoryBadge, Chip, HealthBadge } from "@/components/clients/client-controls";
@@ -218,11 +221,43 @@ function OtherContacts({
   );
 }
 
+/**
+ * Enrich: the agent looks the record up on the web in the background, fills
+ * in the empty fields it's sure of, and leaves a note with everything it
+ * found. People and organizations only; clients are the team's own records.
+ */
+function EnrichButton({ entity, id, name }: { entity: "person" | "organization"; id: string; name: string }) {
+  const { services, canEdit } = useApp();
+  const [pending, start] = useTransition();
+  if (!services.ai.background || !canEdit) return null;
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className="-mr-2 h-7 pointer-coarse:h-9"
+      loading={pending}
+      title={`${appConfig.agent.name} looks ${name} up on the web, fills in what it's sure of and adds a note with what it found`}
+      onClick={() =>
+        start(async () => {
+          const r = await enrichRecord(entity, id);
+          if (!r.ok) return void toast.error(r.error);
+          agentTasksChanged();
+          if (r.data.error) return void toast.error(r.data.error);
+          toast.success(`Enriching ${name} in the background. A note with what it found shows in the history when it's done.`);
+        })
+      }
+    >
+      <SparklesIcon aria-hidden />
+      Enrich
+    </Button>
+  );
+}
+
 export function PersonDetails({ person, organization }: { person: Person; organization: Organization | null }) {
   const { comms, workspace } = useApp();
   const save = (patch: Parameters<typeof updatePerson>[1]) => updatePerson(person.id, patch).then(ok);
   return (
-    <SideCard title="Details">
+    <SideCard title="Details" action={person.archivedAt ? null : <EnrichButton entity="person" id={person.id} name={personName(person)} />}>
       <dl>
         <InlineField
           label="Name"
@@ -383,7 +418,7 @@ export function OrganizationDetails({ org, parent, childCount = 0 }: { org: Orga
   };
   return (
     <>
-      <SideCard title="Details">
+      <SideCard title="Details" action={org.archivedAt ? null : <EnrichButton entity="organization" id={org.id} name={org.name} />}>
         <dl>
           <InlineField label="Name" value={org.name} {...text((name) => save({ name: name ?? "" }))} />
           <OwnerField value={org.ownerId} onSave={(ownerId) => save({ ownerId })} />

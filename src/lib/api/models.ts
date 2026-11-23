@@ -290,7 +290,7 @@ export const AgentTask = z.object({
   id: uuid,
   title: z.string(),
   request: z.string().describe("What was asked for."),
-  source: z.enum(agentRunSources).describe("Where it was asked: the agent chat, a mention in a note, an assigned task, a bulk request, the API, a scheduled job, or an email forwarded to the agent."),
+  source: z.enum(agentRunSources).describe("Where it was asked: the agent chat, a mention in a note, an assigned task, a bulk request, the API, a scheduled job, an email forwarded to the agent, or Enrich on a person or organization."),
   status: z.enum(agentRunStatuses).describe("queued and running are still going; done, failed and cancelled are final."),
   result: z.string().nullable().describe("The agent's answer (markdown), once done."),
   error: z.string().nullable().describe("Why it didn't finish, in a sentence."),

@@ -18,6 +18,7 @@ It works on the teammate's signed-in session. There's no API key to create and n
 - **It knows the context:** who's asking, their role and user id ("assign it to me"), today's date in the workspace's time zone, and the page open behind the panel ("summarize this client").
 - **It can't send email or texts. It drafts them.** Asked to email or text someone, it writes a draft (`draft_message`) that waits on the person's page. The teammate opens it in the composer, changes what they like and sends it the usual way. See [Drafts](#drafts).
 - **Long jobs go to the background.** Research, cleanups and anything across many records are handed to a background worker that keeps going after the panel is closed. See [Background work](#background-work).
+- **It enriches people and organizations.** Enrich on a record's Details card looks it up on the web, fills in what it's sure of and leaves a note with everything it found. See [Enrichment](#enrichment).
 - **It answers briefly.** Teammates often read its answers between other things, or through another agent, so its instructions ask for the answer first, in a few sentences: the facts that matter to the question, never a whole timeline or every field of a record. It goes long when asked to, and it doesn't drop anything the teammate needs to act on. The background worker's report and the MCP server's instructions say the same. See [Answer length](#answer-length).
 - **It reads files you attach.** Spreadsheets, Word documents and text files, to add or update people, organizations and clients from. See [Attachments](#attachments).
 - **It follows skills and runs scheduled jobs.** Instructions saved for it, and work it does on a cadence, per teammate and shared by admins. See [Skills](#skills) and [Scheduled jobs](#scheduled-jobs).
@@ -133,6 +134,7 @@ Some jobs take too long for a chat answer: researching a company on the web and 
 | **Assign it a task** | In the task form, pick the agent under "Assigned to" (or pass `agent: true` to `create_task` / `update_task`). The task stays yours. | Added to the task, which is then marked done |
 | **Schedule it** | A [scheduled job](#scheduled-jobs) starts a run each time it's due. | Saved on the run, under "Background tasks", with a notification |
 | **Email it** | Forward an email to the agent's address, or Cc it on a thread. See [Email forwarding](#email-forwarding). | Emailed back to whoever sent it, who can answer by replying |
+| **Enrich a record** | Enrich on a person's or organization's Details card (or `enrich_person` / `enrich_organization`). See [Enrichment](#enrichment). | A note on the record |
 
 A fourth, for lists: `start_bulk_background_task` runs the same request on each of several records (every organization in a view, say), one run per record, a few at a time. The chat agent is told to try three records first and show the results before running the rest.
 
@@ -155,6 +157,14 @@ A run works for one teammate: whoever asked in chat, wrote the note or assigned 
 ### Research can't change anything
 
 Reading the web is the job of a separate helper, the researcher. It has web search and page fetch and nothing else: no CRM connection, no way to write. It reports what it found with source links, and the main worker decides what to save, through the same MCP tools and the same permission checks. So a web page that tries to give instructions has nothing to act with. The main worker has no web access of its own, and both are told to treat what they read as information, never instructions.
+
+### Enrichment
+
+Enrich, on the Details card of a person or an organization, hands the record to a background run that looks it up on the public web (`src/lib/agent/enrich.ts`, the request in `enrich-rules.ts`). Clients don't have it: a client is a relationship the team defines, not something the web knows about. The button shows to teammates with edit access where background work is set up, and the same work starts from the API and MCP (`POST /people/{id}/enrich`, `POST /organizations/{id}/enrich`).
+
+- **What it fills in.** A person's email, phone and job title; an organization's website, phone, industry and address; and either one's custom fields except checkboxes. Only empty fields, and only when a source states the value plainly and clearly matches this record (same name and organization or email for a person, same website or address for an organization). It never replaces a value that's there, never guesses an email from a pattern, and changes nothing else: not the name, owner, labels, organization or parent, stars or opt-ins, and no other record. Each change is in history as "Sam via Agent".
+- **It always leaves a note.** When the run ends the CRM writes its report on the record as a note titled "Enrichment from the web", by the teammate who clicked via the agent: **Filled in** (each field, its value and source), **Not sure** (what it found but didn't save, why, and the source) and **Sources** (every page it read). A run that fails still leaves a note saying it couldn't finish; one the teammate stops doesn't. The note is written by the CRM from the run's answer, so the agent doesn't add one itself, and it never calls on the agent again whatever it says.
+- **One at a time per record.** A second Enrich while one is going is refused, and so is one within a minute of the last (an atomic claim, so two clicks at the same moment can't both start one). It counts toward the same per-run and monthly limits as other background work, and shows under "Background tasks" as "Enrich".
 
 ### Email forwarding
 
