@@ -1,8 +1,9 @@
 import "server-only";
-import { and, eq, lt, sql, type SQL } from "drizzle-orm";
+import { and, eq, gte, lt, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { recordEvent } from "@/lib/crm/events";
-import { allCustomers, allSubscriptions, chargesSince, customersByEmail, openInvoices, productNames, stripeAccounts, stripeConfigured, subscriptionsOf, type StripeCharge, type StripeCustomer, type StripeInvoice, type StripeSubscription } from "@/lib/stripe";
+import { allCustomers, allSubscriptions, chargesSince, customersByEmail, invoicesSince, openInvoices, productNames, stripeAccounts, stripeConfigured, subscriptionsOf, type StripeCharge, type StripeCustomer, type StripeInvoice, type StripeSubscription } from "@/lib/stripe";
+import { chargeActivity, invoiceActivity, type ActivityRecord } from "./activity";
 import { collected, discountShare, liveStatuses, monthlyAmount, netMonthly } from "./rules";
 
 /**
@@ -12,6 +13,8 @@ import { collected, discountShare, liveStatuses, monthlyAmount, netMonthly } fro
  * - `syncStripe` (the daily cron) lists every customer, subscription and
  *   product in each connected account: a few dozen requests however many
  *   clients there are, instead of a lookup per email.
+ * - It also copies invoices and payments into `stripe_activity` for the
+ *   Billing page: the last year each run, all of history the first time.
  * - A client's customers are found by email: any customer whose email is one
  *   of the client's people's (its contact, people added to it, everyone at
  *   its organization), plus customers linked by hand, minus matches someone
@@ -24,7 +27,7 @@ import { collected, discountShare, liveStatuses, monthlyAmount, netMonthly } fro
  *   page opened before the next daily run.
  */
 
-const { stripeCustomers, stripeSubscriptions } = schema;
+const { stripeActivity, stripeCustomers, stripeSubscriptions } = schema;
 
 const rowsOf = <T>(r: unknown) => ((r as { rows?: T[] }).rows ?? (r as T[])) as T[];
 const at = (unix: number | null | undefined) => (unix ? new Date(unix * 1000) : null);
@@ -143,21 +146,77 @@ async function saveSubscriptions(account: string, list: StripeSubscription[], na
   }
 }
 
+/** Saves invoices and payments for the Billing page. Each id once, so a payment listed twice can't break the batch. */
+async function saveActivity(account: string, invoices: StripeInvoice[], charges: StripeCharge[], now: Date) {
+  const rows = new Map<string, ActivityRecord>();
+  for (const i of invoices) {
+    const r = invoiceActivity(account, i);
+    if (r) rows.set(r.id, r);
+  }
+  for (const c of charges) rows.set(c.id, chargeActivity(account, c));
+  const list = [...rows.values()];
+  if (!list.length) return;
+  const db = await getDb();
+  for (let i = 0; i < list.length; i += 500) {
+    await db
+      .insert(stripeActivity)
+      .values(list.slice(i, i + 500).map((r) => ({ ...r, syncedAt: now })))
+      .onConflictDoUpdate({
+        target: [stripeActivity.account, stripeActivity.id],
+        set: {
+          customerId: sql`excluded.customer_id`,
+          status: sql`excluded.status`,
+          amount: sql`excluded.amount`,
+          refunded: sql`excluded.refunded`,
+          remaining: sql`excluded.remaining`,
+          currency: sql`excluded.currency`,
+          dueAt: sql`excluded.due_at`,
+          number: sql`excluded.number`,
+          description: sql`excluded.description`,
+          method: sql`excluded.method`,
+          failure: sql`excluded.failure`,
+          url: sql`excluded.url`,
+          pdf: sql`excluded.pdf`,
+          invoiceId: sql`excluded.invoice_id`,
+          syncedAt: sql`excluded.synced_at`,
+        },
+      });
+  }
+}
+
+/** Whether an account's invoices and payments were ever copied: the first run copies all of history, later ones the last year. */
+async function hasActivity(account: string) {
+  const db = await getDb();
+  const [row] = await db.select({ id: stripeActivity.id }).from(stripeActivity).where(eq(stripeActivity.account, account)).limit(1);
+  return !!row;
+}
+
 /** Copies every connected account, then rolls the result up onto clients. An account that fails keeps its last copy and is reported. */
 export async function syncStripe() {
   const db = await getDb();
-  const report: { account: string; customers?: number; subscriptions?: number; error?: string }[] = [];
+  const report: { account: string; customers?: number; subscriptions?: number; activity?: number; error?: string }[] = [];
   for (const { id: account } of stripeAccounts()) {
     const started = new Date();
     try {
       const since = Math.floor(started.getTime() / 1000) - 365 * DAY;
-      const [names, customers, subscriptions, charges, unpaid] = await Promise.all([productNames(account), allCustomers(account), allSubscriptions(account), chargesSince(account, since), openInvoices(account)]);
+      // Invoices and payments: a year back each day, which covers anything paid, refunded or voided lately; everything the first time.
+      const from = (await hasActivity(account)) ? since : undefined;
+      const [names, customers, subscriptions, charges, unpaid, invoices] = await Promise.all([
+        productNames(account),
+        allCustomers(account),
+        allSubscriptions(account),
+        chargesSince(account, from ?? 0),
+        openInvoices(account),
+        invoicesSince(account, from),
+      ]);
       await saveCustomers(account, customers, started, moneyByCustomer(charges, unpaid, started));
       await saveSubscriptions(account, subscriptions, names, started);
-      // Whatever this run didn't see was deleted in Stripe.
+      await saveActivity(account, [...invoices, ...unpaid], charges, started);
+      // Whatever this run didn't see was deleted in Stripe. Activity older than what was asked for is kept: it's history.
       await db.delete(stripeCustomers).where(and(eq(stripeCustomers.account, account), lt(stripeCustomers.syncedAt, started)));
       await db.delete(stripeSubscriptions).where(and(eq(stripeSubscriptions.account, account), lt(stripeSubscriptions.syncedAt, started)));
-      report.push({ account, customers: customers.length, subscriptions: subscriptions.length });
+      await db.delete(stripeActivity).where(and(eq(stripeActivity.account, account), lt(stripeActivity.syncedAt, started), ...(from ? [gte(stripeActivity.createdAt, new Date(from * 1000))] : [])));
+      report.push({ account, customers: customers.length, subscriptions: subscriptions.length, activity: invoices.length + charges.length });
     } catch (err) {
       console.error("[stripe] sync", account, (err as Error).message);
       report.push({ account, error: (err as Error).message });
@@ -193,7 +252,7 @@ function clientEmails(only?: string): SQL {
 }
 
 /** The Stripe customers that belong to each client: matched by email or linked by hand, minus the ones marked as not theirs. */
-function clientCustomers(only?: string): SQL {
+export function clientCustomers(only?: string): SQL {
   const one = only ? sql`and l.client_id = ${only}` : sql``;
   // Only accounts that are connected now: one whose key was removed keeps its copy, but stops counting.
   const ids = stripeAccounts().map((a) => a.id);
@@ -313,6 +372,8 @@ export async function syncClient(clientId: string) {
         if (found.length) await saveCustomers(account, found, now, money);
         // Customers this run didn't read (linked by hand, or matched earlier) still get what they paid and owe.
         for (const id of known.filter((k) => !found.some((c) => c.id === k))) await db.update(stripeCustomers).set(money.get(id) ?? noMoney).where(and(eq(stripeCustomers.account, account), eq(stripeCustomers.customerId, id)));
+        // The payments and open invoices just read show on the Billing page now, not after the next daily run.
+        await saveActivity(account, unpaid, charges, now);
         if (subs.length) await saveSubscriptions(account, subs, await productNames(account, [...new Set(subs.flatMap((s) => s.items.data.map((i) => i.price.product)))]), now);
       } catch (err) {
         fresh = false;
