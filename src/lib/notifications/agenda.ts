@@ -9,6 +9,7 @@ import type { User } from "@/lib/auth";
 import { emailBrand } from "@/lib/brand";
 import type { EmailDigestKind } from "@/lib/constants";
 import { dayBounds } from "@/lib/crm/activities";
+import { activityLive } from "@/lib/crm/activity-archive";
 import { sendEmail } from "@/lib/email";
 import { formatDay, formatTime, personName } from "@/lib/format";
 import { siteOrigin } from "@/lib/origin";
@@ -90,6 +91,7 @@ export async function loadAgenda(
     eq(t.assigneeId, userId),
     isNull(t.completedAt),
     isNotNull(t.dueAt),
+    activityLive(),
   );
   const notMeeting = ne(t.type, "meeting");
   const [meetings, overdue, today, later] = await Promise.all([

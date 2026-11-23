@@ -174,3 +174,9 @@ export function roundUpToQuarterHour(d: Date) {
   const step = 15 * 60_000;
   return new Date(Math.ceil(d.getTime() / step) * step);
 }
+
+/** "1 open task or meeting", "3 open tasks and meetings": the planned work archived or restored with a record. */
+export const openWork = (n: number) => (n === 1 ? "1 open task or meeting" : `${n} open tasks and meetings`);
+
+/** The toast after archiving: "Client archived", or "3 clients archived, with 2 open tasks and meetings". */
+export const archivedToast = (what: string, openActivities: number) => (openActivities ? `${what} archived, with ${openWork(openActivities)}` : `${what} archived`);

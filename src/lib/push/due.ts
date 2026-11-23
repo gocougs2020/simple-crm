@@ -3,6 +3,7 @@ import { and, between, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { NotificationKind } from "@/lib/constants";
 import { dayBounds } from "@/lib/crm/activities";
+import { activityLive } from "@/lib/crm/activity-archive";
 import { dueForReminder, GRACE_MS, isMorning, LEAD_MS } from "@/lib/notifications/schedule";
 import { getWorkspace } from "@/lib/workspace";
 import { deliver } from "./notify";
@@ -49,7 +50,7 @@ export async function sendDueNotifications(now = new Date()) {
       .select({ id: t.id, subject: t.subject, type: t.type, dueAt: t.dueAt, assigneeId: t.assigneeId, clientId: t.clientId, personId: t.personId, organizationId: t.organizationId, clientName: schema.clients.name })
       .from(t)
       .leftJoin(schema.clients, eq(schema.clients.id, t.clientId))
-      .where(and(isNull(t.completedAt), eq(t.dueHasTime, true), inArray(t.assigneeId, timedFor), between(t.dueAt, new Date(now.getTime() - GRACE_MS + 1), new Date(now.getTime() + LEAD_MS))));
+      .where(and(isNull(t.completedAt), activityLive(), eq(t.dueHasTime, true), inArray(t.assigneeId, timedFor), between(t.dueAt, new Date(now.getTime() - GRACE_MS + 1), new Date(now.getTime() + LEAD_MS))));
     for (const a of soon) {
       if (!a.assigneeId || !a.dueAt || !dueForReminder(a.dueAt, now)) continue;
       const meeting = a.type === "meeting";
@@ -72,7 +73,7 @@ export async function sendDueNotifications(now = new Date()) {
     const today = await db
       .select({ subject: t.subject, assigneeId: t.assigneeId })
       .from(t)
-      .where(and(isNull(t.completedAt), eq(t.dueHasTime, false), ne(t.type, "meeting"), inArray(t.assigneeId, forDigest), sql`${t.dueAt} >= ${startOfToday} and ${t.dueAt} < ${startOfTomorrow}`))
+      .where(and(isNull(t.completedAt), activityLive(), eq(t.dueHasTime, false), ne(t.type, "meeting"), inArray(t.assigneeId, forDigest), sql`${t.dueAt} >= ${startOfToday} and ${t.dueAt} < ${startOfTomorrow}`))
       .orderBy(t.createdAt);
     const byUser = new Map<string, string[]>();
     for (const r of today) if (r.assigneeId) byUser.set(r.assigneeId, [...(byUser.get(r.assigneeId) ?? []), r.subject || "Untitled task"]);

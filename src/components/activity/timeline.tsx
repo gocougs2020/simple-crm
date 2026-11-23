@@ -51,7 +51,7 @@ import { appConfig } from "@/app.config";
 import { deliveryLabels, deliveryTone } from "@/lib/email/delivery-status";
 import { activityLabels, agentRunStatusLabels, billingIntervalLabels, clientCategoryLabels, clientHealthLabels, interactionTypes, type ActivityType, type BillingInterval, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
 import { billingStatusLabels, type BillingStatus } from "@/lib/stripe/rules";
-import { dayKey, dueTone, formatBytes, formatDateTime, formatDay, formatFull, formatTime, senderName, timeKey, zonedTime } from "@/lib/format";
+import { dayKey, dueTone, formatBytes, formatDateTime, formatDay, formatFull, formatTime, openWork, senderName, timeKey, zonedTime } from "@/lib/format";
 import { formatPhone } from "@/lib/phone/numbers";
 import { formatCallDuration, textStatusLabels } from "@/lib/phone/rules";
 import { activityIcons } from "./composer";
@@ -997,6 +997,8 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
     when?: "now" | "period_end";
     endsAt?: string | null;
     trialEnds?: string | null;
+    /** Archived or restored: how many open tasks and planned calls or meetings went with it. */
+    openActivities?: number;
   };
   const cat = (c?: string) => (c && c in clientCategoryLabels ? clientCategoryLabels[c as ClientCategory].one.toLowerCase() : c);
   let text: React.ReactNode;
@@ -1159,10 +1161,10 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
       break;
     }
     case "archived":
-      text = <>archived this</>;
+      text = <>archived this{d.openActivities ? <>, with {openWork(d.openActivities)}</> : null}</>;
       break;
     case "restored":
-      text = <>restored this from the archive</>;
+      text = <>restored this from the archive{d.openActivities ? <>, with {openWork(d.openActivities)}</> : null}</>;
       break;
     case "activity_deleted":
       text = <>deleted a {d.type ?? "activity"}{d.subject ? <> (“{d.subject}”)</> : null}</>;

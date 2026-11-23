@@ -5,6 +5,7 @@ import { getDb } from "@/db";
 import type { User } from "@/lib/auth";
 import { unreadFor } from "@/lib/conversations/read-state";
 import { dayBounds } from "@/lib/crm/activities";
+import { activityLive, aliased } from "@/lib/crm/activity-archive";
 import { emailConfigured } from "@/lib/email";
 import { phoneConfigured } from "@/lib/twilio/config";
 import { viewerTimeZone } from "@/lib/viewer-time-zone";
@@ -31,7 +32,7 @@ const rowsOf = <T>(r: unknown) => ((r as { rows?: T[] }).rows ?? (r as T[]));
 const countsFor = cache(async (userId: string, tz: string, chatSince: string, email: boolean, phone: boolean): Promise<SidebarCounts> => {
   const db = await getDb();
   const { startOfToday, startOfTomorrow } = dayBounds(tz);
-  const planned = sql`a.assignee_id = ${userId} and a.completed_at is null and a.due_at is not null`;
+  const planned = sql`a.assignee_id = ${userId} and a.completed_at is null and a.due_at is not null and ${activityLive(aliased("a"))}`;
   const result = await db.execute(sql`select
     (select count(*) from activities a where ${planned} and a.due_at < ${startOfToday})::int as overdue,
     (select count(*) from activities a where ${planned} and a.due_at >= ${startOfToday} and a.due_at < ${startOfTomorrow})::int as today,

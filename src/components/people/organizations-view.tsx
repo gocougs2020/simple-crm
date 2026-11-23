@@ -22,6 +22,7 @@ import { Tag } from "@/components/ui/badge";
 import { Select } from "@/components/ui/field";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/components/ui/toast";
+import { archivedToast } from "@/lib/format";
 import type { listOrganizations, OrgFilter } from "@/lib/crm/records";
 
 type Row = Awaited<ReturnType<typeof listOrganizations>>[number];
@@ -203,7 +204,7 @@ export function OrganizationsView({ rows: first, total, filter, pageSize, filter
               onClick={async () => {
                 const r = await setArchived("organization", ids, true);
                 if (!r.ok) return void toast.error(r.error);
-                toast.success(`${r.data.count} organizations archived`, { label: "Undo", onClick: () => setArchived("organization", ids, false) });
+                toast.success(archivedToast(`${r.data.count} organizations`, r.data.openActivities), { label: "Undo", onClick: () => setArchived("organization", ids, false) });
                 clear();
               }}
             >

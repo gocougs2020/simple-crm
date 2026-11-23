@@ -124,6 +124,7 @@ export const Activity = z.object({
   dueHasTime: z.boolean(),
   completedAt: ts.nullable(),
   pinned: z.boolean(),
+  archived: z.boolean().describe("Archived with the record it was logged on: its client, else its person, else its organization. Restoring that record brings it back."),
   personId: uuid.nullable(),
   person: ref.nullable(),
   people: z.array(ref).describe("Everyone on it: its person first, then a meeting's other attendees or an email's other recipients."),

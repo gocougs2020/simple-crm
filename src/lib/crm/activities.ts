@@ -4,6 +4,7 @@ import { getDb, schema } from "@/db";
 import { interactionTypes, type ActivityType, type EntityType } from "@/lib/constants";
 import { ActionError } from "@/lib/auth";
 import { zonedTime } from "@/lib/format";
+import { activityArchived, activityLive, shownOnRecord } from "@/lib/crm/activity-archive";
 import { inRecordView, onRecord } from "@/lib/crm/files";
 import { privateMailCount, privateMailOn, type PrivateMail } from "@/lib/microsoft/mail";
 
@@ -44,6 +45,8 @@ function activityRows(where: SQL | undefined, opts: { order: SQL[]; limit: numbe
         personName: sql<string | null>`case when ${people.id} is null then null else ${people.firstName} || coalesce(' ' || ${people.lastName}, '') end`,
         organizationName: organizations.name,
         clientName: clients.name,
+        /** Archived with the record it was logged on (src/lib/crm/activity-archive.ts). */
+        archived: activityArchived(),
         emailCc: schema.outboundEmails.cc,
         emailTo: schema.outboundEmails.to,
         emailReplyTo: schema.outboundEmails.replyTo,
@@ -214,9 +217,9 @@ export async function timelinePage(entity: EntityType, id: string, viewerId: str
   return { items: merged.slice(0, want), hasMore: merged.length > want };
 }
 
-/** A record's planned work (open, with a due date), soonest first. */
+/** A record's planned work (open, with a due date), soonest first. Work archived with another record that rolled up to this one is left out. */
 export function plannedOn(entity: EntityType, id: string, limit = 100) {
-  return activityRows(and(recordOn(entity, id), isNull(activities.completedAt), isNotNull(activities.dueAt)), { order: [asc(activities.dueAt)], limit });
+  return activityRows(and(recordOn(entity, id), isNull(activities.completedAt), isNotNull(activities.dueAt), shownOnRecord(entity, id)), { order: [asc(activities.dueAt)], limit });
 }
 
 /** A record's pinned entries, newest first. */
@@ -369,9 +372,9 @@ export type ActivityFilter = {
   range?: string;
 };
 
-/** The Activities page: open tasks and planned calls and meetings, or finished ones. */
+/** The Activities page: open tasks and planned calls and meetings, or finished ones. Activities archived with their record are left out. */
 export async function listActivities(f: ActivityFilter, tz: string) {
-  const where: SQL[] = [];
+  const where: SQL[] = [activityLive()];
   if (f.assigneeId) where.push(eq(activities.assigneeId, f.assigneeId));
   if (f.types?.length) where.push(inArray(activities.type, f.types));
   if (f.status === "todo") {
@@ -388,7 +391,7 @@ export async function listActivities(f: ActivityFilter, tz: string) {
 
 /** Recent interactions and notes from everyone, for the home page feed. */
 export async function teamFeed(limit = 25) {
-  return activityRows(and(or(isNotNull(activities.completedAt), isNull(activities.dueAt)), notCampaignEmail), {
+  return activityRows(and(or(isNotNull(activities.completedAt), isNull(activities.dueAt)), notCampaignEmail, activityLive()), {
     order: [desc(sql`coalesce(${activities.occurredAt}, ${activities.completedAt}, ${activities.createdAt})`)],
     limit,
     preview: true,
@@ -397,7 +400,7 @@ export async function teamFeed(limit = 25) {
 
 /** What one teammate logged lately (notes, calls, meetings, email, finished tasks), newest first, for their teammate page. */
 export async function loggedBy(userId: string, limit = 20) {
-  return activityRows(and(eq(activities.userId, userId), isPast, notCampaignEmail), {
+  return activityRows(and(eq(activities.userId, userId), isPast, notCampaignEmail, activityLive()), {
     order: [desc(sql`coalesce(${activities.occurredAt}, ${activities.completedAt}, ${activities.createdAt})`)],
     limit,
     preview: true,
