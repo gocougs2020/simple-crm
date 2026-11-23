@@ -37,8 +37,8 @@ import { Avatar } from "@/components/ui/avatar";
 import { Dialog } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/field";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
-import { AgentLauncher } from "@/components/agent/agent-launcher";
-import { openAssistant } from "@/components/agent/agent-store";
+import { AgentLauncher, VoiceOnDot } from "@/components/agent/agent-launcher";
+import { openAssistant, useAssistantState } from "@/components/agent/agent-store";
 import { appConfig } from "@/app.config";
 import { NextStepDialog } from "@/components/activity/next-step-dialog";
 import { NotificationsPrompt } from "@/components/pwa/notifications-prompt";
@@ -340,11 +340,19 @@ function PhoneHeader({ workspace, newMenu }: { workspace: string; newMenu: (trig
       </button>
       {/* On a desktop the agent has a floating button; on a phone it would cover send and save buttons, so it lives up here. */}
       {appConfig.agent.enabled ? (
-        <button type="button" onClick={() => openAssistant()} className="ml-0.5 flex size-9 items-center justify-center rounded-full bg-accent text-accent-foreground transition-transform active:scale-95" aria-label={`Open ${appConfig.agent.name}`}>
-          <SparklesIcon className="size-5" />
-        </button>
+        <TopBarAgentButton />
       ) : null}
     </header>
+  );
+}
+
+function TopBarAgentButton() {
+  const { voice } = useAssistantState();
+  return (
+    <button type="button" onClick={() => openAssistant()} className="relative ml-0.5 flex size-9 items-center justify-center rounded-full bg-accent text-accent-foreground transition-transform active:scale-95" aria-label={voice ? `Open ${appConfig.agent.name}, voice chat is on` : `Open ${appConfig.agent.name}`}>
+      <SparklesIcon className="size-5" />
+      {voice ? <VoiceOnDot /> : null}
+    </button>
   );
 }
 

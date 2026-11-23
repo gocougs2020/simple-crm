@@ -28,7 +28,7 @@ import { appConfig } from "@/app.config";
 import { useApp } from "@/components/app-context";
 import { ATTACHMENT_ACCEPT, MAX_ATTACHMENTS, type Attachment, type AttachmentChip } from "@/lib/agent/attachments";
 import { endMessage, isGreetingCue, primeAudio, VOICE_MIC_CONSTRAINTS, voiceSessionConfig, type VoiceEndReason } from "@/lib/agent/voice";
-import { closeAssistant, useAssistantState } from "./agent-store";
+import { closeAssistant, setAssistantVoice, useAssistantState } from "./agent-store";
 import { AssistantParts, awaitingApproval, hasVisibleContent, textOf } from "./agent-message";
 import { AgentTasks } from "./agent-tasks";
 import { DictationButton, type DictationState } from "./dictation-button";
@@ -428,11 +428,15 @@ export function AgentPanel({ configured }: { configured: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the panel opens
   }, [open]);
 
+  // Minimizing only hides the panel: a voice chat keeps going, and the agent's button shows it's still on.
   const close = () => {
-    if (voiceConfig || voiceStarting) endVoice();
     setMenuOpen(false);
     closeAssistant();
   };
+
+  const voiceOn = voiceLive || voiceStarting;
+  useEffect(() => setAssistantVoice(voiceOn), [voiceOn]);
+  useEffect(() => () => setAssistantVoice(false), []);
 
   useEffect(() => {
     if (!open) return;
