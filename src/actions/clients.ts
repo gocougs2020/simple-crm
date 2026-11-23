@@ -9,7 +9,7 @@ import { ActionError, actionEditor, actionUser } from "@/lib/auth";
 import type { ClientCategory } from "@/lib/constants";
 import { sessionActor } from "@/lib/crm/actor";
 import { recordEvent } from "@/lib/crm/events";
-import { id, type categoryInput, type clientInput, type metricInput, type subscriptionInput } from "@/lib/crm/schemas";
+import { id, type categoryInput, type clientInput, type metricInput } from "@/lib/crm/schemas";
 import * as svc from "@/lib/crm/service/clients";
 import { getCustomer, searchCustomers, stripeAccountLabel, stripeConfigured, stripeCustomerTag, StripeError } from "@/lib/stripe";
 import { customersOfClient, refreshClientBilling, rememberCustomer, syncClient } from "@/lib/stripe/sync";
@@ -19,7 +19,7 @@ const { clients } = schema;
 const actor = async () => sessionActor(await actionUser());
 
 export async function createClient(
-  input: z.input<typeof clientInput> & { category: ClientCategory; stageId?: string | null; serviceIds?: string[]; newOrganizationName?: string; newPersonName?: string },
+  input: z.input<typeof clientInput> & { category: ClientCategory; stageId?: string | null; newOrganizationName?: string; newPersonName?: string },
 ): Promise<Result<{ id: string }>> {
   return run(async () => {
     const row = await svc.createClient(await actor(), input);
@@ -67,29 +67,6 @@ export async function addClientPerson(clientId: string, personId: string): Promi
 export async function removeClientPerson(clientId: string, personId: string): Promise<Result> {
   return run(async () => {
     await svc.removeClientPerson(await actor(), clientId, personId);
-    refresh();
-  });
-}
-
-// ─── Services on a client ────────────────────────────────────────────────
-
-export async function addClientService(clientId: string, serviceId: string, input: z.input<typeof subscriptionInput> = {}): Promise<Result> {
-  return run(async () => {
-    await svc.addClientService(await actor(), clientId, serviceId, input);
-    refresh();
-  });
-}
-
-export async function updateClientService(rowId: string, patch: z.input<typeof subscriptionInput>): Promise<Result> {
-  return run(async () => {
-    await svc.updateClientService(await actor(), rowId, patch);
-    refresh();
-  });
-}
-
-export async function removeClientService(rowId: string): Promise<Result> {
-  return run(async () => {
-    await svc.removeClientService(await actor(), rowId);
     refresh();
   });
 }

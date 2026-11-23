@@ -10,14 +10,14 @@ import { diff, eventRow, labelRelations, recordEvent } from "@/lib/crm/events";
 import { writeBatch } from "@/db/batch";
 import { withCustomChanges, workspaceToday } from "@/lib/crm/inputs";
 import { ensureLabels } from "@/lib/crm/labels";
-import { categoryInput, clientCreateInput, clientInput, id, metricInput, subscriptionInput } from "@/lib/crm/schemas";
+import { categoryInput, clientCreateInput, clientInput, id, metricInput } from "@/lib/crm/schemas";
 import { assertOrganization, assertPerson, assertUser, insertOrganization, insertPersonByName } from "@/lib/crm/service/records";
 import { ActionError, NotFoundError } from "@/lib/errors";
 import { rankBetween } from "@/lib/rank";
 
-/** Clients: creating, editing, moving through stages and categories, services and performance numbers. Shared by the browser, the API and MCP. */
+/** Clients: creating, editing, moving through stages and categories, their people and performance numbers. Shared by the browser, the API and MCP. */
 
-const { clients, stages, pipelines, people, services, servicePlans, clientServices, clientMetrics, clientPeople } = schema;
+const { clients, stages, pipelines, people, clientMetrics, clientPeople } = schema;
 
 const clientLabels = {
   name: "Name",
@@ -117,15 +117,6 @@ export async function createClient(a: Actor, input: z.input<typeof clientCreateI
   await ensureLabels(data.tags);
   await recordEvent({ entityType: "client", entityId: row.id, action: "created", data: { stage: stage.name, category }, ...stamp(a) });
   recordAssigned(a, { entity: "client", id: row.id, name: data.name, ownerId: data.ownerId === undefined ? actorUserId(a) : data.ownerId });
-
-  const serviceIds = data.serviceIds ?? [];
-  if (serviceIds.length && category !== "prospective") {
-    const list = await db.select().from(services).where(inArray(services.id, serviceIds));
-    if (list.length)
-      await db.insert(clientServices).values(
-        list.map((s) => ({ clientId: row.id, serviceId: s.id, price: s.price, interval: s.interval, startedOn: category === "current" ? today : null, endedOn: category === "past" ? (data.endedOn ?? today) : null })),
-      );
-  }
   return row;
 }
 
@@ -186,7 +177,7 @@ export async function moveClient(a: Actor, clientId: string, stageId: string, pl
 /**
  * Signing a prospect, a client leaving, or a past client coming back. Moves
  * the client into the new category's pipeline, records the dates and reason,
- * and keeps services in step (leaving ends them; signing can start some).
+ * What they pay is Stripe's to say, so no billing changes here.
  */
 export async function changeClientCategory(a: Actor, clientId: string, input: z.input<typeof categoryInput>) {
   assertCan(a, "records:write");
@@ -212,12 +203,6 @@ export async function changeClientCategory(a: Actor, clientId: string, input: z.
   if (data.category === "past") Object.assign(set, { endedOn: on, churnReason: data.churnReason, openToReturn: data.openToReturn ?? true, health: null });
   await db.update(clients).set(set).where(eq(clients.id, client.id));
 
-  if (data.category === "past" && data.endServices !== false)
-    await db.update(clientServices).set({ endedOn: on }).where(and(eq(clientServices.clientId, client.id), isNull(clientServices.endedOn)));
-  if (data.category === "current" && data.serviceIds?.length) {
-    const list = await db.select().from(services).where(inArray(services.id, data.serviceIds));
-    if (list.length) await db.insert(clientServices).values(list.map((s) => ({ clientId: client.id, serviceId: s.id, price: s.price, interval: s.interval, startedOn: on })));
-  }
   await recordEvent({
     entityType: "client",
     entityId: client.id,
@@ -264,84 +249,6 @@ export async function removeClientPerson(a: Actor, clientId: string, personId: s
   if (!removed.length) return;
   const [person] = await db.select().from(people).where(eq(people.id, personId));
   await recordEvent({ entityType: "client", entityId: client.id, action: "person_removed", data: { personId, name: person ? nameOf(person) : null }, ...stamp(a) });
-}
-
-// ─── Services on a client ────────────────────────────────────────────────
-
-export async function addClientService(a: Actor, clientId: string, serviceId: string, input: z.input<typeof subscriptionInput> = {}) {
-  assertCan(a, "records:write");
-  const data = subscriptionInput.parse(input);
-  const db = await getDb();
-  const client = await getClientRow(clientId);
-  const [service] = await db.select().from(services).where(eq(services.id, id.parse(serviceId)));
-  if (!service || service.archivedAt) throw new NotFoundError("That service isn't offered anymore. Pick another one.");
-  const plan = data.planId ? await planOf(service.id, data.planId) : null;
-  if (plan?.archivedAt) throw new NotFoundError("That plan isn't offered anymore. Pick another one.");
-  const today = await workspaceToday();
-  const [row] = await db
-    .insert(clientServices)
-    .values({
-      clientId: client.id,
-      serviceId: service.id,
-      planId: plan?.id ?? null,
-      // The plan's price, billing and description are the starting point; what this client pays can differ.
-      price: data.price ?? (plan ?? service).price,
-      interval: data.interval ?? (plan ?? service).interval,
-      startedOn: data.startedOn ?? (client.category === "current" ? today : null),
-      endedOn: data.endedOn ?? (client.category === "past" ? (client.endedOn ?? today) : null),
-      // No note sent: the plan's description. An empty string is a note cleared on purpose (the dialog sends one), and stays empty.
-      // The API validates before calling, so a note it leaves out arrives as null and gets the description too.
-      note: data.note ?? (input.note === "" ? null : (plan?.description?.slice(0, 300) ?? null)),
-    })
-    .returning({ id: clientServices.id });
-  await recordEvent({ entityType: "client", entityId: client.id, action: "service_added", data: { name: plan ? `${service.name} · ${plan.name}` : service.name }, ...stamp(a) });
-  return row;
-}
-
-/** A plan, checked to belong to the service it's being used with. */
-async function planOf(serviceId: string, planId: string) {
-  const db = await getDb();
-  const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.serviceId, serviceId)));
-  if (!plan) throw new NotFoundError("That plan isn't one of this service's plans. Pick one from the service's list.");
-  return plan;
-}
-
-async function getSubscription(rowId: string, clientId?: string) {
-  const db = await getDb();
-  const [row] = await db.select({ cs: clientServices, name: services.name }).from(clientServices).innerJoin(services, eq(services.id, clientServices.serviceId)).where(eq(clientServices.id, id.parse(rowId)));
-  if (!row || (clientId && row.cs.clientId !== clientId)) throw new NotFoundError("That service was removed from this client.");
-  return row;
-}
-
-export async function updateClientService(a: Actor, rowId: string, patch: z.input<typeof subscriptionInput>, clientId?: string) {
-  assertCan(a, "records:write");
-  // Partial, so fields left out stay as they are (otherwise they'd parse to null and clear the start date and note).
-  const data = subscriptionInput.partial().parse(patch);
-  const db = await getDb();
-  const row = await getSubscription(rowId, clientId);
-  const planChanged = data.planId !== undefined && data.planId !== row.cs.planId;
-  const plan = planChanged && data.planId ? await planOf(row.cs.serviceId, data.planId) : null;
-  // Staying on an archived plan is fine; moving onto one isn't, the same as when adding.
-  if (plan?.archivedAt) throw new NotFoundError("That plan isn't offered anymore. Pick another one.");
-  await db.update(clientServices).set(data).where(eq(clientServices.id, row.cs.id));
-  const ended = data.endedOn && !row.cs.endedOn;
-  const changes = diff(row.cs, data, { price: `${row.name} price`, interval: `${row.name} billing`, startedOn: `${row.name} start`, endedOn: `${row.name} end` });
-  if (planChanged) {
-    const [before] = row.cs.planId ? await db.select({ name: servicePlans.name }).from(servicePlans).where(eq(servicePlans.id, row.cs.planId)) : [];
-    changes.push({ field: "planId", label: `${row.name} plan`, from: before?.name ?? null, to: plan?.name ?? null });
-  }
-  if (ended) await recordEvent({ entityType: "client", entityId: row.cs.clientId, action: "service_ended", data: { name: row.name, on: data.endedOn }, ...stamp(a) });
-  else if (changes.length) await recordEvent({ entityType: "client", entityId: row.cs.clientId, action: "updated", data: { changes }, ...stamp(a) });
-  return { id: row.cs.id };
-}
-
-export async function removeClientService(a: Actor, rowId: string, clientId?: string) {
-  assertCan(a, "records:write");
-  const db = await getDb();
-  const row = await getSubscription(rowId, clientId).catch(() => null);
-  if (!row) return;
-  await db.delete(clientServices).where(eq(clientServices.id, row.cs.id));
-  await recordEvent({ entityType: "client", entityId: row.cs.clientId, action: "service_removed", data: { name: row.name }, ...stamp(a) });
 }
 
 // ─── Performance ─────────────────────────────────────────────────────────

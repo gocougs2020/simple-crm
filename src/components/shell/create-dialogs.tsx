@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { createClient } from "@/actions/clients";
 import { createOrganization, createPerson } from "@/actions/records";
-import { Chip } from "@/components/clients/client-controls";
 import { useApp } from "@/components/app-context";
 import { CustomFieldInput } from "@/components/records/custom-field-input";
 import { OwnerSelect } from "@/components/records/owner-select";
@@ -213,7 +212,7 @@ function OrganizationDialog({ req, onClose }: { req: Extract<CreateRequest, { ki
 }
 
 function ClientDialog({ req, onClose }: { req: Extract<CreateRequest, { kind: "client" }>; onClose: () => void }) {
-  const { viewer, pipelines, workspace, catalog, stage } = useApp();
+  const { viewer, pipelines, workspace, stage } = useApp();
   const d = req.defaults ?? {};
   const [category, setCategory] = useState<ClientCategory>(d.category ?? (d.stageId ? (stage(d.stageId)?.pipeline.category ?? "prospective") : "prospective"));
   const options = pipelines.filter((p) => p.category === category);
@@ -228,7 +227,6 @@ function ClientDialog({ req, onClose }: { req: Extract<CreateRequest, { kind: "c
   const [person, setPerson] = useState<PickerValue>(d.personId ? { record: { id: d.personId, label: d.personName ?? "" } } : null);
   const [org, setOrg] = useState<PickerValue>(d.organizationId ? { record: { id: d.organizationId, label: d.organizationName ?? "" } } : null);
   const [date, setDate] = useState("");
-  const [serviceIds, setServiceIds] = useState<string[]>([]);
   const [ownerId, setOwnerId] = useState<string | null>(viewer.id);
   const [custom, setCustom] = useState<Record<string, unknown>>({});
   const [openAfter, setOpenAfter] = useState(false);
@@ -252,7 +250,6 @@ function ClientDialog({ req, onClose }: { req: Extract<CreateRequest, { kind: "c
             expectedCloseDate: category === "prospective" ? date || null : null,
             startedOn: category === "current" ? date || null : null,
             endedOn: category === "past" ? date || null : null,
-            serviceIds,
             personId: person && "record" in person ? person.record.id : null,
             newPersonName: person && "create" in person ? person.create : undefined,
             organizationId: org && "record" in org ? org.record.id : null,
@@ -353,22 +350,6 @@ function ClientDialog({ req, onClose }: { req: Extract<CreateRequest, { kind: "c
             }
           </Field>
           <Field label="Owner">{(p) => <OwnerSelect id={p.id} value={ownerId} onChange={setOwnerId} />}</Field>
-          {category !== "prospective" && catalog.some((s) => !s.archivedAt) ? (
-            <div className="sm:col-span-2">
-              <p className="mb-1.5 text-[13px] font-medium text-primary">
-                {category === "current" ? "Services they use" : "Services they had"} <span className="font-normal text-muted">(optional)</span>
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {catalog
-                  .filter((s) => !s.archivedAt)
-                  .map((s) => (
-                    <Chip key={s.id} on={serviceIds.includes(s.id)} onClick={() => setServiceIds(serviceIds.includes(s.id) ? serviceIds.filter((x) => x !== s.id) : [...serviceIds, s.id])}>
-                      {s.name}
-                    </Chip>
-                  ))}
-              </div>
-            </div>
-          ) : null}
         </div>
         <CustomFields entity="client" values={custom} onChange={setCustom} />
       </form>

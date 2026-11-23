@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { activityTypes, agentDraftKinds, agentDraftStatuses, agentRunSources, agentRunStatuses, agentScopes, agentSkillModes, apiKeyKinds, billingIntervals, clientCategories, clientHealths, customFieldTypes, entityTypes, scheduleEvery, userRoles } from "@/lib/constants";
+import { activityTypes, agentDraftKinds, agentDraftStatuses, agentRunSources, agentRunStatuses, agentScopes, agentSkillModes, apiKeyKinds, clientCategories, clientHealths, customFieldTypes, entityTypes, scheduleEvery, userRoles } from "@/lib/constants";
 import { permissions } from "@/lib/permissions";
 import { billingStatuses } from "@/lib/stripe/rules";
 
@@ -73,7 +73,7 @@ export const Client = z.object({
   category: z.enum(clientCategories),
   value: z.number().int().describe("Prospects: potential value, in cents."),
   currency: z.string(),
-  mrr: z.number().int().describe("Monthly revenue from open services, in cents. Derived, never stored."),
+  mrr: z.number().int().describe("What Stripe bills them a month for running subscriptions, in cents, after discounts. The same as billing.mrr; 0 without Stripe."),
   pipeline: ref,
   stage: ref.extend({ probability: z.number().int() }),
   stageChangedAt: ts,
@@ -174,38 +174,9 @@ export const Label = z.object({
 });
 
 export const Service = z.object({
-  id: uuid,
-  name: z.string(),
-  description: z.string().nullable(),
-  price: z.number().int().describe("Catalog price, in cents, for a client on no plan."),
-  interval: z.enum(billingIntervals),
-  archived: z.boolean(),
-  plans: z
-    .array(
-      z.object({
-        id: uuid,
-        name: z.string(),
-        description: z.string().nullable().describe("What the plan includes. The default note when it's added to a client."),
-        price: z.number().int().describe("The plan's usual price, in cents."),
-        interval: z.enum(billingIntervals),
-        archived: z.boolean(),
-      }),
-    )
-    .describe("The levels the service is sold at. Empty when it has none."),
-});
-
-export const ClientService = z.object({
-  id: uuid.describe("The subscription's own id (not the service's)."),
-  serviceId: uuid,
-  name: z.string().describe("The service's name."),
-  planId: uuid.nullable().describe("The plan of the service they're on, if any."),
-  plan: z.string().nullable().describe("That plan's name."),
-  price: z.number().int().describe("In cents."),
-  interval: z.enum(billingIntervals),
-  startedOn: day.nullable(),
-  endedOn: day.nullable(),
-  active: z.boolean(),
-  note: z.string().nullable(),
+  name: z.string().describe("The Stripe product's name, as on a client's billing.products."),
+  description: z.string().nullable().describe("What the team says it delivers (Settings → Services): its benchmarks, scope and commitments. Null when nobody described it."),
+  clients: z.number().int().describe("How many clients are subscribed to it now."),
 });
 
 export const ClientPerson = Person.extend({
@@ -361,5 +332,5 @@ export const Draft = z.object({
 });
 
 /** Named schemas, in the order the docs list them. */
-export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, Label, ClientService, ClientPerson, Metric, User, CustomField, Me, SearchResult, AgentTask, AgentBulk, Skill, ScheduledJob, Draft, Knowledge, File: StoredFile, FileDetail, Folder, Deleted } as const;
+export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, Label, ClientPerson, Metric, User, CustomField, Me, SearchResult, AgentTask, AgentBulk, Skill, ScheduledJob, Draft, Knowledge, File: StoredFile, FileDetail, Folder, Deleted } as const;
 export type ModelName = keyof typeof models;

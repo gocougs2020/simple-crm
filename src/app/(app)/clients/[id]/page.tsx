@@ -10,7 +10,7 @@ import { RecordSummary } from "@/components/records/record-summary";
 import { Timeline } from "@/components/activity/timeline";
 import { BillingCard } from "@/components/clients/billing-card";
 import { CategoryActions, CategoryBadge, CategoryDate, HealthBadge } from "@/components/clients/client-controls";
-import { PerformanceCard, ServicesCard } from "@/components/clients/client-panels";
+import { PerformanceCard } from "@/components/clients/client-panels";
 import { ClientPeopleCard } from "@/components/clients/client-people";
 import { StageBar } from "@/components/clients/client-controls";
 import { DynamicMarker } from "@/components/dynamic-marker";
@@ -19,12 +19,10 @@ import { FilesCard } from "@/components/files/files-panel";
 import { ClientDetails, OrganizationCard } from "@/components/records/details";
 import { RecordBody, RecordHeader } from "@/components/records/record-header";
 import { PageSkeleton, Skeleton } from "@/components/ui/skeleton";
-import { monthlyFactor } from "@/lib/constants";
 import { recordTimeline } from "@/lib/crm/activities";
 import { getAppData } from "@/lib/crm/context";
-import { viewerTimeZone } from "@/lib/viewer-time-zone";
-import { clientPeople, getClient, metricsOf, otherOrganizationsOfClient, servicesOf } from "@/lib/crm/records";
-import { dayKey, formatMoney, personName } from "@/lib/format";
+import { clientPeople, getClient, metricsOf, otherOrganizationsOfClient } from "@/lib/crm/records";
+import { formatMoney, personName } from "@/lib/format";
 
 export async function generateMetadata({ params }: PageProps<"/clients/[id]">): Promise<Metadata> {
   const { id } = await params;
@@ -57,10 +55,9 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
   const c = client.category;
   // Their own private mail with this record is on the timeline, for them alone.
   const viewer = await requireUser();
-  const [tl, app, services, metrics, associated, alsoTied] = await Promise.all([
+  const [tl, app, metrics, associated, alsoTied] = await Promise.all([
     recordTimeline("client", id, viewer.id),
     getAppData(),
-    servicesOf(id),
     metricsOf(id),
     clientPeople(client),
     otherOrganizationsOfClient(id),
@@ -76,10 +73,8 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
     starred: p.decisionMaker,
   }));
   const stage = app.pipelines.flatMap((p) => p.stages).find((s) => s.id === client.stageId);
-  const today = dayKey(new Date(), await viewerTimeZone(app.workspace.timezone));
-  // A past client's subscription is what ended on their latest end date (a client won back and lost again has two periods).
-  const lastEnded = services.reduce<string | null>((max, s) => (s.endedOn && (!max || s.endedOn > max) ? s.endedOn : max), null);
-  const monthly = Math.round(services.filter((s) => (c === "past" ? s.endedOn === lastEnded : !s.endedOn || s.endedOn > today)).reduce((sum, s) => sum + s.price * monthlyFactor[s.interval], 0));
+  // What Stripe bills them a month, after discounts. Past clients' subscriptions have ended, so there's nothing running to show.
+  const monthly = c === "past" ? 0 : client.stripeMrr;
 
   return (
     <>
@@ -100,7 +95,7 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
                 </>
               ) : monthly ? (
                 <span className="text-[15px] font-semibold text-primary tabular-nums">
-                  {formatMoney(monthly, client.currency)}/mo{c === "past" ? <span className="font-normal text-muted"> when they left</span> : null}
+                  {formatMoney(monthly, client.currency)}/mo
                 </span>
               ) : null}
             </span>
@@ -117,7 +112,7 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
         actions={
           <span className="flex items-center gap-2">
             {person ? <CallButton target={{ name: personName(person), phone: person.phone, personId: person.id, clientId: id }} /> : organization ? <CallButton target={{ name: organization.name, phone: organization.phone, organizationId: organization.id, clientId: id }} /> : null}
-            <CategoryActions clientId={id} name={client.name} category={c} previousServiceIds={c === "past" ? [...new Set(services.filter((s) => s.endedOn === lastEnded).map((s) => s.serviceId))] : undefined} />
+            <CategoryActions clientId={id} name={client.name} category={c} />
           </span>
         }
       />
@@ -137,7 +132,6 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
             {alsoTied.map((org) => (
               <OrganizationCard key={org.id} org={org} title="Also tied to" />
             ))}
-            {c !== "prospective" ? <ServicesCard clientId={id} category={c} rows={services} /> : null}
             {/* Billing shows on every client, prospects included: someone can be paying for one product while being sold another. */}
             <Suspense fallback={<Skeleton className="h-28 rounded-xl" />}>
               <BillingCard clientId={id} syncedAt={client.stripeSyncedAt} suggest={person?.email ?? organization?.name ?? client.name} />
@@ -157,7 +151,7 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
           context={{ type: "client", id, category: c }}
           fileLinks={{ clientId: id, personId: client.personId, organizationId: client.organizationId }}
           files={tl.files}
-          emptyHint={c === "prospective" ? "Calls, emails and notes with this prospect show up here, along with every stage change." : "Every interaction, email, service change and stage move with this client shows up here."}
+          emptyHint={c === "prospective" ? "Calls, emails and notes with this prospect show up here, along with every stage change." : "Every interaction, email, billing change and stage move with this client shows up here."}
         />
       </RecordBody>
     </>

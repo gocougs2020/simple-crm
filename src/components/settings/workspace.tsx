@@ -64,7 +64,7 @@ export function WorkspaceSettings({ canAddSample }: { canAddSample: boolean }) {
         </form>
       </Section>
       {canAddSample ? (
-        <Section title="Sample data" description="Local development only. Adds a few organizations, people, clients in each category, services and activities so you can try things out.">
+        <Section title="Sample data" description="Local development only. Adds a few organizations, people, clients in each category with their Stripe billing, and activities so you can try things out.">
           <div className="p-5">
             <Button
               variant="outline"

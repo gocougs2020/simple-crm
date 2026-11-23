@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { activityTypes, clientCategories, clientHealths, entityTypes } from "@/lib/constants";
-import { activityInput, bytesUploadInput, categoryInput, draftInput, fileRecordInput, datetime, clientCreateInput, clientInput, metricInput, moveInput, orgInput, personInput, replyInput, subscriptionInput } from "@/lib/crm/schemas";
+import { activityInput, bytesUploadInput, categoryInput, draftInput, fileRecordInput, datetime, clientCreateInput, clientInput, metricInput, moveInput, orgInput, personInput, replyInput } from "@/lib/crm/schemas";
 import { jobInput, jobPatch } from "@/lib/agent/schedule-rules";
 import { MAX_API_FILE_BYTES, MAX_UPLOAD_BODY_BYTES } from "@/lib/api/body";
 import { skillInput, skillPatch } from "@/lib/agent/skill-rules";
@@ -305,11 +305,11 @@ export const operations = {
     path: "/clients/{id}/category",
     tag: "Clients",
     summary: "Sign, lose or win back a client",
-    description: "Moves a client between prospective, current and past. Records the date and reason, moves it into the new category's pipeline, and keeps services in step: leaving ends them, signing can start some.",
+    description: "Moves a client between prospective, current and past. Records the date and reason and moves it into the new category's pipeline. What they pay comes from Stripe, so billing isn't changed here.",
     permission: "records:write",
     params: idParam,
     body: categoryInput,
-    example: { category: "current", on: "2026-11-01", serviceIds: ["e7f0…"] },
+    example: { category: "current", on: "2026-11-01" },
     response: "Client",
     tool: "change_client_category",
   }),
@@ -346,53 +346,6 @@ export const operations = {
     description: "Only for people added to the client. The person's own record isn't touched.",
     permission: "records:write",
     params: ids("id", "personId"),
-    response: "Deleted",
-    tool: null,
-  }),
-  listClientServices: op({
-    method: "GET",
-    path: "/clients/{id}/services",
-    tag: "Clients",
-    summary: "A client's services",
-    description: "What the client uses or used, at what price, from when to when. Open ones make up its monthly revenue.",
-    permission: "records:read",
-    params: idParam,
-    response: "ClientService",
-    list: true,
-    tool: "list_client_services",
-  }),
-  addClientService: op({
-    method: "POST",
-    path: "/clients/{id}/services",
-    tag: "Clients",
-    summary: "Add a service to a client",
-    permission: "records:write",
-    params: idParam,
-    body: subscriptionInput.extend({ serviceId: z.uuid().describe("From GET /services.") }),
-    response: "ClientService",
-    status: 201,
-    tool: "add_client_service",
-  }),
-  updateClientService: op({
-    method: "PATCH",
-    path: "/clients/{id}/services/{subscriptionId}",
-    tag: "Clients",
-    summary: "Change or end a client's service",
-    description: "Set endedOn to end it.",
-    permission: "records:write",
-    params: ids("id", "subscriptionId"),
-    body: subscriptionInput.partial(),
-    response: "ClientService",
-    tool: "update_client_service",
-  }),
-  removeClientService: op({
-    method: "DELETE",
-    path: "/clients/{id}/services/{subscriptionId}",
-    tag: "Clients",
-    summary: "Remove a service added by mistake",
-    description: "To record that a client stopped using a service, end it instead (PATCH with endedOn).",
-    permission: "records:write",
-    params: ids("id", "subscriptionId"),
     response: "Deleted",
     tool: null,
   }),
@@ -607,7 +560,18 @@ export const operations = {
 
   // ─── Workspace ─────────────────────────────────────────────────────────
   listPipelines: op({ method: "GET", path: "/pipelines", tag: "Workspace", summary: "Pipelines and their stages", description: "Each pipeline belongs to one client category.", permission: "records:read", response: "Pipeline", list: true, tool: "list_pipelines" }),
-  listServices: op({ method: "GET", path: "/services", tag: "Workspace", summary: "What the workspace sells", permission: "records:read", response: "Service", list: true, tool: "list_services" }),
+  listServices: op({
+    method: "GET",
+    path: "/services",
+    tag: "Workspace",
+    summary: "What the workspace sells",
+    description: "The products clients are billed for in Stripe, by name, with what the team says each delivers (Settings → Services) and how many clients are on it now. A client's own products are its billing.products.",
+    permission: "records:read",
+    response: "Service",
+    list: true,
+    tool: "list_services",
+    toolDescription: "The workspace's services: the Stripe products clients subscribe to, each with what it delivers (benchmarks, scope, commitments) as the team described it. Read it before saying what a client's subscription includes.",
+  }),
   listLabels: op({
     method: "GET",
     path: "/labels",

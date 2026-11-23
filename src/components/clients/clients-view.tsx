@@ -13,12 +13,13 @@ import { formatCustomValue } from "@/components/records/custom-field-input";
 import { PageHeader } from "@/components/shell/app-shell";
 import { openCreate } from "@/components/shell/create-store";
 import { AgoCell, NextActivityCell, OwnerCell } from "@/components/table/cells";
+import { ProductTag } from "./product-tag";
 import { DataTable, type Column } from "@/components/table/data-table";
 import { OwnerFilter, SearchBox, Toolbar } from "@/components/table/toolbar";
 import { useListParams } from "@/components/table/use-params";
 import { BulkAddLabels, LabelChips, useLabels } from "@/components/records/labels";
 import { MergeDialog, type MergeCandidate } from "@/components/records/merge-dialog";
-import { StatusBadge, Tag, type Tone } from "@/components/ui/badge";
+import { StatusBadge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Select } from "@/components/ui/field";
@@ -62,7 +63,7 @@ export function ClientsView({
   /** Stripe products clients are subscribed to now, for the filter. Empty when Stripe isn't connected. */
   stripeProducts: string[];
 }) {
-  const { pipelines, money, viewer, customFields, member, team, catalog, workspace, canEdit, services: connected } = useApp();
+  const { pipelines, money, viewer, customFields, member, team, workspace, canEdit, services: connected } = useApp();
   const labels = useLabels();
   const shownTags = labels.shown(tags);
   const tz = workspace.timezone;
@@ -89,7 +90,7 @@ export function ClientsView({
       ...customFields.filter((f) => f.entityType === "client").map((f) => ({ label: f.label, value: formatCustomValue(f, r.client.custom[f.key], money) || null })),
     ],
     extras: [
-      r.services.length ? [...new Set(r.services.map((s) => s.name))].join(", ") : null,
+      r.client.stripeProducts.length ? r.client.stripeProducts.join(", ") : null,
       r.client.stripeStatus ? `Stripe: ${billingStatusLabels[r.client.stripeStatus].toLowerCase()}` : null,
     ].filter((x): x is string => !!x),
   });
@@ -110,8 +111,8 @@ export function ClientsView({
           return `${rows.length} ${rows.length === 1 ? "prospect" : "prospects"} · ${money(total)} potential · ${money(Math.round(weighted))} weighted`;
         })()
       : category === "current"
-        ? // Monthly revenue comes from Stripe when it's connected; the services tracked by hand are being phased out.
-          `${rows.length} ${rows.length === 1 ? "client" : "clients"} · ${money(rows.reduce((s, r) => s + Number(connected.stripe ? r.client.stripeMrr : r.mrr), 0))}/mo · ${rows.filter((r) => r.client.health === "at_risk").length} at risk`
+        ? // Monthly revenue is what Stripe bills them, after discounts.
+          `${rows.length} ${rows.length === 1 ? "client" : "clients"} · ${connected.stripe ? `${money(rows.reduce((s, r) => s + r.client.stripeMrr, 0))}/mo · ` : ""}${rows.filter((r) => r.client.health === "at_risk").length} at risk`
         : `${rows.length} past ${rows.length === 1 ? "client" : "clients"} · ${rows.filter((r) => r.client.openToReturn).length} open to coming back`;
 
   const name: Column<ClientRow> = {
@@ -147,27 +148,21 @@ export function ClientsView({
       </span>
     ),
   };
-  /**
-   * What they're signed up for: the products on their running Stripe
-   * subscriptions. Without Stripe connected, the services tracked by hand:
-   * the ones they have, or on the Past tab the ones they had.
-   */
+  /** What they're signed up for: the products on their running Stripe subscriptions, each with what it delivers behind an info icon. */
   const services: Column<ClientRow> = {
     key: "services",
     label: "Services",
     className: "max-w-64",
-    render: (r) => {
-      const list = connected.stripe ? r.client.stripeProducts : [...new Set(r.services.filter((s) => s.active === (category !== "past")).map((s) => s.name))];
-      return list.length ? (
+    render: (r) =>
+      r.client.stripeProducts.length ? (
         <span className="flex flex-wrap gap-1">
-          {list.map((name) => (
-            <Tag key={name}>{name}</Tag>
+          {r.client.stripeProducts.map((name) => (
+            <ProductTag key={name} name={name} />
           ))}
         </span>
       ) : (
         <span className="text-faint">—</span>
-      );
-    },
+      ),
   };
   const tagCol: Column<ClientRow> = {
     key: "tags",
@@ -196,20 +191,20 @@ export function ClientsView({
     render: (r) => (r.client[field] ? <span className="whitespace-nowrap">{formatDateOnly(r.client[field]!, tz)}</span> : <span className="text-faint">—</span>),
   });
   const health: Column<ClientRow> = { key: "health", label: "Health", mobile: "meta", mobileRender: (r) => (r.client.health ? <HealthBadge health={r.client.health} /> : null), render: (r) => (r.client.health ? <HealthBadge health={r.client.health} /> : <span className="text-faint">—</span>) };
-  const stripe = connected.stripe ? [billing] : [];
+  // Stripe is where both come from: without it there's nothing to show.
+  const stripe = connected.stripe ? [billing, services] : [];
 
   // One order on every tab: who, who has it, who we talk to, what's next, what they pay for, how it's going, where it stands, since when.
   // Each tab puts its own "how it's going" and date in those places.
   const byCategory: Record<ClientCategory, Column<ClientRow>[]> = {
-    prospective: [name, owner, contact, next, ...stripe, services, { key: "value", label: "Potential value", sort: "value", align: "right", mobile: "end", render: (r) => <span className="tabular-nums">{money(r.client.value)}</span> }, stage, date("expectedCloseDate", "Expected to sign", "expectedClose"), last],
-    current: [name, owner, contact, next, ...stripe, services, health, stage, date("startedOn", "Client since", "startedOn"), last],
+    prospective: [name, owner, contact, next, ...stripe, { key: "value", label: "Potential value", sort: "value", align: "right", mobile: "end", render: (r) => <span className="tabular-nums">{money(r.client.value)}</span> }, stage, date("expectedCloseDate", "Expected to sign", "expectedClose"), last],
+    current: [name, owner, contact, next, ...stripe, health, stage, date("startedOn", "Client since", "startedOn"), last],
     past: [
       name,
       owner,
       contact,
       next,
       ...stripe,
-      services,
       { key: "reason", label: "Why they left", className: "max-w-56", render: (r) => (r.client.churnReason ? <span className="truncate">{r.client.churnReason}</span> : <span className="text-faint">—</span>) },
       { key: "return", label: "Win back", render: (r) => (r.client.openToReturn ? <span className="text-secondary">Open</span> : <span className="text-faint">Not interested</span>) },
       stage,
@@ -294,7 +289,6 @@ export function ClientsView({
         <OwnerFilter />
         <SearchBox placeholder={`Search ${clientCategoryLabels[category].one.toLowerCase()} clients`} />
         {category === "current" ? filterSelect("health", "Any health", [...clientHealths.map((h) => ({ value: h, label: clientHealthLabels[h] })), { value: "none", label: "Not set" }]) : null}
-        {category !== "prospective" && catalog.length ? filterSelect("service", "Any service", catalog.map((s) => ({ value: s.id, label: s.name }))) : null}
         {category === "past" ? filterSelect("reason", "Any reason", churnReasons.map((r) => ({ value: r, label: r }))) : null}
         {connected.stripe ? filterSelect("billing", "Any billing", [...billingStatuses.map((b) => ({ value: b, label: billingStatusLabels[b] })), { value: "none", label: "Not in Stripe" }]) : null}
         {stripeProducts.length ? filterSelect("product", "Any Stripe product", stripeProducts.map((p) => ({ value: p, label: p }))) : null}

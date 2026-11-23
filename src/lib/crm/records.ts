@@ -2,7 +2,7 @@ import "server-only";
 import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
 import { cache } from "react";
 import { getDb, schema } from "@/db";
-import { clientCategoryLabels, monthlyPriceSql, type ClientCategory } from "@/lib/constants";
+import { clientCategoryLabels, type ClientCategory } from "@/lib/constants";
 import { clientAtOrganization, organizationsOfClient } from "@/lib/crm/client-organizations";
 import { effectiveTags } from "@/lib/crm/labels";
 import { orderPeople } from "@/lib/crm/people-order";
@@ -241,12 +241,8 @@ export async function peopleOf(organizationId: string) {
 
 // ─── Clients ─────────────────────────────────────────────────────────────
 
-/** Monthly value of a client's subscriptions: open ones, or for past clients, what they had when they left. */
-const monthly = (where: SQL) => sql<number>`(
-  select coalesce(round(sum(${sql.raw(monthlyPriceSql)})), 0)::bigint
-  from client_services cs where cs.client_id = ${clients.id} and ${where}
-)`;
-const activeService = sql`(cs.ended_on is null or cs.ended_on > current_date)`;
+/** What a client pays a month: their running Stripe subscriptions, after discounts, from the daily sync. */
+const mrr = sql<number>`${clients.stripeMrr}`;
 
 export type ClientFilter = {
   category?: ClientCategory;
@@ -256,7 +252,6 @@ export type ClientFilter = {
   personId?: string;
   organizationId?: string;
   tag?: string;
-  serviceId?: string;
   health?: string;
   churnReason?: string;
   /** A billing status from Stripe, or "none" for clients with no Stripe customer. */
@@ -278,16 +273,12 @@ export async function listClients(f: ClientFilter = {}) {
   if (f.tag) where.push(sql`${clients.tags} ? ${f.tag}`);
   if (f.health) where.push(f.health === "none" ? isNull(clients.health) : eq(clients.health, f.health as never));
   if (f.churnReason) where.push(eq(clients.churnReason, f.churnReason));
-  if (f.serviceId) where.push(sql`exists (select 1 from client_services cs where cs.client_id = ${clients.id} and cs.service_id = ${f.serviceId})`);
   if (f.billing) where.push(f.billing === "none" ? isNull(clients.stripeStatus) : eq(clients.stripeStatus, f.billing as never));
   if (f.stripeProduct) where.push(sql`${clients.stripeProducts} ? ${f.stripeProduct}`);
   if (f.q?.trim()) {
     const t = likeTerm(f.q);
     where.push(or(ilike(clients.name, t), ilike(organizations.name, t), ilike(sql`${people.firstName} || ' ' || coalesce(${people.lastName}, '')`, t))!);
   }
-  const mrr = monthly(activeService);
-  // What they paid when they last left: the services that ended on their latest end date, not every period they've ever had.
-  const formerMrr = monthly(sql`cs.ended_on = (select max(x.ended_on) from client_services x where x.client_id = ${clients.id})`);
   const sorts: Record<string, SQL> = {
     name: sql`lower(${clients.name})`,
     value: sql`${clients.value}`,
@@ -296,7 +287,6 @@ export async function listClients(f: ClientFilter = {}) {
     // Worst news first, the same order as the billing statuses; not in Stripe last.
     stripeStatus: sql`coalesce(array_position(array['past_due', 'active', 'trialing', 'paused', 'canceled', 'customer'], ${clients.stripeStatus}::text), 7)`,
     stripeCollected: sql`${clients.stripeCollected}`,
-    formerMrr: sql`${formerMrr}`,
     stage: sql`${stages.position}`,
     expectedClose: sql`${clients.expectedCloseDate}`,
     startedOn: sql`${clients.startedOn}`,
@@ -306,7 +296,7 @@ export async function listClients(f: ClientFilter = {}) {
     organization: sql`lower(${organizations.name})`,
   };
   const order = f.sort ? (sorts[f.sort] ?? sorts.created) : null;
-  const dir = f.dir ?? (["value", "mrr", "stripeMrr", "stripeCollected", "formerMrr", "startedOn", "endedOn", "lastActivity", "created"].includes(f.sort ?? "") ? "desc" : "asc");
+  const dir = f.dir ?? (["value", "mrr", "stripeMrr", "stripeCollected", "startedOn", "endedOn", "lastActivity", "created"].includes(f.sort ?? "") ? "desc" : "asc");
   return db
     .select({
       // Only what the board, the table and the merge dialog show (no AI summary, notes or timestamps they don't use).
@@ -342,11 +332,6 @@ export async function listClients(f: ClientFilter = {}) {
       personLastName: people.lastName,
       personEmail: people.email,
       mrr,
-      formerMrr,
-      services: sql<{ name: string; active: boolean }[]>`(
-        select coalesce(json_agg(json_build_object('name', s.name, 'active', ${activeService}) order by s.position, s.name), '[]')
-        from client_services cs join services s on s.id = cs.service_id where cs.client_id = ${clients.id}
-      )`,
       next: nextActivity("client_id", sql`${clients.id}`),
     })
     .from(clients)
@@ -446,21 +431,6 @@ export async function allClientTags() {
   return ((rows as unknown as { rows?: { tag: string }[] }).rows ?? (rows as unknown as { tag: string }[])).map((r) => r.tag);
 }
 
-/** The services a client has had, current first. */
-export async function servicesOf(clientId: string) {
-  const db = await getDb();
-  const { clientServices, services, servicePlans } = schema;
-  return db
-    .select({ id: clientServices.id, serviceId: clientServices.serviceId, planId: clientServices.planId, name: sql<string>`${services.name} || coalesce(' · ' || ${servicePlans.name}, '')`, service: services.name, plan: servicePlans.name, price: clientServices.price, interval: clientServices.interval, startedOn: clientServices.startedOn, endedOn: clientServices.endedOn, note: clientServices.note })
-    .from(clientServices)
-    .innerJoin(services, eq(services.id, clientServices.serviceId))
-    .leftJoin(servicePlans, eq(servicePlans.id, clientServices.planId))
-    .where(eq(clientServices.clientId, clientId))
-    .orderBy(sql`${clientServices.endedOn} desc nulls first`, asc(services.position), asc(services.name));
-}
-
-export type ClientServiceRow = Awaited<ReturnType<typeof servicesOf>>[number];
-
 /** Performance numbers for a client, oldest first per label, so the card can show the latest and the trend. */
 export async function metricsOf(clientId: string) {
   const db = await getDb();
@@ -473,7 +443,7 @@ export async function clientsOfPerson(personId: string, organizationId: string |
   const db = await getDb();
   const theirs = or(eq(clients.personId, personId), sql`exists (select 1 from client_people cp where cp.client_id = ${clients.id} and cp.person_id = ${personId})`)!;
   return db
-    .select({ id: clients.id, name: clients.name, category: clients.category, value: clients.value, stageName: stages.name, mrr: monthly(activeService) })
+    .select({ id: clients.id, name: clients.name, category: clients.category, value: clients.value, stageName: stages.name, mrr })
     .from(clients)
     .innerJoin(stages, eq(stages.id, clients.stageId))
     .where(and(isNull(clients.archivedAt), organizationId ? or(theirs, clientAtOrganization(organizationId)) : theirs))
@@ -484,7 +454,7 @@ export async function clientsOfPerson(personId: string, organizationId: string |
 export async function clientsOfOrganization(organizationId: string) {
   const db = await getDb();
   return db
-    .select({ id: clients.id, name: clients.name, category: clients.category, value: clients.value, stageName: stages.name, mrr: monthly(activeService) })
+    .select({ id: clients.id, name: clients.name, category: clients.category, value: clients.value, stageName: stages.name, mrr })
     .from(clients)
     .innerJoin(stages, eq(stages.id, clients.stageId))
     .where(and(isNull(clients.archivedAt), clientAtOrganization(organizationId)))

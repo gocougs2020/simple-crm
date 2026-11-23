@@ -57,7 +57,7 @@ Open the deployment. The first visit goes to **Set up your CRM**: the person who
 
 1. Settings → Email and brand: logo, color, **postal address** (required for campaigns), signature.
 2. Settings → Pipelines: each client category (prospective, current, past) starts with one pipeline. Rename the stages, set probabilities for prospects.
-3. Settings → Services: what you sell, with default prices.
+3. Settings → Services: once Stripe is connected, say what each product delivers (its benchmarks and scope). The description shows beside the product everywhere, and the agent reads it.
 4. Settings → Custom fields: anything else you track.
 5. Settings → Team: invite everyone.
 6. People → Import: bring in a spreadsheet.

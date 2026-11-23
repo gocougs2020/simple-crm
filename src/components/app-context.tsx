@@ -5,6 +5,7 @@ import type { Viewer } from "@/lib/auth";
 import type { Comms } from "@/lib/comms";
 import type { AppData, Pipeline, Stage, TeamMember } from "@/lib/crm/context";
 import { formatMoney } from "@/lib/format";
+import { productDescriber } from "@/lib/product-rules";
 import { roleCan } from "@/lib/permissions";
 
 type Ctx = AppData & {
@@ -20,6 +21,8 @@ type Ctx = AppData & {
   /** Whether the viewer's role can change records (viewers can't). The server checks too; this only hides controls. */
   canEdit: boolean;
   apiKey: (id: string | null | undefined) => AppData["apiKeys"][number] | undefined;
+  /** What a Stripe product delivers (Settings → Services), by its name; null when nobody described it. */
+  productDescription: (name: string) => string | null;
 };
 
 const AppContext = createContext<Ctx | null>(null);
@@ -32,6 +35,7 @@ export function AppProvider({ data, viewer, comms = noComms, timezone, children 
     const members = new Map(data.team.map((m) => [m.id, m]));
     const stages = new Map(data.pipelines.flatMap((p) => p.stages.map((s) => [s.id, { ...s, pipeline: p }] as const)));
     const keys = new Map(data.apiKeys.map((k) => [k.id, k]));
+    const productDescription = productDescriber(data.products);
     return {
       ...data,
       // Every time on screen is in the viewer's own zone; the workspace's stays available for what runs on its clock.
@@ -45,6 +49,7 @@ export function AppProvider({ data, viewer, comms = noComms, timezone, children 
       isAdmin: viewer.role === "owner" || viewer.role === "admin",
       canEdit: roleCan(viewer.role, "records:write"),
       apiKey: (id) => (id ? keys.get(id) : undefined),
+      productDescription,
     };
   }, [data, viewer, comms, timezone]);
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

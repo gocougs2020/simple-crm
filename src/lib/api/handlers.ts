@@ -211,23 +211,6 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
     await clients.removeClientPerson(a, params.id, params.personId);
     return deleted(params.personId);
   },
-  async listClientServices(_a, { params }) {
-    return { data: await q.clientServices(params.id), nextCursor: null };
-  },
-  async addClientService(a, { params, body }) {
-    const { serviceId, ...rest } = body;
-    const { id } = await clients.addClientService(a, params.id, serviceId, rest);
-    return (await q.clientServices(params.id)).find((s) => s.id === id);
-  },
-  async updateClientService(a, { params, body }) {
-    await clients.updateClientService(a, params.subscriptionId, body, params.id);
-    return (await q.clientServices(params.id)).find((s) => s.id === params.subscriptionId);
-  },
-  async removeClientService(a, { params }) {
-    await q.assertExists("client", params.id);
-    await clients.removeClientService(a, params.subscriptionId, params.id);
-    return deleted(params.subscriptionId);
-  },
   async listClientMetrics(_a, { params, query }) {
     return { data: await q.clientMetrics(params.id, query.label), nextCursor: null };
   },

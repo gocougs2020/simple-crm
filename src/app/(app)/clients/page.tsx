@@ -42,7 +42,6 @@ async function Clients({ searchParams }: Pick<PageProps<"/clients">, "searchPara
           ownerId: owner === "me" ? user.id : owner,
           q: one(sp.q),
           health: one(sp.health),
-          serviceId: one(sp.service),
           churnReason: one(sp.reason),
           billing: one(sp.billing),
           stripeProduct: one(sp.product),

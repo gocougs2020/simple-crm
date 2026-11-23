@@ -22,6 +22,8 @@ export const audienceSchema = z.object({
   stageIds: z.array(uuid).max(100).optional(),
   clientCategories: z.array(z.enum(clientCategories)).max(3).optional(),
   clientTags: z.array(z.string().max(40)).max(50).optional(),
+  stripeProducts: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+  /** Retired (see CampaignAudience): kept so saved audiences that have it keep their meaning. */
   serviceIds: z.array(uuid).max(100).optional(),
   churnReasons: z.array(z.string().max(300)).max(50).optional(),
   openToReturnOnly: z.boolean().optional(),
