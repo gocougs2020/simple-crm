@@ -78,7 +78,7 @@
     "@types/web-push": "^3.6.4",
     "drizzle-kit": "^0.31.11",
     "eslint": "^9",
-    "eslint-config-next": "16.4.3",
+    "eslint-config-next": "16.4.6",
     "react-email": "^6.11.3",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
