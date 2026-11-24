@@ -2,18 +2,20 @@
 
 import { labelAudiences, labelUsage, rewriteLabel } from "@/lib/crm/labels";
 import { refresh } from "next/cache";
-import { and, asc, count, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
-import { ActionError, actionAdmin, actionUser, hashToken, randomToken, revokeSessions } from "@/lib/auth";
+import { ActionError, actionAdmin, actionOwner, actionUser, hashToken, randomToken, revokeSessions } from "@/lib/auth";
 import { emailBrand } from "@/lib/brand";
 import { clientCategories, clientCategoryLabels, customFieldTypes, entityTypes, userRoles, type ClientCategory } from "@/lib/constants";
 import { defaultStages } from "@/lib/crm/defaults";
-import { sendEmail } from "@/lib/email";
+import { decryptSecret, encryptSecret } from "@/lib/crypto";
+import { emailConfigured, sendEmail } from "@/lib/email";
 import { siteOrigin } from "@/lib/origin";
 import { hashPassword, passwordProblem, verifyPassword } from "@/lib/password";
 import { loadSampleData } from "@/lib/sample-data";
+import EmailChangedEmail from "@/emails/email-changed";
 import InviteEmail from "@/emails/invite";
 
 const { users, pipelines, stages, clients, customFields, workspace } = schema;
@@ -52,17 +54,41 @@ export async function changePassword(input: { current: string; next: string }): 
 
 // ─── Team ────────────────────────────────────────────────────────────────
 
-async function emailInvite(userId: string, inviterId: string, inviterName: string) {
+/** What an admin is told after an invite: the link, and whether the email went out. If it didn't, they can send the link themselves. */
+export type InviteSent = { url: string; emailed: boolean; expiresAt: Date };
+
+const INVITE_DAYS = 7;
+const inviteUrl = async (token: string) => `${await siteOrigin()}/invite/${token}`;
+
+/**
+ * Makes a new invite link for a teammate who hasn't joined, replacing any
+ * earlier one, and emails it. A failed email doesn't undo the link: the admin
+ * gets it back to copy and send themselves.
+ */
+async function issueInvite(userId: string, inviter: { id: string; name: string; role: string }): Promise<InviteSent> {
   const db = await getDb();
   const [u] = await db.select().from(users).where(eq(users.id, userId));
+  if (!u) throw new ActionError("That teammate no longer exists.");
+  if (u.passwordHash) throw new ActionError(`${u.name} has already joined. They can reset their password from the sign-in page.`);
+  if (u.deactivatedAt) throw new ActionError(`Reactivate ${u.name} before inviting them.`);
+  // The link signs in as them, so only an owner may hold one for an owner.
+  if (u.role === "owner" && inviter.role !== "owner") throw new ActionError("Only an owner can invite an owner.");
+  const t = schema.authTokens;
   // A new invite replaces any earlier one still waiting.
-  await db.delete(schema.authTokens).where(and(eq(schema.authTokens.userId, userId), eq(schema.authTokens.kind, "invite"), isNull(schema.authTokens.usedAt)));
+  await db.delete(t).where(and(eq(t.userId, userId), eq(t.kind, "invite"), isNull(t.usedAt)));
   const token = randomToken();
-  await db.insert(schema.authTokens).values({ tokenHash: await hashToken(token), kind: "invite", userId, createdBy: inviterId, expiresAt: new Date(Date.now() + 7 * 86400_000) });
-  const url = `${await siteOrigin()}/invite/${token}`;
-  const brand = await emailBrand();
-  await sendEmail({ to: u.email, subject: `${inviterName} invited you to ${brand.workspaceName}'s CRM`, react: InviteEmail({ brand, inviter: inviterName, url }), tags: [{ name: "type", value: "invite" }] });
-  return url;
+  const expiresAt = new Date(Date.now() + INVITE_DAYS * 86400_000);
+  await db.insert(t).values({ tokenHash: await hashToken(token), sealedToken: encryptSecret(token), kind: "invite", userId, createdBy: inviter.id, expiresAt });
+  const url = await inviteUrl(token);
+  try {
+    const brand = await emailBrand();
+    await sendEmail({ to: u.email, subject: `${inviter.name} invited you to ${brand.workspaceName}'s CRM`, react: InviteEmail({ brand, inviter: inviter.name, url }), tags: [{ name: "type", value: "invite" }] });
+    // Without Resend (local development) the email only prints to the terminal.
+    return { url, emailed: emailConfigured(), expiresAt };
+  } catch (err) {
+    console.error("[invite] email failed", { userId }, err);
+    return { url, emailed: false, expiresAt };
+  }
 }
 
 const inviteInput = z.object({
@@ -71,27 +97,57 @@ const inviteInput = z.object({
   role: z.enum(["admin", "member", "viewer"]),
 });
 
-/** Adds a teammate and emails them a link to set their password. Locally, the link is also returned so you can open it. */
-export async function inviteTeammate(input: z.input<typeof inviteInput>): Promise<Result<{ devUrl: string | null }>> {
+/** Adds a teammate and emails them a link to set their password. The link comes back too, so it can be sent another way. */
+export async function inviteTeammate(input: z.input<typeof inviteInput>): Promise<Result<InviteSent>> {
   return run(async () => {
     const admin = await actionAdmin();
     const data = inviteInput.parse(input);
     const db = await getDb();
     const [existing] = await db.select().from(users).where(eq(users.email, data.email));
     if (existing?.passwordHash) throw new ActionError(`${data.email} is already on the team.`);
+    if (existing?.role === "owner" && admin.role !== "owner") throw new ActionError("Only an owner can invite an owner.");
     const id = existing?.id ?? (await db.insert(users).values({ email: data.email, name: data.name, role: data.role }).returning({ id: users.id }))[0].id;
     if (existing) await db.update(users).set({ name: data.name, role: data.role, deactivatedAt: null }).where(eq(users.id, id));
-    const url = await emailInvite(id, admin.id, admin.name);
+    const sent = await issueInvite(id, admin);
     refresh();
-    return { devUrl: process.env.RESEND_API_KEY ? null : url };
+    return sent;
   });
 }
 
-export async function resendInvite(userId: string): Promise<Result<{ devUrl: string | null }>> {
+/** A new link for someone who hasn't joined, emailed to them. Earlier links stop working. */
+export async function resendInvite(userId: string): Promise<Result<InviteSent>> {
   return run(async () => {
     const admin = await actionAdmin();
-    const url = await emailInvite(uuid.parse(userId), admin.id, admin.name);
-    return { devUrl: process.env.RESEND_API_KEY ? null : url };
+    const sent = await issueInvite(uuid.parse(userId), admin);
+    refresh();
+    return sent;
+  });
+}
+
+/** The invite link a teammate was last sent, for an admin to copy and send themselves. Doesn't change it. */
+export async function inviteLink(userId: string): Promise<Result<{ url: string; expiresAt: Date }>> {
+  return run(async () => {
+    const admin = await actionAdmin();
+    const db = await getDb();
+    const t = schema.authTokens;
+    const [row] = await db
+      .select({ sealed: t.sealedToken, expiresAt: t.expiresAt, role: users.role, deactivatedAt: users.deactivatedAt, joined: sql<boolean>`${users.passwordHash} is not null` })
+      .from(t)
+      .innerJoin(users, eq(users.id, t.userId))
+      .where(and(eq(t.userId, uuid.parse(userId)), eq(t.kind, "invite"), isNull(t.usedAt), gt(t.expiresAt, new Date())))
+      .orderBy(desc(t.expiresAt))
+      .limit(1);
+    if (!row || row.deactivatedAt || row.joined) throw new ActionError("There's no invite waiting. Send a new one to get a link.");
+    // The link signs in as them, so only an owner may see one for an owner.
+    if (row.role === "owner" && admin.role !== "owner") throw new ActionError("Only an owner can see an owner's invite link.");
+    let token: string;
+    try {
+      if (!row.sealed) throw new Error("Invite made before links were kept.");
+      token = decryptSecret(row.sealed);
+    } catch {
+      throw new ActionError("This invite's link can't be shown. Send a new invite to get one.");
+    }
+    return { url: await inviteUrl(token), expiresAt: row.expiresAt };
   });
 }
 
@@ -103,6 +159,8 @@ export async function setRole(userId: string, role: (typeof userRoles)[number]):
     const [target] = await db.select().from(users).where(eq(users.id, uuid.parse(userId)));
     if (!target) throw new ActionError("That teammate no longer exists.");
     if ((target.role === "owner" || r === "owner") && admin.role !== "owner") throw new ActionError("Only the owner can change who owns the workspace.");
+    // An invite link signs in as its teammate, so nobody holds a link that turns into an owner's.
+    if (r === "owner" && !target.passwordHash) throw new ActionError(`${target.name} hasn't joined yet. Make them an owner once they've set a password.`);
     if (target.role === "owner" && r !== "owner") {
       const [{ n }] = await db.select({ n: count() }).from(users).where(and(eq(users.role, "owner"), ne(users.id, target.id)));
       if (!n) throw new ActionError("Make someone else an owner first, so the workspace always has one.");
@@ -112,8 +170,60 @@ export async function setRole(userId: string, role: (typeof userRoles)[number]):
   });
 }
 
-/** Deactivated teammates can't sign in; their history stays. Reactivating restores access with their old password. */
-export async function setDeactivated(userId: string, deactivated: boolean): Promise<Result> {
+/**
+ * Changes the address a teammate signs in with. Everything else (sessions,
+ * password, invite and reset links, API keys, ownership, history) hangs off
+ * their id, so nothing else changes and nobody is signed out. Invite and
+ * reset links mailed to the old address stop working (a waiting invite is
+ * sent again to the new one), and the old address gets a notice.
+ */
+export async function changeEmail(userId: string, email: string): Promise<Result<{ email: string; invite: InviteSent | null }>> {
+  return run(async () => {
+    const owner = await actionOwner();
+    const next = z.email("Enter a valid email address.").max(200).transform((e) => e.trim().toLowerCase()).parse(email);
+    const db = await getDb();
+    const [target] = await db.select().from(users).where(eq(users.id, uuid.parse(userId)));
+    if (!target) throw new ActionError("That teammate no longer exists.");
+    if (target.email === next) return { email: next, invite: null };
+    const [taken] = await db.select({ name: users.name }).from(users).where(and(eq(users.email, next), ne(users.id, target.id)));
+    if (taken) throw new ActionError(`${next} already belongs to ${taken.name}. Change theirs first.`);
+    try {
+      await db.update(users).set({ email: next }).where(eq(users.id, target.id));
+    } catch (err) {
+      // Two changes racing for the same address: the unique index keeps one.
+      const code = (err as { code?: string; cause?: { code?: string } }).code ?? (err as { cause?: { code?: string } }).cause?.code;
+      if (code === "23505") throw new ActionError(`${next} already belongs to another teammate.`);
+      throw err;
+    }
+    // Links already mailed to the old address stop working: whoever reads that mailbox may not be them any more.
+    const t = schema.authTokens;
+    const dropped = await db
+      .delete(t)
+      .where(and(eq(t.userId, target.id), isNull(t.usedAt)))
+      .returning({ kind: t.kind, expiresAt: t.expiresAt });
+    // A heads-up at the old address, so a change they didn't expect doesn't go unnoticed. Someone who hasn't joined has nothing to protect yet.
+    if (target.passwordHash && !target.deactivatedAt && target.id !== owner.id) {
+      try {
+        const brand = await emailBrand();
+        await sendEmail({ to: target.email, subject: `Your sign-in email for ${brand.workspaceName}'s CRM changed`, react: EmailChangedEmail({ brand, changedBy: owner.name, newEmail: next }), tags: [{ name: "type", value: "email-changed" }] });
+      } catch (err) {
+        console.error("[change-email] notice failed", { userId: target.id }, err);
+      }
+    }
+    // A waiting invite moves to the new address.
+    const hadInvite = dropped.some((d) => d.kind === "invite" && d.expiresAt > new Date());
+    const invite = hadInvite && !target.passwordHash && !target.deactivatedAt ? await issueInvite(target.id, owner) : null;
+    refresh();
+    return { email: next, invite };
+  });
+}
+
+/**
+ * Deactivated teammates can't sign in; their history stays. Reactivating
+ * restores access with their old password, or, for someone who never set one
+ * (an imported teammate), sends them an invite.
+ */
+export async function setDeactivated(userId: string, deactivated: boolean): Promise<Result<{ invite: InviteSent | null }>> {
   return run(async () => {
     const admin = await actionAdmin();
     const db = await getDb();
@@ -126,7 +236,9 @@ export async function setDeactivated(userId: string, deactivated: boolean): Prom
       .set({ deactivatedAt: deactivated ? new Date() : null })
       .where(eq(users.id, target.id));
     if (deactivated) await revokeSessions(target.id);
+    const invite = !deactivated && !target.passwordHash ? await issueInvite(target.id, admin) : null;
     refresh();
+    return { invite };
   });
 }
 

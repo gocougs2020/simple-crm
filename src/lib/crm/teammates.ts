@@ -3,6 +3,7 @@ import { cache } from "react";
 import { and, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { ClientCategory } from "@/lib/constants";
+import { inviteState, type InviteState } from "@/lib/invite-state";
 
 const { users, clients, stages, people, organizations } = schema;
 
@@ -20,16 +21,34 @@ export const getTeammate = cache(async (id: string) => {
       role: users.role,
       title: users.title,
       deactivatedAt: users.deactivatedAt,
-      invited: sql<boolean>`${users.passwordHash} is null`,
+      joined: sql<boolean>`${users.passwordHash} is not null`,
       lastSeenAt: users.lastSeenAt,
       createdAt: users.createdAt,
     })
     .from(users)
     .where(eq(users.id, id));
-  return row ?? null;
+  if (!row) return null;
+  const { joined, ...rest } = row;
+  return { ...rest, invite: (await inviteStates([{ id: row.id, joined }])).get(row.id) ?? null };
 });
 
 export type Teammate = NonNullable<Awaited<ReturnType<typeof getTeammate>>>;
+
+/** The invite state of each teammate in `rows`, from their latest unused invite link. Expired links are pruned daily, so "expired" only lasts until then. */
+export async function inviteStates(rows: { id: string; joined: boolean }[], now = new Date()): Promise<Map<string, InviteState>> {
+  const waiting = rows.filter((r) => !r.joined).map((r) => r.id);
+  const t = schema.authTokens;
+  const db = await getDb();
+  const tokens = waiting.length
+    ? await db
+        .select({ userId: t.userId, expiresAt: t.expiresAt })
+        .from(t)
+        .where(and(inArray(t.userId, waiting), eq(t.kind, "invite"), isNull(t.usedAt)))
+    : [];
+  const latest = new Map<string, Date>();
+  for (const tok of tokens) if (!latest.has(tok.userId) || latest.get(tok.userId)! < tok.expiresAt) latest.set(tok.userId, tok.expiresAt);
+  return new Map(rows.map((r) => [r.id, inviteState(r.joined, latest.get(r.id) ?? null, now)]));
+}
 
 /** Whether an id is a teammate's, so a link that guessed the wrong page can still land on theirs. */
 export async function isTeammate(id: string) {

@@ -1,5 +1,5 @@
 {
-  "id": "7ccbad69-5a78-438b-ad6c-f8a9eac6d482",
+  "id": "cdbe23e8-1d72-4ee9-8fde-dceae5888ba3",
   "prevId": "938d7a15-25e5-4794-84b5-6b7f0e48364b",
   "version": "7",
   "dialect": "postgresql",
@@ -1943,6 +1943,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "sealed_token": {
+          "name": "sealed_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "expires_at": {
           "name": "expires_at",
           "type": "timestamp with time zone",
@@ -3006,13 +3012,6 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
-        },
-        "product_lines": {
-          "name": "product_lines",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
         },
         "tags": {
           "name": "tags",

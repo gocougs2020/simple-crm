@@ -12,7 +12,7 @@ export async function needsSetup() {
   return row.n === 0;
 }
 
-/** Looks up an unused, unexpired link for the page that shows the form. Doesn't use it up. */
+/** Looks up an unused, unexpired link for the page that shows the form. Doesn't use it up. An invite link only works until its teammate has joined. */
 export async function peekToken(token: string, kind: "invite" | "reset") {
   const db = await getDb();
   const [row] = await db
@@ -26,6 +26,8 @@ export async function peekToken(token: string, kind: "invite" | "reset") {
         isNull(schema.authTokens.usedAt),
         gt(schema.authTokens.expiresAt, new Date()),
         isNull(schema.users.deactivatedAt),
+        // An invite only ever sets a first password: once they've joined, any invite link left over is dead.
+        kind === "invite" ? isNull(schema.users.passwordHash) : undefined,
       ),
     )
     .limit(1);

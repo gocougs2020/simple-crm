@@ -140,7 +140,7 @@ async function consumeToken(token: string, kind: "invite" | "reset") {
   const t = schema.authTokens;
   const [row] = await db
     .update(t)
-    .set({ usedAt: new Date() })
+    .set({ usedAt: new Date(), sealedToken: null })
     .where(and(eq(t.tokenHash, await hashToken(token)), eq(t.kind, kind), isNull(t.usedAt), gt(t.expiresAt, new Date())))
     .returning({ userId: t.userId });
   return row?.userId ?? null;
@@ -163,10 +163,18 @@ export async function setPassword(kind: "invite" | "reset", _: AuthState, fd: Fo
   const userId = await consumeToken(token, kind);
   if (!userId) return { error: "This link has expired or was already used. Ask for a new one." };
   const db = await getDb();
-  await db
+  // An invite sets the first password only, in the same statement that checks there isn't one yet, so two invite links used at once can't both win.
+  const [updated] = await db
     .update(schema.users)
     .set({ passwordHash: await hashPassword(password), ...(kind === "invite" && name ? { name } : {}) })
-    .where(eq(schema.users.id, userId));
+    .where(and(eq(schema.users.id, userId), kind === "invite" ? isNull(schema.users.passwordHash) : undefined))
+    .returning({ id: schema.users.id });
+  if (!updated) return { error: "You've already joined. Sign in, or reset your password if you've forgotten it." };
+  // Any other invite link for them (two resends at once can leave one) is dead now: clear it so it can't be copied or shown.
+  if (kind === "invite") {
+    const t = schema.authTokens;
+    await db.delete(t).where(and(eq(t.userId, userId), eq(t.kind, "invite"), isNull(t.usedAt)));
+  }
   await revokeSessions(userId);
   await createSession(userId);
   redirect("/");

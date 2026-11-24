@@ -1,0 +1,1 @@
+ALTER TABLE "auth_tokens" ADD COLUMN "sealed_token" text;
