@@ -50,11 +50,18 @@ export function RichTextEditor({
   const detect = (ed: Editor) => {
     const { selection } = ed.state;
     const { $from } = selection;
-    if (!mentions?.length || !selection.empty || !$from.parent.isTextblock) return setTyping(null);
+    if (!mentions?.length || !selection.empty || !$from.parent.isTextblock) {
+      setDismissed(null);
+      return setTyping(null);
+    }
     // Line breaks and other inline nodes count as one character each, so offsets match the document.
     const before = $from.parent.textBetween(0, $from.parentOffset, undefined, "\n");
     const q = mentionQuery(before, before.length);
-    if (!q) return setTyping(null);
+    if (!q) {
+      // The "@" closed with Escape is gone (deleted, picked past, or the note was sent): the next "@" opens the list again.
+      setDismissed(null);
+      return setTyping(null);
+    }
     const from = $from.start() + q.start;
     const at = ed.view.coordsAtPos(from);
     const box = frame.current?.getBoundingClientRect();

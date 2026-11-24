@@ -530,6 +530,8 @@ function MentionTextarea({
   const q = mentionQuery(value, cursor);
   // Alphabetical, the same list notes offer.
   const people = useMemo(() => (q ? matchMentions(options, q.query) : []), [q, options]);
+  // The "@" closed with Escape is gone (deleted, or the message was sent): the next "@" opens the list again.
+  if (!q && dismissed !== null) setDismissed(null);
   const open = !!q && people.length > 0 && dismissed !== q.start;
 
   useLayoutEffect(() => {
