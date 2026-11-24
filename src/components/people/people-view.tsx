@@ -27,7 +27,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Select } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
 import type { listPeople, PeopleFilter } from "@/lib/crm/records";
-import { personName } from "@/lib/format";
+import { archivedToast, personName } from "@/lib/format";
 import { ImportDialog } from "./import-dialog";
 
 type Row = Awaited<ReturnType<typeof listPeople>>[number];
@@ -197,7 +197,7 @@ export function PeopleView({ rows: first, total, filter, pageSize, tags, filtere
               onClick={async () => {
                 const r = await setArchived("person", ids, true);
                 if (!r.ok) return void toast.error(r.error);
-                toast.success(`${r.data.count} people archived`, { label: "Undo", onClick: () => setArchived("person", ids, false) });
+                toast.success(archivedToast(`${r.data.count} people`, r.data.openActivities), { label: "Undo", onClick: () => setArchived("person", ids, false) });
                 clear();
               }}
             >

@@ -12,6 +12,7 @@ import { productDescriber, productKey } from "@/lib/product-rules";
 import { actorUserId, type Actor } from "@/lib/crm/actor";
 import { clientAtOrganization } from "@/lib/crm/client-organizations";
 import { asTimelineItem, lastContactOn, pinnedOn, plannedOn, timelinePage, type NoteReply } from "@/lib/crm/activities";
+import { activityArchived, activityLive } from "@/lib/crm/activity-archive";
 import { effectiveTags, listLabels } from "@/lib/crm/labels";
 import { clientPeople as peopleOnClient, inOrganizations, likeTerm } from "@/lib/crm/records";
 import { ActionError, NotFoundError } from "@/lib/errors";
@@ -350,10 +351,11 @@ const activitySelect = {
   personName: sql<string | null>`case when ${people.id} is null then null else ${people.firstName} || coalesce(' ' || ${people.lastName}, '') end`,
   organizationName: organizations.name,
   clientName: clients.name,
+  archived: activityArchived(),
   alsoPeople: sql<{ id: string; name: string }[]>`(select coalesce(json_agg(json_build_object('id', ap_p.id, 'name', ap_p.first_name || coalesce(' ' || ap_p.last_name, '')) order by ap_p.first_name, ap_p.id), '[]'::json) from activity_people ap join people ap_p on ap_p.id = ap.person_id where ap.activity_id = ${activities.id})`,
   replies: sql<NoteReply[]>`(select coalesce(json_agg(json_build_object('id', r.id, 'body', r.body, 'userId', r.user_id, 'apiKeyId', r.api_key_id, 'createdAt', r.created_at) order by r.created_at, r.id), '[]'::json) from note_replies r where r.activity_id = ${activities.id})`,
 };
-type ActivityRowLike = { activity: typeof activities.$inferSelect; personName: string | null; organizationName: string | null; clientName: string | null; alsoPeople?: { id: string; name: string }[]; replies?: NoteReply[] };
+type ActivityRowLike = { activity: typeof activities.$inferSelect; personName: string | null; organizationName: string | null; clientName: string | null; archived: boolean; alsoPeople?: { id: string; name: string }[]; replies?: NoteReply[] };
 
 export function toActivity(r: ActivityRowLike) {
   const x = r.activity;
@@ -373,6 +375,7 @@ export function toActivity(r: ActivityRowLike) {
     dueHasTime: x.dueHasTime,
     completedAt: iso(x.completedAt),
     pinned: x.pinned,
+    archived: r.archived,
     personId: x.personId,
     person: ref(x.personId, r.personName),
     people: [...(x.personId && r.personName ? [{ id: x.personId, name: r.personName }] : []), ...(r.alsoPeople ?? [])],
@@ -420,6 +423,7 @@ export type ActivityListFilter = {
   dueBefore?: string;
   dueAfter?: string;
   since?: string;
+  includeArchived?: boolean;
   limit?: number;
   cursor?: string;
 };
@@ -427,6 +431,7 @@ export type ActivityListFilter = {
 export async function listActivities(a: Actor, f: ActivityListFilter) {
   const limit = f.limit ?? 50;
   const where: (SQL | undefined)[] = [];
+  if (!f.includeArchived) where.push(activityLive());
   if (f.types?.length) where.push(inArray(activities.type, f.types));
   if (f.status === "planned") where.push(isNull(activities.completedAt), isNotNull(activities.dueAt));
   if (f.status === "done") where.push(or(isNotNull(activities.completedAt), isNull(activities.dueAt)));

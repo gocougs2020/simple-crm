@@ -150,7 +150,7 @@ src/app/developers/page.tsx               the docs page (public, static)
 
 ## Behavior worth knowing
 
-- `DELETE` on people, organizations and clients archives (soft-deletes) them; `POST …/restore` brings them back. Tasks, notes and other activity are deleted. Email sent or received through the CRM can't be deleted.
+- `DELETE` on people, organizations and clients archives (soft-deletes) them; `POST …/restore` brings them back. Activity logged on an archived record (its client, else its person, else its organization) is archived with it: `GET /tasks`, `/notes` and `/activities` leave it out unless `includeArchived=true`, and each activity says `archived`. Tasks, notes and other activity are deleted. Email sent or received through the CRM can't be deleted.
 - Lists are keyset-paged by `(created_at, id)` (open tasks by due date), up to 100 per page, so pages stay stable while records are added. `updatedSince` supports syncing.
 - Tasks created without `dueAt` are due today (date only), so they show as open in the CRM.
 - Tasks and notes can stand alone. Calls, emails, texts and meetings need a link to a person, organization or client.

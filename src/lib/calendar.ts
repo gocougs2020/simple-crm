@@ -1,6 +1,7 @@
 import "server-only";
 import { and, eq, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
+import { activityLive } from "@/lib/crm/activity-archive";
 import { zonedTime } from "@/lib/format";
 import { outlookEvents, type OutlookEvent } from "@/lib/microsoft/calendar";
 import { addDays } from "./calendar-week";
@@ -48,6 +49,7 @@ export async function calendarRange(input: { from: string; days: number; userIds
         .where(
           and(
             inArray(activities.assigneeId, input.userIds),
+            activityLive(),
             // Meetings, logged or planned; calls only when planned (logged calls are history, not calendar).
             or(eq(activities.type, "meeting"), and(eq(activities.type, "call"), isNotNull(activities.dueAt), isNull(activities.callId))),
             gte(when, start),

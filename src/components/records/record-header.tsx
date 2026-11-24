@@ -8,6 +8,7 @@ import { setArchived } from "@/actions/records";
 import { Button } from "@/components/ui/button";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { toast } from "@/components/ui/toast";
+import { archivedToast } from "@/lib/format";
 import { entityLabels, type EntityType } from "@/lib/constants";
 
 /** Breadcrumb, title and the record's actions menu. */
@@ -66,7 +67,7 @@ export function RecordHeader({ entity, id, title, sub, avatar, actions, archived
                     onSelect={async () => {
                       const r = await setArchived(entity, [id], true);
                       if (!r.ok) return void toast.error(r.error);
-                      toast.success(`${label.one} archived`, { label: "Undo", onClick: () => setArchived(entity, [id], false) });
+                      toast.success(archivedToast(label.one, r.data.openActivities), { label: "Undo", onClick: () => setArchived(entity, [id], false) });
                       router.push(label.path);
                     }}
                   >

@@ -56,11 +56,11 @@ export async function updateOrganization(orgId: string, patch: Partial<z.input<t
 const tables = { person: people, organization: organizations, client: clients } as const;
 
 /** Archived records disappear from lists and search but keep their history. Undo restores them. */
-export async function setArchived(entity: EntityType, ids: string[], archived: boolean): Promise<Result<{ count: number }>> {
+export async function setArchived(entity: EntityType, ids: string[], archived: boolean): Promise<Result<{ count: number; openActivities: number }>> {
   return run(async () => {
-    const { count } = await svc.setArchived(sessionActor(await actionUser()), entity, ids, archived);
+    const { count, openActivities } = await svc.setArchived(sessionActor(await actionUser()), entity, ids, archived);
     refresh();
-    return { count };
+    return { count, openActivities };
   });
 }
 

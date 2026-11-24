@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getDb, schema } from "@/db";
 import type { EntityType } from "@/lib/constants";
 import { actorUserId, assertCan, stamp, type Actor } from "@/lib/crm/actor";
+import { homedOn } from "@/lib/crm/activity-archive";
 import { cleanCustomValues } from "@/lib/crm/custom-fields";
 import { appConfig } from "@/app.config";
 import { diff, eventRow, labelRelations, recordEvent, recordEvents } from "@/lib/crm/events";
@@ -253,7 +254,14 @@ export async function updatePerson(a: Actor, personId: string, patch: Partial<z.
 
 const tables = { person: people, organization: organizations, client: clients } as const;
 
-/** Archived records disappear from lists and search but keep their history. Restoring brings them back. */
+/**
+ * Archived records disappear from lists and search but keep their history.
+ * The activities logged on them (open tasks, planned meetings, notes) are
+ * archived with them: they follow the record's `archivedAt`, so they leave
+ * the Activities page, counts, reminders and the calendar now and come back
+ * when it's restored. `openActivities` is how many open tasks and planned
+ * calls or meetings that touched, per record, for history and the toast.
+ */
 export async function setArchived(a: Actor, entity: EntityType, ids: string[], archived: boolean) {
   assertCan(a, "records:archive");
   const list = z.array(id).min(1).max(500).parse(ids);
@@ -264,8 +272,24 @@ export async function setArchived(a: Actor, entity: EntityType, ids: string[], a
     .set({ archivedAt: archived ? new Date() : null, updatedAt: new Date() })
     .where(inArray(table.id, list))
     .returning({ id: table.id });
-  await recordEvents(rows.map((r) => ({ entityType: entity, entityId: r.id, action: archived ? "archived" : "restored", ...stamp(a) })));
-  return { count: rows.length, ids: rows.map((r) => r.id) };
+  const changed = rows.map((r) => r.id);
+  const { activities } = schema;
+  const home = entity === "client" ? activities.clientId : entity === "person" ? activities.personId : activities.organizationId;
+  const open = changed.length
+    ? await db
+        .select({ id: home, n: sql<number>`count(*)::int` })
+        .from(activities)
+        .where(and(homedOn(entity, changed), isNull(activities.completedAt), sql`${activities.dueAt} is not null`))
+        .groupBy(home)
+    : [];
+  const openOn = new Map(open.map((o) => [o.id, Number(o.n)]));
+  await recordEvents(
+    rows.map((r) => {
+      const n = openOn.get(r.id) ?? 0;
+      return { entityType: entity, entityId: r.id, action: archived ? "archived" : "restored", ...(n ? { data: { openActivities: n } } : {}), ...stamp(a) };
+    }),
+  );
+  return { count: rows.length, ids: changed, openActivities: [...openOn.values()].reduce((s, n) => s + n, 0) };
 }
 
 // ─── Labels on many records ──────────────────────────────────────────────

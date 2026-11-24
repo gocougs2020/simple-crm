@@ -2,6 +2,7 @@ import "server-only";
 import { clientAtOrganization } from "@/lib/crm/client-organizations";
 import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
+import { activityLive } from "@/lib/crm/activity-archive";
 
 /**
  * Who a conversation is with, for the details column beside it on the
@@ -57,7 +58,7 @@ export async function recordContext(links: { personId: string | null; organizati
   const [next] = await db
     .select({ id: activities.id, type: activities.type, subject: activities.subject, dueAt: activities.dueAt, dueHasTime: activities.dueHasTime, assigneeId: activities.assigneeId })
     .from(activities)
-    .where(and(or(...about), isNull(activities.completedAt), sql`${activities.dueAt} is not null`))
+    .where(and(or(...about), isNull(activities.completedAt), sql`${activities.dueAt} is not null`, activityLive()))
     .orderBy(asc(activities.dueAt))
     .limit(1);
 

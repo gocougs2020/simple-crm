@@ -44,7 +44,7 @@ const instructions = (name: string, actor: Actor & { kind: "user" }, readOnly: b
     "Labels are the tags on people, organizations and clients; an organization's labels carry to its people. list_labels says what the team means by each one: read it before choosing or explaining a label, and add a new one only when asked.",
     "Use search first to find ids. Money is in integer cents (12500 is 125.00). Dates are YYYY-MM-DD; times are ISO 8601 with an offset.",
     "Tasks and notes can stand alone or link to a person, organization or client. Logging on a client also shows on its contact and organization.",
-    "Archiving hides a record but keeps its history. Lists return nextCursor; pass it back as cursor for the next page.",
+    "Archiving hides a record but keeps its history, and the activity logged on it (tasks, meetings, notes) is archived with it: left out of activity lists unless includeArchived is true, back when the record is restored. Lists return nextCursor; pass it back as cursor for the next page.",
     "The team saves skills: instructions for how they want things done. list_skills shows them with when to use each; read one with get_skill before doing work it covers, and follow it.",
     actor.runId ? "" : CONCISE,
     featureInstructions() ?? "",

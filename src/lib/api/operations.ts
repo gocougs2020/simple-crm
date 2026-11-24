@@ -18,6 +18,7 @@ const links = {
   organizationId: z.uuid().optional().describe("Only those linked to this organization."),
   clientId: z.uuid().optional().describe("Only those linked to this client."),
 };
+const includeArchived = { includeArchived: queryBool.optional().describe("Include activities archived with their record (its client, else its person, else its organization). Defaults to false.") };
 const linkFields = {
   personId: z.uuid().nullable().optional(),
   organizationId: z.uuid().nullable().optional(),
@@ -390,6 +391,7 @@ export const operations = {
       ...links,
       dueBefore: datetime.optional(),
       dueAfter: datetime.optional(),
+      ...includeArchived,
       ...pageQuery,
     }),
     response: "Activity",
@@ -435,7 +437,7 @@ export const operations = {
     summary: "List notes",
     description: "Newest first.",
     permission: "records:read",
-    query: z.object({ ...links, unlinked: queryBool.optional().describe("Only notes not linked to any record."), ...pageQuery }),
+    query: z.object({ ...links, unlinked: queryBool.optional().describe("Only notes not linked to any record."), ...includeArchived, ...pageQuery }),
     response: "Activity",
     list: true,
     tool: "list_notes",
@@ -511,6 +513,7 @@ export const operations = {
       assigneeId: z.string().max(40).optional().describe('A teammate id, "me", or "none".'),
       ...links,
       since: datetime.optional().describe("Only activity that happened (or was created) at or after this time."),
+      ...includeArchived,
       ...pageQuery,
     }),
     response: "Activity",

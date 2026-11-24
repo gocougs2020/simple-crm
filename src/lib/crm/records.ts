@@ -3,6 +3,7 @@ import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from "dri
 import { cache } from "react";
 import { getDb, schema } from "@/db";
 import { clientCategoryLabels, type ClientCategory } from "@/lib/constants";
+import { aliased, shownOnRecord } from "@/lib/crm/activity-archive";
 import { clientAtOrganization, organizationsOfClient } from "@/lib/crm/client-organizations";
 import { effectiveTags } from "@/lib/crm/labels";
 import { orderPeople } from "@/lib/crm/people-order";
@@ -15,10 +16,11 @@ export const likeTerm = (q: string) => `%${q.trim().replace(/[\\%_]/g, (c) => `\
 
 /** Each record's next open task or planned activity: the one the board and tables show. */
 function nextActivity(col: "person_id" | "organization_id" | "client_id", idCol: SQL) {
+  const entity = col === "person_id" ? "person" : col === "organization_id" ? "organization" : "client";
   return sql<{ id: string; type: string; subject: string | null; dueAt: string | null; dueHasTime: boolean } | null>`(
     select json_build_object('id', a.id, 'type', a.type, 'subject', a.subject, 'dueAt', a.due_at, 'dueHasTime', a.due_has_time)
     from activities a
-    where a.${sql.raw(col)} = ${idCol} and a.completed_at is null and a.due_at is not null
+    where a.${sql.raw(col)} = ${idCol} and a.completed_at is null and a.due_at is not null and ${shownOnRecord(entity, idCol, aliased("a"))}
     order by a.due_at asc limit 1
   )`;
 }

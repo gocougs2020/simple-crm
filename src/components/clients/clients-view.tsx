@@ -27,7 +27,7 @@ import { toast } from "@/components/ui/toast";
 import { CLIENTS_TAB_COOKIE, churnReasons, clientCategories, clientCategoryLabels, clientHealthLabels, clientHealths, type ClientCategory } from "@/lib/constants";
 import { billingStatusLabels, billingStatuses, type BillingStatus } from "@/lib/stripe/rules";
 import type { ClientRow } from "@/lib/crm/records";
-import { formatDateOnly } from "@/lib/format";
+import { archivedToast, formatDateOnly } from "@/lib/format";
 import { BulkButton } from "./bulk-button";
 import { HealthBadge } from "./client-controls";
 
@@ -351,7 +351,7 @@ export function ClientsView({
                   onClick={async () => {
                     const r = await setArchived("client", ids, true);
                     if (!r.ok) return void toast.error(r.error);
-                    toast.success(`${r.data.count} clients archived`, { label: "Undo", onClick: () => setArchived("client", ids, false) });
+                    toast.success(archivedToast(`${r.data.count} clients`, r.data.openActivities), { label: "Undo", onClick: () => setArchived("client", ids, false) });
                     clear();
                   }}
                 >

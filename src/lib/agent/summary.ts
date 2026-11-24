@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, isNull, lt, or, sql, type SQL } from "drizzle-o
 import { generateText } from "ai";
 import { appConfig } from "@/app.config";
 import { getDb, schema } from "@/db";
+import { activityLive, aliased } from "@/lib/crm/activity-archive";
 import { getAppData } from "@/lib/crm/context";
 import { organizationsOfClient } from "@/lib/crm/client-organizations";
 import { clientPeople, clientsOfOrganization, getClient, getOrganization, getPerson, metricsOf, otherOrganizationsOfClient, peopleOf } from "@/lib/crm/records";
@@ -52,7 +53,7 @@ async function readSummary(entity: SummaryEntity, id: string) {
       updatedAt: t.updatedAt,
       lastActivityAt: t.lastActivityAt,
       // Planned work on it that came due since the snapshot was written: "upcoming" became "overdue".
-      cameDue: sql<boolean>`exists (select 1 from activities a where a.${sql.raw(plannedColumn[entity])} = ${t.id} and a.completed_at is null and a.due_at is not null and a.due_at > ${t.summaryAt} and a.due_at <= now())`,
+      cameDue: sql<boolean>`exists (select 1 from activities a where a.${sql.raw(plannedColumn[entity])} = ${t.id} and a.completed_at is null and a.due_at is not null and a.due_at > ${t.summaryAt} and a.due_at <= now() and ${activityLive(aliased("a"))})`,
       // Anything logged on it added or changed since: a task planned or moved, a meeting booked, a note edited.
       workChanged: sql<boolean>`exists (select 1 from activities a where a.${sql.raw(plannedColumn[entity])} = ${t.id} and a.updated_at > ${t.summaryAt})`,
     })
@@ -276,7 +277,7 @@ async function activitySection(scope: SQL | undefined, d: (x: Date | null) => st
   const base = () => db.select(cols).from(a).leftJoin(schema.clients, eq(schema.clients.id, a.clientId)).leftJoin(schema.people, eq(schema.people.id, a.personId)).$dynamic();
   const [planned, history] = await Promise.all([
     base()
-      .where(and(scope, isNull(a.completedAt), sql`${a.dueAt} is not null`))
+      .where(and(scope, isNull(a.completedAt), sql`${a.dueAt} is not null`, activityLive()))
       .orderBy(a.dueAt)
       .limit(MAX_PLANNED),
     base()

@@ -110,6 +110,12 @@ describe("operations", () => {
     assert.equal(q.limit, 5);
     assert.throws(() => operations.listPeople.query!.parse({ limit: "500" }));
   });
+  it("leave activities archived with their record out unless asked", () => {
+    for (const [name, o] of Object.entries({ listTasks: operations.listTasks, listNotes: operations.listNotes, listActivities: operations.listActivities })) {
+      assert.equal(o.query!.parse({}).includeArchived, undefined, name);
+      assert.equal(o.query!.parse({ includeArchived: "true" }).includeArchived, true, name);
+    }
+  });
   it("validate their examples", () => {
     for (const o of operationList) if (o.example && o.body) assert.ok(o.body.safeParse(o.example).success || JSON.stringify(o.example).includes("…"), o.id);
   });
