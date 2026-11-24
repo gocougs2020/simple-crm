@@ -5,7 +5,7 @@ import { CheckCircleIcon, ChevronRightIcon, EnvelopeIcon } from "@heroicons/reac
 import { useApp } from "@/components/app-context";
 import { ActivityItem, PlannedItem } from "@/components/activity/timeline";
 import { Avatar } from "@/components/ui/avatar";
-import { StatusBadge } from "@/components/ui/badge";
+import { TeammateStatus } from "@/components/team/invite-status";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { ActivityRow } from "@/lib/crm/activities";
 import type { Teammate } from "@/lib/crm/teammates";
@@ -35,7 +35,6 @@ export function TeammateView({ teammate: t, planned, plannedCount, overdue, rece
   const prospects = owned.clients.prospective ?? 0;
   const current = owned.clients.current ?? 0;
   const clientsHref = `/clients?owner=${t.id}&category=${!prospects && current ? "current" : "prospective"}&view=table`;
-  const status = t.deactivatedAt ? <StatusBadge>Deactivated</StatusBadge> : t.invited ? <StatusBadge tone="warning">Invite sent</StatusBadge> : null;
   return (
     <div className="mx-auto max-w-[1280px] px-4 py-6 lg:px-6">
       <nav aria-label="Breadcrumb" className="mb-2 flex items-center gap-1 text-[12.5px] text-muted max-lg:hidden">
@@ -51,7 +50,7 @@ export function TeammateView({ teammate: t, planned, plannedCount, overdue, rece
           <h1 className="flex flex-wrap items-center gap-2 text-page-title break-words">
             {t.name}
             {you ? <span className="text-[15px] font-normal text-muted">(you)</span> : null}
-            {status}
+            <TeammateStatus deactivated={!!t.deactivatedAt} invite={t.invite} />
           </h1>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[13px] text-muted">
             {[t.title, roleLabels[t.role as UserRole]].filter(Boolean).join(" · ")}

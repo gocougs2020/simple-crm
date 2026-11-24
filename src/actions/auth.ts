@@ -140,7 +140,7 @@ async function consumeToken(token: string, kind: "invite" | "reset") {
   const t = schema.authTokens;
   const [row] = await db
     .update(t)
-    .set({ usedAt: new Date() })
+    .set({ usedAt: new Date(), sealedToken: null })
     .where(and(eq(t.tokenHash, await hashToken(token)), eq(t.kind, kind), isNull(t.usedAt), gt(t.expiresAt, new Date())))
     .returning({ userId: t.userId });
   return row?.userId ?? null;

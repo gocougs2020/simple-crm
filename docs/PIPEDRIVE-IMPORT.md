@@ -83,7 +83,7 @@ A prospect whose only sales deals are lost keeps the stage the deal was lost in 
 
 | Pipedrive | CRM |
 | --- | --- |
-| Users | Teammates, matched by email, then by name. Users who aren't teammates but own or wrote something are added as **deactivated** teammates so history stays attributed; invite them from Settings → Team to bring them back |
+| Users | Teammates, matched by email, then by name. Users who aren't teammates but own or wrote something are added as **deactivated** teammates so history stays attributed; reactivating one in Settings → Team emails them an invite |
 | Organizations | Organizations: name, address, website (or the "Website Domain" field), industry, owner. Labels go in a "Labels" field |
 | People | People: name, primary email and phone, organization, owner. Labels and the "Tags" field become tags; "Title Specific" becomes the title |
 | Custom fields | Custom fields with the same name, type and options (organizations, people, and deals → clients). On a client, the furthest deal's values come first; multi-option fields combine across deals |
