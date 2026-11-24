@@ -2,7 +2,7 @@
 
 import clsx from "clsx";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { ArrowUturnLeftIcon, ArrowRightStartOnRectangleIcon, CheckBadgeIcon, ChevronDownIcon } from "@heroicons/react/20/solid";
+import { ChevronDownIcon } from "@heroicons/react/20/solid";
 import { changeClientCategory, moveClient } from "@/actions/clients";
 import { useApp } from "@/components/app-context";
 import { StatusBadge, type Tone } from "@/components/ui/badge";
@@ -99,50 +99,45 @@ export function StageBar({ clientId, stageId, category, stageChangedAt }: { clie
   );
 }
 
-/** Where a client can go from each category, with the words for the button. */
-export const moves: Record<ClientCategory, { to: ClientCategory; label: string; primary?: boolean }[]> = {
-  prospective: [{ to: "current", label: "Signed", primary: true }],
+/** Where a client can go from each category, with the words for the board's drop zones. */
+export const moves: Record<ClientCategory, { to: ClientCategory; label: string }[]> = {
+  prospective: [{ to: "current", label: "Signed" }],
   current: [
-    { to: "past", label: "Left", primary: true },
+    { to: "past", label: "Left" },
     { to: "prospective", label: "Move back to prospects" },
   ],
   past: [
-    { to: "current", label: "Won back", primary: true },
+    { to: "current", label: "Won back" },
     { to: "prospective", label: "Move to prospects" },
   ],
 };
 
-const moveIcons: Record<ClientCategory, typeof CheckBadgeIcon> = { current: CheckBadgeIcon, past: ArrowRightStartOnRectangleIcon, prospective: ArrowUturnLeftIcon };
+const moveTargets: { to: ClientCategory; label: string }[] = [
+  { to: "prospective", label: "Prospective client" },
+  { to: "current", label: "Current client" },
+  { to: "past", label: "Past client" },
+];
 
-/** The record header's category buttons: sign a prospect, mark a client as left, win one back. */
+/** The record header's Move menu: pick the category the client moves to. Their current one is shown but can't be picked. */
 export function CategoryActions({ clientId, name, category }: { clientId: string; name: string; category: ClientCategory }) {
   const [to, setTo] = useState<ClientCategory | null>(null);
-  const [primary, ...rest] = moves[category];
-  const Icon = moveIcons[primary.to];
   return (
     <>
-      <div className="flex">
-        <Button variant="outline" className={clsx(rest.length && "rounded-r-none")} onClick={() => setTo(primary.to)}>
-          <Icon />
-          {primary.label}
-        </Button>
-        {rest.length ? (
-          <Menu>
-            <MenuTrigger asChild>
-              <Button variant="outline" size="icon" className="-ml-px rounded-l-none" aria-label="Other category moves">
-                <ChevronDownIcon />
-              </Button>
-            </MenuTrigger>
-            <MenuContent className="w-56">
-              {rest.map((m) => (
-                <MenuItem key={m.to} onSelect={() => setTo(m.to)}>
-                  {m.label}
-                </MenuItem>
-              ))}
-            </MenuContent>
-          </Menu>
-        ) : null}
-      </div>
+      <Menu>
+        <MenuTrigger asChild>
+          <Button variant="outline">
+            Move
+            <ChevronDownIcon />
+          </Button>
+        </MenuTrigger>
+        <MenuContent className="w-48">
+          {moveTargets.map((m) => (
+            <MenuItem key={m.to} disabled={m.to === category} onSelect={() => setTo(m.to)}>
+              {m.label}
+            </MenuItem>
+          ))}
+        </MenuContent>
+      </Menu>
       {to ? <ChangeCategoryDialog clientId={clientId} name={name} from={category} to={to} onClose={() => setTo(null)} /> : null}
     </>
   );

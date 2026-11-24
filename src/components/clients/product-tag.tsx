@@ -10,7 +10,7 @@ import { updateClient } from "@/actions/clients";
 import { SideCard } from "@/components/records/inline-field";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
-import { productFamilies, productFamiliesOf, type ProductFamily } from "@/lib/product-rules";
+import { productFamilies, type ProductFamily } from "@/lib/product-rules";
 
 /**
  * The info icon beside a Stripe product's name: what the team says it
@@ -92,7 +92,7 @@ export function ProductLineBadges({ lines, className }: { lines: readonly Produc
  * change them. When what they're subscribed to in Stripe belongs to a line,
  * the daily sync sets them again, and the card says so.
  */
-export function ProductLinesCard({ clientId, lines, stripeProducts }: { clientId: string; lines: ProductFamily[]; stripeProducts: string[] }) {
+export function ProductLinesCard({ clientId, lines }: { clientId: string; lines: ProductFamily[] }) {
   const { canEdit } = useApp();
   const [editing, setEditing] = useState(false);
   const [shown, setShown] = useState(lines);
@@ -103,7 +103,6 @@ export function ProductLinesCard({ clientId, lines, stripeProducts }: { clientId
     setPrev(lines);
     setShown(lines);
   }
-  const fromStripe = productFamiliesOf(stripeProducts).length > 0;
 
   const toggle = (f: ProductFamily) => {
     const before = shown;
@@ -152,7 +151,6 @@ export function ProductLinesCard({ clientId, lines, stripeProducts }: { clientId
       ) : (
         <p className="pt-1 text-[13px] text-faint">No products yet</p>
       )}
-      {fromStripe ? <p className="mt-2 text-[12px] text-muted">Stripe sets these from their subscriptions each day, replacing changes made here.</p> : null}
     </SideCard>
   );
 }
