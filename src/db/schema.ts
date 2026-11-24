@@ -104,7 +104,12 @@ export const sessions = pgTable(
   (t) => [index("sessions_user_idx").on(t.userId)],
 );
 
-/** Single-use links for invitations and password resets. Only a SHA-256 hash of the token is stored. */
+/**
+ * Single-use links for invitations and password resets. The token is looked
+ * up by its SHA-256 hash. Invites also keep the token encrypted
+ * (`sealedToken`, src/lib/crypto.ts) so an admin can copy the link again from
+ * the team page; reset links never do.
+ */
 export const authTokens = pgTable(
   "auth_tokens",
   {
@@ -114,6 +119,8 @@ export const authTokens = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    /** Invites only: the token, encrypted, for "Copy invite link". */
+    sealedToken: text("sealed_token"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     usedAt: timestamp("used_at", { withTimezone: true }),
     createdAt: createdAt(),
