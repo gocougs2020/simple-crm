@@ -2,6 +2,7 @@ import { appConfig } from "@/app.config";
 import { roleLabels, type AgentRunSource, type UserRole } from "@/lib/constants";
 import { isDestructive, type Operation } from "@/lib/api/spec";
 import { localNow } from "./prompt";
+import { agentMentionNames } from "@/lib/crm/mentions";
 
 /**
  * The rules for the agent's background runs. Pure (tested): what a run
@@ -39,13 +40,13 @@ export const writesStanding = (op: Pick<Operation, "method" | "tag">) => STANDIN
 export const runMayUse = (op: Pick<Operation, "method" | "destructive" | "tag">) => !isDestructive(op) && op.tag !== "Agent" && !writesStanding(op);
 
 /**
- * Whether a note's text calls on the agent: "@Agent" (whatever the
- * deployment names it) or "@agent", as its own word. An email address
- * like sam@assistant.example doesn't count.
+ * Whether a note's or a team chat message's text calls on the agent: "@Agent" (its handle,
+ * agent.mentionName), its full name ("@Recruiting Insight AI") or "@agent", as its own word.
+ * An email address like sam@assistant.example doesn't count.
  */
-export function mentionsAgent(text: string | null | undefined, name = appConfig.agent.name) {
+export function mentionsAgent(text: string | null | undefined, name = appConfig.agent.name, handle = appConfig.agent.mentionName) {
   if (!text) return false;
-  const names = [...new Set([name, "agent"].map((n) => n.trim().toLowerCase()).filter(Boolean))].map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const names = agentMentionNames(name, handle).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
   return new RegExp(`(^|[^\\w@.])@(${names.join("|")})(?![\\w@]|\\.\\w)`, "i").test(text);
 }
 

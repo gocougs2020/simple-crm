@@ -6,7 +6,23 @@
  * in src/lib/agent/run-rules.ts).
  */
 
+import { appConfig } from "@/app.config";
+
 type Teammate = { id: string; name: string; active: boolean };
+
+/** The id the agent goes by in the @ list. Never a teammate's: theirs are uuids. */
+export const AGENT_MENTION_ID = "agent";
+
+/**
+ * The names that call on the agent, once each: its handle (`agent.mentionName`, "Agent"), its full name
+ * ("Recruiting Insight AI") and plain "agent". The first is what the @ list puts in.
+ */
+export function agentMentionNames(name = appConfig.agent.name, handle = appConfig.agent.mentionName) {
+  const seen = new Set<string>();
+  return [handle, name, "agent"]
+    .map((n) => (n ?? "").trim().replace(/\s+/g, " "))
+    .filter((n) => n && !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase()));
+}
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** "@Name" as its own word: not part of an email address, not the start of a longer name. */
@@ -74,12 +90,14 @@ export function mentionOptions<T extends Teammate>(team: readonly T[], viewerId:
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 }
 
-/** The options whose name, or any word of it, starts with what's typed after "@". Everyone for a bare "@". */
-export function matchMentions<T extends { name: string }>(options: readonly T[], query: string): T[] {
+/** The options whose name (or another name they go by), or any word of it, starts with what's typed after "@". Everyone for a bare "@". */
+export function matchMentions<T extends { name: string; aliases?: readonly string[] }>(options: readonly T[], query: string): T[] {
   const term = query.trim().toLowerCase();
   if (!term) return [...options];
-  return options.filter((m) => {
-    const name = m.name.toLowerCase();
-    return name.startsWith(term) || name.split(/\s+/).some((w) => w.startsWith(term));
-  });
+  return options.filter((m) =>
+    [m.name, ...(m.aliases ?? [])].some((n) => {
+      const name = n.toLowerCase();
+      return name.startsWith(term) || name.split(/\s+/).some((w) => w.startsWith(term));
+    }),
+  );
 }

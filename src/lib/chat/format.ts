@@ -5,11 +5,11 @@
  * the full name, or a first name nobody else on the team shares.
  */
 
-import { findMentions, mentionAliases } from "@/lib/crm/mentions";
+import { AGENT_MENTION_ID, findMentions, mentionAliases } from "@/lib/crm/mentions";
 
 type Teammate = { id: string; name: string; active: boolean };
 
-export type ChatSegment = { kind: "text"; text: string } | { kind: "mention"; text: string; userId: string } | { kind: "link"; text: string; href: string };
+export type ChatSegment = { kind: "text"; text: string } | { kind: "mention"; text: string; userId: string } | { kind: "agent"; text: string } | { kind: "link"; text: string; href: string };
 
 export const MAX_CHAT_LENGTH = 4000;
 export const MAX_CHAT_FILES = 10;
@@ -23,33 +23,37 @@ const labeledPattern = /\[([^\]\n]{1,200})\]\((\/[\w\-./?=&#%]*|https?:\/\/[^\s<
 /** Bare web addresses and labeled links, in one pass. */
 const anyLink = new RegExp(`${labeledPattern.source}|${linkPattern.source}`, "gi");
 
-function splitMentions(text: string, team: Teammate[]): ChatSegment[] {
+function splitMentions(text: string, team: Teammate[], agent: readonly string[]): ChatSegment[] {
   const aliases = mentionAliases(team);
-  const found = findMentions(text, [...aliases].map(([id, names]) => ({ id, aliases: names })));
+  const found = findMentions(text, [...[...aliases].map(([id, names]) => ({ id, aliases: names })), ...(agent.length ? [{ id: AGENT_MENTION_ID, aliases: agent }] : [])]);
   const out: ChatSegment[] = [];
   let last = 0;
   for (const m of found) {
     if (m.start > last) out.push({ kind: "text", text: text.slice(last, m.start) });
-    out.push({ kind: "mention", text: text.slice(m.start, m.end), userId: m.id });
+    if (m.id === AGENT_MENTION_ID) out.push({ kind: "agent", text: text.slice(m.start, m.end) });
+    else out.push({ kind: "mention", text: text.slice(m.start, m.end), userId: m.id });
     last = m.end;
   }
   if (last < text.length) out.push({ kind: "text", text: text.slice(last) });
   return out;
 }
 
-/** A message's text as segments: plain text, mentions and links. A link to a path on this site (`href` starting "/") opens in the app. */
-export function chatSegments(text: string, team: Teammate[]): ChatSegment[] {
+/**
+ * A message's text as segments: plain text, mentions and links. A link to a path on this site (`href` starting "/") opens in the app.
+ * `agent` is the names that call on the agent (agentMentionNames): "@Agent" comes back as its own kind.
+ */
+export function chatSegments(text: string, team: Teammate[], agent: readonly string[] = []): ChatSegment[] {
   const out: ChatSegment[] = [];
   let last = 0;
   for (const m of text.matchAll(anyLink)) {
-    if (m.index > last) out.push(...splitMentions(text.slice(last, m.index), team));
+    if (m.index > last) out.push(...splitMentions(text.slice(last, m.index), team, agent));
     // "//evil.example" is a link to another site, not a path here.
     if (m[1] && m[2] && !m[2].startsWith("//")) out.push({ kind: "link", text: m[1], href: m[2] });
-    else if (m[1]) out.push(...splitMentions(m[0], team));
+    else if (m[1]) out.push(...splitMentions(m[0], team, agent));
     else out.push({ kind: "link", text: m[0], href: m[0] });
     last = m.index + m[0].length;
   }
-  if (last < text.length) out.push(...splitMentions(text.slice(last), team));
+  if (last < text.length) out.push(...splitMentions(text.slice(last), team, agent));
   return out.filter((s) => s.text.length > 0);
 }
 
