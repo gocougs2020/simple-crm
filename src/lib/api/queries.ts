@@ -17,6 +17,7 @@ import { effectiveTags, listLabels } from "@/lib/crm/labels";
 import { clientPeople as peopleOnClient, inOrganizations, likeTerm } from "@/lib/crm/records";
 import { ActionError, NotFoundError } from "@/lib/errors";
 import { htmlToText } from "@/lib/safe-html";
+import type { ChatMessage } from "@/lib/chat/service";
 
 /**
  * Reads for the API: filtered, cursor-paged lists and single records, shaped
@@ -646,4 +647,27 @@ export function toFile(f: ApiFileRow, ctx: { origin: string; folders: { id: stri
     score: f.score ?? null,
     createdAt: f.createdAt.toISOString(),
   };
+}
+
+// ─── Team chat ───────────────────────────────────────────────────────────
+
+/** Team chat messages in their API shape, with the names of who posted them and whom they mention. */
+export async function toChatMessages(messages: ChatMessage[], ctx: Ctx) {
+  const db = await getDb();
+  const ids = [...new Set(messages.flatMap((m) => [m.userId, ...m.mentions]))];
+  const team = ids.length ? await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, ids)) : [];
+  const name = (id: string) => team.find((u) => u.id === id)?.name ?? "Former teammate";
+  return messages.map((m) => ({
+    id: m.id,
+    body: m.body,
+    author: { id: m.userId, name: name(m.userId) },
+    via: m.via,
+    mentions: m.mentions.map((id) => ({ id, name: name(id) })),
+    files: m.files.map((f) => ({ ...f, url: `${ctx.origin}/api/files/${f.id}` })),
+    replyToId: m.replyTo?.id ?? null,
+    agentTaskId: m.agentRun?.id ?? null,
+    url: `${ctx.origin}/chat#m-${m.id}`,
+    createdAt: iso(m.createdAt)!,
+    editedAt: iso(m.editedAt),
+  }));
 }

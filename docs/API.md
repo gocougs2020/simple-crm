@@ -109,6 +109,16 @@ Files and folders work through the API and MCP like they do on the Files page (`
 - `draft_message` takes `attachmentFileIds`, so an agent can attach a brochure or price sheet to an email draft. The teammate sees the files in the composer and can drop any before sending.
 - Descriptions, key facts and file text come from the files themselves; the tool descriptions and the agent's instructions say to read them as information, never as instructions. Viewers' keys can read files but not add or change them.
 
+## Team chat
+
+The team chat works through the API and MCP (`src/lib/chat/service.ts`), so agents like Claude and ChatGPT can read what the team said for context and post for their teammate:
+
+- `GET /chat/messages` (`list_chat_messages`) reads messages in a window of time: **the last 30 days** unless `from` and `to` say otherwise. Each is an ISO 8601 time with an offset, or a date (`YYYY-MM-DD`) in the workspace time zone: a `from` date starts at its midnight, a `to` date runs to the end of that day (`src/lib/chat/window.ts`). Only `to` given: the 30 days before it. Newest first (`order=oldest` for a transcript in order), up to 200 a page, keyset-paged with `nextCursor`. `q` finds words, `userId` one teammate's messages (with what their keys and agent posted for them), `mentions` the messages that mention someone.
+- Each message has its text, `author` (the teammate), `via` (the key, connected app or agent it came through, or null when typed in the chat), `mentions`, `files` (id, name, size, type and the link a signed-in teammate opens; `GET /files/{id}` for the description and key facts), `replyToId`, `agentTaskId` (the background task it handed the agent), its `url` in the chat, `createdAt` and `editedAt`. Deleted messages are left out.
+- `GET /chat/messages/{id}` (`get_chat_message`) reads one.
+- `POST /chat/messages` (`post_chat_message`) posts as the key's teammate, marked as coming through the key ("Sam via Zapier"). Mentions notify and email the teammates they name. Text only: files are attached in the chat itself. `replyToId` makes it a reply. It needs edit access, so read-only keys, read-only connected apps and viewers can't post through the API (viewers can still post in the chat). Workspace keys can read but not post: a message is always from a teammate.
+- A message posted through the API, MCP or the agent never calls on the CRM's own agent, even if it says `@Agent`; only a teammate typing in the chat does. Background runs can post (to report back when a request asks them to), and their messages read "via Agent".
+
 ## Knowledge source
 
 A deployment can connect a read-only JSON API about its own organization (usually its website's content) with `KNOWLEDGE_API_URL`. `GET /knowledge?path=…` then reads one path under it, and MCP gets a `get_knowledge` tool. Without one, the endpoint answers 404 `not_configured` and the tool isn't listed. See [KNOWLEDGE.md](KNOWLEDGE.md).

@@ -17,6 +17,7 @@ import type {
   ClientHealth,
   CustomFieldType,
   EmailDigestKind,
+  MentionEmailKind,
   EmailForwardStatus,
   EntityType,
   NotificationKind,
@@ -55,6 +56,8 @@ export type UserPrefs = {
   timelineFilter?: string;
   /** Agenda emails this teammate wants (Settings → Notifications). Off unless turned on. */
   emailDigests?: Partial<Record<EmailDigestKind, boolean>>;
+  /** Emails when a teammate mentions them (Settings → Notifications). On unless turned off. */
+  emailMentions?: Partial<Record<MentionEmailKind, boolean>>;
   /** The phone number they last called or texted from, picked first next time. */
   phoneNumberId?: string;
   /** Teammates whose calendars they last had on in Calendar. */
@@ -1093,13 +1096,22 @@ export const chatMessages = pgTable(
     body: text("body").notNull(),
     /** Teammates it mentions, as worked out when it was posted or last edited. */
     mentions: uuid("mentions").array().notNull().default(sql`'{}'::uuid[]`),
+    /**
+     * The key it came through: a personal key or connected app (the API, MCP), or the teammate's
+     * agent (`assistant`, for its answers and what a background run posts). Null when they typed it.
+     */
+    apiKeyId: uuid("api_key_id").references(() => apiKeys.id, { onDelete: "set null" }),
+    /** The message this one answers (the agent's answer points at the message that called on it). */
+    replyToId: uuid("reply_to_id").references((): AnyPgColumn => chatMessages.id, { onDelete: "set null" }),
+    /** The background run this message handed to the agent by mentioning it, so the chat can show how it's going. */
+    agentRunId: uuid("agent_run_id").references((): AnyPgColumn => agentRuns.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     editedAt: timestamp("edited_at", { withTimezone: true }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     /** Moves on every post, edit and delete, so open pages notice (src/lib/live.ts). */
     updatedAt: updatedAt().$onUpdate(() => new Date()),
   },
-  (t) => [index("chat_messages_created_idx").on(t.createdAt), index("chat_messages_updated_idx").on(t.updatedAt)],
+  (t) => [index("chat_messages_created_idx").on(t.createdAt), index("chat_messages_updated_idx").on(t.updatedAt), index("chat_messages_user_idx").on(t.userId, t.createdAt)],
 );
 
 export const customFields = pgTable(
@@ -1475,6 +1487,8 @@ export const agentRuns = pgTable(
     threadId: uuid("thread_id").references(() => agentThreads.id, { onDelete: "set null" }),
     /** The note that mentioned the agent, or the task assigned to it. */
     activityId: uuid("activity_id").references((): AnyPgColumn => activities.id, { onDelete: "set null" }),
+    /** The team chat message that mentioned the agent; the answer is posted in the team chat as a reply to it. */
+    chatMessageId: uuid("chat_message_id").references((): AnyPgColumn => chatMessages.id, { onDelete: "set null" }),
     /** The record the request is about, when there is one. */
     personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
     organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "set null" }),
@@ -1711,7 +1725,7 @@ export const notifications = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     /** A push alert, a push test, or an agenda email (`daily_email`, `weekly_email`), which uses the same dedupe key to go out once. */
-    kind: text("kind").$type<NotificationKind | "test" | `${EmailDigestKind}_email`>().notNull(),
+    kind: text("kind").$type<NotificationKind | "test" | `${EmailDigestKind}_email` | `${MentionEmailKind}_mention_email`>().notNull(),
     title: text("title").notNull(),
     body: text("body"),
     /** Where tapping it goes, a path on this site. */

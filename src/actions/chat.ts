@@ -13,7 +13,7 @@ import { badgesFor } from "@/lib/sidebar-counts";
  * (`loadChatChanges`), and other open pages see it through /api/live.
  */
 
-export async function postChatMessage(input: { body: string; fileIds?: string[] }): Promise<Result<{ id: string }>> {
+export async function postChatMessage(input: { body: string; fileIds?: string[]; replyToId?: string | null }): Promise<Result<{ id: string }>> {
   return run(async () => {
     const row = await chat.postChatMessage(sessionActor(await actionUser()), input);
     return { id: row.id };

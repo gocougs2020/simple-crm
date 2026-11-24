@@ -115,6 +115,23 @@ export async function setEmailDigests(input: z.input<typeof digests>): Promise<R
   });
 }
 
+const mentionEmails = z.object({ note: z.boolean(), chat: z.boolean() });
+
+/** Turns the emails sent when a teammate mentions them in a note or the team chat on or off. */
+export async function setMentionEmails(input: z.input<typeof mentionEmails>): Promise<Result> {
+  return run(async () => {
+    const user = await actionUser();
+    const data = mentionEmails.parse(input);
+    const db = await getDb();
+    // Merged in the database, so a view preference saved at the same moment isn't lost.
+    await db
+      .update(schema.users)
+      .set({ prefs: sql`coalesce(${schema.users.prefs}, '{}'::jsonb) || ${JSON.stringify({ emailMentions: data })}::jsonb` })
+      .where(eq(schema.users.id, user.id));
+    refresh();
+  });
+}
+
 /** Sends this morning's agenda now, so a teammate can see what it looks like. */
 export async function sendAgendaPreview(kind: string): Promise<Result<{ to: string }>> {
   return run(async () => {

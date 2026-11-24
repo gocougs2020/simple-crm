@@ -470,7 +470,8 @@ export function ActivityItem({ row, context, attachments, selection }: { row: Ac
               : "logged a meeting";
 
   return (
-    <li className="relative flex gap-3">
+    // The id is what links to this entry point at (a mention email, a push notification): /clients/<id>#a-<activity id>.
+    <li id={`a-${a.id}`} className="relative flex scroll-mt-24 gap-3 target:[&>article]:ring-2 target:[&>article]:ring-accent">
       {/* Yellow marks what's pinned, whatever kind of entry it is. */}
       <span className={clsx("relative z-10 mt-2.5 flex size-8 shrink-0 items-center justify-center rounded-full border", pinned ? "border-note-border bg-note-surface" : "border-line bg-surface")}>
         <Icon className="size-4 text-secondary" aria-hidden />

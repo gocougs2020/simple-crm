@@ -7,6 +7,8 @@ import { escapeHtml } from "@/lib/email/merge-tags";
 import { ActionError } from "@/lib/errors";
 import { htmlToText } from "@/lib/safe-html";
 import { assistantActor } from "./actor";
+import { aiFeatures } from "./config";
+import { teamChatRequest } from "./run-rules";
 import { assertCanStart, startRun, supersedeRuns } from "./runs";
 
 /**
@@ -56,5 +58,43 @@ export async function handOffMention(actor: Actor, note: Handed, thread?: string
     await replyToNote(await assistantActor(actor.user), note.id, { body: `<p><strong>${appConfig.agent.name} couldn't start.</strong> ${escapeHtml(err.message)}</p>` }, { handOff: false }).catch((e) =>
       console.error("[agent] mention reply", e),
     );
+  }
+}
+
+/**
+ * A team chat message mentioned the agent. It's already posted, so a refusal
+ * (the budget is spent, say) becomes the agent's reply in the chat instead of
+ * an error. The answer is posted as a reply to the message when the run ends.
+ */
+export async function handOffChat(actor: Actor, message: { id: string; body: string; createdAt: Date; replyToId: string | null }) {
+  if (actor.kind !== "user" || !aiFeatures().background) return;
+  const chat = await import("@/lib/chat/service");
+  try {
+    await assertCanStart(actor);
+    const [before, answering] = await Promise.all([
+      chat.messagesBefore(message),
+      message.replyToId ? chat.getChatMessage(actor, message.replyToId).catch(() => null) : null,
+    ]);
+    const names = new Map<string, string>();
+    if (answering) {
+      const db = await getDb();
+      const [u] = await db.select({ name: schema.users.name }).from(schema.users).where(eq(schema.users.id, answering.userId));
+      names.set(answering.userId, u?.name ?? "a teammate");
+    }
+    const prompt = teamChatRequest(
+      { body: message.body, author: actor.user.name },
+      before.map((m) => ({ name: m.viaKind === "assistant" ? appConfig.agent.name : m.name, via: m.viaKind === "assistant" ? `for ${m.name}` : m.viaName, body: m.body, createdAt: m.createdAt })),
+      answering ? { name: names.get(answering.userId) ?? "a teammate", body: answering.body } : null,
+    );
+    const run = await startRun(actor, { prompt, title: message.body, source: "team_chat", chatMessageId: message.id });
+    await chat.linkAgentRun(message.id, run.id);
+  } catch (err) {
+    if (!(err instanceof ActionError)) {
+      console.error("[agent] team chat", err);
+      return;
+    }
+    await chat
+      .postChatMessage(await assistantActor(actor.user), { body: `${appConfig.agent.name} couldn't start. ${err.message}`, replyToId: message.id }, { handOff: false })
+      .catch((e) => console.error("[agent] team chat reply", e));
   }
 }
