@@ -197,8 +197,10 @@ export type ChatQuery = {
   cursor?: string;
 };
 
-const chatCursor = z.object({ createdAt: z.iso.datetime(), id: z.uuid() });
-const encodeChatCursor = (m: { createdAt: Date; id: string }) => Buffer.from(JSON.stringify({ createdAt: m.createdAt.toISOString(), id: m.id })).toString("base64url");
+// The time to the microsecond, as Postgres keeps it: a JS Date stops at milliseconds, which would repeat or skip messages at a page's edge.
+const chatCursor = z.object({ createdAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/), id: z.uuid() });
+const exactCreatedAt = sql<string>`to_char(${chatMessages.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+const encodeChatCursor = (m: { cursorAt: string; id: string }) => Buffer.from(JSON.stringify({ createdAt: m.cursorAt, id: m.id })).toString("base64url");
 function decodeChatCursor(cursor: string) {
   try {
     return chatCursor.parse(JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")));
@@ -233,14 +235,14 @@ export async function queryChat(a: Actor, q: ChatQuery = {}) {
         : sql`(${chatMessages.createdAt}, ${chatMessages.id}) > (${c.createdAt}::timestamptz, ${c.id}::uuid)`
       : undefined,
   ];
-  const rows = await selectMessages(db)
+  const rows = await selectMessages(db, { cursorAt: exactCreatedAt })
     .where(and(...where))
     .orderBy(newest ? desc(chatMessages.createdAt) : asc(chatMessages.createdAt), newest ? desc(chatMessages.id) : asc(chatMessages.id))
     .limit(limit + 1);
   const shown = rows.slice(0, limit);
   const messages = await attachFiles(shown.map((r) => shape(r as MessageRow)));
   const last = shown.at(-1);
-  return { messages, from, to, nextCursor: rows.length > limit && last ? encodeChatCursor(last) : null };
+  return { messages, from, to, nextCursor: rows.length > limit && last ? encodeChatCursor({ cursorAt: last.cursorAt as string, id: last.id }) : null };
 }
 
 /** One message, with the same details as queryChat. */

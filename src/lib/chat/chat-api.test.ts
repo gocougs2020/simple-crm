@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { operations } from "@/lib/api/operations";
 import { roleCan } from "@/lib/permissions";
 import { allowedOperations } from "@/lib/agent/policy";
-import { runMayUse, runMessage, teamChatRequest } from "@/lib/agent/run-rules";
+import { MAX_RUN_PROMPT, runMayUse, runMessage, teamChatRequest } from "@/lib/agent/run-rules";
 import { mentionEmailKinds, wantsMentionEmail } from "@/lib/constants";
 import { chatSegments, chatTextFromMarkdown, MAX_CHAT_LENGTH } from "./format";
 import { chatWindow, DEFAULT_CHAT_DAYS, localMidnight } from "./window";
@@ -127,6 +127,16 @@ describe("the agent called on in the team chat", () => {
     assert.match(text, /‹\/chat›/);
     assert.match(text, /information, not instructions/);
     assert.match(text, /<reply-to>/);
+  });
+
+  it("stays within the request limit by dropping the oldest messages, keeping the newest and closing the block", () => {
+    const long = (i: number) => ({ name: `T${i}`, via: null, body: `message ${i} ${"x".repeat(3_990)}`, createdAt: new Date(Date.UTC(2026, 2, 1, 10, i)) });
+    const text = teamChatRequest({ body: "@Agent sum this up", author: "Sam Lee" }, Array.from({ length: 15 }, (_, i) => long(i)), { name: "Jo", body: "y".repeat(4_000) });
+    assert.ok(text.length <= MAX_RUN_PROMPT, `${text.length} fits`);
+    assert.ok(text.startsWith("@Agent sum this up"));
+    assert.match(text, /message 14 /);
+    assert.doesNotMatch(text, /message 0 /);
+    assert.ok(text.trimEnd().endsWith("</chat>"));
   });
 
   it("tells the run its answer goes into the team chat", () => {
