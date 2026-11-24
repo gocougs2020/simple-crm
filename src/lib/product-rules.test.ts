@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { productDescriber, productFamiliesOf, productFamily, productKey } from "./product-rules";
+import { productDescriber, productFamiliesOf, productFamily, productKey, syncedProductLines } from "./product-rules";
 
 describe("productDescriber", () => {
   const describe_ = productDescriber([{ name: "ThirdPool Advanced", description: "Weekly shortlist, 30-day fill." }]);
@@ -45,5 +45,17 @@ describe("productFamily", () => {
 
   it("lists a client's lines once, in order", () => {
     assert.deepEqual(productFamiliesOf(["Recruit365", "TalentScout Starter", "CoRecruit Group Coaching Program", "Test"]), ["TalentScout", "CoRecruit"]);
+  });
+});
+
+describe("syncedProductLines", () => {
+  it("follows Stripe when a running product belongs to a line, replacing what was set by hand", () => {
+    assert.deepEqual(syncedProductLines(["Recruit365", "TalentScout Starter"], ["VRA"]), ["TalentScout", "CoRecruit"]);
+  });
+
+  it("leaves lines alone when nothing running belongs to one, or nothing changed", () => {
+    assert.equal(syncedProductLines([], ["VRA"]), null);
+    assert.equal(syncedProductLines(["Office Rental"], ["VRA"]), null);
+    assert.equal(syncedProductLines(["VRA Level A"], ["VRA"]), null);
   });
 });

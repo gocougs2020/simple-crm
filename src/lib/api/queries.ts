@@ -274,6 +274,7 @@ function toClient(ctx: Ctx, r: ClientRow) {
     health: c.health,
     billing: { status: c.stripeStatus, mrr: Number(c.stripeMrr), discount: Number(c.stripeDiscount), collectedLastYear: Number(c.stripeCollected), owed: Number(c.stripeOwed), credit: Number(c.stripeCredit), products: c.stripeProducts, syncedAt: iso(c.stripeSyncedAt) },
     tags: c.tags,
+    productLines: c.productLines,
     personId: c.personId,
     person: c.personId && r.personFirstName ? { id: c.personId, name: fullName(r.personFirstName, r.personLastName) } : null,
     organizationId: c.organizationId,
@@ -291,7 +292,7 @@ function toClient(ctx: Ctx, r: ClientRow) {
 export async function listClients(
   a: Actor,
   ctx: Ctx,
-  f: RecordFilter & { category?: string; pipelineId?: string; stageId?: string; personId?: string; organizationId?: string; health?: string; tag?: string },
+  f: RecordFilter & { category?: string; pipelineId?: string; stageId?: string; personId?: string; organizationId?: string; health?: string; tag?: string; productLine?: string },
 ) {
   const limit = f.limit ?? 50;
   const where = common(a, clients, f);
@@ -306,6 +307,7 @@ export async function listClients(
   if (f.organizationId) where.push(clientAtOrganization(f.organizationId));
   if (f.health) where.push(eq(clients.health, f.health as never));
   if (f.tag) where.push(sql`${clients.tags} ? ${f.tag}`);
+  if (f.productLine) where.push(sql`${clients.productLines} ? ${f.productLine}`);
   const rows = await selectClients(and(...where), limit + 1);
   return page(rows, limit, (r) => r.client.id, (r) => toClient(ctx, r));
 }

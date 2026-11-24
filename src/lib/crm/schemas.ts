@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { agentDraftKinds, activityTypes, clientCategories, clientHealths, entityTypes } from "@/lib/constants";
+import { productFamilies } from "@/lib/product-rules";
 
 /** Files sent through the REST API or MCP: the file itself, before base64 (which adds a third). */
 export const MAX_API_FILE_MB = 3;
@@ -110,6 +111,15 @@ export const clientInput = z.object({
   openToReturn: z.boolean().optional().describe("Past clients: whether they'd consider coming back."),
   health: z.enum(clientHealths).nullable().optional().describe("Current clients: how the account is doing."),
   tags: tagList.optional().describe("Its labels (lowercase). Replaces the whole list. GET /labels says what each label means."),
+  productLines: z
+    .array(z.enum(productFamilies))
+    .max(productFamilies.length)
+    // Each once, in the usual order, however they were sent.
+    .overwrite((v) => productFamilies.filter((f) => v.includes(f)))
+    .optional()
+    .describe(
+      "The product lines they're on: TalentScout, CoRecruit, ThirdPool, HiringCenter, VRA. Replaces the whole list. The daily Stripe sync replaces it again whenever their running subscriptions belong to a line, so set it for prospects, past clients and clients Stripe doesn't cover.",
+    ),
   custom: customValues.optional(),
 });
 

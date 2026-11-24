@@ -13,7 +13,7 @@ import { formatCustomValue } from "@/components/records/custom-field-input";
 import { PageHeader } from "@/components/shell/app-shell";
 import { openCreate } from "@/components/shell/create-store";
 import { AgoCell, NextActivityCell, OwnerCell } from "@/components/table/cells";
-import { ProductFamilyBadges, ProductTag } from "./product-tag";
+import { ProductLineBadges, ProductTag } from "./product-tag";
 import { DataTable, type Column } from "@/components/table/data-table";
 import { OwnerFilter, Toolbar } from "@/components/table/toolbar";
 import { useListParams } from "@/components/table/use-params";
@@ -25,7 +25,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Select } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
 import { CLIENTS_TAB_COOKIE, churnReasons, clientCategories, clientCategoryLabels, clientHealthLabels, clientHealths, type ClientCategory } from "@/lib/constants";
-import { productFamilies, productFamiliesOf } from "@/lib/product-rules";
+import { productFamilies } from "@/lib/product-rules";
 import { billingStatusLabels, billingStatuses, type BillingStatus } from "@/lib/stripe/rules";
 import type { ClientRow } from "@/lib/crm/records";
 import { archivedToast, formatDateOnly } from "@/lib/format";
@@ -162,12 +162,12 @@ export function ClientsView({
         <span className="text-faint">—</span>
       ),
   };
-  /** The product lines their Stripe products belong to (TalentScout, CoRecruit…), one colored badge each. */
+  /** Their product lines (TalentScout, CoRecruit…), one colored badge each: set by hand, or by the Stripe sync. */
   const products: Column<ClientRow> = {
     key: "products",
     label: "Products",
     className: "min-w-48",
-    render: (r) => (productFamiliesOf(r.client.stripeProducts).length ? <ProductFamilyBadges products={r.client.stripeProducts} /> : <span className="text-faint">—</span>),
+    render: (r) => (r.client.productLines.length ? <ProductLineBadges lines={r.client.productLines} /> : <span className="text-faint">—</span>),
   };
   const tagCol: Column<ClientRow> = {
     key: "tags",
@@ -197,18 +197,19 @@ export function ClientsView({
   });
   const health: Column<ClientRow> = { key: "health", label: "Health", mobile: "meta", mobileRender: (r) => (r.client.health ? <HealthBadge health={r.client.health} /> : null), render: (r) => (r.client.health ? <HealthBadge health={r.client.health} /> : <span className="text-faint">—</span>) };
   // Stripe is where both come from: without it there's nothing to show.
-  const stripe = connected.stripe ? [billing, products, services] : [];
+  const stripe = connected.stripe ? [billing, services] : [];
 
   // One order on every tab: who, who has it, who we talk to, what's next, what they pay for, how it's going, where it stands, since when.
   // Each tab puts its own "how it's going" and date in those places.
   const byCategory: Record<ClientCategory, Column<ClientRow>[]> = {
-    prospective: [name, owner, contact, next, ...stripe, { key: "value", label: "Potential value", sort: "value", align: "right", mobile: "end", render: (r) => <span className="tabular-nums">{money(r.client.value)}</span> }, stage, date("expectedCloseDate", "Expected to sign", "expectedClose"), last],
-    current: [name, owner, contact, next, ...stripe, health, stage, date("startedOn", "Client since", "startedOn"), last],
+    prospective: [name, owner, contact, next, products, ...stripe, { key: "value", label: "Potential value", sort: "value", align: "right", mobile: "end", render: (r) => <span className="tabular-nums">{money(r.client.value)}</span> }, stage, date("expectedCloseDate", "Expected to sign", "expectedClose"), last],
+    current: [name, owner, contact, next, products, ...stripe, health, stage, date("startedOn", "Client since", "startedOn"), last],
     past: [
       name,
       owner,
       contact,
       next,
+      products,
       ...stripe,
       { key: "reason", label: "Why they left", className: "max-w-56", render: (r) => (r.client.churnReason ? <span className="truncate">{r.client.churnReason}</span> : <span className="text-faint">—</span>) },
       { key: "return", label: "Win back", render: (r) => (r.client.openToReturn ? <span className="text-secondary">Open</span> : <span className="text-faint">Not interested</span>) },
@@ -295,7 +296,7 @@ export function ClientsView({
         {category === "current" ? filterSelect("health", "Any health", [...clientHealths.map((h) => ({ value: h, label: clientHealthLabels[h] })), { value: "none", label: "Not set" }]) : null}
         {category === "past" ? filterSelect("reason", "Any reason", churnReasons.map((r) => ({ value: r, label: r }))) : null}
         {connected.stripe ? filterSelect("billing", "Any billing", [...billingStatuses.map((b) => ({ value: b, label: billingStatusLabels[b] })), { value: "none", label: "Not in Stripe" }]) : null}
-        {connected.stripe ? filterSelect("product", "Any product", productFamilies.map((p) => ({ value: p, label: p }))) : null}
+        {filterSelect("product", "Any product", productFamilies.map((p) => ({ value: p, label: p })))}
         {shownTags.length ? filterSelect("tag", "Any label", shownTags.map((t) => ({ value: t, label: t }))) : null}
       </Toolbar>
       {!options.length ? (

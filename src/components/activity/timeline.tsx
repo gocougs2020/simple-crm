@@ -971,7 +971,7 @@ const calendarDay = (iso: string, tz: string) => new Date(iso).toLocaleDateStrin
 
 /** One line of history: who changed what, from what, to what. */
 /** History the CRM writes by itself, which reads as a sentence with no one in front. */
-const systemEvents = new Set(["email_bounced", "email_complained", "texts_opted_out", "texts_opted_in", "billing_changed"]);
+const systemEvents = new Set(["email_bounced", "email_complained", "texts_opted_out", "texts_opted_in", "billing_changed", "products_synced"]);
 
 function EventItem({ event }: { event: { id: string; action: string; data: Record<string, unknown>; userId: string | null; apiKeyId: string | null; createdAt: Date } }) {
   const { workspace, member, money } = useApp();
@@ -1106,6 +1106,18 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
       );
       icon = <CreditCardIcon className="size-3.5" />;
       break;
+    // Written by the Stripe sync: what they're subscribed to now set their product lines.
+    case "products_synced": {
+      const list = (v: unknown) => (Array.isArray(v) && v.length ? v.join(", ") : "none");
+      text = (
+        <>
+          Stripe set products to <strong className="font-medium text-secondary">{list(d.to)}</strong>
+          {Array.isArray(d.from) && d.from.length ? <> (was {list(d.from)})</> : null}
+        </>
+      );
+      icon = <CreditCardIcon className="size-3.5" />;
+      break;
+    }
     // Written by Resend's delivery reports, not by a person.
     case "email_bounced":
       text = (

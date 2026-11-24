@@ -31,7 +31,7 @@ import type { Pipeline } from "@/lib/crm/context";
 import type { ClientCategory } from "@/lib/constants";
 import { daysSince } from "@/lib/format";
 import { ChangeCategoryDialog, HealthBadge, moves } from "./client-controls";
-import { ProductFamilyBadges } from "./product-tag";
+import { ProductLineBadges } from "./product-tag";
 
 type Columns = Record<string, ClientRow[]>;
 
@@ -248,7 +248,7 @@ function Card({ row, dragging, rottingDays, category }: { row: ClientRow; draggi
         {d.name}
       </Link>
       {who ? <p className="mt-0.5 truncate text-[12.5px] text-muted">{who}</p> : null}
-      <ProductFamilyBadges products={d.stripeProducts} className="mt-1.5" />
+      <ProductLineBadges lines={d.productLines} className="mt-1.5" />
       {category === "past" && d.churnReason ? <p className="mt-0.5 truncate text-[12px] text-muted">Left: {d.churnReason}</p> : null}
       <div className="mt-2 flex items-center gap-2">
         {amount ? (

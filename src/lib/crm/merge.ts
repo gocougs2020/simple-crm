@@ -16,6 +16,7 @@
 import type { CustomValues } from "@/db/schema";
 import type { ClientCategory, ClientHealth } from "@/lib/constants";
 import { matchKey } from "@/lib/phone/numbers";
+import { productFamilies, type ProductFamily } from "@/lib/product-rules";
 
 type Base = { id: string; createdAt: Date };
 
@@ -312,6 +313,7 @@ export type ClientFields = {
   churnReason: string | null;
   health: ClientHealth | null;
   tags: string[];
+  productLines?: ProductFamily[];
   personId: string | null;
   organizationId: string | null;
   ownerId: string | null;
@@ -369,6 +371,9 @@ export function planClientMerge(survivor: ClientFields, donors: ClientFields[]) 
   if (started !== survivor.startedOn) patch.startedOn = started;
   const tags = [...new Set([...survivor.tags, ...donors.flatMap((d) => d.tags)])];
   if (tags.length !== survivor.tags.length) patch.tags = tags;
+  // Every product line any of them was on, in the usual order.
+  const lines = productFamilies.filter((f) => [survivor, ...donors].some((c) => c.productLines?.includes(f)));
+  if (lines.length !== (survivor.productLines ?? []).length) patch.productLines = lines;
   const custom = mergeCustom(survivor.custom, donors.map((d) => d.custom));
   if (custom) patch.custom = custom;
   const last = latest([survivor.lastActivityAt, ...donors.map((d) => d.lastActivityAt)]);

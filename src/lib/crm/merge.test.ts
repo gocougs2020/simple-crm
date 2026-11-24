@@ -232,6 +232,12 @@ describe("merging clients", () => {
     assert.deepEqual(planClientMerge(survivor, donors), { startedOn: "2021-01-01", tags: ["referral"] });
   });
 
+  it("keeps every product line any of them was on", () => {
+    const survivor = client("a", 1, { productLines: ["VRA"] });
+    assert.deepEqual(planClientMerge(survivor, [client("b", 2, { productLines: ["TalentScout", "VRA"] })]).productLines, ["TalentScout", "VRA"]);
+    assert.equal(planClientMerge(survivor, [client("c", 2)]).productLines, undefined);
+  });
+
   it("among prospects, keeps the one in the stage with the higher win probability", () => {
     const probability: Record<string, number> = { lead: 10, negotiation: 80 };
     const rows = [client("lead", 1), client("negotiation", 2)];

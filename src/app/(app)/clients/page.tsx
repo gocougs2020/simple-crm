@@ -7,8 +7,8 @@ import { PageSkeleton } from "@/components/ui/skeleton";
 import { requireUser } from "@/lib/auth";
 import { CLIENTS_TAB_COOKIE, clientCategories, type ClientCategory } from "@/lib/constants";
 import { getAppData } from "@/lib/crm/context";
-import { allClientTags, allStripeProducts, clientCounts, listClients } from "@/lib/crm/records";
-import { productFamilies, productFamily } from "@/lib/product-rules";
+import { allClientTags, clientCounts, listClients } from "@/lib/crm/records";
+import { productFamilies } from "@/lib/product-rules";
 
 export const metadata: Metadata = { title: "Clients" };
 
@@ -34,9 +34,6 @@ async function Clients({ searchParams }: Pick<PageProps<"/clients">, "searchPara
   // The board shows one pipeline; the table shows them all.
   const pipelineId = view === "table" ? null : (options.find((p) => p.id === (one(sp.pipeline) ?? user.prefs.clientPipelines?.[category]))?.id ?? options[0]?.id ?? null);
   const owner = one(sp.owner);
-  // The product filter is a product line (TalentScout, CoRecruit…): clients on any of its Stripe products.
-  const family = productFamilies.find((f) => f === one(sp.product));
-  const lineProducts = family && app.services.stripe ? (await allStripeProducts()).filter((n) => productFamily(n) === family) : undefined;
   const [rows, counts, tags] = await Promise.all([
     options.length
       ? listClients({
@@ -46,7 +43,7 @@ async function Clients({ searchParams }: Pick<PageProps<"/clients">, "searchPara
           health: one(sp.health),
           churnReason: one(sp.reason),
           billing: one(sp.billing),
-          stripeProductsAny: lineProducts,
+          productLine: productFamilies.find((f) => f === one(sp.product)),
           tag: one(sp.tag),
           sort: view === "table" ? one(sp.sort) : undefined,
           dir: one(sp.dir) as "asc" | "desc" | undefined,

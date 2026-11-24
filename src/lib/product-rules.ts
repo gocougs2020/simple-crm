@@ -35,3 +35,15 @@ export function productFamiliesOf(names: readonly string[]): ProductFamily[] {
   const found = new Set(names.map(productFamily));
   return productFamilies.filter((f) => found.has(f));
 }
+
+/**
+ * What the Stripe sync sets a client's product lines to: the lines their
+ * running subscriptions belong to. Null leaves them as they are, either because
+ * nothing running belongs to a line (a prospect, a past client, an office
+ * rental), so lines set by hand stay, or because nothing changed.
+ */
+export function syncedProductLines(stripeProducts: readonly string[], current: readonly string[]): ProductFamily[] | null {
+  const next = productFamiliesOf(stripeProducts);
+  if (!next.length) return null;
+  return next.length === current.length && next.every((f, i) => f === current[i]) ? null : next;
+}

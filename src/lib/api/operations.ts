@@ -5,6 +5,7 @@ import { jobInput, jobPatch } from "@/lib/agent/schedule-rules";
 import { MAX_API_FILE_BYTES, MAX_UPLOAD_BODY_BYTES } from "@/lib/api/body";
 import { skillInput, skillPatch } from "@/lib/agent/skill-rules";
 import { idParam, op, pageQuery, queryBool, queryInt, recordQuery, type Operation } from "./spec";
+import { productFamilies } from "@/lib/product-rules";
 
 /**
  * Every endpoint of the REST API (under /api/v1) and every MCP tool. Adding an
@@ -253,6 +254,7 @@ export const operations = {
       organizationId: z.uuid().optional(),
       health: z.enum(clientHealths).optional(),
       tag: z.string().trim().toLowerCase().max(40).optional(),
+      productLine: z.enum(productFamilies).optional().describe("Only clients on this product line (their productLines)."),
     }),
     response: "Client",
     list: true,

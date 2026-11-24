@@ -2,6 +2,7 @@ import { z } from "zod";
 import { activityTypes, agentDraftKinds, agentDraftStatuses, agentRunSources, agentRunStatuses, agentScopes, agentSkillModes, apiKeyKinds, clientCategories, clientHealths, customFieldTypes, entityTypes, scheduleEvery, userRoles } from "@/lib/constants";
 import { permissions } from "@/lib/permissions";
 import { billingStatuses } from "@/lib/stripe/rules";
+import { productFamilies } from "@/lib/product-rules";
 
 /**
  * The shapes the API returns, for the OpenAPI document and the docs page.
@@ -96,6 +97,7 @@ export const Client = z.object({
     })
     .describe("What Stripe says, matched by the emails of the client's people and refreshed daily."),
   tags: z.array(z.string()),
+  productLines: z.array(z.enum(productFamilies)).describe("The product lines they're on (TalentScout, CoRecruit, ThirdPool, HiringCenter, VRA). Set by hand, and replaced by the Stripe sync whenever their running subscriptions belong to a line."),
   personId: uuid.nullable(),
   person: ref.nullable(),
   organizationId: uuid.nullable(),

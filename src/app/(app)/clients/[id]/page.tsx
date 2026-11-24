@@ -11,6 +11,7 @@ import { Timeline } from "@/components/activity/timeline";
 import { BillingCard } from "@/components/clients/billing-card";
 import { CategoryActions, CategoryBadge, CategoryDate, HealthBadge } from "@/components/clients/client-controls";
 import { PerformanceCard } from "@/components/clients/client-panels";
+import { ProductLinesCard } from "@/components/clients/product-tag";
 import { ClientPeopleCard } from "@/components/clients/client-people";
 import { StageBar } from "@/components/clients/client-controls";
 import { DynamicMarker } from "@/components/dynamic-marker";
@@ -122,6 +123,7 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
       <RecordBody
         side={
           <>
+            <ProductLinesCard clientId={id} lines={client.productLines} stripeProducts={client.stripeProducts} />
             <ClientDetails client={client} person={person} organization={organization} />
             <ClientPeopleCard
               clientId={id}
