@@ -104,6 +104,7 @@ export async function inviteTeammate(input: z.input<typeof inviteInput>): Promis
     const db = await getDb();
     const [existing] = await db.select().from(users).where(eq(users.email, data.email));
     if (existing?.passwordHash) throw new ActionError(`${data.email} is already on the team.`);
+    if (existing?.role === "owner" && admin.role !== "owner") throw new ActionError("Only an owner can invite an owner.");
     const id = existing?.id ?? (await db.insert(users).values({ email: data.email, name: data.name, role: data.role }).returning({ id: users.id }))[0].id;
     if (existing) await db.update(users).set({ name: data.name, role: data.role, deactivatedAt: null }).where(eq(users.id, id));
     const sent = await issueInvite(id, admin);
@@ -157,6 +158,8 @@ export async function setRole(userId: string, role: (typeof userRoles)[number]):
     const [target] = await db.select().from(users).where(eq(users.id, uuid.parse(userId)));
     if (!target) throw new ActionError("That teammate no longer exists.");
     if ((target.role === "owner" || r === "owner") && admin.role !== "owner") throw new ActionError("Only the owner can change who owns the workspace.");
+    // An invite link signs in as its teammate, so nobody holds a link that turns into an owner's.
+    if (r === "owner" && !target.passwordHash) throw new ActionError(`${target.name} hasn't joined yet. Make them an owner once they've set a password.`);
     if (target.role === "owner" && r !== "owner") {
       const [{ n }] = await db.select({ n: count() }).from(users).where(and(eq(users.role, "owner"), ne(users.id, target.id)));
       if (!n) throw new ActionError("Make someone else an owner first, so the workspace always has one.");

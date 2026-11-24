@@ -82,7 +82,7 @@ export function TeamSettings({ rows }: { rows: TeamRow[] }) {
                     </Button>
                   </MenuTrigger>
                   <MenuContent className="w-52">
-                    {(["admin", "member", "viewer", ...(viewer.role === "owner" ? ["owner"] : [])] as UserRole[])
+                    {(["admin", "member", "viewer", ...(viewer.role === "owner" && !u.invite ? ["owner"] : [])] as UserRole[])
                       .filter((r) => r !== u.role)
                       .map((r) => (
                         <MenuItem key={r} onSelect={async () => toastResult(await setRole(u.id, r), `${u.name} is now ${r === "admin" ? "an" : "a"} ${roleLabels[r].toLowerCase()}`)}>
