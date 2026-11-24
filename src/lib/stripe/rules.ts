@@ -107,3 +107,37 @@ export function rollUpStatus(statuses: string[]): BillingStatus {
 const brands: Record<string, string> = { visa: "Visa", mastercard: "Mastercard", amex: "American Express", discover: "Discover", diners: "Diners Club", jcb: "JCB", unionpay: "UnionPay", cartes_bancaires: "Cartes Bancaires", eftpos_au: "eftpos" };
 /** A card brand or payment type as people write it: "visa" is Visa, "us_bank_account" is Us bank account. */
 export const brandName = (brand: string) => brands[brand] ?? (brand.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()) || "Card");
+
+/** One line of a Stripe invoice, as much as `invoiceItems` reads. Older API versions put the product on `price`, newer ones on `pricing.price_details`. */
+export type InvoiceLine = {
+  description?: string | null;
+  quantity?: number | null;
+  price?: { product?: string | { id: string } | null } | null;
+  pricing?: { price_details?: { product?: string | null } | null } | null;
+};
+
+/** The product a line bills, whichever API version Stripe answered in. */
+export const lineProduct = (l: InvoiceLine) => l.pricing?.price_details?.product ?? (typeof l.price?.product === "string" ? l.price.product : (l.price?.product?.id ?? null));
+
+/**
+ * What an invoice was for, from its lines: each product once, by name
+ * ("Pro × 3"), or a one-off line's own description. Proration lines name
+ * the same product as the plan they adjust, so they don't add one.
+ */
+export function invoiceItems(lines: readonly InvoiceLine[], names: ReadonlyMap<string, string>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const l of lines) {
+    const product = lineProduct(l);
+    const name = product ? names.get(product) : undefined;
+    // "1 × Pro (at $50.00 / month)" is how Stripe writes a subscription line: the name is the middle.
+    const own = l.description?.trim().replace(/^\d+\s*×\s*/, "").replace(/\s*\(at [^)]*\)$/, "") || null;
+    const key = product ?? own;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const label = name ?? own;
+    if (!label) continue;
+    out.push(name && (l.quantity ?? 1) > 1 ? `${name} × ${l.quantity}` : label);
+  }
+  return out;
+}

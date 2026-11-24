@@ -216,3 +216,42 @@ export async function deletePrivateEmail(id: string): Promise<Result> {
     refresh();
   });
 }
+
+const blockInput = z.object({ entry: z.string().trim().min(1).max(320) });
+
+/**
+ * Puts one address or domain on the signed-in teammate's block list, so mail
+ * with it on is never synced from their mailbox again (`isBlocked`). Mail
+ * already synced stays until they delete it. Adding one that's there is fine.
+ */
+export async function blockMailSender(input: z.input<typeof blockInput>): Promise<Result<{ entry: string }>> {
+  return run(async () => {
+    const user = await actionUser();
+    const { entry } = blockInput.parse(input);
+    const account = await accountOf(user.id);
+    if (!account) throw new ActionError("Your Microsoft account isn't connected anymore. Connect it again.");
+    const list = parseBlockList([...account.blocked, entry]);
+    if (list.invalid.length) throw new ActionError(`${list.invalid[0]} isn't an email address or domain. Use one like jo@acme.com or acme.com.`);
+    if (list.tooMany) throw new ActionError(`A block list holds up to ${MAX_BLOCKED} addresses and domains. Remove some first.`);
+    const db = await getDb();
+    await db.update(t).set({ blocked: list.entries, updatedAt: new Date() }).where(eq(t.id, account.id));
+    refresh();
+    return { entry: parseBlockList([entry]).entries[0]! };
+  });
+}
+
+/** Takes one address or domain off the signed-in teammate's block list. Mail with it on syncs again from the next sync; what was skipped meanwhile isn't brought back. */
+export async function unblockMailSender(input: z.input<typeof blockInput>): Promise<Result> {
+  return run(async () => {
+    const user = await actionUser();
+    const entry = blockInput.parse(input).entry.toLowerCase().replace(/^@/, "");
+    const account = await accountOf(user.id);
+    if (!account) throw new ActionError("Your Microsoft account isn't connected anymore. Connect it again.");
+    const db = await getDb();
+    await db
+      .update(t)
+      .set({ blocked: account.blocked.filter((b) => b !== entry), updatedAt: new Date() })
+      .where(eq(t.id, account.id));
+    refresh();
+  });
+}

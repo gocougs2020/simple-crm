@@ -4,7 +4,7 @@ import { graphAddress, outlookSensitivity, stripQuoted } from "./mail-text";
 import { Experimental_DecisionMockModelV4 as MockDecisionModel } from "ai/test";
 import { decideSensitive } from "./screen-decide";
 import { screenQuestion, screenState } from "./screen-prompt";
-import { internalDomains, isBlocked, outsiders, parseBlockList, visibilityFor } from "./sync-rules";
+import { blockChoices, internalDomains, isBlocked, outsiders, parseBlockList, visibilityFor } from "./sync-rules";
 
 describe("synced mail text", () => {
   it("keeps the new part of a reply and drops the quoted thread", () => {
@@ -94,6 +94,15 @@ describe("which mail the sync looks at", () => {
     assert.equal(isBlocked(["x@mail.legal.co"], entries), true);
     assert.equal(isBlocked(["x@notlegal.co"], entries), false);
     assert.equal(isBlocked(["x@legal.co"], []), false);
+  });
+
+  it("offers the sender's address, and their domain unless it's a public or our own one", () => {
+    assert.deepEqual(blockChoices("Deals <News@Shop.example.com>"), { address: "news@shop.example.com", domain: "shop.example.com" });
+    assert.deepEqual(blockChoices("kim@gmail.com"), { address: "kim@gmail.com", domain: null });
+    assert.deepEqual(blockChoices("x@us.com", { domains: ["us.com"] }), { address: "x@us.com", domain: null });
+    assert.equal(blockChoices("sam@us.com", { emails: ["Sam@us.com"] }), null);
+    assert.equal(blockChoices(null), null);
+    assert.equal(blockChoices("not an address"), null);
   });
 });
 

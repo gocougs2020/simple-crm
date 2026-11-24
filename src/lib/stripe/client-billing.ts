@@ -38,7 +38,7 @@ function slim(b: Billing, c: { matchedEmail: string | null; byHand: boolean; col
       next: nextCharge(s),
       items: s.items.map((i) => ({ id: i.id, priceId: i.price.id, productId: i.price.product, name: i.name, amount: i.price.unit_amount, quantity: i.quantity ?? 1, currency: i.price.currency, interval: i.price.recurring?.interval ?? null, intervalCount: i.price.recurring?.interval_count ?? 1 })),
     })),
-    invoices: b.invoices.map((i) => ({ id: i.id, number: i.number, status: i.status, overdue: i.overdue, total: i.total, discount: (i.total_discount_amounts ?? []).reduce((sum, d) => sum + d.amount, 0), remaining: i.amount_remaining, currency: i.currency, created: i.created, dueDate: i.due_date, url: i.hosted_invoice_url, pdf: i.invoice_pdf ?? null })),
+    invoices: b.invoices.map((i) => ({ id: i.id, number: i.number, status: i.status, overdue: i.overdue, total: i.total, discount: (i.total_discount_amounts ?? []).reduce((sum, d) => sum + d.amount, 0), remaining: i.amount_remaining, currency: i.currency, created: i.created, dueDate: i.due_date, url: i.hosted_invoice_url, pdf: i.invoice_pdf ?? null, items: i.items, moreItems: i.moreItems, memo: i.description?.trim() || null })),
     charges: b.charges.map((c) => ({
       id: c.id,
       amount: c.amount,
@@ -48,6 +48,7 @@ function slim(b: Billing, c: { matchedEmail: string | null; byHand: boolean; col
       status: c.status,
       created: c.created,
       description: c.description,
+      invoice: typeof c.invoice === "string" ? c.invoice : (c.invoice?.id ?? null),
       failure: c.failure_message,
       receipt: c.receipt_url,
       method: c.payment_method_details?.card
