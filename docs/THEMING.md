@@ -87,6 +87,7 @@ Edit [`src/styles/theme.css`](../src/styles/theme.css) for every deployment of y
 | `--text-primary` … `--text-faint` | Titles, body, supporting copy, icons and placeholders |
 | `--border`, `--border-strong`, `--ring` | Lines and focus |
 | `--success`, `--warning`, `--error`, `--info`, `--neutral` (+ `-surface`, `-border`) | Status badges. Keep their meaning; adjust shades if needed |
+| `--mention`, `--mention-surface` | A teammate's "@" mention: the light blue behind their name while typing a note or chat message, and in sent chat messages |
 | `--note-surface`, `--note-border` | The soft yellow behind a pinned entry on a timeline: its icon and its card |
 | `--product-talentscout`, `--product-corecruit`, `--product-thirdpool`, `--product-hiringcenter`, `--product-vra` (+ `-surface`, `-border`) | The product badges on the Clients table and board, one hue per product line |
 | `--toast-success-icon` | The check in a success toast (it sits on a dark background) |

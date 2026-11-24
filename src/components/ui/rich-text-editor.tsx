@@ -1,17 +1,55 @@
 "use client";
 
 import clsx from "clsx";
+import { Extension } from "@tiptap/core";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
-import { Selection } from "@tiptap/pm/state";
+import { Plugin, PluginKey, Selection } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { BoldIcon, ItalicIcon, LinkIcon, ListBulletIcon, NumberedListIcon } from "@heroicons/react/20/solid";
 import { Dictation } from "@/components/dictation/dictation";
-import { matchMentions } from "@/lib/crm/mentions";
+import { findMentions, matchMentions } from "@/lib/crm/mentions";
 import { mentionQuery } from "@/lib/chat/format";
 import { MentionMenu, type MentionOption } from "./mention-menu";
 import { RichTextFrame, type RichTextHandle, type RichTextProps } from "./rich-text";
+
+/** Who the highlighter shades: sent to it in a transaction, since the plugin is set up once. */
+const mentionPeople = new PluginKey<readonly MentionOption[]>("mentionPeople");
+
+/**
+ * Shades each "@Name" that mentions a teammate, from the "@" to the end of
+ * their name. Only a look: the note's text stays plain, so the server reads
+ * mentions the same way (src/lib/crm/mentions.ts).
+ */
+const MentionHighlight = Extension.create({
+  name: "mentionHighlight",
+  addProseMirrorPlugins: () => [
+    new Plugin({
+      key: mentionPeople,
+      state: {
+        init: () => [],
+        apply: (tr, people) => tr.getMeta(mentionPeople) ?? people,
+      },
+      props: {
+        decorations(state) {
+          const who = mentionPeople.getState(state);
+          if (!who?.length) return null;
+          const marks: Decoration[] = [];
+          state.doc.descendants((node, pos) => {
+            if (!node.isTextblock) return true;
+            // Line breaks count as one character each, so offsets match the document.
+            const text = node.textBetween(0, node.content.size, undefined, "\n");
+            for (const m of findMentions(text, who)) marks.push(Decoration.inline(pos + 1 + m.start, pos + 1 + m.end, { class: "mention" }));
+            return false;
+          });
+          return DecorationSet.create(state.doc, marks);
+        },
+      },
+    }),
+  ],
+});
 
 /** The "@name" being typed at the cursor: what it says, where it starts and ends in the document, and where to show the list. */
 type Typing = { query: string; from: number; to: number; top: number; left: number };
@@ -85,6 +123,7 @@ export function RichTextEditor({
         link: { openOnClick: false, autolink: true, defaultProtocol: "https", HTMLAttributes: { rel: "noopener noreferrer nofollow", target: "_blank" } },
       }),
       Placeholder.configure({ placeholder: placeholder ?? "Write something…" }),
+      MentionHighlight,
     ],
     content: value ?? "",
     autofocus: autoFocus ? "end" : false,
@@ -136,6 +175,11 @@ export function RichTextEditor({
   useEffect(() => {
     menu.current = { open, people, active, pick, typing };
   });
+  // Shade the mentions again once the team is known (or changes).
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    editor.view.dispatch(editor.state.tr.setMeta(mentionPeople, mentions ?? []).setMeta("addToHistory", false));
+  }, [mentions, editor]);
 
   /** Puts dictated text at the cursor (replacing a selection), or at the end, with spaces so it never runs into the words around it. */
   const insertSpoken = (text: string) => {
