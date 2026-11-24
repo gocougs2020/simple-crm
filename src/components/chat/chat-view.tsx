@@ -298,7 +298,7 @@ function Message({ message: m, grouped, team, mine, mentionsMe, highlight }: { m
           <p className="text-[14px] leading-6 break-words whitespace-pre-wrap text-primary">
             {segments.map((s, i) =>
               s.kind === "mention" ? (
-                <Link key={i} href={`/team/${s.userId}`} className={clsx("rounded px-0.5 font-medium hover:underline", s.userId === viewer.id ? "bg-warning-surface text-warning" : "bg-accent-soft text-accent-soft-foreground")}>
+                <Link key={i} href={`/team/${s.userId}`} className={clsx("rounded px-0.5 font-medium hover:underline", s.userId === viewer.id ? "bg-warning-surface text-warning" : "bg-mention-surface text-mention")}>
                   {s.text}
                 </Link>
               ) : s.kind === "link" ? (
@@ -499,7 +499,9 @@ function Composer({ onPosted }: { onPosted: () => void }) {
 
 /**
  * A growing textarea with an @ mention picker: typing "@" lists teammates,
- * arrows pick, Enter or Tab puts their name in.
+ * arrows pick, Enter or Tab puts their full name in. A copy of the text sits
+ * behind it, invisible but for the light blue behind each mention, so a
+ * mention reads as one tag while it's typed.
  */
 function MentionTextarea({
   value,
@@ -523,7 +525,10 @@ function MentionTextarea({
   bare?: boolean;
 }) {
   const options = useMentionOptions();
+  const { team } = useApp();
   const ref = useRef<HTMLTextAreaElement>(null);
+  const backdrop = useRef<HTMLDivElement>(null);
+  const segments = useMemo(() => (value.includes("@") ? chatSegments(value, team) : null), [value, team]);
   const [cursor, setCursor] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<number | null>(null);
@@ -539,6 +544,12 @@ function MentionTextarea({
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+    // Once the text scrolls, the copy behind it takes the same scrollbar width (unseen) and scroll position, so lines wrap alike.
+    const back = backdrop.current;
+    if (back) {
+      back.style.overflowY = el.scrollHeight > el.clientHeight ? "scroll" : "hidden";
+      back.scrollTop = el.scrollTop;
+    }
   }, [value]);
   useEffect(() => {
     if (autoFocus) ref.current?.focus();
@@ -546,7 +557,6 @@ function MentionTextarea({
 
   const pick = (m: MentionOption) => {
     if (!q) return;
-    // The full name when a first name is shared on the team, so it's clear who's meant.
     const insert = `${m.insert} `;
     const next = value.slice(0, q.start) + insert + value.slice(cursor);
     onChange(next);
@@ -558,8 +568,16 @@ function MentionTextarea({
     });
   };
 
+  // The text and its copy behind it are laid out the same way, so each highlight lands under its name.
+  const box = clsx("text-[14px] leading-6 break-words whitespace-pre-wrap", bare ? "px-1.5 py-1" : "rounded-md border px-3 py-1.5");
+
   return (
-    <div className="relative">
+    <div className={clsx("relative", !bare && "rounded-md bg-surface")}>
+      {segments ? (
+        <div ref={backdrop} aria-hidden className={clsx(box, "pointer-events-none absolute inset-0 overflow-hidden border-transparent text-transparent [scrollbar-color:transparent_transparent]")}>
+          {segments.map((s, i) => (s.kind === "mention" ? <mark key={i} className="rounded-[4px] bg-mention-surface text-transparent shadow-[0_0_0_2px_var(--mention-surface)]">{s.text}</mark> : <Fragment key={i}>{s.text}</Fragment>))}{" "}
+        </div>
+      ) : null}
       <textarea
         ref={ref}
         rows={1}
@@ -574,6 +592,9 @@ function MentionTextarea({
           setActive(0);
         }}
         onSelect={(e) => setCursor(e.currentTarget.selectionStart)}
+        onScroll={(e) => {
+          if (backdrop.current) backdrop.current.scrollTop = e.currentTarget.scrollTop;
+        }}
         onPaste={(e) => {
           if (!onPasteFiles || !e.clipboardData.files.length) return;
           e.preventDefault();
@@ -606,8 +627,9 @@ function MentionTextarea({
           }
         }}
         className={clsx(
-          "block w-full resize-none bg-transparent text-[14px] leading-6 text-primary placeholder:text-faint focus:outline-none",
-          bare ? "px-1.5 py-1" : "rounded-md border border-line bg-surface px-3 py-1.5 shadow-sm focus:border-ring focus:ring-1 focus:ring-ring",
+          box,
+          "relative block w-full resize-none bg-transparent text-primary placeholder:text-faint focus:outline-none",
+          !bare && "border-line shadow-sm focus:border-ring focus:ring-1 focus:ring-ring",
         )}
       />
       {open ? (

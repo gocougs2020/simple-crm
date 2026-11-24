@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { matchMentions, mentionedTeammates, mentionOptions } from "./mentions";
+import { findMentions, matchMentions, mentionedTeammates, mentionOptions } from "./mentions";
 
 const team = [
   { id: "sam", name: "Sam Lee", active: true },
@@ -37,11 +37,20 @@ describe("the @ picker", () => {
     );
   });
 
-  it("inserts the first name, or the full name when it's shared", () => {
+  it("always inserts the full name", () => {
     assert.deepEqual(
       options.map((o) => o.insert),
-      ["@Ada Byron", "@Ada Lovelace", "@Sam", "@zoe"],
+      ["@Ada Byron", "@Ada Lovelace", "@Sam Lee", "@zoe Park"],
     );
+  });
+
+  it("finds where each mention starts and ends, the longest name first", () => {
+    assert.deepEqual(findMentions("Hi @Sam Lee and @Ada, ask @sam or @Ada Byron", options), [
+      { start: 3, end: 11, id: "sam" },
+      { start: 26, end: 30, id: "sam" },
+      { start: 34, end: 44, id: "ada2" },
+    ]);
+    assert.deepEqual(findMentions("mail sam@Sam.com", options), []);
   });
 
   it("matches the start of any word, everyone for a bare @", () => {

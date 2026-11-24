@@ -7,7 +7,8 @@ import { Avatar } from "@/components/ui/avatar";
 import { mentionOptions } from "@/lib/crm/mentions";
 import type { TeamMember } from "@/lib/crm/context";
 
-export type MentionOption = TeamMember & { insert: string };
+/** A teammate "@" can offer: what picking them puts in, and the names that mention them. */
+export type MentionOption = TeamMember & { insert: string; aliases: string[] };
 
 /** Who an "@" can mention, alphabetically: the active teammates other than the viewer, with what picking each inserts. */
 export function useMentionOptions(): MentionOption[] {

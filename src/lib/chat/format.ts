@@ -5,6 +5,8 @@
  * the full name, or a first name nobody else on the team shares.
  */
 
+import { findMentions, mentionAliases } from "@/lib/crm/mentions";
+
 type Teammate = { id: string; name: string; active: boolean };
 
 export type ChatSegment = { kind: "text"; text: string } | { kind: "mention"; text: string; userId: string } | { kind: "link"; text: string; href: string };
@@ -12,37 +14,17 @@ export type ChatSegment = { kind: "text"; text: string } | { kind: "mention"; te
 export const MAX_CHAT_LENGTH = 4000;
 export const MAX_CHAT_FILES = 10;
 
-const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const linkPattern = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]}]/gi;
 
-/** The names a mention can use for each active teammate, longest first so "@Sam Lee" wins over "@Sam". */
-function mentionNames(team: Teammate[]) {
-  const active = team.filter((m) => m.active && m.name.trim());
-  const first = (m: Teammate) => m.name.trim().split(/\s+/)[0];
-  const shared = new Map<string, number>();
-  for (const m of active) shared.set(first(m).toLowerCase(), (shared.get(first(m).toLowerCase()) ?? 0) + 1);
-  const names = active.flatMap((m) => {
-    const full = m.name.trim();
-    const f = first(m);
-    return [{ name: full, id: m.id }, ...(shared.get(f.toLowerCase()) === 1 && f !== full ? [{ name: f, id: m.id }] : [])];
-  });
-  return names.sort((a, b) => b.name.length - a.name.length);
-}
-
 function splitMentions(text: string, team: Teammate[]): ChatSegment[] {
-  const names = mentionNames(team);
-  if (!names.length || !text.includes("@")) return [{ kind: "text", text }];
-  const pattern = new RegExp(`(^|[^\\w@.])@(${names.map((n) => escape(n.name).replace(/\s+/g, "\\s+")).join("|")})(?![\\w@]|\\.\\w)`, "gi");
+  const aliases = mentionAliases(team);
+  const found = findMentions(text, [...aliases].map(([id, names]) => ({ id, aliases: names })));
   const out: ChatSegment[] = [];
   let last = 0;
-  for (const m of text.matchAll(pattern)) {
-    const start = m.index + m[1].length;
-    const said = m[2].replace(/\s+/g, " ").toLowerCase();
-    const who = names.find((n) => n.name.toLowerCase() === said);
-    if (!who) continue;
-    if (start > last) out.push({ kind: "text", text: text.slice(last, start) });
-    out.push({ kind: "mention", text: text.slice(start, start + 1 + m[2].length), userId: who.id });
-    last = start + 1 + m[2].length;
+  for (const m of found) {
+    if (m.start > last) out.push({ kind: "text", text: text.slice(last, m.start) });
+    out.push({ kind: "mention", text: text.slice(m.start, m.end), userId: m.id });
+    last = m.end;
   }
   if (last < text.length) out.push({ kind: "text", text: text.slice(last) });
   return out;

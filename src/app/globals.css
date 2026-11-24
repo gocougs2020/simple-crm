@@ -43,6 +43,8 @@
   --color-neutral: var(--neutral);
   --color-neutral-surface: var(--neutral-surface);
   --color-neutral-border: var(--neutral-border);
+  --color-mention: var(--mention);
+  --color-mention-surface: var(--mention-surface);
   --color-note-surface: var(--note-surface);
   --color-note-border: var(--note-border);
   --color-toast-success-icon: var(--toast-success-icon);
@@ -289,6 +291,13 @@
     background: var(--surface-sunken);
     border-radius: 4px;
     padding: 1px 4px;
+  }
+  /* A teammate "@" mentioned, while writing a note (src/components/ui/rich-text-editor.tsx). */
+  & .mention {
+    background: var(--mention-surface);
+    color: var(--mention);
+    border-radius: 4px;
+    box-shadow: 0 0 0 2px var(--mention-surface);
   }
   & span[data-merge-tag] {
     background: var(--accent-soft);

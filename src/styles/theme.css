@@ -51,6 +51,10 @@
   --neutral-surface: #f4f4f5;
   --neutral-border: #e4e4e7;
 
+  /* A teammate "@" mentioned: the light blue behind their name, in the text box and in chat. */
+  --mention: #1e40af;
+  --mention-surface: #dbeafe;
+
   /* Pinned: the soft yellow that marks a pinned entry (its icon and card) on a timeline. */
   --note-surface: #fefce8;
   --note-border: #fde68a;
