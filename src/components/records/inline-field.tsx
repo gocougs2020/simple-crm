@@ -25,6 +25,7 @@ export function InlineField<T>({
   multiline,
   readOnly,
   filled,
+  clamp = true,
 }: {
   label: string;
   value: T;
@@ -38,6 +39,8 @@ export function InlineField<T>({
   readOnly?: boolean;
   /** Says whether there's something to show, when that isn't simply "the value isn't empty" (labels carried from an organization). */
   filled?: boolean;
+  /** A long value wraps onto up to three lines, then ends with an ellipsis. Off for displays that lay out their own lines (a contact with their email and phone). */
+  clamp?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -72,6 +75,11 @@ export function InlineField<T>({
     return () => document.removeEventListener("mousedown", onDown);
   });
 
+  const startEditing = () => {
+    setDraft(value);
+    setEditing(true);
+  };
+
   const isEmpty = filled !== undefined ? !filled : value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0);
 
   return (
@@ -96,23 +104,21 @@ export function InlineField<T>({
             {pending ? <Spinner className="mt-2.5 size-4 text-faint" /> : null}
           </div>
         ) : (
-          <div className="flex min-h-8 items-center gap-1">
+          <div className="flex min-h-8 items-start gap-1.5">
             <button
               type="button"
               disabled={readOnly}
-              onClick={() => {
-                setDraft(value);
-                setEditing(true);
-              }}
+              onClick={startEditing}
               className={clsx(
-                "min-w-0 flex-1 rounded-md px-2 py-1.5 text-left text-[13.5px] transition-colors -mx-2",
+                "-ml-2 min-w-0 flex-1 rounded-md px-2 py-1.5 text-left text-[13.5px] transition-colors",
                 readOnly ? "cursor-default" : "hover:bg-sunken",
                 isEmpty ? "text-faint" : "text-primary",
-                multiline ? "whitespace-pre-wrap" : "truncate",
+                multiline && "whitespace-pre-wrap",
               )}
               aria-label={`Edit ${label}`}
             >
-              {isEmpty ? (readOnly ? "—" : empty) : (display ?? String(value))}
+              {/* Long names, links and sources wrap instead of being cut off, up to three lines. */}
+              <span className={clsx("block", multiline ? "break-words" : clamp && "line-clamp-3 [overflow-wrap:anywhere]")}>{isEmpty ? (readOnly ? "—" : empty) : (display ?? String(value))}</span>
             </button>
             {copy ? (
               <button
@@ -122,13 +128,22 @@ export function InlineField<T>({
                   setCopied(true);
                   setTimeout(() => setCopied(false), 1200);
                 }}
-                className="rounded p-1 text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:text-primary focus:opacity-100"
+                className="mt-0.5 shrink-0 rounded-md p-1.5 text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:bg-sunken hover:text-primary focus:opacity-100 pointer-coarse:opacity-100"
                 aria-label={`Copy ${label}`}
               >
                 {copied ? <CheckIcon className="size-3.5 text-success" /> : <ClipboardDocumentIcon className="size-3.5" />}
               </button>
             ) : !readOnly ? (
-              <PencilIcon className="size-3 shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100" aria-hidden />
+              // Its own target, with room around it, so a one-line field is easy to open from the pencil too.
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={startEditing}
+                className="mt-0.5 shrink-0 rounded-md p-1.5 text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:bg-sunken hover:text-primary"
+                aria-label={`Edit ${label}`}
+              >
+                <PencilIcon className="size-3.5" aria-hidden />
+              </button>
             ) : null}
           </div>
         )}

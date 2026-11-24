@@ -79,3 +79,17 @@ export function visibilityFor(probability: number, t: { private: number; withhol
   const priv = Math.min(clamp(t.private, 0.5), withhold);
   return probability >= withhold ? "withhold" : probability >= priv ? "private" : "public";
 }
+
+/**
+ * What deleting an email can put on the block list: the sender's address, and
+ * their whole domain unless anyone can get an address there (gmail.com) or
+ * it's one of ours. Null when there's no outside sender to block.
+ */
+export function blockChoices(address: string | null, team: { emails?: readonly string[]; domains?: readonly string[] } = {}) {
+  const a = address?.trim().toLowerCase().replace(/^.*<([^>]+)>.*$/, "$1") ?? "";
+  if (!parseBlockList([a]).entries.length || !a.includes("@")) return null;
+  const domain = domainOf(a);
+  if ((team.emails ?? []).some((e) => e.toLowerCase() === a)) return null;
+  const ours = (team.domains ?? []).some((d) => d.toLowerCase() === domain);
+  return { address: a, domain: PUBLIC_MAIL.has(domain) || ours ? null : domain };
+}

@@ -36,8 +36,15 @@ export type CustomerBilling = {
     next: NextCharge | null;
     items: { id: string; priceId: string; productId: string; name: string; amount: number | null; quantity: number; currency: string; interval: string | null; intervalCount: number }[];
   }[];
-  invoices: { id: string; number: string | null; status: "draft" | "open" | "paid" | "uncollectible" | "void" | null; overdue: boolean; total: number; discount: number; remaining: number; currency: string; created: number; dueDate: number | null; url: string | null; pdf: string | null }[];
-  charges: { id: string; amount: number; refunded: boolean; refundedAmount: number; currency: string; status: "succeeded" | "pending" | "failed"; created: number; description: string | null; failure: string | null; receipt: string | null; method: string | null }[];
+  invoices: { id: string; number: string | null; status: "draft" | "open" | "paid" | "uncollectible" | "void" | null; overdue: boolean; total: number; discount: number; remaining: number; currency: string; created: number; dueDate: number | null; url: string | null; pdf: string | null;
+    /** What it was for: product names from its lines ("Pro × 3"), or one-off lines' own descriptions. */
+    items: string[];
+    /** It has more lines than Stripe sent with it. */
+    moreItems: boolean;
+    /** The invoice's own memo, when someone wrote one. */
+    memo: string | null;
+  }[];
+  charges: { id: string; amount: number; refunded: boolean; refundedAmount: number; currency: string; status: "succeeded" | "pending" | "failed"; created: number; description: string | null; /** The invoice it paid, when it paid one. */ invoice: string | null; failure: string | null; receipt: string | null; method: string | null }[];
   /** Null when the key can't read payment methods. */
   paymentMethods: PaymentMethod[] | null;
 };

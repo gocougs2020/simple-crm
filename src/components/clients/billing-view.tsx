@@ -34,6 +34,18 @@ function Stat({ label, value, note, tone }: { label: string; value: ReactNode; n
   );
 }
 
+/** Amounts kept in their own currencies, never added across them: "$8,800", or "$8,800 + €200" when customers bill in different ones. */
+function moneyByCurrency(parts: { amount: number; currency: string | null }[]) {
+  const totals = new Map<string, number>();
+  for (const p of parts) {
+    const c = (p.currency ?? "usd").toLowerCase();
+    totals.set(c, (totals.get(c) ?? 0) + p.amount);
+  }
+  // A currency with nothing in it is left out, unless every one is zero.
+  const some = [...totals].filter(([, amount]) => amount !== 0);
+  return some.length ? some.map(([c, amount]) => money(amount, c)).join(" + ") : money(0, [...totals.keys()][0] ?? null);
+}
+
 const overdueOf = (invoices: CustomerBilling["invoices"]) => invoices.filter((i) => i.status === "open" && i.overdue);
 const sum = (invoices: CustomerBilling["invoices"]) => invoices.reduce((t, i) => t + i.remaining, 0);
 
@@ -208,7 +220,7 @@ const nextLabel = (s: Sub) => (s.collection === "send_invoice" ? "Next invoice" 
 const nextAmount = (s: Sub) => (!s.next ? "" : s.next.amount == null ? "Usage based" : `${money(s.next.amount, s.currency)}${s.next.partial ? " + usage" : ""}`);
 
 /** One subscription as a card: what it is, what it bills, when it started and ends, when it bills next, and what an admin can do with it. */
-function SubscriptionCard({ s, c, isAdmin, onEdit, onCancel, onKeep, busy }: { s: Sub; c: CustomerBilling; isAdmin: boolean; onEdit: () => void; onCancel: () => void; onKeep: () => void; busy: boolean }) {
+function SubscriptionCard({ s, c, owner, isAdmin, onEdit, onCancel, onKeep, busy }: { s: Sub; c: CustomerBilling; /** Whose it is, when several customers are shown. */ owner?: ReactNode; isAdmin: boolean; onEdit: () => void; onCancel: () => void; onKeep: () => void; busy: boolean }) {
   const ends = cancelsAt(s);
   const ended = isEnded(s);
   const url = c.dashboardUrl.replace(/customers\/[^/]+$/, `subscriptions/${s.id}`);
@@ -221,6 +233,7 @@ function SubscriptionCard({ s, c, isAdmin, onEdit, onCancel, onKeep, busy }: { s
             <ProductNames names={s.items.map((i) => (i.quantity > 1 ? `${i.name} × ${i.quantity}` : i.name))} />
           </span>
           <SubBadge s={s} />
+          {owner ? <span className="w-full min-w-0">{owner}</span> : null}
         </div>
         <Menu>
           <MenuTrigger asChild>
@@ -309,6 +322,8 @@ type HistoryRow = {
   owed: number | null;
   currency: string;
   links: { label: string; href: string }[];
+  /** The Stripe customer it belongs to. */
+  owner: CustomerBilling;
 };
 
 type HistoryView = "all" | "invoice" | "payment";
@@ -336,45 +351,62 @@ const paymentStatus = (x: CustomerBilling["charges"][number]): HistoryRow["statu
           ? { label: "Partly refunded", tone: "neutral" }
           : { label: "Succeeded", tone: "success" };
 
+/** What an invoice was for: its products ("Pro, Extra seats × 3"), else its memo. */
+const invoiceFor = (i: CustomerBilling["invoices"][number]) => (i.items.length ? `${i.items.join(", ")}${i.moreItems ? " and more" : ""}` : i.memo);
+
 /** Invoices and payments in one list, newest first. */
 function historyOf(c: CustomerBilling): HistoryRow[] {
+  const byId = new Map(c.invoices.map((i) => [i.id, i]));
   const invoices = c.invoices.map(
     (i): HistoryRow => ({
       id: i.id,
       kind: "invoice",
       shows: ["all", "invoice"],
       created: i.created,
-      title: i.number ?? "Invoice",
-      detail: [i.discount ? `${money(i.discount, i.currency)} off` : null, i.status === "open" && i.dueDate ? `due ${day(i.dueDate)}` : null].filter(Boolean).join(" · "),
+      title: invoiceFor(i) ?? i.number ?? "Invoice",
+      // The invoice number stays, under what it was for.
+      detail: [invoiceFor(i) ? i.number : null, i.discount ? `${money(i.discount, i.currency)} off` : null, i.status === "open" && i.dueDate ? `due ${day(i.dueDate)}` : null].filter(Boolean).join(" · "),
       status: invoiceStatus(i),
       amount: i.total,
       owed: i.remaining || null,
       currency: i.currency,
       links: [i.url ? { label: "View", href: i.url } : null, i.pdf ? { label: "PDF", href: i.pdf } : null].filter((l): l is { label: string; href: string } => !!l),
+      owner: c,
     }),
   );
-  const payments = c.charges.map(
-    (x): HistoryRow => ({
+  const payments = c.charges.map((x): HistoryRow => {
+    const paid = x.invoice ? byId.get(x.invoice) : undefined;
+    // A payment for an invoice says what the invoice was for, with the card under it.
+    const forWhat = paid ? invoiceFor(paid) : null;
+    return {
       id: x.id,
       kind: "payment",
       shows: ["all", "payment"],
       created: x.created,
-      title: x.method ?? "Payment",
-      detail: x.status === "failed" && x.failure ? <span className="text-error">{x.failure}</span> : (x.description ?? ""),
+      title: forWhat ?? x.method ?? "Payment",
+      detail:
+        x.status === "failed" && x.failure ? (
+          <span className="text-error">{x.failure}</span>
+        ) : paid ? (
+          [paid.number, forWhat ? x.method : null].filter(Boolean).join(" · ")
+        ) : (
+          (x.description ?? "")
+        ),
       status: paymentStatus(x),
       amount: x.amount,
       owed: null,
       currency: x.currency,
       links: x.receipt ? [{ label: "Receipt", href: x.receipt }] : [],
-    }),
-  );
-  return [...invoices, ...payments].sort((a, b) => b.created - a.created);
+      owner: c,
+    };
+  });
+  return [...invoices, ...payments];
 }
 
 /**
- * The next charge of each subscription still billing, soonest first, for the
- * top of the history. Worked out from the subscription, so they're estimates:
- * nothing is scheduled in Stripe until the invoice is made.
+ * The next charge of each subscription still billing, for the top of the
+ * history. Worked out from the subscription, so they're estimates: nothing
+ * is scheduled in Stripe until the invoice is made.
  */
 function scheduledOf(c: CustomerBilling): HistoryRow[] {
   const credit = Math.max(0, -c.customer.balance);
@@ -394,44 +426,122 @@ function scheduledOf(c: CustomerBilling): HistoryRow[] {
         owed: null,
         currency: s.currency,
         links: [],
+        owner: c,
       };
-    })
-    .sort((a, b) => a.created - b.created);
+    });
 }
 
-/** Everything about each customer: who they are in Stripe, every subscription, saved cards and payment methods, and their billing history. */
-function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClose }: { clientId: string; customers: CustomerBilling[]; several: boolean; canEdit: boolean; isAdmin: boolean; onClose: () => void }) {
-  const [shown, setShown] = useState(0);
-  const [allHistory, setAllHistory] = useState(false);
-  const [view, setView] = useState<HistoryView>("all");
-  const [editing, setEditing] = useState<Sub | null>(null);
-  const [canceling, setCanceling] = useState<Sub | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [keeping, setKeeping] = useState<string | null>(null);
-  const [pending, start] = useTransition();
-  const index = Math.min(shown, customers.length - 1);
-  const c = customers[index];
-  const label = (x: CustomerBilling) => x.customer.name ?? x.customer.email ?? x.customer.id;
-  const history = historyOf(c);
-  const scheduled = scheduledOf(c).filter((r) => r.shows.includes(view));
-  const past = history.filter((r) => r.shows.includes(view));
-  const rows = [...scheduled, ...(allHistory ? past : past.slice(0, 15))];
-  // The customer's default card or bank account always comes first.
-  const methods = c.paymentMethods ? [...c.paymentMethods].sort((a, b) => Number(b.isDefault) - Number(a.isDefault)) : null;
-  const currency = c.customer.currency ?? c.invoices[0]?.currency ?? null;
-  const open = c.invoices.filter((i) => i.status === "open");
-  const overdue = overdueOf(c.invoices);
-  const subs = [...c.subscriptions.filter((s) => !isEnded(s)), ...c.subscriptions.filter(isEnded)];
+const customerKey = (c: CustomerBilling) => `${c.account}:${c.customer.id}`;
+/** What a customer is called where several are shown together: the billing email, which is how they were matched. */
+const customerEmail = (c: CustomerBilling) => c.customer.email ?? c.customer.name ?? c.customer.id;
 
+/** The Stripe customer something belongs to, on subscriptions, cards and rows when the client has several. */
+function OwnerTag({ c, several }: { c: CustomerBilling; several: boolean }) {
+  return (
+    <span className="block truncate text-[11.5px] text-muted" title={customerEmail(c)}>
+      {customerEmail(c)}
+      {several ? <span className="text-faint"> · {c.accountLabel}</span> : null}
+    </span>
+  );
+}
+
+/** One Stripe customer: who they are, how they were matched, and opening or removing them. */
+function CustomerRow({ clientId, c, several, canEdit, onRemoved }: { clientId: string; c: CustomerBilling; several: boolean; canEdit: boolean; onRemoved: () => void }) {
+  const [pending, start] = useTransition();
+  const label = c.customer.name ?? c.customer.email ?? c.customer.id;
   const remove = () =>
     start(async () => {
-      if (!confirm(`Take ${label(c)} off this client? Their billing stops showing here until someone links them again.`)) return;
+      if (!confirm(`Take ${label} off this client? Their billing stops showing here until someone links them again.`)) return;
       const r = await removeStripeCustomer(clientId, c.account, c.customer.id);
       if (!r.ok) return void toast.error(r.error);
       toast.success("Customer taken off this client");
-      onClose();
+      onRemoved();
     });
-  const keep = (s: Sub) =>
+  return (
+    <li className="flex items-start gap-4 px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[14px] font-semibold text-primary">{label}</p>
+        <p className="text-[12.5px] break-words text-muted">{[c.customer.email && c.customer.email !== label ? c.customer.email : null, several ? c.accountLabel : null, `Customer since ${day(c.customer.created)}`].filter(Boolean).join(" · ")}</p>
+        <p className="text-[12px] text-faint">{c.byHand ? "Linked by hand" : c.matchedEmail ? `Matched on ${c.matchedEmail}` : ""}</p>
+        {c.customer.delinquent ? <p className="mt-1 text-[12.5px] text-error">Stripe marks this customer as delinquent: a recent payment failed.</p> : null}
+      </div>
+      <span className="flex shrink-0 items-center gap-1">
+        <a href={c.dashboardUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12.5px] font-medium text-secondary hover:bg-sunken hover:text-primary">
+          Open in Stripe
+          <ArrowTopRightOnSquareIcon className="size-3.5" />
+        </a>
+        {canEdit ? (
+          <Menu>
+            <MenuTrigger asChild>
+              <button type="button" className="rounded p-1 text-faint hover:text-primary" aria-label={`More for ${label}`} disabled={pending}>
+                <EllipsisHorizontalIcon className="size-4" />
+              </button>
+            </MenuTrigger>
+            <MenuContent className="w-56">
+              <MenuItem destructive onSelect={remove}>
+                Not this client&apos;s customer
+              </MenuItem>
+              <MenuSeparator />
+              <MenuItem onSelect={() => navigator.clipboard?.writeText(c.customer.id)}>Copy customer ID</MenuItem>
+            </MenuContent>
+          </Menu>
+        ) : null}
+      </span>
+    </li>
+  );
+}
+
+/**
+ * Everything Stripe has on this client, every matched customer merged: who
+ * they are, every subscription, saved cards and payment methods, and the
+ * billing history. With several customers, each item says whose it is and a
+ * switch at the top narrows it all to one.
+ */
+function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClose }: { clientId: string; customers: CustomerBilling[]; several: boolean; canEdit: boolean; isAdmin: boolean; onClose: () => void }) {
+  const [filter, setFilter] = useState("all");
+  const [allHistory, setAllHistory] = useState(false);
+  const [view, setView] = useState<HistoryView>("all");
+  const [editing, setEditing] = useState<{ s: Sub; c: CustomerBilling } | null>(null);
+  const [canceling, setCanceling] = useState<{ s: Sub; c: CustomerBilling } | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [keeping, setKeeping] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+
+  const many = customers.length > 1;
+  // A customer taken off the client falls back to all of them.
+  const one = customers.find((c) => customerKey(c) === filter) ?? null;
+  const shown = one ? [one] : customers;
+  // Whose each thing is, only while more than one customer is in view.
+  const tagged = many && !one;
+
+  const history = shown.flatMap(historyOf).sort((a, b) => b.created - a.created);
+  const scheduled = shown
+    .flatMap(scheduledOf)
+    .filter((r) => r.shows.includes(view))
+    .sort((a, b) => a.created - b.created);
+  const past = history.filter((r) => r.shows.includes(view));
+  const rows = [...scheduled, ...(allHistory ? past : past.slice(0, 15))];
+  // Each customer's default card or bank account comes first.
+  const methods = shown.flatMap((c) => [...(c.paymentMethods ?? [])].sort((a, b) => Number(b.isDefault) - Number(a.isDefault)).map((m) => ({ m, c })));
+  const unreadable = shown.filter((c) => c.paymentMethods === null).length;
+  // Each customer's own currency: totals are added up per currency, never across them.
+  const currencyOf = (c: CustomerBilling) => c.customer.currency ?? c.invoices[0]?.currency ?? null;
+  const total = (pick: (c: CustomerBilling) => number) => moneyByCurrency(shown.map((c) => ({ amount: pick(c), currency: currencyOf(c) })));
+  const invoiceTotal = (list: CustomerBilling["invoices"]) => moneyByCurrency(list.map((i) => ({ amount: i.remaining, currency: i.currency })));
+  const invoices = shown.flatMap((c) => c.invoices);
+  const open = invoices.filter((i) => i.status === "open");
+  const overdue = overdueOf(invoices);
+  // Credit when no customer owes a balance and at least one has credit; Stripe keeps credit as a negative balance.
+  const credit = shown.some((c) => c.customer.balance < 0) && shown.every((c) => c.customer.balance <= 0);
+  const subs = shown.flatMap((c) => c.subscriptions.map((s) => ({ s, c })));
+  const ordered = [...subs.filter(({ s }) => !isEnded(s)), ...subs.filter(({ s }) => isEnded(s))];
+  const truncated = shown.some((c) => c.invoices.length >= 60 || c.charges.length >= 25);
+
+  const pick = (key: string) => {
+    setFilter(key);
+    setAllHistory(false);
+  };
+  const keep = (s: Sub, c: CustomerBilling) =>
     start(async () => {
       setKeeping(s.id);
       const r = await keepStripeSubscription(clientId, { account: c.account, subscriptionId: s.id, requestKey: crypto.randomUUID() });
@@ -448,72 +558,33 @@ function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClos
       description={isAdmin ? "Read from Stripe just now; collected totals are from the last sync. Changes you make here happen in Stripe straight away." : "Read from Stripe just now; collected totals are from the last sync. Only admins can change billing."}
       size="xl"
     >
-      {customers.length > 1 ? (
-        <div className="mb-4 flex flex-wrap gap-1" role="tablist" aria-label="Stripe customers">
-          {customers.map((x, i) => (
-            <button
-              key={`${x.account}:${x.customer.id}`}
-              type="button"
-              role="tab"
-              aria-selected={i === index}
-              onClick={() => {
-                setShown(i);
-                setAllHistory(false);
-                setView("all");
-              }}
-              className={i === index ? "rounded-full bg-accent px-3 py-1 text-[12.5px] font-medium text-accent-foreground" : "rounded-full bg-sunken px-3 py-1 text-[12.5px] font-medium text-secondary hover:text-primary"}
-            >
-              {label(x)}
-              {several ? <span className="opacity-70"> · {x.accountLabel}</span> : null}
-            </button>
-          ))}
-        </div>
-      ) : null}
-
       <div className="flex flex-col gap-6">
         <header className="flex flex-col gap-4">
-          <div className="flex items-start gap-4">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[15px] font-semibold text-primary">{label(c)}</p>
-              <p className="text-[12.5px] text-muted">{[c.customer.email, several ? c.accountLabel : null, `Customer since ${day(c.customer.created)}`].filter(Boolean).join(" · ")}</p>
-              <p className="text-[12px] text-faint">{c.byHand ? "Linked by hand" : c.matchedEmail ? `Matched on ${c.matchedEmail}` : ""}</p>
+          {many ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[12px] font-medium text-muted">Stripe customer</span>
+              <div className="max-w-full overflow-x-auto scroll-thin">
+                <Segmented value={one ? filter : "all"} onChange={pick} options={[{ value: "all", label: `All ${customers.length}` }, ...customers.map((c) => ({ value: customerKey(c), label: customerEmail(c) }))]} />
+              </div>
             </div>
-            <span className="flex shrink-0 items-center gap-1">
-              <a href={c.dashboardUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12.5px] font-medium text-secondary hover:bg-sunken hover:text-primary">
-                Open in Stripe
-                <ArrowTopRightOnSquareIcon className="size-3.5" />
-              </a>
-              {canEdit ? (
-                <Menu>
-                  <MenuTrigger asChild>
-                    <button type="button" className="rounded p-1 text-faint hover:text-primary" aria-label={`More for ${label(c)}`} disabled={pending}>
-                      <EllipsisHorizontalIcon className="size-4" />
-                    </button>
-                  </MenuTrigger>
-                  <MenuContent className="w-56">
-                    <MenuItem destructive onSelect={remove}>
-                      Not this client&apos;s customer
-                    </MenuItem>
-                    <MenuSeparator />
-                    <MenuItem onSelect={() => navigator.clipboard?.writeText(c.customer.id)}>Copy customer ID</MenuItem>
-                  </MenuContent>
-                </Menu>
-              ) : null}
-            </span>
-          </div>
+          ) : null}
+          <ul className="divide-y divide-line rounded-xl border border-line">
+            {shown.map((c) => (
+              <CustomerRow key={customerKey(c)} clientId={clientId} c={c} several={several} canEdit={canEdit} onRemoved={() => (customers.length === 1 ? onClose() : pick("all"))} />
+            ))}
+          </ul>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border border-line px-4 py-3 sm:grid-cols-5">
-            <Stat label="Collected LTM" value={money(c.collectedYear, currency)} />
-            <Stat label="Last 30 days" value={money(c.collectedMonth, currency)} />
-            <Stat label={c.customer.balance < 0 ? "Credit" : "Balance"} value={money(Math.abs(c.customer.balance), currency)} />
-            <Stat label="Open invoices" value={money(sum(open), currency)} note={open.length ? `${open.length} unpaid` : undefined} tone={sum(open) ? "warning" : undefined} />
-            <Stat label="Overdue invoices" value={money(sum(overdue), currency)} note={overdue.length ? `${overdue.length} past due` : undefined} tone={sum(overdue) ? "error" : undefined} />
+            <Stat label="Collected LTM" value={total((c) => c.collectedYear)} />
+            <Stat label="Last 30 days" value={total((c) => c.collectedMonth)} />
+            <Stat label={credit ? "Credit" : "Balance"} value={total((c) => (credit ? -c.customer.balance : c.customer.balance))} />
+            <Stat label="Open invoices" value={invoiceTotal(open)} note={open.length ? `${open.length} unpaid` : undefined} tone={sum(open) ? "warning" : undefined} />
+            <Stat label="Overdue invoices" value={invoiceTotal(overdue)} note={overdue.length ? `${overdue.length} past due` : undefined} tone={sum(overdue) ? "error" : undefined} />
           </dl>
         </header>
-        {c.customer.delinquent ? <p className="text-[12.5px] text-error">Stripe marks this customer as delinquent: a recent payment failed.</p> : null}
 
         <Block
           title="Subscriptions"
-          count={c.subscriptions.length}
+          count={subs.length}
           action={
             isAdmin ? (
               <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
@@ -523,10 +594,20 @@ function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClos
             ) : null
           }
         >
-          {subs.length ? (
+          {ordered.length ? (
             <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {subs.map((s) => (
-                <SubscriptionCard key={s.id} s={s} c={c} isAdmin={isAdmin} busy={pending && keeping === s.id} onEdit={() => setEditing(s)} onCancel={() => setCanceling(s)} onKeep={() => keep(s)} />
+              {ordered.map(({ s, c }) => (
+                <SubscriptionCard
+                  key={`${c.account}:${s.id}`}
+                  s={s}
+                  c={c}
+                  owner={tagged ? <OwnerTag c={c} several={several} /> : null}
+                  isAdmin={isAdmin}
+                  busy={pending && keeping === s.id}
+                  onEdit={() => setEditing({ s, c })}
+                  onCancel={() => setCanceling({ s, c })}
+                  onKeep={() => keep(s, c)}
+                />
               ))}
             </ul>
           ) : (
@@ -534,18 +615,19 @@ function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClos
           )}
         </Block>
 
-        <Block title="Saved cards and payment methods" count={methods?.length}>
-          {methods === null ? (
+        <Block title="Saved cards and payment methods" count={methods.length}>
+          {unreadable === shown.length ? (
             <p className="text-[13px] text-muted">This Stripe key can&apos;t read payment methods. Give it read access to Payment Methods to see saved cards here.</p>
           ) : methods.length ? (
             <ul className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
-              {methods.map((m) => (
-                <PaymentCard key={m.id} m={m} />
+              {methods.map(({ m, c }) => (
+                <PaymentCard key={`${c.account}:${m.id}`} m={m} owner={tagged ? `${customerEmail(c)}${several ? ` · ${c.accountLabel}` : ""}` : null} />
               ))}
             </ul>
           ) : (
             <p className="text-[13px] text-muted">Nothing saved.</p>
           )}
+          {unreadable && unreadable < shown.length ? <p className="mt-2 text-[12px] text-muted">The Stripe key for {unreadable === 1 ? "one customer" : `${unreadable} customers`} can&apos;t read payment methods, so their saved cards aren&apos;t shown.</p> : null}
         </Block>
 
         <Block title="Invoices and payments" count={history.length} action={history.length || scheduled.length ? <Segmented value={view} onChange={setView} options={historyViews} /> : null}>
@@ -558,6 +640,7 @@ function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClos
                       <th className="py-1 pr-3 font-medium">Date</th>
                       <th className="py-1 pr-3 font-medium">Type</th>
                       <th className="py-1 pr-3 font-medium">Details</th>
+                      {tagged ? <th className="py-1 pr-3 font-medium">Customer</th> : null}
                       <th className="py-1 pr-3 font-medium">Status</th>
                       <th className="py-1 pr-3 text-right font-medium">Amount</th>
                       <th className="py-1 pr-3 text-right font-medium">Owed</th>
@@ -568,22 +651,29 @@ function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClos
                   </thead>
                   <tbody className="divide-y divide-line">
                     {rows.map((r) => (
-                      <tr key={r.id} className={r.kind === "scheduled" ? "bg-info-surface/50" : undefined}>
-                        <td className="py-1.5 pr-3 whitespace-nowrap text-muted tabular-nums">{day(r.created)}</td>
-                        <td className="py-1.5 pr-3 whitespace-nowrap">
+                      <tr key={`${r.owner.account}:${r.id}`} className={r.kind === "scheduled" ? "bg-info-surface/50" : undefined}>
+                        <td className="py-1.5 pr-3 align-top whitespace-nowrap text-muted tabular-nums">{day(r.created)}</td>
+                        <td className="py-1.5 pr-3 align-top whitespace-nowrap">
                           <span className="inline-flex items-center gap-1 text-[12px] font-medium text-secondary">
                             {r.kind === "invoice" ? <DocumentTextIcon className="size-3.5 text-faint" aria-hidden /> : r.kind === "payment" ? <BanknotesIcon className="size-3.5 text-faint" aria-hidden /> : <CalendarDaysIcon className="size-3.5 text-info" aria-hidden />}
                             {kindLabel[r.kind]}
                           </span>
                         </td>
-                        <td className="max-w-72 py-1.5 pr-3">
-                          <span className="block truncate text-secondary">{r.title}</span>
+                        <td className="max-w-64 min-w-44 py-1.5 pr-3 align-top">
+                          <span className="line-clamp-2 break-words text-secondary" title={r.title}>
+                            {r.title}
+                          </span>
                           {r.detail ? <span className="block truncate text-[12px] text-muted">{r.detail}</span> : null}
                         </td>
-                        <td className="py-1.5 pr-3">{r.status ? <StatusBadge tone={r.status.tone}>{r.status.label}</StatusBadge> : null}</td>
-                        <td className="py-1.5 pr-3 text-right text-primary tabular-nums">{r.amount == null ? <span className="text-muted">Usage based</span> : money(r.amount, r.currency)}</td>
-                        <td className="py-1.5 pr-3 text-right tabular-nums">{r.owed ? money(r.owed, r.currency) : <span className="text-faint">—</span>}</td>
-                        <td className="py-1.5 text-right whitespace-nowrap">
+                        {tagged ? (
+                          <td className="max-w-40 py-1.5 pr-3 align-top">
+                            <OwnerTag c={r.owner} several={several} />
+                          </td>
+                        ) : null}
+                        <td className="py-1.5 pr-3 align-top">{r.status ? <StatusBadge tone={r.status.tone}>{r.status.label}</StatusBadge> : null}</td>
+                        <td className="py-1.5 pr-3 text-right align-top text-primary tabular-nums">{r.amount == null ? <span className="text-muted">Usage based</span> : money(r.amount, r.currency)}</td>
+                        <td className="py-1.5 pr-3 text-right align-top tabular-nums">{r.owed ? money(r.owed, r.currency) : <span className="text-faint">—</span>}</td>
+                        <td className="py-1.5 text-right align-top whitespace-nowrap">
                           {r.links.map((l, i) => (
                             <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" className={clsx("text-[12.5px] text-secondary underline-offset-2 hover:underline", i && "ml-3")}>
                               {l.label}
@@ -601,7 +691,7 @@ function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClos
                   Show all {past.length}
                 </Button>
               ) : null}
-              {c.invoices.length >= 60 || c.charges.length >= 25 ? <p className="mt-1 text-[12px] text-muted">The latest 60 invoices and 25 payments. Open the customer in Stripe for older ones.</p> : null}
+              {truncated ? <p className="mt-1 text-[12px] text-muted">The latest 60 invoices and 25 payments{many ? " of each customer" : ""}. Open the customer in Stripe for older ones.</p> : null}
             </>
           ) : (
             <p className="text-[13px] text-muted">{history.length ? `No ${view === "invoice" ? "invoices" : "payments"} yet. Switch to All to see everything.` : "No invoices or payments yet."}</p>
@@ -609,9 +699,9 @@ function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClos
         </Block>
       </div>
 
-      {editing ? <EditSubscriptionDialog clientId={clientId} customer={c} s={editing} onClose={() => setEditing(null)} /> : null}
-      {canceling ? <CancelSubscriptionDialog clientId={clientId} customer={c} s={canceling} onClose={() => setCanceling(null)} /> : null}
-      {creating ? <NewSubscriptionDialog clientId={clientId} customers={customers} initial={index} onClose={() => setCreating(false)} /> : null}
+      {editing ? <EditSubscriptionDialog clientId={clientId} customer={editing.c} s={editing.s} onClose={() => setEditing(null)} /> : null}
+      {canceling ? <CancelSubscriptionDialog clientId={clientId} customer={canceling.c} s={canceling.s} onClose={() => setCanceling(null)} /> : null}
+      {creating ? <NewSubscriptionDialog clientId={clientId} customers={customers} initial={one ? customers.indexOf(one) : 0} onClose={() => setCreating(false)} /> : null}
     </Dialog>
   );
 }

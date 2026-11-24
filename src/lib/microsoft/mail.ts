@@ -433,6 +433,9 @@ export async function copiedMail(accountId: string, limit = 100) {
       body: sql<string | null>`coalesce(${activities.body}, ${syncedEmails.body})`,
       personId: syncedEmails.personId,
       personName: sql<string | null>`case when ${people.id} is null then null else ${people.firstName} || coalesce(' ' || ${people.lastName}, '') end`,
+      // So the list can name the sender only when that person is the one who sent it.
+      personEmail: people.email,
+      personOtherEmails: people.otherEmails,
       organizationId: syncedEmails.organizationId,
       organizationName: organizations.name,
       clientId: syncedEmails.clientId,
