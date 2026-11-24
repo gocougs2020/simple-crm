@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { mentionedTeammates } from "./mentions";
+import { matchMentions, mentionedTeammates, mentionOptions } from "./mentions";
 
 const team = [
   { id: "sam", name: "Sam Lee", active: true },
@@ -24,5 +24,35 @@ describe("mentioning teammates in notes", () => {
     assert.deepEqual(mentionedTeammates("Write to info@sam.com or x@Sam", team), []);
     assert.deepEqual(mentionedTeammates("@Samantha and @Kit", team), []);
     assert.deepEqual(mentionedTeammates(null, team), []);
+  });
+});
+
+describe("the @ picker", () => {
+  const options = mentionOptions([...team, { id: "zed", name: "zoe Park", active: true }, { id: "me", name: "Bea Jones", active: true }], "me");
+
+  it("lists active teammates other than the viewer, alphabetically", () => {
+    assert.deepEqual(
+      options.map((o) => o.id),
+      ["ada2", "ada", "sam", "zed"],
+    );
+  });
+
+  it("inserts the first name, or the full name when it's shared", () => {
+    assert.deepEqual(
+      options.map((o) => o.insert),
+      ["@Ada Byron", "@Ada Lovelace", "@Sam", "@zoe"],
+    );
+  });
+
+  it("matches the start of any word, everyone for a bare @", () => {
+    assert.equal(matchMentions(options, "").length, 4);
+    assert.deepEqual(
+      matchMentions(options, "lo").map((o) => o.id),
+      ["ada"],
+    );
+    assert.deepEqual(
+      matchMentions(options, "ada b").map((o) => o.id),
+      ["ada2"],
+    );
   });
 });

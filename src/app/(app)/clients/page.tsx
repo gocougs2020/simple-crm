@@ -7,7 +7,8 @@ import { PageSkeleton } from "@/components/ui/skeleton";
 import { requireUser } from "@/lib/auth";
 import { CLIENTS_TAB_COOKIE, clientCategories, type ClientCategory } from "@/lib/constants";
 import { getAppData } from "@/lib/crm/context";
-import { allClientTags, allStripeProducts, clientCounts, listClients } from "@/lib/crm/records";
+import { allClientTags, clientCounts, listClients } from "@/lib/crm/records";
+import { productFamilies } from "@/lib/product-rules";
 
 export const metadata: Metadata = { title: "Clients" };
 
@@ -30,21 +31,19 @@ async function Clients({ searchParams }: Pick<PageProps<"/clients">, "searchPara
   // The URL wins; otherwise each teammate's last choice, then the deployment's default.
   const view = one(sp.view) === "table" || one(sp.view) === "board" ? (one(sp.view) as "board" | "table") : (user.prefs.clientsView ?? appConfig.layout.defaultClientsView);
   const options = app.pipelines.filter((p) => p.category === category);
-  const asked = one(sp.pipeline);
-  // The board shows one pipeline; the table can show them all.
-  const pipelineId = options.find((p) => p.id === (asked ?? user.prefs.clientPipelines?.[category]))?.id ?? (view === "table" && !asked ? null : (options[0]?.id ?? null));
+  // The board shows one pipeline; the table shows them all.
+  const pipelineId = view === "table" ? null : (options.find((p) => p.id === (one(sp.pipeline) ?? user.prefs.clientPipelines?.[category]))?.id ?? options[0]?.id ?? null);
   const owner = one(sp.owner);
-  const [rows, counts, tags, stripeProducts] = await Promise.all([
+  const [rows, counts, tags] = await Promise.all([
     options.length
       ? listClients({
           category,
           pipelineId: pipelineId ?? undefined,
           ownerId: owner === "me" ? user.id : owner,
-          q: one(sp.q),
           health: one(sp.health),
           churnReason: one(sp.reason),
           billing: one(sp.billing),
-          stripeProduct: one(sp.product),
+          productLine: productFamilies.find((f) => f === one(sp.product)),
           tag: one(sp.tag),
           sort: view === "table" ? one(sp.sort) : undefined,
           dir: one(sp.dir) as "asc" | "desc" | undefined,
@@ -52,7 +51,6 @@ async function Clients({ searchParams }: Pick<PageProps<"/clients">, "searchPara
       : [],
     clientCounts(),
     allClientTags(),
-    app.services.stripe ? allStripeProducts() : [],
   ]);
-  return <ClientsView rows={rows} view={view} category={category} pipelineId={pipelineId} counts={counts} tags={tags} stripeProducts={stripeProducts} />;
+  return <ClientsView rows={rows} view={view} category={category} pipelineId={pipelineId} counts={counts} tags={tags} />;
 }

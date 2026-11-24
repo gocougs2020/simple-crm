@@ -4,6 +4,7 @@ import clsx from "clsx";
 import dynamic from "next/dynamic";
 import { createContext, useContext, useImperativeHandle, useRef, type ReactNode, type Ref } from "react";
 import { Dictation } from "@/components/dictation/dictation";
+import type { MentionOption } from "./mention-menu";
 
 export type RichTextHandle = { clear: () => void; focus: () => void; insert: (html: string) => void; setContent: (html: string) => void; isEmpty: () => boolean };
 
@@ -19,6 +20,8 @@ export type RichTextProps = {
   toolbar?: boolean;
   actions?: ReactNode;
   dictation?: boolean;
+  /** Teammates "@" offers (useMentionOptions), for text that notifies whoever it mentions: notes and replies. */
+  mentions?: MentionOption[];
 };
 
 const loadEditor = () => import("./rich-text-editor");
@@ -134,7 +137,7 @@ export function RichTextFrame({
   children: ReactNode;
 }) {
   return (
-    <div className={clsx("rounded-md border border-line bg-surface shadow-sm transition-colors focus-within:border-ring focus-within:ring-1 focus-within:ring-ring", className)}>
+    <div className={clsx("relative rounded-md border border-line bg-surface shadow-sm transition-colors focus-within:border-ring focus-within:ring-1 focus-within:ring-ring", className)}>
       {toolbar || actions || dictation ? (
         <div className="flex min-h-[33px] flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-1.5 py-1">
           {toolbar ? (tools ?? <div className="h-6" />) : null}

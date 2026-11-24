@@ -23,6 +23,7 @@ import type {
   UserRole,
 } from "@/lib/constants";
 import type { BillingStatus } from "@/lib/stripe/rules";
+import type { ProductFamily } from "@/lib/product-rules";
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
@@ -556,6 +557,12 @@ export const clients = pgTable(
     /** Names of the Stripe products they're subscribed to now. */
     stripeProducts: jsonb("stripe_products").$type<string[]>().notNull().default([]),
     stripeSyncedAt: timestamp("stripe_synced_at", { withTimezone: true }),
+    /**
+     * The product lines they're on (TalentScout, CoRecruit, ThirdPool, HiringCenter, VRA; `productFamilies` in
+     * src/lib/product-rules.ts). Set by hand on any client; the Stripe sync replaces it whenever their running
+     * subscriptions belong to a line, and leaves it alone otherwise.
+     */
+    productLines: jsonb("product_lines").$type<ProductFamily[]>().notNull().default([]),
     /** Free-form labels for organizing and campaign audiences ("2024 cohort", "referral"). */
     tags: jsonb("tags").$type<string[]>().notNull().default([]),
     personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),

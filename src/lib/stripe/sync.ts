@@ -5,6 +5,7 @@ import { recordEvent } from "@/lib/crm/events";
 import { allCustomers, allSubscriptions, chargesSince, customersByEmail, getInvoice, invoicesSince, openInvoices, productNames, stripeAccounts, stripeConfigured, subscriptionsOf, type StripeCharge, type StripeCustomer, type StripeInvoice, type StripeSubscription } from "@/lib/stripe";
 import { chargeActivity, invoiceActivity, type ActivityRecord } from "./activity";
 import { collected, discountShare, liveStatuses, monthlyAmount, netMonthly } from "./rules";
+import { syncedProductLines, type ProductFamily } from "@/lib/product-rules";
 
 /**
  * Stripe is the source of truth for billing; this keeps a copy the CRM can
@@ -323,7 +324,7 @@ export async function refreshClientBilling(only?: string, opts: { fresh?: boolea
   const db = await getDb();
   const live = sql.join(liveStatuses.map((s) => sql`${s}`), sql`, `);
   const one = only ? sql`and c.id = ${only}` : sql`and c.archived_at is null`;
-  const rows = rowsOf<{ id: string; before: string | null; after: string | null; seen: Date | null; changed: boolean }>(
+  const rows = rowsOf<{ id: string; before: string | null; after: string | null; seen: Date | null; changed: boolean; products: string[]; lines: ProductFamily[] }>(
     await db.execute(sql`
       with m as ${clientCustomers(only)},
       x as (
@@ -357,7 +358,7 @@ export async function refreshClientBilling(only?: string, opts: { fresh?: boolea
       set stripe_status = x.status, stripe_mrr = x.mrr, stripe_discount = x.discount, stripe_collected = x.collected, stripe_owed = x.owed, stripe_credit = x.credit, stripe_products = x.products, stripe_synced_at = ${stamp}
       from x join clients o on o.id = x.client_id
       where c.id = x.client_id
-      returning c.id, o.stripe_status as before, c.stripe_status as after, o.stripe_synced_at as seen,
+      returning c.id, o.stripe_status as before, c.stripe_status as after, o.stripe_synced_at as seen, c.stripe_products as products, o.product_lines as lines,
         (o.stripe_status is distinct from x.status or o.stripe_mrr <> x.mrr or o.stripe_collected <> x.collected or o.stripe_owed <> x.owed or o.stripe_products <> x.products) as changed
     `),
   );
@@ -365,7 +366,27 @@ export async function refreshClientBilling(only?: string, opts: { fresh?: boolea
     if (!r.seen || r.before === r.after) continue;
     await recordEvent({ entityType: "client", entityId: r.id, action: "billing_changed", data: { from: r.before, to: r.after }, userId: null });
   }
-  return rows.filter((r) => r.changed).length;
+  const lines = await syncProductLines(rows);
+  return rows.filter((r) => r.changed || lines.has(r.id)).length;
+}
+
+/**
+ * A client's product lines follow Stripe when what they're subscribed to now
+ * belongs to a line: the sync replaces whatever was set by hand. With nothing
+ * running that belongs to one (a prospect, a past client, an office rental),
+ * the lines someone set stay. Returns the clients it changed.
+ */
+async function syncProductLines(rows: { id: string; products: string[]; lines: ProductFamily[] }[]) {
+  const changed = new Set<string>();
+  const db = await getDb();
+  for (const r of rows) {
+    const next = syncedProductLines(r.products ?? [], r.lines ?? []);
+    if (!next) continue;
+    await db.update(schema.clients).set({ productLines: next }).where(eq(schema.clients.id, r.id));
+    await recordEvent({ entityType: "client", entityId: r.id, action: "products_synced", data: { from: r.lines ?? [], to: next }, userId: null });
+    changed.add(r.id);
+  }
+  return changed;
 }
 
 /** At most this many of a client's emails are looked up when its page asks Stripe directly. */

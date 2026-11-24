@@ -13,9 +13,9 @@ import { formatCustomValue } from "@/components/records/custom-field-input";
 import { PageHeader } from "@/components/shell/app-shell";
 import { openCreate } from "@/components/shell/create-store";
 import { AgoCell, NextActivityCell, OwnerCell } from "@/components/table/cells";
-import { ProductTag } from "./product-tag";
+import { ProductLineBadges, ProductTag } from "./product-tag";
 import { DataTable, type Column } from "@/components/table/data-table";
-import { OwnerFilter, SearchBox, Toolbar } from "@/components/table/toolbar";
+import { OwnerFilter, Toolbar } from "@/components/table/toolbar";
 import { useListParams } from "@/components/table/use-params";
 import { BulkAddLabels, LabelChips, useLabels } from "@/components/records/labels";
 import { MergeDialog, type MergeCandidate } from "@/components/records/merge-dialog";
@@ -25,6 +25,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Select } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
 import { CLIENTS_TAB_COOKIE, churnReasons, clientCategories, clientCategoryLabels, clientHealthLabels, clientHealths, type ClientCategory } from "@/lib/constants";
+import { productFamilies } from "@/lib/product-rules";
 import { billingStatusLabels, billingStatuses, type BillingStatus } from "@/lib/stripe/rules";
 import type { ClientRow } from "@/lib/crm/records";
 import { archivedToast, formatDateOnly } from "@/lib/format";
@@ -52,7 +53,6 @@ export function ClientsView({
   pipelineId,
   counts,
   tags,
-  stripeProducts,
 }: {
   rows: ClientRow[];
   view: "board" | "table";
@@ -60,8 +60,6 @@ export function ClientsView({
   pipelineId: string | null;
   counts: Partial<Record<ClientCategory, number>>;
   tags: string[];
-  /** Stripe products clients are subscribed to now, for the filter. Empty when Stripe isn't connected. */
-  stripeProducts: string[];
 }) {
   const { pipelines, money, viewer, customFields, member, team, workspace, canEdit, services: connected } = useApp();
   const labels = useLabels();
@@ -164,6 +162,13 @@ export function ClientsView({
         <span className="text-faint">—</span>
       ),
   };
+  /** Their product lines (TalentScout, CoRecruit…), one colored badge each: set by hand, or by the Stripe sync. */
+  const products: Column<ClientRow> = {
+    key: "products",
+    label: "Products",
+    className: "min-w-48",
+    render: (r) => (r.client.productLines.length ? <ProductLineBadges lines={r.client.productLines} /> : <span className="text-faint">—</span>),
+  };
   const tagCol: Column<ClientRow> = {
     key: "tags",
     label: "Labels",
@@ -197,13 +202,14 @@ export function ClientsView({
   // One order on every tab: who, who has it, who we talk to, what's next, what they pay for, how it's going, where it stands, since when.
   // Each tab puts its own "how it's going" and date in those places.
   const byCategory: Record<ClientCategory, Column<ClientRow>[]> = {
-    prospective: [name, owner, contact, next, ...stripe, { key: "value", label: "Potential value", sort: "value", align: "right", mobile: "end", render: (r) => <span className="tabular-nums">{money(r.client.value)}</span> }, stage, date("expectedCloseDate", "Expected to sign", "expectedClose"), last],
-    current: [name, owner, contact, next, ...stripe, health, stage, date("startedOn", "Client since", "startedOn"), last],
+    prospective: [name, owner, contact, next, products, ...stripe, { key: "value", label: "Potential value", sort: "value", align: "right", mobile: "end", render: (r) => <span className="tabular-nums">{money(r.client.value)}</span> }, stage, date("expectedCloseDate", "Expected to sign", "expectedClose"), last],
+    current: [name, owner, contact, next, products, ...stripe, health, stage, date("startedOn", "Client since", "startedOn"), last],
     past: [
       name,
       owner,
       contact,
       next,
+      products,
       ...stripe,
       { key: "reason", label: "Why they left", className: "max-w-56", render: (r) => (r.client.churnReason ? <span className="truncate">{r.client.churnReason}</span> : <span className="text-faint">—</span>) },
       { key: "return", label: "Win back", render: (r) => (r.client.openToReturn ? <span className="text-secondary">Open</span> : <span className="text-faint">Not interested</span>) },
@@ -268,7 +274,8 @@ export function ClientsView({
             { value: "table", label: "Table", icon: <TableCellsIcon className="size-3.5" /> },
           ]}
         />
-        {options.length > 1 || view === "table" ? (
+        {/* The board shows one pipeline at a time; the table shows them all. */}
+        {view === "board" && options.length > 1 ? (
           <Select
             value={pipeline?.id ?? ""}
             onChange={(e) => {
@@ -278,7 +285,6 @@ export function ClientsView({
             aria-label="Pipeline"
             className="w-44 [&_select]:h-8 pointer-coarse:[&_select]:h-10 [&_select]:text-[13px]"
           >
-            {view === "table" ? <option value="">All pipelines</option> : null}
             {options.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -287,11 +293,10 @@ export function ClientsView({
           </Select>
         ) : null}
         <OwnerFilter />
-        <SearchBox placeholder={`Search ${clientCategoryLabels[category].one.toLowerCase()} clients`} />
         {category === "current" ? filterSelect("health", "Any health", [...clientHealths.map((h) => ({ value: h, label: clientHealthLabels[h] })), { value: "none", label: "Not set" }]) : null}
         {category === "past" ? filterSelect("reason", "Any reason", churnReasons.map((r) => ({ value: r, label: r }))) : null}
         {connected.stripe ? filterSelect("billing", "Any billing", [...billingStatuses.map((b) => ({ value: b, label: billingStatusLabels[b] })), { value: "none", label: "Not in Stripe" }]) : null}
-        {stripeProducts.length ? filterSelect("product", "Any Stripe product", stripeProducts.map((p) => ({ value: p, label: p }))) : null}
+        {filterSelect("product", "Any product", productFamilies.map((p) => ({ value: p, label: p })))}
         {shownTags.length ? filterSelect("tag", "Any label", shownTags.map((t) => ({ value: t, label: t }))) : null}
       </Toolbar>
       {!options.length ? (

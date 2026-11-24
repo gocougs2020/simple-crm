@@ -31,6 +31,7 @@ import type { Pipeline } from "@/lib/crm/context";
 import type { ClientCategory } from "@/lib/constants";
 import { daysSince } from "@/lib/format";
 import { ChangeCategoryDialog, HealthBadge, moves } from "./client-controls";
+import { ProductLineBadges } from "./product-tag";
 
 type Columns = Record<string, ClientRow[]>;
 
@@ -225,7 +226,7 @@ function SortableCard({ row, rottingDays, category }: { row: ClientRow; rottingD
   );
 }
 
-/** Name, who it's with, what they're worth, owner, and the next step. Flags clients with nothing planned or that have sat too long. */
+/** Name, who it's with, their product lines, what they're worth, owner, and the next step. Flags clients with nothing planned or that have sat too long. */
 function Card({ row, dragging, rottingDays, category }: { row: ClientRow; dragging?: boolean; rottingDays?: number | null; category: ClientCategory }) {
   const { money, member } = useApp();
   const d = row.client;
@@ -247,6 +248,7 @@ function Card({ row, dragging, rottingDays, category }: { row: ClientRow; draggi
         {d.name}
       </Link>
       {who ? <p className="mt-0.5 truncate text-[12.5px] text-muted">{who}</p> : null}
+      <ProductLineBadges lines={d.productLines} className="mt-1.5" />
       {category === "past" && d.churnReason ? <p className="mt-0.5 truncate text-[12px] text-muted">Left: {d.churnReason}</p> : null}
       <div className="mt-2 flex items-center gap-2">
         {amount ? (

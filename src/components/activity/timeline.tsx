@@ -43,6 +43,7 @@ import { Field, Input } from "@/components/ui/field";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tooltip } from "@/components/ui/menu";
 import { useUploader } from "@/components/files/files-panel";
 import type { FileLinks } from "@/components/files/upload";
+import { useMentionOptions } from "@/components/ui/mention-menu";
 import { preloadRichText, RichText } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
 import type { ActivityRow, NoteReply, RecordFile, TimelineItem } from "@/lib/crm/activities";
@@ -688,6 +689,7 @@ function CollapsibleBody({ html, defaultOpen = false }: { html: string; defaultO
  */
 function Replies({ noteId, replies: saved }: { noteId: string; replies: NoteReply[] }) {
   const { viewer, isAdmin, canEdit, workspace, services } = useApp();
+  const mentionable = useMentionOptions();
   const tz = workspace.timezone;
   const [open, setOpen] = useState(false);
   const [body, setBody] = useState("");
@@ -755,6 +757,7 @@ function Replies({ noteId, replies: saved }: { noteId: string; replies: NoteRepl
             minHeight={56}
             autoFocus
             toolbar={false}
+            mentions={mentionable}
             placeholder={services.ai.background ? `Reply. Type @ and a teammate's name to notify them, or @${appConfig.agent.name} to hand it something.` : "Reply. Type @ and a teammate's name to notify them."}
           />
           <div className="mt-1.5 flex justify-end gap-2">
@@ -968,7 +971,7 @@ const calendarDay = (iso: string, tz: string) => new Date(iso).toLocaleDateStrin
 
 /** One line of history: who changed what, from what, to what. */
 /** History the CRM writes by itself, which reads as a sentence with no one in front. */
-const systemEvents = new Set(["email_bounced", "email_complained", "texts_opted_out", "texts_opted_in", "billing_changed"]);
+const systemEvents = new Set(["email_bounced", "email_complained", "texts_opted_out", "texts_opted_in", "billing_changed", "products_synced"]);
 
 function EventItem({ event }: { event: { id: string; action: string; data: Record<string, unknown>; userId: string | null; apiKeyId: string | null; createdAt: Date } }) {
   const { workspace, member, money } = useApp();
@@ -1103,6 +1106,18 @@ function EventItem({ event }: { event: { id: string; action: string; data: Recor
       );
       icon = <CreditCardIcon className="size-3.5" />;
       break;
+    // Written by the Stripe sync: what they're subscribed to now set their product lines.
+    case "products_synced": {
+      const list = (v: unknown) => (Array.isArray(v) && v.length ? v.join(", ") : "none");
+      text = (
+        <>
+          Stripe set products to <strong className="font-medium text-secondary">{list(d.to)}</strong>
+          {Array.isArray(d.from) && d.from.length ? <> (was {list(d.from)})</> : null}
+        </>
+      );
+      icon = <CreditCardIcon className="size-3.5" />;
+      break;
+    }
     // Written by Resend's delivery reports, not by a person.
     case "email_bounced":
       text = (

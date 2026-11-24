@@ -260,6 +260,8 @@ export type ClientFilter = {
   billing?: string;
   /** The name of a Stripe product they're subscribed to now. */
   stripeProduct?: string;
+  /** A product line they're on (TalentScout, CoRecruit…), set by hand or by the Stripe sync. */
+  productLine?: string;
   sort?: string;
   dir?: "asc" | "desc";
 };
@@ -277,6 +279,7 @@ export async function listClients(f: ClientFilter = {}) {
   if (f.churnReason) where.push(eq(clients.churnReason, f.churnReason));
   if (f.billing) where.push(f.billing === "none" ? isNull(clients.stripeStatus) : eq(clients.stripeStatus, f.billing as never));
   if (f.stripeProduct) where.push(sql`${clients.stripeProducts} ? ${f.stripeProduct}`);
+  if (f.productLine) where.push(sql`${clients.productLines} ? ${f.productLine}`);
   if (f.q?.trim()) {
     const t = likeTerm(f.q);
     where.push(or(ilike(clients.name, t), ilike(organizations.name, t), ilike(sql`${people.firstName} || ' ' || coalesce(${people.lastName}, '')`, t))!);
@@ -326,6 +329,7 @@ export async function listClients(f: ClientFilter = {}) {
         stripeOwed: clients.stripeOwed,
         stripeCollected: clients.stripeCollected,
         stripeProducts: clients.stripeProducts,
+        productLines: clients.productLines,
       },
       stageName: stages.name,
       stagePosition: stages.position,
