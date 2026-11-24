@@ -57,6 +57,8 @@ export type StartRunInput = {
   batchId?: string | null;
   /** The scheduled job that started it. */
   scheduleId?: string | null;
+  /** The team chat message that mentioned the agent. */
+  chatMessageId?: string | null;
 };
 
 /**
@@ -167,6 +169,7 @@ export async function startRuns(actor: Actor, inputs: StartRunInput[]): Promise<
           clientId: input.clientId ?? null,
           batchId: input.batchId ?? null,
           scheduleId: input.scheduleId ?? null,
+          chatMessageId: input.chatMessageId ?? null,
         };
       }),
     )
@@ -503,6 +506,33 @@ async function postEnrichmentNote(run: Run) {
   await activities.logActivity(actor, { type: "note", subject: ENRICH_NOTE_SUBJECT, body, personId: run.personId, organizationId: run.organizationId }, { handOff: false });
 }
 
+/**
+ * The answer as a message in the team chat, replying to the message that called on the agent:
+ * posted as the teammate who asked, via the agent, so it reads "Agent, for Sam". It never calls on
+ * the agent again, whatever it says. Long answers are cut to fit a message; the whole answer stays on the run.
+ */
+async function postToChat(run: Run) {
+  if (run.source !== "team_chat" || !run.chatMessageId) return;
+  const user = await userOf(run.userId);
+  if (!user) return;
+  const chat = await import("@/lib/chat/service");
+  const { chatTextFromMarkdown } = await import("@/lib/chat/format");
+  const text =
+    run.status === "done"
+      ? chatTextFromMarkdown(run.result ?? "")
+      : run.status === "failed"
+        ? `${appConfig.agent.name} couldn't finish. ${run.error ?? ""}`.trim()
+        : `${appConfig.agent.name} stopped before finishing.`;
+  await chat.touchMessage(run.chatMessageId);
+  // A stopped run says nothing more: whoever stopped it knows.
+  if (run.status === "cancelled") return;
+  await chat.postChatMessage(await assistantActor(user), { body: text || "Done.", replyToId: run.chatMessageId }, { handOff: false }).catch(async (err) => {
+    // The message it answers was deleted meanwhile: post the answer on its own.
+    if (err instanceof NotFoundError) return chat.postChatMessage(await assistantActor(user), { body: text || "Done." }, { handOff: false });
+    throw err;
+  });
+}
+
 /** Emails the answer back to whoever forwarded the email (src/lib/forwarding/inbound.ts). */
 async function postToEmail(run: Run) {
   if (run.source !== "email") return;
@@ -516,6 +546,7 @@ async function deliver(run: Run) {
     postToThread(run).catch((err) => console.error("[agent] thread", err)),
     postToActivity(run).catch((err) => console.error("[agent] activity", err)),
     postToEmail(run).catch((err) => console.error("[agent] email", err)),
+    postToChat(run).catch((err) => console.error("[agent] team chat", err)),
     postEnrichmentNote(run).catch((err) => console.error("[agent] enrich", err)),
   ]);
   // One notification for a bulk request, when its last record is done, instead of one per record.

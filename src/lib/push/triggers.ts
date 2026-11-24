@@ -3,6 +3,7 @@ import { eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { actorUserId, type Actor } from "@/lib/crm/actor";
 import type { ActivityType, ClientCategory } from "@/lib/constants";
+import { emailMentioned } from "@/lib/notifications/mentions";
 import { notify, notifyEach, type Notice } from "./notify";
 import { activityTargets, activityVerb, noteTargets, stageTitle, type Owner } from "./routing";
 
@@ -118,11 +119,59 @@ const snippet = (text: string, fallback: string) => text.replace(/\s+/g, " ").tr
 export function noteWritten(a: Actor, note: { id: string; replyId?: string; people?: string[] } & Links, text: string, mentioned: string[], thread: (string | null)[] = []) {
   const who = actorName(a);
   const body = snippet(text, "Open it to read the note.");
-  const url = recordUrl(note);
+  const url = noteUrl(note);
   const dedupeKey = `note:${note.replyId ?? note.id}`;
   notifyEach(async () => noteTargets({ who, body, url, dedupeKey, reply: !!note.replyId, mentioned, thread, owners: await ownersOf(note, note.people) }), {
     except: actorUserId(a),
   });
+  // Mentioned teammates also get an email, with the note and a link to it.
+  emailMentioned(
+    mentioned,
+    async () => {
+      const [author, record] = await Promise.all([actorFullName(a), recordOf(note)]);
+      return {
+        kind: "note",
+        who: author,
+        title: `${author} mentioned you in ${note.replyId ? "a reply to a note" : "a note"}${record ? ` on ${record.name}` : ""}`,
+        text,
+        path: url,
+        action: "Open the note",
+        record,
+        dedupeKey,
+      };
+    },
+    { except: actorUserId(a) },
+  );
+}
+
+/** A note on its record's timeline (the entry's anchor), or on the Activities page when it's on no record. */
+export const noteUrl = (note: { id: string } & Links) => (note.clientId || note.personId || note.organizationId ? `${recordUrl(note)}#a-${note.id}` : "/activities");
+
+/** "Sam Lee", or "Sam Lee via Agent" when it came through a key or the agent. */
+export async function actorFullName(a: Actor) {
+  if (a.kind !== "user") return a.keyName;
+  if (!a.keyId) return a.user.name;
+  const db = await getDb();
+  const [key] = await db.select({ name: schema.apiKeys.name }).from(schema.apiKeys).where(eq(schema.apiKeys.id, a.keyId));
+  return key ? `${a.user.name} via ${key.name}` : a.user.name;
+}
+
+/** The record a note is on, for the email: its client, else its person, else its organization. */
+async function recordOf(l: Links): Promise<{ name: string; kind: string; path: string } | null> {
+  const db = await getDb();
+  if (l.clientId) {
+    const [c] = await db.select({ name: schema.clients.name }).from(schema.clients).where(eq(schema.clients.id, l.clientId));
+    if (c) return { name: c.name, kind: "client", path: `/clients/${l.clientId}` };
+  }
+  if (l.personId) {
+    const [p] = await db.select({ first: schema.people.firstName, last: schema.people.lastName }).from(schema.people).where(eq(schema.people.id, l.personId));
+    if (p) return { name: [p.first, p.last].filter(Boolean).join(" "), kind: "person", path: `/people/${l.personId}` };
+  }
+  if (l.organizationId) {
+    const [o] = await db.select({ name: schema.organizations.name }).from(schema.organizations).where(eq(schema.organizations.id, l.organizationId));
+    if (o) return { name: o.name, kind: "organization", path: `/organizations/${l.organizationId}` };
+  }
+  return null;
 }
 
 /**

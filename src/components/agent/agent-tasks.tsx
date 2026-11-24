@@ -22,7 +22,7 @@ function keepLabel() {
   return m === 60 ? "an hour" : m % 60 === 0 ? `${m / 60} hours` : `${m} minutes`;
 }
 
-const sourceLabels: Record<AgentTask["source"], string> = { chat: "From chat", mention: "From a note", task: "From a task", bulk: "Bulk request", api: "From a connected app", schedule: "Scheduled job", email: "From an email", enrich: "Enrich" };
+const sourceLabels: Record<AgentTask["source"], string> = { chat: "From chat", mention: "From a note", task: "From a task", bulk: "Bulk request", api: "From a connected app", schedule: "Scheduled job", email: "From an email", enrich: "Enrich", team_chat: "From team chat" };
 
 function StatusIcon({ status }: { status: AgentRunStatus }) {
   if (status === "running") return <ArrowPathIcon className="size-4 shrink-0 animate-spin text-accent" aria-hidden />;

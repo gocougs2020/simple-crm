@@ -3,14 +3,14 @@
 import clsx from "clsx";
 import { useEffect, useState, useTransition } from "react";
 import { BellAlertIcon, BellSlashIcon, ComputerDesktopIcon, DevicePhoneMobileIcon } from "@heroicons/react/24/outline";
-import { removeDevice, sendAgendaPreview, sendTestNotification, setDeviceAlerts, setEmailDigests } from "@/actions/notifications";
+import { removeDevice, sendAgendaPreview, sendTestNotification, setDeviceAlerts, setEmailDigests, setMentionEmails } from "@/actions/notifications";
 import { enablePush } from "@/components/push/enable-push";
 import { useApp } from "@/components/app-context";
 import { StatusBadge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
-import { emailDigestKinds, emailDigestLabels, notificationGroups, notificationKinds, notificationLabels, type EmailDigestKind, type NotificationKind } from "@/lib/constants";
+import { emailDigestKinds, emailDigestLabels, mentionEmailKinds, mentionEmailLabels, notificationGroups, notificationKinds, notificationLabels, wantsMentionEmail, type EmailDigestKind, type MentionEmailKind, type NotificationKind } from "@/lib/constants";
 import { formatAgo } from "@/lib/format";
 import { morningHour } from "@/lib/notifications/schedule";
 import { currentSubscription, isIos, isStandalone, pushSupported } from "@/lib/push/client";
@@ -144,6 +144,7 @@ export function NotificationSettings({ publicKey, devices }: { publicKey: string
         </Section>
       ) : null}
 
+      <MentionEmails />
       <EmailDigests />
     </>
   );
@@ -264,6 +265,39 @@ function OtherDevice({ device, pending, tz, onRemove }: { device: Device; pendin
         </div>
       </details>
     </div>
+  );
+}
+
+/** Emails when a teammate mentions you in a note or the team chat: on unless turned off, for this teammate on every device. */
+function MentionEmails() {
+  const { viewer, services } = useApp();
+  const [wants, setWants] = useState<Record<MentionEmailKind, boolean>>({ note: wantsMentionEmail(viewer.prefs, "note"), chat: wantsMentionEmail(viewer.prefs, "chat") });
+  const [pending, start] = useTransition();
+  const toggle = (kind: MentionEmailKind, on: boolean) => {
+    const next = { ...wants, [kind]: on };
+    setWants(next);
+    start(async () => {
+      const r = await setMentionEmails(next);
+      if (!r.ok) {
+        setWants(wants);
+        toast.error(r.error);
+      }
+    });
+  };
+  return (
+    <Section
+      title="Mention emails"
+      description={`An email to ${viewer.email} when a teammate writes @ and your name, with what they wrote and a link straight to it.${services.email ? "" : " Email isn't connected on this deployment yet, so nothing goes out until an admin connects it."}`}
+    >
+      <ul className="divide-y divide-line">
+        {mentionEmailKinds.map((k) => (
+          <li key={k} className="p-5">
+            <Checkbox label={mentionEmailLabels[k].label} checked={wants[k]} disabled={pending} onChange={(e) => toggle(k, e.target.checked)} />
+            <p className="mt-0.5 pl-6 text-[12px] text-muted">{mentionEmailLabels[k].hint}</p>
+          </li>
+        ))}
+      </ul>
+    </Section>
   );
 }
 

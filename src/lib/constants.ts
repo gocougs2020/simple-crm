@@ -172,7 +172,7 @@ export const notificationGroups: { title: string; kinds: NotificationKind[] }[] 
 export const defaultNotificationKinds: NotificationKind[] = notificationKinds.filter((k) => k !== "chat_message");
 
 /** Where a background run of the agent came from (docs/AGENT.md). */
-export const agentRunSources = ["chat", "mention", "task", "bulk", "api", "schedule", "email", "enrich"] as const;
+export const agentRunSources = ["chat", "mention", "task", "bulk", "api", "schedule", "email", "enrich", "team_chat"] as const;
 export type AgentRunSource = (typeof agentRunSources)[number];
 /** queued: accepted, not started. running: the agent is working. The rest are final. */
 export const agentRunStatuses = ["queued", "running", "done", "failed", "cancelled"] as const;
@@ -213,6 +213,19 @@ export const emailDigestLabels: Record<EmailDigestKind, { label: string; hint: s
   daily: { label: "Daily agenda, every weekday morning", hint: "Today's meetings, plus tasks due today and anything overdue. On Mondays the weekly agenda takes its place if it's on." },
   weekly: { label: "Weekly agenda, every Monday morning", hint: "This week's meetings, tasks due today or overdue, and tasks coming up later in the week." },
 };
+
+/**
+ * Emails a teammate gets when someone mentions them (Settings → Notifications). On unless they turn
+ * them off: a mention is someone asking for them by name. Push alerts for the same mentions are chosen per device.
+ */
+export const mentionEmailKinds = ["note", "chat"] as const;
+export type MentionEmailKind = (typeof mentionEmailKinds)[number];
+export const mentionEmailLabels: Record<MentionEmailKind, { label: string; hint: string }> = {
+  note: { label: "Mentioned in a note", hint: "When a teammate writes @ and your name in a note or a reply on a client, person or organization. The email links to the note." },
+  chat: { label: "Mentioned in team chat", hint: "When a teammate writes @ and your name in the team chat. The email links to the message." },
+};
+/** Whether a teammate wants this mention email: on unless they turned it off. */
+export const wantsMentionEmail = (prefs: { emailMentions?: Partial<Record<MentionEmailKind, boolean>> } | null | undefined, kind: MentionEmailKind) => prefs?.emailMentions?.[kind] !== false;
 
 /** Campaigns go out as email (Resend) or as texts (Twilio). */
 export const campaignChannels = ["email", "text"] as const;

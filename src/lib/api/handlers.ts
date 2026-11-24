@@ -7,6 +7,7 @@ import * as schedules from "@/lib/agent/schedules";
 import * as skills from "@/lib/agent/skills";
 import { can, type Actor } from "@/lib/crm/actor";
 import { dayBounds } from "@/lib/crm/activities";
+import * as chat from "@/lib/chat/service";
 import * as activities from "@/lib/crm/service/activities";
 import * as clients from "@/lib/crm/service/clients";
 import * as drafts from "@/lib/crm/service/drafts";
@@ -100,6 +101,18 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
     return deleted(params.id);
   },
   addScheduledJob: async (a, { params }) => q.toScheduledJob(await schedules.addSharedJob(a, params.id)),
+
+  // Team chat
+  async listChatMessages(a, { query }, ctx) {
+    const page = await chat.queryChat(a, query);
+    return { data: await q.toChatMessages(page.messages, ctx), nextCursor: page.nextCursor };
+  },
+  getChatMessage: async (a, { params }, ctx) => (await q.toChatMessages([await chat.getChatMessage(a, params.id)], ctx))[0],
+  async postChatMessage(a, { body }, ctx) {
+    // Through a key, an app or an agent: it never calls on the CRM's agent, whatever it says.
+    const row = await chat.postChatMessage(a, { body: body.body, replyToId: body.replyToId ?? null }, { handOff: false });
+    return (await q.toChatMessages([await chat.getChatMessage(a, row.id)], ctx))[0];
+  },
 
   async me(a) {
     const db = await getDb();

@@ -27,16 +27,31 @@ export function forwardDomain(env = process.env.FORWARD_EMAIL_DOMAIN) {
   return d && /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d) ? d : null;
 }
 
-/** The part before the @: the agent's name (agent.name), lowercased, as letters, digits, dots and dashes. "Agent" → agent. */
-export function agentMailbox(name = appConfig.agent.name) {
-  const local = name
+/** A name as the part before the @: lowercased, as letters, digits, dots and dashes. "Ada Lovelace" → ada.lovelace. */
+function asMailbox(name: string) {
+  return name
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9.-]+/g, ".")
     .replace(/^[.-]+|[.-]+$/g, "")
     .replace(/\.{2,}/g, ".");
-  return local || "agent";
+}
+
+/**
+ * The part before the @: `agent.forwarding.mailbox` when it's set, else the agent's name (agent.name).
+ * "Agent" → agent; a deployment that renames the agent "Recruiting Insight AI" can keep agent@ with mailbox "agent".
+ */
+export function agentMailbox(name = appConfig.agent.name, configured = cfg().mailbox) {
+  return asMailbox(configured ?? "") || asMailbox(name) || "agent";
+}
+
+/**
+ * Every part before the @ that reaches the agent: the configured one first, then the one its name gives.
+ * Both work, so setting a mailbox (or renaming the agent) doesn't strand a conversation already going.
+ */
+export function agentMailboxes(name = appConfig.agent.name, configured = cfg().mailbox) {
+  return [...new Set([agentMailbox(name, configured), agentMailbox(name, "")])];
 }
 
 /**
@@ -47,14 +62,17 @@ export function forwardAddress(domain: string, conversationKey?: string | null, 
   return `${mailbox}${conversationKey ? `+${conversationKey}` : ""}@${domain}`;
 }
 
-/** Whether an address is the agent's (and the conversation key, on a reply address), or null for any other address. */
-export function parseForwardAddress(address: string, domain: string, mailbox = agentMailbox()): { conversationKey: string | null } | null {
+/** Whether an address is the agent's (and the conversation key, on a reply address), or null for any other address. Any of `mailboxes` counts. */
+export function parseForwardAddress(address: string, domain: string, mailboxes: string | string[] = agentMailboxes()): { conversationKey: string | null } | null {
   const at = address.trim().toLowerCase().lastIndexOf("@");
   if (at === -1 || address.trim().toLowerCase().slice(at + 1) !== domain) return null;
   const local = address.trim().toLowerCase().slice(0, at);
-  if (local === mailbox) return { conversationKey: null };
-  const m = new RegExp(`^${mailbox.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\+([a-z2-7]{${KEY_LENGTH}})$`).exec(local);
-  return m ? { conversationKey: m[1] } : null;
+  for (const mailbox of Array.isArray(mailboxes) ? mailboxes : [mailboxes]) {
+    if (local === mailbox) return { conversationKey: null };
+    const m = new RegExp(`^${mailbox.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\+([a-z2-7]{${KEY_LENGTH}})$`).exec(local);
+    if (m) return { conversationKey: m[1] };
+  }
+  return null;
 }
 
 /**

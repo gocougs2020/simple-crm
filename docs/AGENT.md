@@ -125,12 +125,13 @@ Every file added to the CRM (on the Files page, a client, person or organization
 
 Some jobs take too long for a chat answer: researching a company on the web and adding its people with titles and contact details, working out who the decision maker is, cleaning up a set of records, preparing a follow-up. The agent does these in the background, like a teammate you hand something to. It keeps working after the panel is closed and reports back when it's done.
 
-### Three ways to hand it work
+### Ways to hand it work
 
 | How | What happens | Where the answer goes |
 | --- | --- | --- |
 | **Ask in chat** | The chat agent does quick things itself and hands long ones off with `start_background_task`. | Posted back into that chat, and listed under "Background tasks" at the top of the panel |
 | **Mention it in a note** | A note that says `@Agent` (or `@` and whatever `agent.name` is) on a person, organization or client starts a run with the note as the request. So does a reply under a note: the reply is the request, and the note and its earlier replies go along as quoted context (information, not instructions), so a follow-up ("@Agent do the same for their Denver office") makes sense. | A reply under that note |
+| **Mention it in the team chat** | A team chat message that says `@Agent` starts a run with the message as the request. The 15 messages before it, and the message it replies to, go along as quoted context (information, not instructions), so "@Agent add the people Jo mentioned to Acme" makes sense. The message shows "Agent: working", then "done" | A reply to that message in the team chat, which reads "Agent, for Sam". Long answers are cut to fit a message; the whole answer is under Background tasks |
 | **Assign it a task** | In the task form, pick the agent under "Assigned to" (or pass `agent: true` to `create_task` / `update_task`). The task stays yours. | Added to the task, which is then marked done |
 | **Schedule it** | A [scheduled job](#scheduled-jobs) starts a run each time it's due. | Saved on the run, under "Background tasks", with a notification |
 | **Email it** | Forward an email to the agent's address, or Cc it on a thread. See [Email forwarding](#email-forwarding). | Emailed back to whoever sent it, who can answer by replying |
@@ -152,7 +153,8 @@ A run works for one teammate: whoever asked in chat, wrote the note or assigned 
 - **It needs edit access to start.** Viewers, read-only keys and read-only connected apps can't start background work, since a run changes records.
 - **Everything it does is theirs, via the agent.** Notes, tasks, field changes and drafts show as "Sam via Agent" in history, exactly like the chat agent's changes.
 - **Less than chat in one way.** Nobody is watching a run, so it can't archive, delete or merge (those wait for a confirm button in chat), can't send anything, can't start more runs, and can't create or change skills or scheduled jobs.
-- **Only a person can call on it from a note.** A mention counts only in a note or a reply a teammate wrote in the browser. Text written by an agent or a script never starts work, whatever it says.
+- **Only a person can call on it from a note or the chat.** A mention counts only in a note, a reply or a team chat message a teammate wrote in the browser. Text written by an agent, a key or a script (including a message posted with `post_chat_message`) never starts work, whatever it says.
+- **It can report back in the team chat.** Runs have `list_chat_messages` and `post_chat_message`, so a request like "@Agent research Acme's new office and post a summary in the team chat" works from a note, a task or a scheduled job. What it posts reads "via Agent", and any teammate it mentions is notified and emailed.
 
 ### Research can't change anything
 
@@ -171,13 +173,13 @@ Enrich, on the Details card of a person or an organization, hands the record to 
 
 Internal email about a client (two teammates discussing how an account is doing, say) never reaches the mailbox sync, because the client isn't on it. Sending it to the agent brings what matters into the CRM.
 
-The team shares one address: the agent's name (`agent.name`, lowercased) at `FORWARD_EMAIL_DOMAIN`, like `agent@email.yourdomain.com`. Whoever sends to it is who it works for, proven by their domain's DKIM signature, so it needs no secret and is easy to remember.
+The team shares one address: the agent's name (`agent.name`, lowercased, spaces as dots) at `FORWARD_EMAIL_DOMAIN`, like `agent@email.yourdomain.com`. To keep a short address when the agent has a longer name, set `agent.forwarding.mailbox` (for example `NEXT_PUBLIC_APP_CONFIG={"agent":{"name":"Recruiting Insight AI","forwarding":{"mailbox":"agent"}}}` gives `agent@…`). The name-based address keeps working beside it, so replies in conversations already going still arrive. Whoever sends to it is who it works for, proven by their domain's DKIM signature, so it needs no secret and is easy to remember.
 
 **Setting it up (once, an admin):**
 
 1. Pick the domain: a subdomain of your company's, like `email.yourdomain.com`, never the domain your mailboxes use (receiving needs its MX record, which would take your company mail away from Microsoft 365 or Google). If you already receive mail into Resend inboxes on a subdomain, use that one: the agent's address sits beside them, and nothing changes in DNS.
    - A name that's a CNAME (Vercel's usual setup for a subdomain the website lives on) can't also have an MX record. Use another name, or point the website there with Vercel's A records instead.
-2. In Resend, add that domain if it isn't there yet, turn on receiving and add the MX record it shows. Don't create a Resend inbox with the agent's name on it: the address must stay free for the agent.
+2. In Resend, add that domain if it isn't there yet, turn on receiving and add the MX record it shows. Don't create a Resend inbox at the agent's address (its mailbox or its name): the address must stay free for the agent.
 3. Set `FORWARD_EMAIL_DOMAIN=email.yourdomain.com` and redeploy. Settings → Agent shows the address.
 4. Settings → Email domains → reconnect the webhook, so it also sends `email.received`.
 5. Check that your mail is DKIM-signed with your own domain, since that's how an email proves who sent it. Send any email from your work mailbox to a Gmail address and open "Show original": it should say `DKIM: 'PASS' with domain yourdomain.com`. If it names another domain (Microsoft 365's default `….onmicrosoft.com`) or there's no DKIM line, turn on DKIM for your domain: in Microsoft 365, the Defender portal → Email authentication settings → DKIM (it asks for two CNAME records, `selector1._domainkey` and `selector2._domainkey`); in Google Workspace, Admin console → Gmail → Authenticate email.
@@ -252,7 +254,7 @@ The agent never sends email or texts, in chat or in the background. `draft_messa
 ### How a run works
 
 ```
-teammate ── chat / @mention / task ──▶ CRM: agent_runs row (queued → running)
+teammate ── chat / @mention (note or team chat) / task ──▶ CRM: agent_runs row (queued → running)
                                         │  signs a token for this run and teammate
                                         ▼
                          eve agent (agent/, served at /eve/v1)
@@ -261,7 +263,7 @@ teammate ── chat / @mention / task ──▶ CRM: agent_runs row (queued →
                                         │
                      report hook ──▶ /api/agent/runs/report: answer, cost
                                         ▼
-                    CRM saves the answer (chat thread, reply note or task) and notifies
+                    CRM saves the answer (chat thread, reply note, team chat reply or task) and notifies
 ```
 
 - The worker is an [eve](https://eve.dev) agent in `agent/`, a second service of the same Vercel project. `withEve` in `next.config.ts` builds it with the app and starts it with `next dev`. It needs Node.js 24 or newer; on older versions, or with background work off, the app builds and runs without it.

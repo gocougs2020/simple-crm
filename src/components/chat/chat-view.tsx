@@ -3,8 +3,9 @@
 import Link from "next/link";
 import clsx from "clsx";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
-import { ArrowUpIcon, PaperClipIcon, PencilSquareIcon, TrashIcon, XMarkIcon } from "@heroicons/react/20/solid";
+import { ArrowUpIcon, ArrowUturnLeftIcon, PaperClipIcon, PencilSquareIcon, SparklesIcon, TrashIcon, XMarkIcon } from "@heroicons/react/20/solid";
 import { ChatBubbleOvalLeftEllipsisIcon } from "@heroicons/react/24/outline";
+import { appConfig } from "@/app.config";
 import { deleteChatMessage, editChatMessage, loadChatChanges, loadEarlierChat, markChatRead, postChatMessage } from "@/actions/chat";
 import { useApp } from "@/components/app-context";
 import { FileIcon } from "@/components/files/files-panel";
@@ -13,6 +14,7 @@ import { adoptVersions, MOVED_EVENT } from "@/components/live-updates";
 import { setBadges } from "@/components/shell/badge-store";
 import { PageHeader } from "@/components/shell/app-shell";
 import { Avatar } from "@/components/ui/avatar";
+import { StatusBadge } from "@/components/ui/badge";
 import { Button, Spinner } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Kbd } from "@/components/ui/field";
@@ -22,6 +24,7 @@ import type { TeamMember } from "@/lib/crm/context";
 import type { ChatMessage } from "@/lib/chat/service";
 import { matchMentions } from "@/lib/crm/mentions";
 import { chatSegments, MAX_CHAT_FILES, MAX_CHAT_LENGTH, mentionQuery } from "@/lib/chat/format";
+import { agentRunStatusLabels } from "@/lib/constants";
 import { dayKey, formatBytes, formatDay, formatFull, formatTime } from "@/lib/format";
 
 /** Messages from the same person this close together read as one block. */
@@ -37,7 +40,7 @@ const pullChat = () => window.dispatchEvent(new CustomEvent(MOVED_EVENT, { detai
  * changed since `version` (no page refresh). Scrolling to the top loads earlier ones.
  */
 export function ChatView({ latest, hasMore, version }: { latest: ChatMessage[]; hasMore: boolean; version: string }) {
-  const { team, viewer } = useApp();
+  const { team, viewer, services } = useApp();
   const [older, setOlder] = useState<ChatMessage[]>([]);
   // What changed since the page rendered: a message by id, or null once deleted.
   const [changed, setChanged] = useState<{ from: ChatMessage[]; map: Map<string, ChatMessage | null> }>({ from: latest, map: new Map() });
@@ -45,6 +48,8 @@ export function ChatView({ latest, hasMore, version }: { latest: ChatMessage[]; 
   const [moreBefore, setMoreBefore] = useState(hasMore);
   const [loadingOlder, startOlder] = useTransition();
   const [highlight, setHighlight] = useState<string | null>(null);
+  // The message the composer is replying to, if any.
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
   const keepFrom = useRef<number | null>(null);
@@ -93,7 +98,7 @@ export function ChatView({ latest, hasMore, version }: { latest: ChatMessage[]; 
         if (!r.data.changes.length) return;
         setChanged((c) => {
           const map = new Map(c.from === from ? c.map : []);
-          for (const m of r.data.changes) map.set(m.id, m.deleted ? null : { id: m.id, userId: m.userId, body: m.body, mentions: m.mentions, createdAt: m.createdAt, editedAt: m.editedAt, files: m.files });
+          for (const { deleted, ...m } of r.data.changes) map.set(m.id, deleted ? null : m);
           return { from, map };
         });
       } finally {
@@ -177,7 +182,7 @@ export function ChatView({ latest, hasMore, version }: { latest: ChatMessage[]; 
 
   return (
     <div className="flex h-app flex-col">
-      <PageHeader title="Team chat" sub={<p className="mt-0.5 text-[12.5px] text-muted">One conversation for everyone on the team. Type @ to mention someone.</p>} />
+      <PageHeader title="Team chat" sub={<p className="mt-0.5 text-[12.5px] text-muted">One conversation for everyone on the team. Type @ to mention someone{services.ai.background ? `, or @${appConfig.agent.name} to hand it something` : ""}.</p>} />
       <div
         ref={scroller}
         className="min-h-0 flex-1 overflow-y-auto scroll-thin"
@@ -198,22 +203,28 @@ export function ChatView({ latest, hasMore, version }: { latest: ChatMessage[]; 
             <p className="pb-4 text-center text-fine">This is the start of the team chat.</p>
           ) : null}
           {messages.length ? (
-            <MessageList messages={messages} team={team} viewerId={viewer.id} highlight={highlight} />
+            <MessageList messages={messages} team={team} viewerId={viewer.id} highlight={highlight} onReply={setReplyTo} />
           ) : (
             <EmptyState icon={ChatBubbleOvalLeftEllipsisIcon} title="No messages yet" description="Say hello to the team. Everyone who can sign in sees this chat, and @ mentions send a notification." variant="subtle" />
           )}
         </div>
       </div>
       <Composer
+        replyTo={replyTo}
+        onCancelReply={() => setReplyTo(null)}
         onPosted={() => {
           atBottom.current = true;
+          setReplyTo(null);
         }}
       />
     </div>
   );
 }
 
-function MessageList({ messages, team, viewerId, highlight }: { messages: ChatMessage[]; team: TeamMember[]; viewerId: string; highlight: string | null }) {
+/** Who a message reads as from: the teammate, or the agent answering for them. Messages from one sender group together. */
+const senderKey = (m: ChatMessage) => (m.via?.agent ? `agent:${m.userId}` : `${m.userId}:${m.via?.name ?? ""}`);
+
+function MessageList({ messages, team, viewerId, highlight, onReply }: { messages: ChatMessage[]; team: TeamMember[]; viewerId: string; highlight: string | null; onReply: (m: ChatMessage) => void }) {
   const { workspace } = useApp();
   const tz = workspace.timezone;
   return (
@@ -221,7 +232,7 @@ function MessageList({ messages, team, viewerId, highlight }: { messages: ChatMe
       {messages.map((m, i) => {
         const prev = messages[i - 1];
         const newDay = !prev || dayKey(prev.createdAt, tz) !== dayKey(m.createdAt, tz);
-        const grouped = !newDay && prev.userId === m.userId && new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < GROUP_MS;
+        const grouped = !newDay && senderKey(prev) === senderKey(m) && !m.replyTo && new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < GROUP_MS;
         return (
           <Fragment key={m.id}>
             {newDay ? (
@@ -233,7 +244,7 @@ function MessageList({ messages, team, viewerId, highlight }: { messages: ChatMe
                 <span className="h-px flex-1 bg-line" />
               </li>
             ) : null}
-            <Message message={m} grouped={grouped} team={team} mine={m.userId === viewerId} mentionsMe={m.mentions.includes(viewerId)} highlight={highlight === m.id} />
+            <Message message={m} grouped={grouped} team={team} mine={m.userId === viewerId && !m.via} mentionsMe={m.mentions.includes(viewerId)} highlight={highlight === m.id} onReply={() => onReply(m)} />
           </Fragment>
         );
       })}
@@ -241,11 +252,32 @@ function MessageList({ messages, team, viewerId, highlight }: { messages: ChatMe
   );
 }
 
-function Message({ message: m, grouped, team, mine, mentionsMe, highlight }: { message: ChatMessage; grouped: boolean; team: TeamMember[]; mine: boolean; mentionsMe: boolean; highlight: boolean }) {
+function Message({
+  message: m,
+  grouped,
+  team,
+  mine,
+  mentionsMe,
+  highlight,
+  onReply,
+}: {
+  message: ChatMessage;
+  grouped: boolean;
+  team: TeamMember[];
+  mine: boolean;
+  mentionsMe: boolean;
+  highlight: boolean;
+  onReply: () => void;
+}) {
   const { member, workspace, isAdmin, viewer } = useApp();
   const tz = workspace.timezone;
   const author = member(m.userId);
-  const name = author?.name ?? "Former teammate";
+  const person = author?.name ?? "Former teammate";
+  // The agent's answers read as the agent, for whoever asked; a key or connected app reads "via Claude".
+  const name = m.via?.agent ? appConfig.agent.name : person;
+  const byline = m.via?.agent ? `for ${person}` : m.via ? `via ${m.via.name}` : null;
+  // Your own messages typed here can be edited; anything you or an admin posted can be deleted.
+  const canDelete = m.userId === viewer.id || isAdmin;
   const [editing, setEditing] = useState(false);
   const [pending, start] = useTransition();
   const segments = useMemo(() => chatSegments(m.body, team), [m.body, team]);
@@ -267,6 +299,10 @@ function Message({ message: m, grouped, team, mine, mentionsMe, highlight }: { m
           <time dateTime={new Date(m.createdAt).toISOString()} title={formatFull(m.createdAt, tz)} className="invisible block pt-0.5 text-right text-[10.5px] text-faint tabular-nums group-hover:visible" suppressHydrationWarning>
             {formatTime(m.createdAt, tz).replace(/\s?[AP]M$/, "")}
           </time>
+        ) : m.via?.agent ? (
+          <span className="flex size-8 items-center justify-center rounded-full bg-accent-soft text-accent" aria-hidden>
+            <SparklesIcon className="size-4" />
+          </span>
         ) : (
           <Avatar name={name} size="md" />
         )}
@@ -275,11 +311,13 @@ function Message({ message: m, grouped, team, mine, mentionsMe, highlight }: { m
         {!grouped ? (
           <p className="flex items-baseline gap-2">
             <span className="text-[13.5px] font-semibold text-primary">{name}</span>
+            {byline ? <span className="text-[12px] text-muted">{byline}</span> : null}
             <time dateTime={new Date(m.createdAt).toISOString()} title={formatFull(m.createdAt, tz)} className="text-[11.5px] text-faint" suppressHydrationWarning>
               {formatTime(m.createdAt, tz)}
             </time>
           </p>
         ) : null}
+        {m.replyTo ? <ReplyQuote reply={m.replyTo} team={team} /> : null}
         {editing ? (
           <EditBox
             initial={m.body}
@@ -299,6 +337,10 @@ function Message({ message: m, grouped, team, mine, mentionsMe, highlight }: { m
             {segments.map((s, i) =>
               s.kind === "mention" ? (
                 <Link key={i} href={`/team/${s.userId}`} className={clsx("rounded px-0.5 font-medium hover:underline", s.userId === viewer.id ? "bg-warning-surface text-warning" : "bg-mention-surface text-mention")}>
+                  {s.text}
+                </Link>
+              ) : s.kind === "link" && s.href.startsWith("/") ? (
+                <Link key={i} href={s.href} className="text-accent underline underline-offset-2 hover:text-accent-hover">
                   {s.text}
                 </Link>
               ) : s.kind === "link" ? (
@@ -343,14 +385,25 @@ function Message({ message: m, grouped, team, mine, mentionsMe, highlight }: { m
             ))}
           </ul>
         ) : null}
+        {m.agentRun ? (
+          <p className="mt-1">
+            <StatusBadge tone={m.agentRun.status === "done" ? "success" : m.agentRun.status === "failed" ? "error" : m.agentRun.status === "cancelled" ? "neutral" : "info"} icon={<SparklesIcon aria-hidden />}>
+              {appConfig.agent.name}: {agentRunStatusLabels[m.agentRun.status].toLowerCase()}
+            </StatusBadge>
+          </p>
+        ) : null}
       </div>
-      {!editing && (mine || isAdmin) ? (
-        <div className="absolute -top-3 right-2 hidden items-center rounded-md border border-line bg-surface shadow-sm group-focus-within:flex group-hover:flex">
+      {!editing ? (
+        <div className="absolute -top-3 right-2 hidden items-center rounded-md border border-line bg-surface shadow-sm group-focus-within:flex group-hover:flex [&>button:first-child]:rounded-l-md [&>button:last-child]:rounded-r-md">
+          <button type="button" onClick={onReply} className="p-1.5 text-faint hover:bg-sunken hover:text-primary" aria-label="Reply">
+            <ArrowUturnLeftIcon className="size-4" />
+          </button>
           {mine ? (
-            <button type="button" onClick={() => setEditing(true)} className="rounded-l-md p-1.5 text-faint hover:bg-sunken hover:text-primary" aria-label="Edit message">
+            <button type="button" onClick={() => setEditing(true)} className="p-1.5 text-faint hover:bg-sunken hover:text-primary" aria-label="Edit message">
               <PencilSquareIcon className="size-4" />
             </button>
           ) : null}
+          {canDelete ? (
           <button
             type="button"
             disabled={pending}
@@ -362,14 +415,28 @@ function Message({ message: m, grouped, team, mine, mentionsMe, highlight }: { m
                 else pullChat();
               });
             }}
-            className={clsx("p-1.5 text-faint hover:bg-sunken hover:text-error", mine ? "rounded-r-md" : "rounded-md")}
+            className="p-1.5 text-faint hover:bg-sunken hover:text-error"
             aria-label="Delete message"
           >
             <TrashIcon className="size-4" />
           </button>
+          ) : null}
         </div>
       ) : null}
     </li>
+  );
+}
+
+/** The message a reply answers: who wrote it and how it starts, linking back to it. */
+function ReplyQuote({ reply, team }: { reply: NonNullable<ChatMessage["replyTo"]>; team: TeamMember[] }) {
+  const name = team.find((t) => t.id === reply.userId)?.name ?? "Former teammate";
+  const text = reply.deleted ? "Deleted message" : reply.body.replace(/\s+/g, " ").trim() || "A file";
+  return (
+    <a href={`#m-${reply.id}`} className="mb-0.5 flex max-w-full items-center gap-1.5 text-[12.5px] text-muted hover:text-primary">
+      <ArrowUturnLeftIcon className="size-3.5 shrink-0 -scale-x-100 text-faint" aria-hidden />
+      <span className="shrink-0 font-medium">{name}</span>
+      <span className={clsx("truncate", reply.deleted && "italic")}>{text}</span>
+    </a>
   );
 }
 
@@ -395,9 +462,9 @@ function EditBox({ initial, pending, onSave, onCancel }: { initial: string; pend
 
 type Pending = { key: string; name: string; pct: number; id?: string; failed?: boolean };
 
-function Composer({ onPosted }: { onPosted: () => void }) {
+function Composer({ replyTo, onCancelReply, onPosted }: { replyTo: ChatMessage | null; onCancelReply: () => void; onPosted: () => void }) {
   // Viewers can post, but not attach files.
-  const { services, canEdit } = useApp();
+  const { services, canEdit, member } = useApp();
   const [body, setBody] = useState("");
   const [attached, setAttached] = useState<Pending[]>([]);
   const [over, setOver] = useState(false);
@@ -428,7 +495,7 @@ function Composer({ onPosted }: { onPosted: () => void }) {
   const send = () => {
     if (sending || uploading || (!body.trim() && !ready.length)) return;
     start(async () => {
-      const r = await postChatMessage({ body, fileIds: ready.map((a) => a.id!) });
+      const r = await postChatMessage({ body, fileIds: ready.map((a) => a.id!), replyToId: replyTo?.id ?? null });
       if (!r.ok) return void toast.error(r.error);
       setBody("");
       setAttached([]);
@@ -456,6 +523,18 @@ function Composer({ onPosted }: { onPosted: () => void }) {
       {/* On a desktop, room on the right for the agent's button in the bottom corner. Phones have it in the top bar. */}
       <div className="mx-auto max-w-4xl lg:pr-[4.25rem]">
         <div className="rounded-xl border border-line bg-surface shadow-sm focus-within:border-ring focus-within:ring-1 focus-within:ring-ring">
+          {replyTo ? (
+            <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-[12.5px] text-muted">
+              <ArrowUturnLeftIcon className="size-3.5 shrink-0 text-faint" aria-hidden />
+              <span className="min-w-0 truncate">
+                Replying to <span className="font-medium text-secondary">{replyTo.via?.agent ? appConfig.agent.name : (member(replyTo.userId)?.name ?? "Former teammate")}</span>
+                {replyTo.body ? `: ${replyTo.body.replace(/\s+/g, " ").slice(0, 120)}` : ""}
+              </span>
+              <button type="button" onClick={onCancelReply} className="ml-auto rounded-full p-0.5 text-faint hover:bg-sunken hover:text-primary" aria-label="Stop replying">
+                <XMarkIcon className="size-3.5" />
+              </button>
+            </div>
+          ) : null}
           {attached.length ? (
             <ul className="flex flex-wrap gap-1.5 border-b border-line px-3 py-2" aria-label="Attached files">
               {attached.map((a) => (
@@ -482,7 +561,7 @@ function Composer({ onPosted }: { onPosted: () => void }) {
               <span className="w-2" />
             )}
             <div className="min-w-0 flex-1">
-              <MentionTextarea value={body} onChange={setBody} onSubmit={send} onPasteFiles={canEdit ? attach : undefined} placeholder="Message the team" label="Message" bare />
+              <MentionTextarea value={body} onChange={setBody} onSubmit={send} onPasteFiles={canEdit ? attach : undefined} placeholder={services.ai.background ? `Message the team, or @${appConfig.agent.name} to hand it something` : "Message the team"} label="Message" bare />
             </div>
             <Button variant="primary" size="icon-sm" onClick={send} disabled={uploading || (!body.trim() && !ready.length)} loading={sending} aria-label="Send">
               <ArrowUpIcon />

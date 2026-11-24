@@ -167,7 +167,7 @@ export type AppConfig = {
       clearAfterMinutes: number;
     };
     /**
-     * Email forwarding: one address for the team, the agent's name at FORWARD_EMAIL_DOMAIN
+     * Email forwarding: one address for the team, `mailbox` (or the agent's name) at FORWARD_EMAIL_DOMAIN
      * (agent@email.acme.com), to forward email to or copy on a thread. Whoever sent it (proven by
      * their domain's DKIM signature) is who it works for. The agent works out which records it's
      * about, records what matters, and replies by email, asking when it's unsure. Needs background
@@ -175,6 +175,12 @@ export type AppConfig = {
      */
     forwarding: {
       enabled: boolean;
+      /**
+       * The part of the address before the @, like "agent" for agent@email.acme.com. Empty uses the
+       * agent's name (agent.name, lowercased, spaces as dots). Mail to the name-based address still
+       * reaches the agent too, so changing either one doesn't strand a conversation already going.
+       */
+      mailbox: string;
       /** The most emails one teammate can send the agent in an hour. More are refused (and listed in Settings), so a mail loop can't run up spend. */
       perHour: number;
       /** How many times one conversation can go back and forth before the agent asks for a fresh forward. */
@@ -365,6 +371,7 @@ const defaults = {
     },
     forwarding: {
       enabled: true,
+      mailbox: "",
       perHour: 20,
       maxRounds: 8,
       maxChars: 40_000,

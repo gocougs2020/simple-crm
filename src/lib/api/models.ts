@@ -334,6 +334,23 @@ export const Draft = z.object({
   createdAt: z.string(),
 });
 
+export const ChatMessage = z.object({
+  id: uuid,
+  body: z.string().describe("Plain text. @ and a teammate's name mentions them; links can be web addresses or [label](/path) links to records."),
+  author: ref.describe("The teammate who posted it, or whom the agent or key posted it for."),
+  via: z
+    .object({ name: z.string(), agent: z.boolean().describe("The teammate's own agent in the CRM, answering for them.") })
+    .nullable()
+    .describe('The key, connected app or agent it came through ("Claude", "Agent"). Null when the teammate typed it in the chat.'),
+  mentions: z.array(ref).describe("Teammates it mentions."),
+  files: z.array(z.object({ id: uuid, name: z.string(), size: z.number(), contentType: z.string(), url: z.string().describe("Where a signed-in teammate opens it. GET /files/{id} for its description and key facts.") })),
+  replyToId: uuid.nullable().describe("The message it answers."),
+  agentTaskId: uuid.nullable().describe("The background task this message handed to the agent by mentioning it (GET /agent/tasks/{id})."),
+  url: z.string().describe("The message in the team chat."),
+  createdAt: ts,
+  editedAt: ts.nullable(),
+});
+
 /** Named schemas, in the order the docs list them. */
-export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, Label, ClientPerson, Metric, User, CustomField, Me, SearchResult, AgentTask, AgentBulk, Skill, ScheduledJob, Draft, Knowledge, File: StoredFile, FileDetail, Folder, Deleted } as const;
+export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, Label, ClientPerson, Metric, User, CustomField, Me, SearchResult, AgentTask, AgentBulk, Skill, ScheduledJob, Draft, Knowledge, File: StoredFile, FileDetail, Folder, ChatMessage, Deleted } as const;
 export type ModelName = keyof typeof models;

@@ -38,7 +38,7 @@ const countsFor = cache(async (userId: string, tz: string, chatSince: string, em
     (select count(*) from activities a where ${planned} and a.due_at >= ${startOfToday} and a.due_at < ${startOfTomorrow})::int as today,
     ${email ? sql`(select count(*) from inbox_threads where inbox_threads.folder = 'inbox' and ${unreadFor("inbox_threads", userId)} and inbox_threads.last_message_at >= ${new Date(Date.now() - 90 * 86400_000)})::int` : sql`0`} as unread,
     ${phone ? sql`(select count(*) from text_threads where text_threads.last_message_at is not null and ${unreadFor("text_threads", userId)})::int` : sql`0`} as unread_texts,
-    (select count(*) from chat_messages c where c.deleted_at is null and c.user_id <> ${userId} and c.created_at > ${chatSince}::timestamptz)::int as chat_unread,
+    (select count(*) from chat_messages c where c.deleted_at is null and (c.user_id <> ${userId} or c.api_key_id is not null) and c.created_at > ${chatSince}::timestamptz)::int as chat_unread,
     (select count(*) from chat_messages c where c.deleted_at is null and c.user_id <> ${userId} and c.created_at > ${chatSince}::timestamptz and ${userId}::uuid = any(c.mentions))::int as chat_mentions`);
   const [r] = rowsOf<Record<"overdue" | "today" | "unread" | "unread_texts" | "chat_unread" | "chat_mentions", number | string>>(result);
   const n = (v: number | string | undefined) => Number(v ?? 0);

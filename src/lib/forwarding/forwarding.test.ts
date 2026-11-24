@@ -6,6 +6,7 @@ import {
   absoluteLinks,
   checkSender,
   agentMailbox,
+  agentMailboxes,
   forwardAddress,
   forwardDomain,
   forwardPrompt,
@@ -163,6 +164,24 @@ describe("addresses", () => {
     assert.equal(agentMailbox("Zoë!"), "zoe");
     assert.equal(agentMailbox("***"), "agent");
     assert.equal(forwardAddress("email.recruitinginsight.net", null, "agent"), "agent@email.recruitinginsight.net");
+  });
+  it("uses the configured mailbox over the agent's name", () => {
+    assert.equal(agentMailbox("Recruiting Insight AI", ""), "recruiting.insight.ai");
+    assert.equal(agentMailbox("Recruiting Insight AI", "agent"), "agent");
+    assert.equal(agentMailbox("Recruiting Insight AI", " Agent "), "agent");
+    assert.equal(agentMailbox("Recruiting Insight AI", "***"), "recruiting.insight.ai");
+    assert.equal(forwardAddress("email.recruitinginsight.net", null, agentMailbox("Recruiting Insight AI", "agent")), "agent@email.recruitinginsight.net");
+  });
+  it("still answers at the name's address once a mailbox is set, so conversations already going keep working", () => {
+    const both = agentMailboxes("Recruiting Insight AI", "agent");
+    assert.deepEqual(both, ["agent", "recruiting.insight.ai"]);
+    const key = newConversationKey();
+    const domain = "email.recruitinginsight.net";
+    assert.deepEqual(parseForwardAddress(`agent@${domain}`, domain, both), { conversationKey: null });
+    assert.deepEqual(parseForwardAddress(`recruiting.insight.ai+${key}@${domain}`, domain, both), { conversationKey: key });
+    assert.deepEqual(parseForwardAddress(`agent+${key}@${domain}`, domain, both), { conversationKey: key });
+    assert.equal(parseForwardAddress(`sales@${domain}`, domain, both), null);
+    assert.deepEqual(agentMailboxes("Agent", ""), ["agent"]);
   });
   it("round-trips the address and a conversation's reply address", () => {
     const key = newConversationKey();
