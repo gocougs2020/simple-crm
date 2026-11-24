@@ -123,7 +123,7 @@ async function Client({ params }: Pick<PageProps<"/clients/[id]">, "params">) {
       <RecordBody
         side={
           <>
-            <ProductLinesCard clientId={id} lines={client.productLines} stripeProducts={client.stripeProducts} />
+            <ProductLinesCard clientId={id} lines={client.productLines} />
             <ClientDetails client={client} person={person} organization={organization} />
             <ClientPeopleCard
               clientId={id}

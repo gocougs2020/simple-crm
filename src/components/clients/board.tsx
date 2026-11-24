@@ -187,14 +187,14 @@ function Column({ id, children }: { id: string; children: React.ReactNode }) {
   );
 }
 
-/** What a column adds up to: potential value for prospects, what Stripe bills current clients a month. Past clients just count. */
+/** What a column adds up to: potential value for prospects. Current and past clients just count. */
 function ColumnTotal({ rows, category }: { rows: ClientRow[]; category: ClientCategory }) {
   const { money } = useApp();
   const n = `${rows.length} ${rows.length === 1 ? "client" : "clients"}`;
-  const total = category === "prospective" ? rows.reduce((s, r) => s + r.client.value, 0) : category === "current" ? rows.reduce((s, r) => s + Number(r.mrr), 0) : 0;
+  const total = category === "prospective" ? rows.reduce((s, r) => s + r.client.value, 0) : 0;
   return (
     <p className="text-[12px] text-muted tabular-nums">
-      {total ? `${money(total)}${category === "prospective" ? "" : "/mo"} · ` : ""}
+      {total ? `${money(total)} · ` : ""}
       {n}
     </p>
   );
@@ -226,7 +226,7 @@ function SortableCard({ row, rottingDays, category }: { row: ClientRow; rottingD
   );
 }
 
-/** Name, who it's with, their product lines, what they're worth, owner, and the next step. Flags clients with nothing planned or that have sat too long. */
+/** Name, who it's with, their product lines, a prospect's value, owner, and the next step. Flags clients with nothing planned or that have sat too long. */
 function Card({ row, dragging, rottingDays, category }: { row: ClientRow; dragging?: boolean; rottingDays?: number | null; category: ClientCategory }) {
   const { money, member } = useApp();
   const d = row.client;
@@ -235,7 +235,7 @@ function Card({ row, dragging, rottingDays, category }: { row: ClientRow; draggi
   const who = row.organizationName && row.organizationName !== d.name ? row.organizationName : person;
   const days = daysSince(d.stageChangedAt);
   const rotting = rottingDays != null && days >= rottingDays;
-  const amount = category === "prospective" ? d.value : category === "current" ? Number(row.mrr) : 0;
+  const amount = category === "prospective" ? d.value : 0;
   return (
     <article
       className={clsx(
@@ -252,10 +252,7 @@ function Card({ row, dragging, rottingDays, category }: { row: ClientRow; draggi
       {category === "past" && d.churnReason ? <p className="mt-0.5 truncate text-[12px] text-muted">Left: {d.churnReason}</p> : null}
       <div className="mt-2 flex items-center gap-2">
         {amount ? (
-          <span className="text-[13px] font-medium text-secondary tabular-nums">
-            {money(amount)}
-            {category === "prospective" ? "" : <span className="font-normal text-muted">/mo</span>}
-          </span>
+          <span className="text-[13px] font-medium text-secondary tabular-nums">{money(amount)}</span>
         ) : null}
         {category === "current" ? <HealthBadge health={d.health} /> : null}
         {rotting ? (
