@@ -142,7 +142,7 @@ const answerGoes: Record<AgentRunSource, string> = {
   email: "Your answer is emailed back to them as a reply, and they can answer it by replying. So unlike other background work, you may end with one short question when you need them to decide something; the next round brings you this conversation again with their answer.",
   enrich: "Your answer is saved as a note on the record, as theirs via you, so don't add a note of your own. The request says how to lay it out.",
   team_chat:
-    "Your answer is posted in the team chat as a reply to their message, where the whole team reads it, so don't post one of your own with post_chat_message. The chat shows plain text: write short paragraphs or simple lists, link records with relative links like [Acme](/clients/<id>), and keep it under 3,000 characters. Writing @ and a teammate's name notifies them, so only do that when the request asks you to bring someone in.",
+    "Your answer is posted in the team chat as a reply to their message, where the whole team reads it, so don't post one of your own with post_chat_message. Never put anything in it that only they can see (their private email, their drafts, their agent chats): if the request needs that, say it's something to ask you in the agent panel instead. The chat shows plain text: write short paragraphs or simple lists, link records with relative links like [Acme](/clients/<id>), and keep it under 3,000 characters. Writing @ and a teammate's name notifies them, so only do that when the request asks you to bring someone in.",
 };
 
 const asked: Record<AgentRunSource, string> = {

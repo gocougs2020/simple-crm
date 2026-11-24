@@ -407,6 +407,8 @@ export async function editChatMessage(a: Actor, messageId: string, input: { body
   const user = chatUser(a);
   const m = await loadMessage(messageId);
   if (m.userId !== user.id) throw new ForbiddenError("You can only edit your own messages.");
+  // Posted through a key, an app or the agent (an answer reads "Agent, for Sam"): only that same key can change it, so nobody puts words in its mouth.
+  if (m.apiKeyId && m.apiKeyId !== a.keyId) throw new ForbiddenError("This message came through an app or the agent, so it can't be edited here. Delete it instead.");
   const body = bodyInput.parse(input.body ?? "").trim();
   const db = await getDb();
   const [{ n }] = await db.select({ n: count() }).from(files).where(and(eq(files.chatMessageId, m.id), isNull(files.deletedAt)));
