@@ -131,13 +131,13 @@ export async function inviteLink(userId: string): Promise<Result<{ url: string; 
     const db = await getDb();
     const t = schema.authTokens;
     const [row] = await db
-      .select({ sealed: t.sealedToken, expiresAt: t.expiresAt, role: users.role, deactivatedAt: users.deactivatedAt })
+      .select({ sealed: t.sealedToken, expiresAt: t.expiresAt, role: users.role, deactivatedAt: users.deactivatedAt, joined: sql<boolean>`${users.passwordHash} is not null` })
       .from(t)
       .innerJoin(users, eq(users.id, t.userId))
       .where(and(eq(t.userId, uuid.parse(userId)), eq(t.kind, "invite"), isNull(t.usedAt), gt(t.expiresAt, new Date())))
       .orderBy(desc(t.expiresAt))
       .limit(1);
-    if (!row || row.deactivatedAt) throw new ActionError("There's no invite waiting. Send a new one to get a link.");
+    if (!row || row.deactivatedAt || row.joined) throw new ActionError("There's no invite waiting. Send a new one to get a link.");
     // The link signs in as them, so only an owner may see one for an owner.
     if (row.role === "owner" && admin.role !== "owner") throw new ActionError("Only an owner can see an owner's invite link.");
     let token: string;
