@@ -173,13 +173,13 @@ Enrich, on the Details card of a person or an organization, hands the record to 
 
 Internal email about a client (two teammates discussing how an account is doing, say) never reaches the mailbox sync, because the client isn't on it. Sending it to the agent brings what matters into the CRM.
 
-The team shares one address: the agent's name (`agent.name`, lowercased) at `FORWARD_EMAIL_DOMAIN`, like `agent@email.yourdomain.com`. Whoever sends to it is who it works for, proven by their domain's DKIM signature, so it needs no secret and is easy to remember.
+The team shares one address: the agent's name (`agent.name`, lowercased, spaces as dots) at `FORWARD_EMAIL_DOMAIN`, like `agent@email.yourdomain.com`. To keep a short address when the agent has a longer name, set `agent.forwarding.mailbox` (for example `NEXT_PUBLIC_APP_CONFIG={"agent":{"name":"Recruiting Insight AI","forwarding":{"mailbox":"agent"}}}` gives `agent@…`). The name-based address keeps working beside it, so replies in conversations already going still arrive. Whoever sends to it is who it works for, proven by their domain's DKIM signature, so it needs no secret and is easy to remember.
 
 **Setting it up (once, an admin):**
 
 1. Pick the domain: a subdomain of your company's, like `email.yourdomain.com`, never the domain your mailboxes use (receiving needs its MX record, which would take your company mail away from Microsoft 365 or Google). If you already receive mail into Resend inboxes on a subdomain, use that one: the agent's address sits beside them, and nothing changes in DNS.
    - A name that's a CNAME (Vercel's usual setup for a subdomain the website lives on) can't also have an MX record. Use another name, or point the website there with Vercel's A records instead.
-2. In Resend, add that domain if it isn't there yet, turn on receiving and add the MX record it shows. Don't create a Resend inbox with the agent's name on it: the address must stay free for the agent.
+2. In Resend, add that domain if it isn't there yet, turn on receiving and add the MX record it shows. Don't create a Resend inbox at the agent's address (its mailbox or its name): the address must stay free for the agent.
 3. Set `FORWARD_EMAIL_DOMAIN=email.yourdomain.com` and redeploy. Settings → Agent shows the address.
 4. Settings → Email domains → reconnect the webhook, so it also sends `email.received`.
 5. Check that your mail is DKIM-signed with your own domain, since that's how an email proves who sent it. Send any email from your work mailbox to a Gmail address and open "Show original": it should say `DKIM: 'PASS' with domain yourdomain.com`. If it names another domain (Microsoft 365's default `….onmicrosoft.com`) or there's no DKIM line, turn on DKIM for your domain: in Microsoft 365, the Defender portal → Email authentication settings → DKIM (it asks for two CNAME records, `selector1._domainkey` and `selector2._domainkey`); in Google Workspace, Admin console → Gmail → Authenticate email.
