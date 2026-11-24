@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { CheckIcon, ClipboardDocumentIcon, EllipsisHorizontalIcon, LinkIcon, PlusIcon } from "@heroicons/react/20/solid";
-import { inviteLink, inviteTeammate, resendInvite, setDeactivated, setRole, type InviteSent } from "@/actions/settings";
+import { changeEmail, inviteLink, inviteTeammate, resendInvite, setDeactivated, setRole, type InviteSent } from "@/actions/settings";
 import { useApp } from "@/components/app-context";
 import { TeammateStatus } from "@/components/team/invite-status";
 import { Avatar } from "@/components/ui/avatar";
@@ -23,6 +23,7 @@ export function TeamSettings({ rows }: { rows: TeamRow[] }) {
   const { viewer, isAdmin, workspace } = useApp();
   const [inviting, setInviting] = useState(false);
   const [link, setLink] = useState<ShownLink | null>(null);
+  const [editingEmail, setEditingEmail] = useState<TeamRow | null>(null);
   /** After an invite goes out: a toast if it was emailed, otherwise the link to send by hand. */
   const afterInvite = (u: { name: string; email: string }, sent: InviteSent, emailedMessage: string) => {
     if (sent.emailed) toast.success(emailedMessage);
@@ -103,6 +104,7 @@ export function TeamSettings({ rows }: { rows: TeamRow[] }) {
                         {u.invite.state === "sent" ? <MenuItem onSelect={() => copyLink(u)}>Copy invite link</MenuItem> : null}
                       </>
                     ) : null}
+                    {viewer.role === "owner" ? <MenuItem onSelect={() => setEditingEmail(u)}>Change email</MenuItem> : null}
                     <MenuSeparator />
                     <MenuItem
                       destructive={!u.deactivated}
@@ -127,7 +129,52 @@ export function TeamSettings({ rows }: { rows: TeamRow[] }) {
       </Section>
       {inviting ? <InviteDialog onClose={() => setInviting(false)} onSent={afterInvite} /> : null}
       {link ? <InviteLinkDialog link={link} onClose={() => setLink(null)} /> : null}
+      {editingEmail ? <ChangeEmailDialog teammate={editingEmail} onClose={() => setEditingEmail(null)} /> : null}
     </>
+  );
+}
+
+/** Owners only. The teammate keeps their account, password and sessions; only the address they sign in with changes. */
+function ChangeEmailDialog({ teammate: u, onClose }: { teammate: TeamRow; onClose: () => void }) {
+  const [email, setEmail] = useState(u.email);
+  const [pending, start] = useTransition();
+  const first = u.name.split(" ")[0];
+  const submit = () =>
+    start(async () => {
+      const r = await changeEmail(u.id, email);
+      if (!r.ok) return void toast.error(r.error);
+      onClose();
+      if (r.data.email === u.email) return;
+      if (u.invite?.state === "sent" && !u.deactivated) toast.success(`${u.name} now signs in with ${r.data.email}. Their invite went to the old address, so resend it or copy the link.`);
+      else toast.success(`${u.name} now signs in with ${r.data.email}`);
+    });
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={`Change ${first}'s email`}
+      description={`${first} signs in with the new address from now on. Their password, history and records stay the same and they stay signed in.${u.invite || u.deactivated ? "" : " We'll let them know at their old address."}`}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" loading={pending} onClick={submit}>
+            Save
+          </Button>
+        </>
+      }
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <Field label="Work email">{(p) => <Input {...p} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />}</Field>
+        <button type="submit" hidden />
+      </form>
+    </Dialog>
   );
 }
 

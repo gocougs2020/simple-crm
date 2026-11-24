@@ -6,7 +6,7 @@ import { and, asc, count, desc, eq, gt, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { run, type Result } from "@/lib/action";
-import { ActionError, actionAdmin, actionUser, hashToken, randomToken, revokeSessions } from "@/lib/auth";
+import { ActionError, actionAdmin, actionOwner, actionUser, hashToken, randomToken, revokeSessions } from "@/lib/auth";
 import { emailBrand } from "@/lib/brand";
 import { clientCategories, clientCategoryLabels, customFieldTypes, entityTypes, userRoles, type ClientCategory } from "@/lib/constants";
 import { defaultStages } from "@/lib/crm/defaults";
@@ -15,6 +15,7 @@ import { emailConfigured, sendEmail } from "@/lib/email";
 import { siteOrigin } from "@/lib/origin";
 import { hashPassword, passwordProblem, verifyPassword } from "@/lib/password";
 import { loadSampleData } from "@/lib/sample-data";
+import EmailChangedEmail from "@/emails/email-changed";
 import InviteEmail from "@/emails/invite";
 
 const { users, pipelines, stages, clients, customFields, workspace } = schema;
@@ -166,6 +167,44 @@ export async function setRole(userId: string, role: (typeof userRoles)[number]):
     }
     await db.update(users).set({ role: r }).where(eq(users.id, target.id));
     refresh();
+  });
+}
+
+/**
+ * Changes the address a teammate signs in with. Everything else (sessions,
+ * password, invite and reset links, API keys, ownership, history) hangs off
+ * their id, so nothing else changes and nobody is signed out. Their old
+ * address gets a notice.
+ */
+export async function changeEmail(userId: string, email: string): Promise<Result<{ email: string }>> {
+  return run(async () => {
+    const owner = await actionOwner();
+    const next = z.email("Enter a valid email address.").max(200).transform((e) => e.trim().toLowerCase()).parse(email);
+    const db = await getDb();
+    const [target] = await db.select().from(users).where(eq(users.id, uuid.parse(userId)));
+    if (!target) throw new ActionError("That teammate no longer exists.");
+    if (target.email === next) return { email: next };
+    const [taken] = await db.select({ name: users.name }).from(users).where(and(eq(users.email, next), ne(users.id, target.id)));
+    if (taken) throw new ActionError(`${next} already belongs to ${taken.name}. Change theirs first.`);
+    try {
+      await db.update(users).set({ email: next }).where(eq(users.id, target.id));
+    } catch (err) {
+      // Two changes racing for the same address: the unique index keeps one.
+      const code = (err as { code?: string; cause?: { code?: string } }).code ?? (err as { cause?: { code?: string } }).cause?.code;
+      if (code === "23505") throw new ActionError(`${next} already belongs to another teammate.`);
+      throw err;
+    }
+    // A heads-up at the old address, so a change they didn't expect doesn't go unnoticed. Someone who hasn't joined has nothing to protect yet.
+    if (target.passwordHash && !target.deactivatedAt && target.id !== owner.id) {
+      try {
+        const brand = await emailBrand();
+        await sendEmail({ to: target.email, subject: `Your sign-in email for ${brand.workspaceName}'s CRM changed`, react: EmailChangedEmail({ brand, changedBy: owner.name, newEmail: next }), tags: [{ name: "type", value: "email-changed" }] });
+      } catch (err) {
+        console.error("[change-email] notice failed", { userId: target.id }, err);
+      }
+    }
+    refresh();
+    return { email: next };
   });
 }
 
