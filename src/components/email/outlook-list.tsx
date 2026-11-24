@@ -250,7 +250,13 @@ export function OutlookList({
           </ul>
         </div>
 
-        <div className={clsx("min-h-0 min-w-0 overflow-y-auto border-line scroll-thin lg:border-l", open ? "md:col-span-2 lg:col-span-1" : "hidden lg:block")}>
+        <div
+          className={clsx(
+            "min-h-0 min-w-0 overflow-y-auto border-line scroll-thin lg:border-l",
+            // Open, it sits beside the folders on a tablet and beside the list on a wide screen.
+            !open && "hidden lg:block",
+          )}
+        >
           {open ? (
             <ReadingPane key={open.id} row={open} onBack={() => setOpenId(null)} onDelete={() => setRemoving(open)} />
           ) : (

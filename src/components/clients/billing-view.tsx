@@ -34,6 +34,18 @@ function Stat({ label, value, note, tone }: { label: string; value: ReactNode; n
   );
 }
 
+/** Amounts kept in their own currencies, never added across them: "$8,800", or "$8,800 + €200" when customers bill in different ones. */
+function moneyByCurrency(parts: { amount: number; currency: string | null }[]) {
+  const totals = new Map<string, number>();
+  for (const p of parts) {
+    const c = (p.currency ?? "usd").toLowerCase();
+    totals.set(c, (totals.get(c) ?? 0) + p.amount);
+  }
+  // A currency with nothing in it is left out, unless every one is zero.
+  const some = [...totals].filter(([, amount]) => amount !== 0);
+  return some.length ? some.map(([c, amount]) => money(amount, c)).join(" + ") : money(0, [...totals.keys()][0] ?? null);
+}
+
 const overdueOf = (invoices: CustomerBilling["invoices"]) => invoices.filter((i) => i.status === "open" && i.overdue);
 const sum = (invoices: CustomerBilling["invoices"]) => invoices.reduce((t, i) => t + i.remaining, 0);
 
@@ -512,11 +524,15 @@ function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClos
   // Each customer's default card or bank account comes first.
   const methods = shown.flatMap((c) => [...(c.paymentMethods ?? [])].sort((a, b) => Number(b.isDefault) - Number(a.isDefault)).map((m) => ({ m, c })));
   const unreadable = shown.filter((c) => c.paymentMethods === null).length;
-  const currency = shown.map((c) => c.customer.currency ?? c.invoices[0]?.currency).find(Boolean) ?? null;
+  // Each customer's own currency: totals are added up per currency, never across them.
+  const currencyOf = (c: CustomerBilling) => c.customer.currency ?? c.invoices[0]?.currency ?? null;
+  const total = (pick: (c: CustomerBilling) => number) => moneyByCurrency(shown.map((c) => ({ amount: pick(c), currency: currencyOf(c) })));
+  const invoiceTotal = (list: CustomerBilling["invoices"]) => moneyByCurrency(list.map((i) => ({ amount: i.remaining, currency: i.currency })));
   const invoices = shown.flatMap((c) => c.invoices);
   const open = invoices.filter((i) => i.status === "open");
   const overdue = overdueOf(invoices);
-  const balance = shown.reduce((t, c) => t + c.customer.balance, 0);
+  // Credit when no customer owes a balance and at least one has credit; Stripe keeps credit as a negative balance.
+  const credit = shown.some((c) => c.customer.balance < 0) && shown.every((c) => c.customer.balance <= 0);
   const subs = shown.flatMap((c) => c.subscriptions.map((s) => ({ s, c })));
   const ordered = [...subs.filter(({ s }) => !isEnded(s)), ...subs.filter(({ s }) => isEnded(s))];
   const truncated = shown.some((c) => c.invoices.length >= 60 || c.charges.length >= 25);
@@ -558,11 +574,11 @@ function BillingDetails({ clientId, customers, several, canEdit, isAdmin, onClos
             ))}
           </ul>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border border-line px-4 py-3 sm:grid-cols-5">
-            <Stat label="Collected LTM" value={money(shown.reduce((t, c) => t + c.collectedYear, 0), currency)} />
-            <Stat label="Last 30 days" value={money(shown.reduce((t, c) => t + c.collectedMonth, 0), currency)} />
-            <Stat label={balance < 0 ? "Credit" : "Balance"} value={money(Math.abs(balance), currency)} />
-            <Stat label="Open invoices" value={money(sum(open), currency)} note={open.length ? `${open.length} unpaid` : undefined} tone={sum(open) ? "warning" : undefined} />
-            <Stat label="Overdue invoices" value={money(sum(overdue), currency)} note={overdue.length ? `${overdue.length} past due` : undefined} tone={sum(overdue) ? "error" : undefined} />
+            <Stat label="Collected LTM" value={total((c) => c.collectedYear)} />
+            <Stat label="Last 30 days" value={total((c) => c.collectedMonth)} />
+            <Stat label={credit ? "Credit" : "Balance"} value={total((c) => (credit ? -c.customer.balance : c.customer.balance))} />
+            <Stat label="Open invoices" value={invoiceTotal(open)} note={open.length ? `${open.length} unpaid` : undefined} tone={sum(open) ? "warning" : undefined} />
+            <Stat label="Overdue invoices" value={invoiceTotal(overdue)} note={overdue.length ? `${overdue.length} past due` : undefined} tone={sum(overdue) ? "error" : undefined} />
           </dl>
         </header>
 
