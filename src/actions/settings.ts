@@ -173,17 +173,18 @@ export async function setRole(userId: string, role: (typeof userRoles)[number]):
 /**
  * Changes the address a teammate signs in with. Everything else (sessions,
  * password, invite and reset links, API keys, ownership, history) hangs off
- * their id, so nothing else changes and nobody is signed out. Their old
- * address gets a notice.
+ * their id, so nothing else changes and nobody is signed out. Invite and
+ * reset links mailed to the old address stop working (a waiting invite is
+ * sent again to the new one), and the old address gets a notice.
  */
-export async function changeEmail(userId: string, email: string): Promise<Result<{ email: string }>> {
+export async function changeEmail(userId: string, email: string): Promise<Result<{ email: string; invite: InviteSent | null }>> {
   return run(async () => {
     const owner = await actionOwner();
     const next = z.email("Enter a valid email address.").max(200).transform((e) => e.trim().toLowerCase()).parse(email);
     const db = await getDb();
     const [target] = await db.select().from(users).where(eq(users.id, uuid.parse(userId)));
     if (!target) throw new ActionError("That teammate no longer exists.");
-    if (target.email === next) return { email: next };
+    if (target.email === next) return { email: next, invite: null };
     const [taken] = await db.select({ name: users.name }).from(users).where(and(eq(users.email, next), ne(users.id, target.id)));
     if (taken) throw new ActionError(`${next} already belongs to ${taken.name}. Change theirs first.`);
     try {
@@ -194,6 +195,12 @@ export async function changeEmail(userId: string, email: string): Promise<Result
       if (code === "23505") throw new ActionError(`${next} already belongs to another teammate.`);
       throw err;
     }
+    // Links already mailed to the old address stop working: whoever reads that mailbox may not be them any more.
+    const t = schema.authTokens;
+    const dropped = await db
+      .delete(t)
+      .where(and(eq(t.userId, target.id), isNull(t.usedAt)))
+      .returning({ kind: t.kind, expiresAt: t.expiresAt });
     // A heads-up at the old address, so a change they didn't expect doesn't go unnoticed. Someone who hasn't joined has nothing to protect yet.
     if (target.passwordHash && !target.deactivatedAt && target.id !== owner.id) {
       try {
@@ -203,8 +210,11 @@ export async function changeEmail(userId: string, email: string): Promise<Result
         console.error("[change-email] notice failed", { userId: target.id }, err);
       }
     }
+    // A waiting invite moves to the new address.
+    const hadInvite = dropped.some((d) => d.kind === "invite" && d.expiresAt > new Date());
+    const invite = hadInvite && !target.passwordHash && !target.deactivatedAt ? await issueInvite(target.id, owner) : null;
     refresh();
-    return { email: next };
+    return { email: next, invite };
   });
 }
 

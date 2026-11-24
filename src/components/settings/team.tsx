@@ -129,13 +129,13 @@ export function TeamSettings({ rows }: { rows: TeamRow[] }) {
       </Section>
       {inviting ? <InviteDialog onClose={() => setInviting(false)} onSent={afterInvite} /> : null}
       {link ? <InviteLinkDialog link={link} onClose={() => setLink(null)} /> : null}
-      {editingEmail ? <ChangeEmailDialog teammate={editingEmail} onClose={() => setEditingEmail(null)} /> : null}
+      {editingEmail ? <ChangeEmailDialog teammate={editingEmail} onClose={() => setEditingEmail(null)} onInvite={afterInvite} /> : null}
     </>
   );
 }
 
 /** Owners only. The teammate keeps their account, password and sessions; only the address they sign in with changes. */
-function ChangeEmailDialog({ teammate: u, onClose }: { teammate: TeamRow; onClose: () => void }) {
+function ChangeEmailDialog({ teammate: u, onClose, onInvite }: { teammate: TeamRow; onClose: () => void; onInvite: (u: { name: string; email: string }, sent: InviteSent, emailedMessage: string) => void }) {
   const [email, setEmail] = useState(u.email);
   const [pending, start] = useTransition();
   const first = u.name.split(" ")[0];
@@ -145,7 +145,7 @@ function ChangeEmailDialog({ teammate: u, onClose }: { teammate: TeamRow; onClos
       if (!r.ok) return void toast.error(r.error);
       onClose();
       if (r.data.email === u.email) return;
-      if (u.invite?.state === "sent" && !u.deactivated) toast.success(`${u.name} now signs in with ${r.data.email}. Their invite went to the old address, so resend it or copy the link.`);
+      if (r.data.invite) onInvite({ name: u.name, email: r.data.email }, r.data.invite, `${u.name} now signs in with ${r.data.email}. We sent their invite there.`);
       else toast.success(`${u.name} now signs in with ${r.data.email}`);
     });
   return (
