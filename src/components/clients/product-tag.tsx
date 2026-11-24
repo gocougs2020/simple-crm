@@ -6,6 +6,7 @@ import { InformationCircleIcon } from "@heroicons/react/16/solid";
 import { useApp } from "@/components/app-context";
 import { Tag } from "@/components/ui/badge";
 import { Tooltip } from "@/components/ui/menu";
+import { productFamiliesOf, type ProductFamily } from "@/lib/product-rules";
 
 /**
  * The info icon beside a Stripe product's name: what the team says it
@@ -54,5 +55,29 @@ export function ProductNames({ names }: { names: string[] }) {
         </Fragment>
       ))}
     </>
+  );
+}
+
+// Written out in full so Tailwind finds every class.
+const familyTones: Record<ProductFamily, string> = {
+  TalentScout: "bg-product-talentscout-surface text-product-talentscout border-product-talentscout-border",
+  CoRecruit: "bg-product-corecruit-surface text-product-corecruit border-product-corecruit-border",
+  ThirdPool: "bg-product-thirdpool-surface text-product-thirdpool border-product-thirdpool-border",
+  HiringCenter: "bg-product-hiringcenter-surface text-product-hiringcenter border-product-hiringcenter-border",
+  VRA: "bg-product-vra-surface text-product-vra border-product-vra-border",
+};
+
+/** The product lines a client's Stripe products belong to, as badges in each line's color, in a row that wraps. Nothing when none match. */
+export function ProductFamilyBadges({ products, className }: { products: readonly string[]; className?: string }) {
+  const families = productFamiliesOf(products);
+  if (!families.length) return null;
+  return (
+    <span className={clsx("flex flex-wrap gap-1", className)}>
+      {families.map((f) => (
+        <span key={f} className={clsx("inline-flex h-5 shrink-0 items-center rounded-md border px-1.5 text-[11.5px] leading-none font-semibold whitespace-nowrap", familyTones[f])}>
+          {f}
+        </span>
+      ))}
+    </span>
   );
 }

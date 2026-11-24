@@ -61,6 +61,23 @@
   --live-highlight: color-mix(in srgb, var(--accent) 9%, transparent);
   --live-highlight-ring: color-mix(in srgb, var(--accent) 24%, transparent);
 
+  /* Product lines on the Clients page (src/lib/product-rules.ts): one hue each, so they're told apart at a glance. */
+  --product-talentscout: #6d28d9;
+  --product-talentscout-surface: #ede9fe;
+  --product-talentscout-border: #ddd6fe;
+  --product-corecruit: #0f766e;
+  --product-corecruit-surface: #ccfbf1;
+  --product-corecruit-border: #99f6e4;
+  --product-thirdpool: #1d4ed8;
+  --product-thirdpool-surface: #dbeafe;
+  --product-thirdpool-border: #bfdbfe;
+  --product-hiringcenter: #c2410c;
+  --product-hiringcenter-surface: #ffedd5;
+  --product-hiringcenter-border: #fed7aa;
+  --product-vra: #be185d;
+  --product-vra-surface: #fce7f3;
+  --product-vra-border: #fbcfe8;
+
   /* Toasts sit on a dark background, so their success icon needs a lighter green. */
   --toast-success-icon: #4ade80;
 }

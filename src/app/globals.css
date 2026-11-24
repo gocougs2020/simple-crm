@@ -46,6 +46,21 @@
   --color-note-surface: var(--note-surface);
   --color-note-border: var(--note-border);
   --color-toast-success-icon: var(--toast-success-icon);
+  --color-product-talentscout: var(--product-talentscout);
+  --color-product-talentscout-surface: var(--product-talentscout-surface);
+  --color-product-talentscout-border: var(--product-talentscout-border);
+  --color-product-corecruit: var(--product-corecruit);
+  --color-product-corecruit-surface: var(--product-corecruit-surface);
+  --color-product-corecruit-border: var(--product-corecruit-border);
+  --color-product-thirdpool: var(--product-thirdpool);
+  --color-product-thirdpool-surface: var(--product-thirdpool-surface);
+  --color-product-thirdpool-border: var(--product-thirdpool-border);
+  --color-product-hiringcenter: var(--product-hiringcenter);
+  --color-product-hiringcenter-surface: var(--product-hiringcenter-surface);
+  --color-product-hiringcenter-border: var(--product-hiringcenter-border);
+  --color-product-vra: var(--product-vra);
+  --color-product-vra-surface: var(--product-vra-surface);
+  --color-product-vra-border: var(--product-vra-border);
 
   /* Radii: sm controls, md buttons/inputs, lg tables, xl cards and dialogs. */
   --radius-sm: 4px;
