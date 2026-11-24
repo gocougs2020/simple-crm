@@ -193,7 +193,13 @@ export function InboxView({
         <div className="grid min-h-0 flex-1 md:grid-cols-[190px_minmax(0,1fr)] lg:grid-cols-[200px_340px_minmax(0,1fr)] 2xl:grid-cols-[200px_340px_minmax(0,1fr)_300px]">
           <Rail inboxes={inboxes} filters={filters} hidden={!!open} />
           <ThreadList threads={threads} filters={filters} openId={open?.id ?? null} hidden={!!open} />
-          <div className={clsx("min-h-0 min-w-0 overflow-y-auto border-line scroll-thin lg:border-l", open ? "md:col-span-2 lg:col-span-1" : "hidden lg:block 2xl:col-span-2")}>
+          <div
+            className={clsx(
+              "min-h-0 min-w-0 overflow-y-auto border-line scroll-thin lg:border-l",
+              // Open, it takes one column: beside the rail on a tablet (which stays in view there), beside the list on a wide screen.
+              !open && "hidden lg:block 2xl:col-span-2",
+            )}
+          >
             {open ? <ThreadPane key={open.id} thread={open} /> : <EmptyState variant="minimal" icon={EnvelopeIcon} title="Pick a conversation" description="Replies send from the inbox it arrived in and land on the linked records' timelines." className="h-full" />}
           </div>
           {open ? (
