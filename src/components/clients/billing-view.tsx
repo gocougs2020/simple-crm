@@ -364,18 +364,19 @@ function historyOf(c: CustomerBilling): HistoryRow[] {
   );
   const payments = c.charges.map((x): HistoryRow => {
     const paid = x.invoice ? byId.get(x.invoice) : undefined;
-    const forWhat = paid ? [invoiceFor(paid), paid.number].filter(Boolean).join(" · ") : null;
+    // A payment for an invoice says what the invoice was for, with the card under it.
+    const forWhat = paid ? invoiceFor(paid) : null;
     return {
       id: x.id,
       kind: "payment",
       shows: ["all", "payment"],
       created: x.created,
-      title: forWhat ? (invoiceFor(paid!) ?? x.method ?? "Payment") : (x.method ?? "Payment"),
+      title: forWhat ?? x.method ?? "Payment",
       detail:
         x.status === "failed" && x.failure ? (
           <span className="text-error">{x.failure}</span>
-        ) : forWhat ? (
-          [paid?.number, x.method].filter(Boolean).join(" · ")
+        ) : paid ? (
+          [paid.number, forWhat ? x.method : null].filter(Boolean).join(" · ")
         ) : (
           (x.description ?? "")
         ),

@@ -46,6 +46,8 @@ export function RecordPicker({
   const [pending, start] = useTransition();
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+  // Removing is chosen on purpose: Enter picks it only after the arrow keys reach it, never while results are loading or nothing matches.
+  const arrowed = useRef(false);
 
   useEffect(() => {
     // Changing a record starts with its name highlighted: type to search for another.
@@ -108,6 +110,7 @@ export function RecordPicker({
           setQ(e.target.value);
           setOpen(true);
           setActive(0);
+          arrowed.current = false;
         }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 120)}
@@ -115,12 +118,15 @@ export function RecordPicker({
           if (!open) return;
           if (e.key === "ArrowDown") {
             e.preventDefault();
+            arrowed.current = true;
             setActive((a) => Math.min(a + 1, options.length - 1));
           } else if (e.key === "ArrowUp") {
             e.preventDefault();
+            arrowed.current = true;
             setActive((a) => Math.max(a - 1, 0));
           } else if (e.key === "Enter" && options.length) {
             e.preventDefault();
+            if (options[active]?.type === "remove" && !arrowed.current) return;
             choose(active);
           } else if (e.key === "Escape") {
             e.stopPropagation();
