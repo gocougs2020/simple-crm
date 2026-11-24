@@ -44,6 +44,20 @@ function text(save: (v: string | null) => Promise<{ ok: true } | { ok: false; er
   };
 }
 
+/**
+ * Changing a linked contact or organization: the search opens with the
+ * current name highlighted, so typing looks for another one at once. Taking
+ * it off is the last choice in the list.
+ */
+function pickerEditor(kind: "person" | "organization", noun: string) {
+  return function PickerEditor({ value, commit }: { value: PickerValue; commit: (v?: PickerValue) => void }) {
+    const current = value && "record" in value ? value.record.label : "";
+    return <RecordPicker kind={kind} value={null} initialQuery={current} onChange={(v) => commit(v)} onRemove={current ? () => commit(null) : undefined} removeLabel={`Remove ${noun}`} allowCreate={false} autoFocus />;
+  };
+}
+const organizationEditor = pickerEditor("organization", "organization");
+const contactEditor = pickerEditor("person", "contact");
+
 function OwnerField({ value, onSave }: { value: string | null; onSave: (v: string | null) => Promise<{ ok: true } | { ok: false; error: string }> }) {
   const { member } = useApp();
   const m = member(value);
@@ -321,7 +335,7 @@ export function PersonDetails({ person, organization }: { person: Person; organi
               </Link>
             ) : undefined
           }
-          editor={({ value, commit }) => <RecordPicker kind="organization" value={value} onChange={(v) => commit(v)} allowCreate={false} autoFocus />}
+          editor={organizationEditor}
           onSave={(v) => save({ organizationId: v && "record" in v ? v.record.id : null })}
         />
         <LabelsField value={person.tags} carried={organization?.tags.length ? { names: organization.tags, from: organization.name } : null} onSave={(tags) => save({ tags })} />
@@ -577,13 +591,14 @@ export function ClientDetails({ client, person, organization }: { client: Client
           label="Contact"
           value={person ? { record: { id: person.id, label: personName(person) } } : null}
           empty="Add contact"
+          clamp={false}
           display={
             person ? (
               <span className="block min-w-0">
-                <Link href={`/people/${person.id}`} className="underline-offset-2 hover:underline" onClick={(e) => e.stopPropagation()}>
+                <Link href={`/people/${person.id}`} className="line-clamp-3 underline-offset-2 [overflow-wrap:anywhere] hover:underline" onClick={(e) => e.stopPropagation()}>
                   {personName(person)}
                 </Link>
-                {person.title ? <span className="block text-[12px] text-muted">{person.title}</span> : null}
+                {person.title ? <span className="line-clamp-3 block text-[12px] break-words text-muted">{person.title}</span> : null}
                 {person.email || person.phone ? (
                   <span className="flex flex-wrap gap-x-3 text-[12px]">
                     {person.email ? (
@@ -601,7 +616,7 @@ export function ClientDetails({ client, person, organization }: { client: Client
               </span>
             ) : undefined
           }
-          editor={({ value, commit }) => <RecordPicker kind="person" value={value} onChange={(v) => commit(v)} allowCreate={false} autoFocus />}
+          editor={contactEditor}
           onSave={(v) => save({ personId: v && "record" in v ? v.record.id : null })}
         />
         <InlineField<PickerValue>
@@ -615,7 +630,7 @@ export function ClientDetails({ client, person, organization }: { client: Client
               </Link>
             ) : undefined
           }
-          editor={({ value, commit }) => <RecordPicker kind="organization" value={value} onChange={(v) => commit(v)} allowCreate={false} autoFocus />}
+          editor={organizationEditor}
           onSave={(v) => save({ organizationId: v && "record" in v ? v.record.id : null })}
         />
         <LabelsField value={client.tags} onSave={(tags) => save({ tags })} />

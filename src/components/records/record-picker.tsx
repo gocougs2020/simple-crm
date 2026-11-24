@@ -22,6 +22,9 @@ export function RecordPicker({
   allowCreate = true,
   id,
   autoFocus,
+  initialQuery,
+  onRemove,
+  removeLabel,
 }: {
   kind: "person" | "organization" | "client";
   value: PickerValue;
@@ -30,14 +33,24 @@ export function RecordPicker({
   allowCreate?: boolean;
   id?: string;
   autoFocus?: boolean;
+  /** Text to start the search box with, selected so typing replaces it: the record being changed. */
+  initialQuery?: string;
+  /** Offers taking the current record off ("Remove contact") at the end of the list. */
+  onRemove?: () => void;
+  removeLabel?: string;
 }) {
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initialQuery ?? "");
   const [open, setOpen] = useState(false);
   const [results, setResults] = useState<PickedRecord[]>([]);
   const [active, setActive] = useState(0);
   const [pending, start] = useTransition();
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // Changing a record starts with its name highlighted: type to search for another.
+    if (autoFocus && initialQuery) inputRef.current?.select();
+  }, [autoFocus, initialQuery]);
 
   useEffect(() => {
     if (!open) return;
@@ -47,11 +60,15 @@ export function RecordPicker({
 
   const term = q.trim();
   const showCreate = allowCreate && term.length > 0 && !results.some((r) => r.label.toLowerCase() === term.toLowerCase());
-  const options = [...results.map((r) => ({ type: "record" as const, r })), ...(showCreate ? [{ type: "create" as const }] : [])];
+  const options = [...results.map((r) => ({ type: "record" as const, r })), ...(showCreate ? [{ type: "create" as const }] : []), ...(onRemove ? [{ type: "remove" as const }] : [])];
 
   const choose = (i: number) => {
     const o = options[i];
     if (!o) return;
+    if (o.type === "remove") {
+      setOpen(false);
+      return onRemove?.();
+    }
     onChange(o.type === "record" ? { record: o.r } : { create: term });
     setQ("");
     setOpen(false);
@@ -111,19 +128,38 @@ export function RecordPicker({
           }
         }}
         placeholder={placeholder ?? (kind === "person" ? "Search people" : kind === "organization" ? "Search organizations" : "Search clients")}
-        className="h-9 w-full rounded-md border border-line bg-surface px-3 text-[14px] text-primary shadow-sm placeholder:text-faint hover:border-line-strong focus:border-ring focus:ring-1 focus:ring-ring focus:outline-none"
+        className="h-9 w-full rounded-md border border-line bg-surface pr-8 pl-3 text-[14px] text-primary shadow-sm placeholder:text-faint hover:border-line-strong focus:border-ring focus:ring-1 focus:ring-ring focus:outline-none"
         role="combobox"
         aria-expanded={open}
         aria-controls={listId}
         aria-autocomplete="list"
         autoComplete="off"
       />
-      {pending ? <Spinner className="absolute top-1/2 right-2.5 size-3.5 -translate-y-1/2 text-faint" /> : null}
+      {pending ? (
+        <Spinner className="absolute top-1/2 right-2.5 size-3.5 -translate-y-1/2 text-faint" />
+      ) : q ? (
+        <button
+          type="button"
+          // Keeps focus in the box, so the list stays open for the next search.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            setQ("");
+            setActive(0);
+            setOpen(true);
+            inputRef.current?.focus();
+          }}
+          className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-1 text-faint hover:bg-sunken hover:text-primary"
+          aria-label="Clear search"
+        >
+          <XMarkIcon className="size-3.5" />
+        </button>
+      ) : null}
       {open && (options.length > 0 || term) ? (
         <ul id={listId} role="listbox" className="absolute top-full right-0 left-0 z-50 mt-1 max-h-64 animate-pop-in overflow-auto rounded-lg border border-line bg-surface p-1 shadow-md">
+          {!options.some((o) => o.type !== "remove") && !pending ? <li className="px-2 py-1.5 text-[13px] text-muted">No matches</li> : null}
           {options.map((o, i) => (
             <li
-              key={o.type === "record" ? o.r.id : "create"}
+              key={o.type === "record" ? o.r.id : o.type}
               role="option"
               aria-selected={i === active}
               onMouseDown={(e) => e.preventDefault()}
@@ -133,8 +169,13 @@ export function RecordPicker({
             >
               {o.type === "record" ? (
                 <>
-                  <span className="truncate">{o.r.label}</span>
-                  {o.r.detail ? <span className="truncate text-[12px] text-muted">{o.r.detail}</span> : null}
+                  <span className={clsx("truncate", o.r.detail && "max-w-[70%] shrink-0")}>{o.r.label}</span>
+                  {o.r.detail ? <span className="min-w-0 truncate text-[12px] text-muted">{o.r.detail}</span> : null}
+                </>
+              ) : o.type === "remove" ? (
+                <>
+                  <XMarkIcon className="size-4 text-muted" aria-hidden />
+                  <span className="truncate">{removeLabel ?? "Remove"}</span>
                 </>
               ) : (
                 <>
@@ -146,7 +187,6 @@ export function RecordPicker({
               )}
             </li>
           ))}
-          {!options.length && !pending ? <li className="px-2 py-1.5 text-[13px] text-muted">No matches</li> : null}
         </ul>
       ) : null}
     </div>

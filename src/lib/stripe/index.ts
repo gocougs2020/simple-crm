@@ -3,7 +3,7 @@ import { cacheLife, cacheTag } from "next/cache";
 import { parseStripeAccounts, type StripeAccount } from "./accounts";
 import type { Form } from "./changes";
 import type { StripePriceOption } from "./types";
-import { discountShare } from "./rules";
+import { discountShare, invoiceItems, lineProduct, type InvoiceLine } from "./rules";
 
 /**
  * Stripe, for one or more Stripe accounts. Plain REST with a restricted key
@@ -163,6 +163,8 @@ export type StripeInvoice = {
   hosted_invoice_url: string | null;
   invoice_pdf?: string | null;
   description?: string | null;
+  /** The first page of its lines (Stripe includes up to 10), for what it was for. */
+  lines?: { data: InvoiceLine[]; has_more?: boolean } | null;
 };
 
 export type StripeCharge = {
@@ -281,7 +283,9 @@ export async function billingFor(accountId: string, customerId: string) {
     get<List<StripeCharge>>(accountId, "charges", { customer: customerId, limit: 25 }),
     get<List<StripePaymentMethod>>(accountId, `customers/${encodeURIComponent(customerId)}/payment_methods`, { limit: 20 }).catch(() => null),
   ]);
-  const names = await productNames(accountId, [...new Set(subs.data.flatMap((s) => s.items.data.map((i) => i.price.product)))]);
+  // One lookup names the products of both the subscriptions and the invoice lines.
+  const productIds = [...subs.data.flatMap((s) => s.items.data.map((i) => i.price.product)), ...invoices.data.flatMap((i) => (i.lines?.data ?? []).map(lineProduct))];
+  const names = await productNames(accountId, [...new Set(productIds.filter((id): id is string => !!id))]);
   return {
     account: accountId,
     accountLabel: stripeAccountLabel(accountId),
@@ -294,7 +298,9 @@ export async function billingFor(accountId: string, customerId: string) {
       /** How much of the list price discounts take off, 0 to 1. */
       discountShare: discountShare(typeof s.latest_invoice === "object" ? s.latest_invoice : null),
     })),
-    invoices: invoices.data.filter((i) => i.status !== "draft").map((i) => ({ ...i, overdue: i.status === "open" && !!i.due_date && i.due_date * 1000 < Date.now() })),
+    invoices: invoices.data
+      .filter((i) => i.status !== "draft")
+      .map((i) => ({ ...i, overdue: i.status === "open" && !!i.due_date && i.due_date * 1000 < Date.now(), items: invoiceItems(i.lines?.data ?? [], names), moreItems: !!i.lines?.has_more })),
     charges: charges.data,
     /** Null when the key can't read payment methods. */
     paymentMethods: methods ? methods.data.map((m) => ({ ...m, isDefault: m.id === customer.invoice_settings?.default_payment_method })) : null,

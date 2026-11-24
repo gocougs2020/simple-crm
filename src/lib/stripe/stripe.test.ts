@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseStripeAccounts } from "./accounts";
 import { changeSubscriptionForm, newSubscriptionForm, per, toCents } from "./changes";
-import { collected, discountShare, monthlyAmount, netMonthly, nextCharge, perMonth, rollUpStatus } from "./rules";
+import { collected, discountShare, invoiceItems, monthlyAmount, netMonthly, nextCharge, perMonth, rollUpStatus } from "./rules";
 
 describe("Stripe accounts from the environment", () => {
   it("reads one account per STRIPE_SECRET_KEY variable, named by its suffix", () => {
@@ -181,5 +181,26 @@ describe("The next charge of a subscription", () => {
     const metered = { quantity: 1, price: { unit_amount: 10, recurring: { ...monthly, usage_type: "metered" } } };
     assert.deepEqual(nextCharge({ ...base, items: [...base.items, metered] }), { at: 2_000, amount: 10_000, partial: true });
     assert.deepEqual(nextCharge({ ...base, items: [metered] }), { at: 2_000, amount: null, partial: true });
+  });
+});
+
+describe("What an invoice was for", () => {
+  const names = new Map([
+    ["prod_pro", "Pro"],
+    ["prod_seats", "Extra seats"],
+  ]);
+
+  it("names each product once, from either API version, with its quantity", () => {
+    const lines = [
+      { description: "1 × Pro (at $50.00 / month)", quantity: 1, price: { product: "prod_pro" } },
+      { description: "Remaining time on Pro after 3 Dec", quantity: 1, pricing: { price_details: { product: "prod_pro" } } },
+      { description: "3 × Extra seats (at $10.00 / month)", quantity: 3, pricing: { price_details: { product: "prod_seats" } } },
+    ];
+    assert.deepEqual(invoiceItems(lines, names), ["Pro", "Extra seats × 3"]);
+  });
+
+  it("falls back to a line's own description, without Stripe's quantity and price", () => {
+    assert.deepEqual(invoiceItems([{ description: "Onboarding workshop" }, { description: "2 × Retired plan (at $5.00 / month)", price: { product: "prod_gone" } }, { description: "" }], names), ["Onboarding workshop", "Retired plan"]);
+    assert.deepEqual(invoiceItems([], names), []);
   });
 });
