@@ -22,6 +22,7 @@ import { AGENT_ASSIGNEE, OwnerSelect } from "@/components/records/owner-select";
 import { appConfig } from "@/app.config";
 import { Button } from "@/components/ui/button";
 import { Input, Kbd } from "@/components/ui/field";
+import { useMentionOptions } from "@/components/ui/mention-menu";
 import { RichText, type RichTextHandle } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
 import { activityLabels, callOutcomes, meetingOutcomes, type ActivityType } from "@/lib/constants";
@@ -293,6 +294,8 @@ function CallNow({ links, recipient }: { links: Links; recipient: Recipient }) {
 
 function ActivityForm({ type, links, contacts, onDone }: { type: ActivityType; links: Links; /** Meetings: the people who can be put on it. */ contacts?: Contact[]; onDone?: () => void }) {
   const { workspace, viewer, services, canEdit } = useApp();
+  // Only a note notifies whoever it mentions, so only a note offers teammates on "@".
+  const mentionable = useMentionOptions();
   // The teammate's own time zone (src/lib/time-zone.ts), so "now" reads as now to them wherever the workspace is set.
   const tz = workspace.timezone;
   // Background work (docs/AGENT.md): tasks can go to the agent, and a note can call on it with @Agent.
@@ -464,6 +467,7 @@ function ActivityForm({ type, links, contacts, onDone }: { type: ActivityType; l
       <RichText
         handle={editor}
         value={body}
+        mentions={type === "note" ? mentionable : undefined}
         onChange={setBody}
         onSubmit={submit}
         minHeight={isTask ? 44 : 72}

@@ -5,10 +5,16 @@ import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { Selection } from "@tiptap/pm/state";
-import { useEffect, useImperativeHandle, useRef } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { BoldIcon, ItalicIcon, LinkIcon, ListBulletIcon, NumberedListIcon } from "@heroicons/react/20/solid";
 import { Dictation } from "@/components/dictation/dictation";
+import { matchMentions } from "@/lib/crm/mentions";
+import { mentionQuery } from "@/lib/chat/format";
+import { MentionMenu, type MentionOption } from "./mention-menu";
 import { RichTextFrame, type RichTextHandle, type RichTextProps } from "./rich-text";
+
+/** The "@name" being typed at the cursor: what it says, where it starts and ends in the document, and where to show the list. */
+type Typing = { query: string; from: number; to: number; top: number; left: number };
 
 /**
  * The editor itself: Tiptap and ProseMirror. Loaded on demand through
@@ -27,9 +33,43 @@ export function RichTextEditor({
   toolbar = true,
   actions,
   dictation,
+  mentions,
 }: RichTextProps) {
   /** Whether the teammate has put the cursor somewhere in the text (clicked, tabbed in, or typed). */
   const placed = useRef(false);
+  const frame = useRef<HTMLDivElement>(null);
+  const [typing, setTyping] = useState<Typing | null>(null);
+  const [active, setActive] = useState(0);
+  /** The "@" the teammate closed the list on with Escape: it stays closed until they type another. */
+  const [dismissed, setDismissed] = useState<number | null>(null);
+  const lastTyped = useRef<string | null>(null);
+  const people = useMemo(() => (typing && mentions ? matchMentions(mentions, typing.query) : []), [typing, mentions]);
+  const open = !!typing && people.length > 0 && dismissed !== typing.from;
+
+  /** Finds an "@name" right before the cursor, in the paragraph it's in. */
+  const detect = (ed: Editor) => {
+    const { selection } = ed.state;
+    const { $from } = selection;
+    if (!mentions?.length || !selection.empty || !$from.parent.isTextblock) return setTyping(null);
+    // Line breaks and other inline nodes count as one character each, so offsets match the document.
+    const before = $from.parent.textBetween(0, $from.parentOffset, undefined, "\n");
+    const q = mentionQuery(before, before.length);
+    if (!q) return setTyping(null);
+    const from = $from.start() + q.start;
+    const at = ed.view.coordsAtPos(from);
+    const box = frame.current?.getBoundingClientRect();
+    const top = box ? at.bottom - box.top + 4 : 0;
+    const left = box ? Math.max(0, Math.min(at.left - box.left, box.width - 256)) : 0;
+    // A new "@" or more letters start the list from the top again.
+    const key = `${from}:${q.query}`;
+    if (lastTyped.current !== key) setActive(0);
+    lastTyped.current = key;
+    setTyping({ query: q.query, from, to: selection.from, top, left });
+  };
+
+  // ProseMirror's key handler is set once, so it reads the list through this.
+  const menu = useRef<{ open: boolean; people: MentionOption[]; active: number; pick: (m: MentionOption) => void; typing: Typing | null }>({ open: false, people: [], active: 0, pick: () => {}, typing: null });
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -44,6 +84,24 @@ export function RichTextEditor({
     editorProps: {
       attributes: { class: "prose-crm px-3 py-2.5 focus:outline-none", style: `min-height:${minHeight}px` },
       handleKeyDown: (_view, e) => {
+        const m = menu.current;
+        if (m.open) {
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault();
+            setActive((a) => (a + (e.key === "ArrowDown" ? 1 : m.people.length - 1)) % m.people.length);
+            return true;
+          }
+          if ((e.key === "Enter" && !e.metaKey && !e.ctrlKey) || e.key === "Tab") {
+            e.preventDefault();
+            m.pick(m.people[m.active] ?? m.people[0]);
+            return true;
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            setDismissed(m.typing!.from);
+            return true;
+          }
+        }
         if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && onSubmit) {
           e.preventDefault();
           onSubmit();
@@ -52,10 +110,24 @@ export function RichTextEditor({
         return false;
       },
     },
-    onUpdate: ({ editor }) => onChange?.(editor.isEmpty ? "" : editor.getHTML()),
+    onUpdate: ({ editor }) => {
+      onChange?.(editor.isEmpty ? "" : editor.getHTML());
+      detect(editor);
+    },
+    onSelectionUpdate: ({ editor }) => detect(editor),
     onFocus: () => {
       placed.current = true;
     },
+    onBlur: () => setTyping(null),
+  });
+
+  const pick = (m: MentionOption) => {
+    if (!editor || !typing) return;
+    editor.chain().focus().insertContentAt({ from: typing.from, to: typing.to }, { type: "text", text: `${m.insert} ` }).run();
+    setTyping(null);
+  };
+  useEffect(() => {
+    menu.current = { open, people, active, pick, typing };
   });
 
   /** Puts dictated text at the cursor (replacing a selection), or at the end, with spaces so it never runs into the words around it. */
@@ -108,6 +180,8 @@ export function RichTextEditor({
       minHeight={minHeight}
     >
       {editor ? <EditorContent editor={editor} /> : null}
+      <div ref={frame} className="pointer-events-none absolute inset-0" aria-hidden />
+      {open && typing ? <MentionMenu people={people} active={active} onPick={pick} onHover={setActive} style={{ top: typing.top, left: typing.left }} /> : null}
     </RichTextFrame>
   );
 }

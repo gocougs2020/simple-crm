@@ -43,6 +43,7 @@ import { Field, Input } from "@/components/ui/field";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tooltip } from "@/components/ui/menu";
 import { useUploader } from "@/components/files/files-panel";
 import type { FileLinks } from "@/components/files/upload";
+import { useMentionOptions } from "@/components/ui/mention-menu";
 import { preloadRichText, RichText } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
 import type { ActivityRow, NoteReply, RecordFile, TimelineItem } from "@/lib/crm/activities";
@@ -688,6 +689,7 @@ function CollapsibleBody({ html, defaultOpen = false }: { html: string; defaultO
  */
 function Replies({ noteId, replies: saved }: { noteId: string; replies: NoteReply[] }) {
   const { viewer, isAdmin, canEdit, workspace, services } = useApp();
+  const mentionable = useMentionOptions();
   const tz = workspace.timezone;
   const [open, setOpen] = useState(false);
   const [body, setBody] = useState("");
@@ -755,6 +757,7 @@ function Replies({ noteId, replies: saved }: { noteId: string; replies: NoteRepl
             minHeight={56}
             autoFocus
             toolbar={false}
+            mentions={mentionable}
             placeholder={services.ai.background ? `Reply. Type @ and a teammate's name to notify them, or @${appConfig.agent.name} to hand it something.` : "Reply. Type @ and a teammate's name to notify them."}
           />
           <div className="mt-1.5 flex justify-end gap-2">

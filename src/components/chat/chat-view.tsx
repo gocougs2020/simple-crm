@@ -16,9 +16,11 @@ import { Avatar } from "@/components/ui/avatar";
 import { Button, Spinner } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Kbd } from "@/components/ui/field";
+import { MentionMenu, useMentionOptions, type MentionOption } from "@/components/ui/mention-menu";
 import { toast } from "@/components/ui/toast";
 import type { TeamMember } from "@/lib/crm/context";
 import type { ChatMessage } from "@/lib/chat/service";
+import { matchMentions } from "@/lib/crm/mentions";
 import { chatSegments, MAX_CHAT_FILES, MAX_CHAT_LENGTH, mentionQuery } from "@/lib/chat/format";
 import { dayKey, formatBytes, formatDay, formatFull, formatTime } from "@/lib/format";
 
@@ -520,20 +522,14 @@ function MentionTextarea({
   autoFocus?: boolean;
   bare?: boolean;
 }) {
-  const { team, viewer } = useApp();
+  const options = useMentionOptions();
   const ref = useRef<HTMLTextAreaElement>(null);
   const [cursor, setCursor] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<number | null>(null);
   const q = mentionQuery(value, cursor);
-  const people = useMemo(() => {
-    if (!q) return [];
-    const term = q.query.toLowerCase();
-    return team
-      .filter((m) => m.active && m.id !== viewer.id)
-      .filter((m) => !term || m.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(term)) || m.name.toLowerCase().startsWith(term))
-      .slice(0, 6);
-  }, [q, team, viewer.id]);
+  // Alphabetical, the same list notes offer.
+  const people = useMemo(() => (q ? matchMentions(options, q.query) : []), [q, options]);
   const open = !!q && people.length > 0 && dismissed !== q.start;
 
   useLayoutEffect(() => {
@@ -546,12 +542,10 @@ function MentionTextarea({
     if (autoFocus) ref.current?.focus();
   }, [autoFocus]);
 
-  const pick = (m: TeamMember) => {
+  const pick = (m: MentionOption) => {
     if (!q) return;
     // The full name when a first name is shared on the team, so it's clear who's meant.
-    const first = m.name.split(/\s+/)[0];
-    const shared = team.filter((t) => t.active && t.name.split(/\s+/)[0].toLowerCase() === first.toLowerCase()).length > 1;
-    const insert = `@${shared ? m.name : first} `;
+    const insert = `${m.insert} `;
     const next = value.slice(0, q.start) + insert + value.slice(cursor);
     onChange(next);
     const at = q.start + insert.length;
@@ -615,23 +609,7 @@ function MentionTextarea({
         )}
       />
       {open ? (
-        <ul role="listbox" aria-label="Mention a teammate" className="absolute bottom-full left-0 z-30 mb-2 w-64 animate-pop-in rounded-lg border border-line bg-surface p-1 shadow-md">
-          {people.map((m, i) => (
-            <li
-              key={m.id}
-              role="option"
-              aria-selected={i === active}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => pick(m)}
-              onMouseMove={() => setActive(i)}
-              className={clsx("flex h-9 cursor-default items-center gap-2 rounded-md px-2 text-[13.5px]", i === active ? "bg-sunken text-primary" : "text-secondary")}
-            >
-              <Avatar name={m.name} size="xs" />
-              <span className="truncate">{m.name}</span>
-              {m.title ? <span className="truncate text-[12px] text-muted">{m.title}</span> : null}
-            </li>
-          ))}
-        </ul>
+        <MentionMenu people={people} active={active} onPick={pick} onHover={setActive} className="bottom-full left-0 mb-2" />
       ) : null}
     </div>
   );
