@@ -87,6 +87,10 @@ Two optional groups of operations let an agent work with the CRM's own agent (se
 
 Tasks take `agent: true` on create and update to hand that task to the agent.
 
+## Saved filters
+
+The filters teammates save on the People, Organizations and Clients lists (see [ARCHITECTURE.md](ARCHITECTURE.md)) are readable here: `GET /filters` (tool `list_filters`, optionally `?entityType=person|organization|client`) returns the key's teammate's own filters and the ones shared with the team, with their conditions; a workspace key sees the shared ones. Pass a filter's id as `filterId` to `GET /people`, `/organizations` or `/clients` to list what it matches, on top of the other query filters. An id the key can't use (deleted, someone else's private filter, or for another list) answers 404 rather than an unfiltered list. Filters are made and changed in the app only.
+
 ## Skills and scheduled jobs
 
 Two more groups cover what teammates save for agents in Settings → Agent (see [AGENT.md](AGENT.md#skills)):

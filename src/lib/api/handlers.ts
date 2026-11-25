@@ -5,7 +5,8 @@ import * as runs from "@/lib/agent/runs";
 import { startEnrichment } from "@/lib/agent/enrich";
 import * as schedules from "@/lib/agent/schedules";
 import * as skills from "@/lib/agent/skills";
-import { can, type Actor } from "@/lib/crm/actor";
+import { actorUserId, can, type Actor } from "@/lib/crm/actor";
+import { visibleFilters } from "@/lib/crm/saved-filters";
 import { dayBounds } from "@/lib/crm/activities";
 import * as chat from "@/lib/chat/service";
 import * as activities from "@/lib/crm/service/activities";
@@ -330,6 +331,7 @@ export const handlers: { [K in OperationId]: Handler<Operations[K]> } = {
   listPipelines: async () => ({ data: await q.listPipelines(), nextCursor: null }),
   listServices: async () => ({ data: await q.listServices(), nextCursor: null }),
   listLabels: async () => ({ data: await q.listLabelDefinitions(), nextCursor: null }),
+  listFilters: async (a, { query }) => ({ data: await visibleFilters(actorUserId(a), query.entityType), nextCursor: null }),
   listUsers: async () => ({ data: await q.listUsers(), nextCursor: null }),
   listCustomFields: async (_a, { query }) => ({ data: await q.listCustomFields(query.entityType), nextCursor: null }),
 

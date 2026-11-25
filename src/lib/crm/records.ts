@@ -27,7 +27,10 @@ function nextActivity(col: "person_id" | "organization_id" | "client_id", idCol:
 
 // ─── People ──────────────────────────────────────────────────────────────
 
-export type PeopleFilter = { q?: string; ownerId?: string; organizationId?: string; tag?: string; sort?: string; dir?: "asc" | "desc" };
+export type PeopleFilter = { q?: string; ownerId?: string; organizationId?: string; tag?: string; sort?: string; dir?: "asc" | "desc"; /** A saved filter's id, as the URL has it (`?filter=`). */ filterId?: string };
+
+/** What the list queries take: the filters, plus a saved filter already turned into SQL (src/lib/crm/saved-filters.ts). */
+type WithSaved<F> = F & { saved?: SQL };
 
 /**
  * "At this organization" for lists, audiences and the API: the organization
@@ -52,7 +55,7 @@ const peopleSorts: Record<string, SQL | ReturnType<typeof sql>> = {
 
 const ordered = (order: SQL, dir: "asc" | "desc") => (dir === "desc" ? sql`${order} desc nulls last` : sql`${order} asc nulls last`);
 
-function peopleQuery(f: PeopleFilter) {
+function peopleQuery(f: WithSaved<PeopleFilter>) {
   const where: SQL[] = [isNull(people.archivedAt)];
   if (f.q?.trim()) {
     const t = likeTerm(f.q);
@@ -62,6 +65,7 @@ function peopleQuery(f: PeopleFilter) {
   if (f.organizationId) where.push(inOrganizations(people.organizationId, [f.organizationId]));
   // Their own label, or one their organization carries.
   if (f.tag) where.push(sql`${effectiveTags} ? ${f.tag}`);
+  if (f.saved) where.push(f.saved);
   const order = peopleSorts[f.sort ?? ""] ?? peopleSorts.name;
   const dir = f.dir ?? (f.sort === "lastActivity" || f.sort === "lastCampaign" || f.sort === "created" ? "desc" : "asc");
   return { where: and(...where), sort: ordered(order as SQL, dir) };
@@ -73,7 +77,7 @@ function peopleQuery(f: PeopleFilter) {
  * their organization, clients and next activity, so scrolling further never
  * makes Postgres work out the extras for rows it skips.
  */
-export async function listPeople(f: PeopleFilter = {}, { offset = 0, limit = pageSize }: Page = {}) {
+export async function listPeople(f: WithSaved<PeopleFilter> = {}, { offset = 0, limit = pageSize }: Page = {}) {
   const db = await getDb();
   const { where, sort } = peopleQuery(f);
   const page = db
@@ -101,7 +105,7 @@ export async function listPeople(f: PeopleFilter = {}, { offset = 0, limit = pag
 }
 
 /** How many people the People table holds with these filters, for its heading. */
-export async function countPeople(f: PeopleFilter = {}) {
+export async function countPeople(f: WithSaved<PeopleFilter> = {}) {
   const db = await getDb();
   const { where } = peopleQuery(f);
   const query = db.select({ n: count() }).from(people);
@@ -144,12 +148,12 @@ export async function allTags() {
 // ─── Organizations ───────────────────────────────────────────────────────
 
 /** `parentId` is a parent organization's id (the organizations that are part of it), or "parents" for the parent organizations themselves. */
-export type OrgFilter = { q?: string; ownerId?: string; parentId?: string; tag?: string; sort?: string; dir?: "asc" | "desc" };
+export type OrgFilter = { q?: string; ownerId?: string; parentId?: string; tag?: string; sort?: string; dir?: "asc" | "desc"; /** A saved filter's id (`?filter=`). */ filterId?: string };
 
 // Qualified by hand: in a select with no joins Drizzle renders a column as a bare "id", which the subquery would read as its own.
 const peopleCount = sql<number>`(select count(*)::int from people p where p.organization_id = "organizations"."id" and p.archived_at is null)`;
 
-function organizationsQuery(f: OrgFilter) {
+function organizationsQuery(f: WithSaved<OrgFilter>) {
   const where: SQL[] = [isNull(organizations.archivedAt)];
   if (f.q?.trim()) {
     const t = likeTerm(f.q);
@@ -158,6 +162,7 @@ function organizationsQuery(f: OrgFilter) {
   if (f.ownerId) where.push(f.ownerId === "none" ? isNull(organizations.ownerId) : eq(organizations.ownerId, f.ownerId));
   if (f.tag) where.push(sql`${organizations.tags} ? ${f.tag}`);
   if (f.parentId) where.push(f.parentId === "parents" ? eq(organizations.isParent, true) : eq(organizations.parentId, f.parentId));
+  if (f.saved) where.push(f.saved);
   const sorts: Record<string, SQL> = {
     name: sql`lower(${organizations.name})`,
     lastActivity: sql`${organizations.lastActivityAt}`,
@@ -170,7 +175,7 @@ function organizationsQuery(f: OrgFilter) {
 }
 
 /** One page of the Organizations table, picked like the People table's: ids first, extras only for the rows shown. */
-export async function listOrganizations(f: OrgFilter = {}, { offset = 0, limit = pageSize }: Page = {}) {
+export async function listOrganizations(f: WithSaved<OrgFilter> = {}, { offset = 0, limit = pageSize }: Page = {}) {
   const db = await getDb();
   const { where, sort } = organizationsQuery(f);
   const page = db
@@ -195,7 +200,7 @@ export async function listOrganizations(f: OrgFilter = {}, { offset = 0, limit =
 }
 
 /** How many organizations the Organizations table holds with these filters, for its heading. */
-export async function countOrganizations(f: OrgFilter = {}) {
+export async function countOrganizations(f: WithSaved<OrgFilter> = {}) {
   const db = await getDb();
   const [row] = await db.select({ n: count() }).from(organizations).where(organizationsQuery(f).where);
   return row?.n ?? 0;
@@ -264,6 +269,8 @@ export type ClientFilter = {
   productLine?: string;
   sort?: string;
   dir?: "asc" | "desc";
+  /** A saved filter, already turned into SQL (src/lib/crm/saved-filters.ts). */
+  saved?: SQL;
 };
 
 export async function listClients(f: ClientFilter = {}) {
@@ -280,6 +287,7 @@ export async function listClients(f: ClientFilter = {}) {
   if (f.billing) where.push(f.billing === "none" ? isNull(clients.stripeStatus) : eq(clients.stripeStatus, f.billing as never));
   if (f.stripeProduct) where.push(sql`${clients.stripeProducts} ? ${f.stripeProduct}`);
   if (f.productLine) where.push(sql`${clients.productLines} ? ${f.productLine}`);
+  if (f.saved) where.push(f.saved);
   if (f.q?.trim()) {
     const t = likeTerm(f.q);
     where.push(or(ilike(clients.name, t), ilike(organizations.name, t), ilike(sql`${people.firstName} || ' ' || coalesce(${people.lastName}, '')`, t))!);

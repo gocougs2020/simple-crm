@@ -13,6 +13,7 @@ import { openCreate } from "@/components/shell/create-store";
 import { AgoCell, NextActivityCell, OwnerCell } from "@/components/table/cells";
 import { DataTable, type Column } from "@/components/table/data-table";
 import { OwnerFilter, ParentFilter, SearchBox, Toolbar } from "@/components/table/toolbar";
+import { SavedFilterMenu, type SavedFiltersState } from "@/components/table/saved-filters";
 import { usePagedRows } from "@/components/table/use-paged-rows";
 import { MergeDialog, type MergeCandidate } from "@/components/records/merge-dialog";
 import { Button } from "@/components/ui/button";
@@ -29,7 +30,21 @@ type Row = Awaited<ReturnType<typeof listOrganizations>>[number];
 
 const rowId = (r: Row) => r.organization.id;
 
-export function OrganizationsView({ rows: first, total, filter, pageSize, filtered }: { rows: Row[]; total: number; filter: OrgFilter; pageSize: number; filtered: boolean }) {
+export function OrganizationsView({
+  rows: first,
+  total,
+  filter,
+  pageSize,
+  savedFilters,
+  filtered,
+}: {
+  rows: Row[];
+  total: number;
+  filter: OrgFilter;
+  pageSize: number;
+  savedFilters: SavedFiltersState;
+  filtered: boolean;
+}) {
   const { viewer, customFields, money, team, member, canEdit, parentOrganizations } = useApp();
   const labels = useLabels();
   const listParams = useListParams();
@@ -118,6 +133,7 @@ export function OrganizationsView({ rows: first, total, filter, pageSize, filter
       </PageHeader>
       <Toolbar>
         <SearchBox placeholder="Search name, website, industry" />
+        <SavedFilterMenu entity="organization" state={savedFilters} />
         <OwnerFilter />
         <ParentFilter parentsOption />
         {pickable.length ? (
@@ -141,7 +157,7 @@ export function OrganizationsView({ rows: first, total, filter, pageSize, filter
           <EmptyState
             icon={BuildingOffice2Icon}
             title={filtered ? "No matching organizations" : "No organizations yet"}
-            description={filtered ? "Try a different search or filter." : "Organizations group the people you work with and the clients they belong to."}
+            description={savedFilters.missing ? "That saved filter was deleted, or isn't shared with you. Pick another one from Filters." : filtered ? "Try a different search or filter." : "Organizations group the people you work with and the clients they belong to."}
             action={filtered ? undefined : <Button variant="primary" onClick={() => openCreate({ kind: "organization" })}>Add an organization</Button>}
           />
         }

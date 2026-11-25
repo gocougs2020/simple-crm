@@ -152,22 +152,33 @@ function PersonDialog({ req, onClose }: { req: Extract<CreateRequest, { kind: "p
 
 function OrganizationDialog({ req, onClose }: { req: Extract<CreateRequest, { kind: "organization" }>; onClose: () => void }) {
   const { viewer, parentOrganizations } = useApp();
-  const [name, setName] = useState(req.defaults?.name ?? "");
-  const [parentId, setParentId] = useState<string | null>(req.defaults?.parentId ?? null);
-  const [domain, setDomain] = useState("");
+  const router = useRouter();
+  const d = req.defaults ?? {};
+  const [name, setName] = useState(d.name ?? "");
+  const [parentId, setParentId] = useState<string | null>(d.parentId ?? null);
+  const [domain, setDomain] = useState(d.domain ?? "");
   const [phone, setPhone] = useState("");
   const [industry, setIndustry] = useState("");
   const [address, setAddress] = useState("");
   const [ownerId, setOwnerId] = useState<string | null>(viewer.id);
   const [custom, setCustom] = useState<Record<string, unknown>>({});
-  const [openAfter, setOpenAfter] = useState(true);
+  // Made from a person's page: stay there, with them now at it.
+  const [openAfter, setOpenAfter] = useState(!d.personId);
   const done = useCreated("/organizations", "Organization", onClose);
-  const { pending, error, submit } = useSubmit(() => createOrganization({ name, domain, phone, industry, address, ownerId, parentId, custom }), (r) => done(r.id, name, openAfter));
+  const { pending, error, submit } = useSubmit(
+    () => createOrganization({ name, domain, phone, industry, address, ownerId, parentId, custom }, { linkPersonId: d.personId }),
+    (r) => {
+      if (!d.personId || openAfter) return done(r.id, name, openAfter);
+      onClose();
+      toast.success(`${r.name} added and ${d.personName ?? "the person"} linked to it`, { label: "Open", onClick: () => router.push(`/organizations/${r.id}`) });
+    },
+  );
   return (
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
       title="New organization"
+      description={d.personId ? `${d.personName ?? "This person"} is put at it once it's saved.` : undefined}
       size="lg"
       footer={<Footer pending={pending} form="create-org" label="Add organization" openAfter={openAfter} setOpenAfter={setOpenAfter} onCancel={onClose} />}
     >

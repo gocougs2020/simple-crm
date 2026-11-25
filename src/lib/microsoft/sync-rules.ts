@@ -8,6 +8,12 @@ const PUBLIC_MAIL = new Set(["gmail.com", "googlemail.com", "outlook.com", "hotm
 
 const domainOf = (address: string) => address.slice(address.lastIndexOf("@") + 1);
 
+/** The company domain an email address is at, or null for one anyone can get (gmail.com): what a new organization's website starts as. */
+export function workDomain(email: string | null | undefined) {
+  const d = email?.includes("@") ? domainOf(email.trim().toLowerCase()) : "";
+  return d && d.includes(".") && !PUBLIC_MAIL.has(d) ? d : null;
+}
+
 /**
  * Our own organization's email domains: the domain of every connected mailbox
  * (work accounts) plus `microsoft.internalDomains`. Everyone at one of these

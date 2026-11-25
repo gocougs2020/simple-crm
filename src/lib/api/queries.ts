@@ -15,6 +15,7 @@ import { asTimelineItem, lastContactOn, pinnedOn, plannedOn, timelinePage, type 
 import { activityArchived, activityLive } from "@/lib/crm/activity-archive";
 import { effectiveTags, listLabels } from "@/lib/crm/labels";
 import { clientPeople as peopleOnClient, inOrganizations, likeTerm } from "@/lib/crm/records";
+import { resolveFilter } from "@/lib/crm/saved-filters";
 import { ActionError, NotFoundError } from "@/lib/errors";
 import { htmlToText } from "@/lib/safe-html";
 import type { ChatMessage } from "@/lib/chat/service";
@@ -80,7 +81,14 @@ function whoFilter(a: Actor, col: AnyPgColumn, value: string | undefined) {
   return eq(col, value);
 }
 
-type RecordFilter = { q?: string; ownerId?: string; updatedSince?: string; includeArchived?: boolean; limit?: number; cursor?: string };
+type RecordFilter = { q?: string; ownerId?: string; updatedSince?: string; includeArchived?: boolean; limit?: number; cursor?: string; filterId?: string };
+
+/** A saved filter asked for by id, as SQL. One this key can't use is an error rather than an unfiltered list. */
+async function savedFilterWhere(a: Actor, entity: EntityType, filterId: string | undefined) {
+  const { where, missing } = await resolveFilter(actorUserId(a), entity, filterId);
+  if (missing) throw new NotFoundError(`There's no saved ${entity === "person" ? "people" : entity === "organization" ? "organizations" : "clients"} filter with that id that this key can use. GET /filters lists them.`);
+  return where;
+}
 
 function common(a: Actor, t: typeof people | typeof organizations | typeof clients, f: RecordFilter) {
   const where: (SQL | undefined)[] = [];
@@ -140,6 +148,7 @@ export async function listPeople(a: Actor, ctx: Ctx, f: RecordFilter & { organiz
   if (f.organizationId) where.push(inOrganizations(people.organizationId, [f.organizationId]));
   if (f.email) where.push(or(eq(people.email, f.email), sql`${people.otherEmails} ? ${f.email.toLowerCase()}`)!);
   if (f.tag) where.push(sql`${effectiveTags} ? ${f.tag}`);
+  where.push(await savedFilterWhere(a, "person", f.filterId));
   const rows = await db
     .select(personSelect)
     .from(people)
@@ -206,6 +215,7 @@ export async function listOrganizations(a: Actor, ctx: Ctx, f: RecordFilter & { 
   if (f.tag) where.push(sql`${organizations.tags} ? ${f.tag}`);
   if (f.parentId) where.push(eq(organizations.parentId, f.parentId));
   if (f.isParent !== undefined) where.push(eq(organizations.isParent, f.isParent));
+  where.push(await savedFilterWhere(a, "organization", f.filterId));
   const rows = await db
     .select(orgSelect)
     .from(organizations)
@@ -309,6 +319,7 @@ export async function listClients(
   if (f.health) where.push(eq(clients.health, f.health as never));
   if (f.tag) where.push(sql`${clients.tags} ? ${f.tag}`);
   if (f.productLine) where.push(sql`${clients.productLines} ? ${f.productLine}`);
+  where.push(await savedFilterWhere(a, "client", f.filterId));
   const rows = await selectClients(and(...where), limit + 1);
   return page(rows, limit, (r) => r.client.id, (r) => toClient(ctx, r));
 }

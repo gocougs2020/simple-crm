@@ -8,6 +8,7 @@ import { requireUser } from "@/lib/auth";
 import { CLIENTS_TAB_COOKIE, clientCategories, type ClientCategory } from "@/lib/constants";
 import { getAppData } from "@/lib/crm/context";
 import { allClientTags, clientCounts, listClients } from "@/lib/crm/records";
+import { resolveFilter, visibleFilters } from "@/lib/crm/saved-filters";
 import { productFamilies } from "@/lib/product-rules";
 
 export const metadata: Metadata = { title: "Clients" };
@@ -34,6 +35,7 @@ async function Clients({ searchParams }: Pick<PageProps<"/clients">, "searchPara
   // The board shows one pipeline; the table shows them all.
   const pipelineId = view === "table" ? null : (options.find((p) => p.id === (one(sp.pipeline) ?? user.prefs.clientPipelines?.[category]))?.id ?? options[0]?.id ?? null);
   const owner = one(sp.owner);
+  const [savedFilter, filters] = await Promise.all([resolveFilter(user.id, "client", one(sp.filter)), visibleFilters(user.id, "client")]);
   const [rows, counts, tags] = await Promise.all([
     options.length
       ? listClients({
@@ -45,6 +47,7 @@ async function Clients({ searchParams }: Pick<PageProps<"/clients">, "searchPara
           billing: one(sp.billing),
           productLine: productFamilies.find((f) => f === one(sp.product)),
           tag: one(sp.tag),
+          saved: savedFilter.where,
           sort: view === "table" ? one(sp.sort) : undefined,
           dir: one(sp.dir) as "asc" | "desc" | undefined,
         })
@@ -52,5 +55,5 @@ async function Clients({ searchParams }: Pick<PageProps<"/clients">, "searchPara
     clientCounts(),
     allClientTags(),
   ]);
-  return <ClientsView rows={rows} view={view} category={category} pipelineId={pipelineId} counts={counts} tags={tags} />;
+  return <ClientsView rows={rows} view={view} category={category} pipelineId={pipelineId} counts={counts} tags={tags} savedFilters={{ filters, active: savedFilter.filter, missing: savedFilter.missing }} />;
 }
