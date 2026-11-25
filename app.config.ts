@@ -110,6 +110,11 @@ export type AppConfig = {
     fileDescriptions: boolean;
     /** What the agent is called in its panel and its own replies. */
     name: string;
+    /**
+     * What tags the agent in a note, a reply or the team chat ("@Agent"), and what the @ list puts in.
+     * Keep it short: its full name and plain "@agent" call on it too, so this is only the handle people type.
+     */
+    mentionName: string;
     /** AI Gateway model ids (creator/model). Change them to try another model; nothing else needs to change. */
     chatModel: string;
     /** How hard the chat model thinks before answering. More is slower and costs more; "provider-default" leaves it to the model. */
@@ -344,6 +349,7 @@ const defaults = {
     summaries: true,
     fileDescriptions: true,
     name: "Agent",
+    mentionName: "Agent",
     chatModel: "openai/gpt-6.1-sol",
     chatReasoning: "medium",
     summaryModel: "openai/gpt-6.1-sol",
