@@ -17,6 +17,7 @@ import { openCreate } from "@/components/shell/create-store";
 import { AgoCell, NextActivityCell, OwnerCell } from "@/components/table/cells";
 import { DataTable, type Column } from "@/components/table/data-table";
 import { OwnerFilter, ParentFilter, SearchBox, Toolbar } from "@/components/table/toolbar";
+import { SavedFilterMenu, type SavedFiltersState } from "@/components/table/saved-filters";
 import { usePagedRows } from "@/components/table/use-paged-rows";
 import { useListParams } from "@/components/table/use-params";
 import { MergeDialog, type MergeCandidate } from "@/components/records/merge-dialog";
@@ -34,7 +35,23 @@ type Row = Awaited<ReturnType<typeof listPeople>>[number];
 
 const rowId = (r: Row) => r.person.id;
 
-export function PeopleView({ rows: first, total, filter, pageSize, tags, filtered }: { rows: Row[]; total: number; filter: PeopleFilter; pageSize: number; tags: string[]; filtered: boolean }) {
+export function PeopleView({
+  rows: first,
+  total,
+  filter,
+  pageSize,
+  tags,
+  savedFilters,
+  filtered,
+}: {
+  rows: Row[];
+  total: number;
+  filter: PeopleFilter;
+  pageSize: number;
+  tags: string[];
+  savedFilters: SavedFiltersState;
+  filtered: boolean;
+}) {
   const labels = useLabels();
   // What the filter offers: labels the app shows.
   const shownTags = labels.shown(tags);
@@ -124,6 +141,7 @@ export function PeopleView({ rows: first, total, filter, pageSize, tags, filtere
       </PageHeader>
       <Toolbar>
         <SearchBox placeholder="Search name, email, phone" />
+        <SavedFilterMenu entity="person" state={savedFilters} />
         <OwnerFilter />
         <ParentFilter />
         {shownTags.length ? (
@@ -145,7 +163,7 @@ export function PeopleView({ rows: first, total, filter, pageSize, tags, filtere
         defaultSort="name"
         empty={
           filtered ? (
-            <EmptyState icon={UserIcon} title="No matching people" description="Try a different search or filter." />
+            <EmptyState icon={UserIcon} title="No matching people" description={savedFilters.missing ? "That saved filter was deleted, or isn't shared with you. Pick another one from Filters." : "Try a different search or filter."} />
           ) : (
             <EmptyState
               icon={UserIcon}

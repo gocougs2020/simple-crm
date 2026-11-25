@@ -8,7 +8,7 @@ import { FocusLine } from "@/components/activity/focus-line";
 import { RecordSummary } from "@/components/records/record-summary";
 import { Timeline } from "@/components/activity/timeline";
 import { FilesCard } from "@/components/files/files-panel";
-import { OrganizationCard, PersonDetails, RelatedClients } from "@/components/records/details";
+import { NoOrganizationCard, OrganizationCard, PersonDetails, RelatedClients } from "@/components/records/details";
 import { RecordBody, RecordHeader } from "@/components/records/record-header";
 import { CallButton, StarToggle } from "@/components/phone/contact-actions";
 import { Avatar } from "@/components/ui/avatar";
@@ -78,7 +78,7 @@ async function Person({ params }: Pick<PageProps<"/people/[id]">, "params">) {
             {/* The client they belong to comes first, above the details. */}
             <RelatedClients subject={name} clients={clients} create={{ kind: "client", defaults: { personId: id, personName: name, organizationId: organization?.id, organizationName: organization?.name } }} />
             <PersonDetails person={person} organization={organization} />
-            {organization ? <OrganizationCard org={organization} /> : null}
+            {organization ? <OrganizationCard org={organization} details /> : <NoOrganizationCard person={person} />}
             {alsoAt.map((org) => (
               <OrganizationCard key={org.id} org={org} title="Also at" />
             ))}

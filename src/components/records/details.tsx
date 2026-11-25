@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { StarToggle } from "@/components/phone/contact-actions";
-import { useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition, type MouseEvent, type ReactNode } from "react";
 import { BriefcaseIcon, BuildingOffice2Icon, PlusIcon, SparklesIcon, XMarkIcon } from "@heroicons/react/20/solid";
 import { enrichRecord } from "@/actions/agent";
 import { agentTasksChanged } from "@/components/agent/task-events";
@@ -22,6 +22,7 @@ import { Checkbox, Input, Select, Textarea } from "@/components/ui/field";
 import type { schema } from "@/db";
 import { churnReasons, clientHealthLabels, clientHealths, type ClientCategory, type ClientHealth, type EntityType } from "@/lib/constants";
 import { orderPeople } from "@/lib/crm/people-order";
+import { workDomain } from "@/lib/microsoft/sync-rules";
 import { formatDateOnly, formatDay, formatPhoneInput, parseMoney, personName } from "@/lib/format";
 import { CustomFieldInput, formatCustomValue } from "./custom-field-input";
 import { InlineField, SideCard } from "./inline-field";
@@ -49,14 +50,21 @@ function text(save: (v: string | null) => Promise<{ ok: true } | { ok: false; er
  * current name highlighted, so typing looks for another one at once. Taking
  * it off is the last choice in the list.
  */
-function pickerEditor(kind: "person" | "organization", noun: string) {
+function pickerEditor(kind: "person" | "organization", noun: string, allowCreate = false) {
   return function PickerEditor({ value, commit }: { value: PickerValue; commit: (v?: PickerValue) => void }) {
     const current = value && "record" in value ? value.record.label : "";
-    return <RecordPicker kind={kind} value={null} initialQuery={current} onChange={(v) => commit(v)} onRemove={current ? () => commit(null) : undefined} removeLabel={`Remove ${noun}`} allowCreate={false} autoFocus />;
+    return <RecordPicker kind={kind} value={null} initialQuery={current} onChange={(v) => commit(v)} onRemove={current ? () => commit(null) : undefined} removeLabel={`Remove ${noun}`} allowCreate={allowCreate} autoFocus />;
   };
 }
 const organizationEditor = pickerEditor("organization", "organization");
+/** A person's organization: typing one that isn't in the CRM yet offers to create it, without leaving their page. */
+const newOrganizationEditor = pickerEditor("organization", "organization", true);
 const contactEditor = pickerEditor("person", "contact");
+
+/** Opens the New organization form for a person, with them put at it once it's saved. */
+export function createOrganizationFor(person: Pick<Person, "id" | "firstName" | "lastName" | "email">, name = "") {
+  openCreate({ kind: "organization", defaults: { name, personId: person.id, personName: personName(person), domain: workDomain(person.email) ?? undefined } });
+}
 
 function OwnerField({ value, onSave }: { value: string | null; onSave: (v: string | null) => Promise<{ ok: true } | { ok: false; error: string }> }) {
   const { member } = useApp();
@@ -335,8 +343,15 @@ export function PersonDetails({ person, organization }: { person: Person; organi
               </Link>
             ) : undefined
           }
-          editor={organizationEditor}
-          onSave={(v) => save({ organizationId: v && "record" in v ? v.record.id : null })}
+          editor={newOrganizationEditor}
+          onSave={(v) => {
+            // "Add 'Acme' as a new organization": the full form, so its website, time zone and the rest go in too.
+            if (v && "create" in v) {
+              createOrganizationFor(person, v.create);
+              return Promise.resolve({ ok: true as const });
+            }
+            return save({ organizationId: v && "record" in v ? v.record.id : null });
+          }}
         />
         <LabelsField value={person.tags} carried={organization?.tags.length ? { names: organization.tags, from: organization.name } : null} onSave={(tags) => save({ tags })} />
         <InlineField<boolean>
@@ -841,18 +856,120 @@ export function RelatedPeople({ people, organization }: { people: Person[]; orga
   );
 }
 
-export function OrganizationCard({ org, title = "Organization" }: { org: Organization; title?: string }) {
+/** One read-only line of a card: the same layout as the editable details, for what's changed on another record's page. */
+function DetailRow({ label, children }: { label: string; children: ReactNode }) {
+  const empty = children === null || children === undefined || children === "";
   return (
-    <SideCard title={title}>
+    <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-2 py-1 sm:grid-cols-[7.5rem_minmax(0,1fr)]">
+      <dt className="text-[12.5px] text-muted">{label}</dt>
+      <dd className={clsx("min-w-0 text-[13px] [overflow-wrap:anywhere]", empty ? "text-faint" : "text-primary")}>{empty ? "—" : children}</dd>
+    </div>
+  );
+}
+
+/**
+ * The organization a person (or client) is at. With `details`, everything on
+ * the organization's own Details card, read-only: its website, phone,
+ * industry, address, owner, parent, labels and custom fields, so the person's
+ * page answers "where are they and what is it" without opening it.
+ */
+export function OrganizationCard({ org, title = "Organization", details = false }: { org: Organization; title?: string; details?: boolean }) {
+  const { member, parentOrganizations, customFields, money } = useApp();
+  const owner = member(org.ownerId);
+  const parent = org.parentId ? parentOrganizations.find((p) => p.id === org.parentId) : null;
+  const stop = (e: MouseEvent) => e.stopPropagation();
+  return (
+    <SideCard
+      title={title}
+      action={
+        details ? (
+          <Link href={`/organizations/${org.id}`} className="-mr-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted hover:bg-sunken hover:text-primary">
+            Open
+          </Link>
+        ) : null
+      }
+    >
       <Link href={`/organizations/${org.id}`} className="-mx-2 flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-sunken">
         <span className="flex size-8 items-center justify-center rounded-md bg-sunken">
           <BuildingOffice2Icon className="size-4 text-muted" />
         </span>
         <span className="min-w-0">
           <span className="block truncate text-[13px] font-medium text-primary">{org.name}</span>
-          <span className="block truncate text-[11.5px] text-muted">{org.domain ?? org.industry ?? ""}</span>
+          <span className="block truncate text-[11.5px] text-muted">{details ? (org.isParent ? "Parent organization" : parent ? `Part of ${parent.name}` : "") : (org.domain ?? org.industry ?? "")}</span>
         </span>
       </Link>
+      {details ? (
+        <dl className="mt-1.5 border-t border-line pt-1.5">
+          <DetailRow label="Website">
+            {org.domain ? (
+              <a href={`https://${org.domain}`} target="_blank" rel="noopener noreferrer nofollow" className="underline-offset-2 hover:underline" onClick={stop}>
+                {org.domain}
+              </a>
+            ) : null}
+          </DetailRow>
+          <DetailRow label="Phone">
+            {org.phone ? (
+              <a href={`tel:${org.phone.replace(/[^\d+]/g, "")}`} className="underline-offset-2 hover:underline">
+                {org.phone}
+              </a>
+            ) : null}
+          </DetailRow>
+          <DetailRow label="Industry">{org.industry}</DetailRow>
+          <DetailRow label="Address">{org.address ? <span className="whitespace-pre-line">{org.address}</span> : null}</DetailRow>
+          <DetailRow label="Owner">
+            {owner ? (
+              <span className="flex items-center gap-1.5">
+                <Avatar name={owner.name} size="xs" />
+                {owner.name}
+              </span>
+            ) : null}
+          </DetailRow>
+          {org.isParent ? null : (
+            <DetailRow label="Parent organization">
+              {parent ? (
+                <Link href={`/organizations/${parent.id}`} className="underline-offset-2 hover:underline">
+                  {parent.name}
+                </Link>
+              ) : null}
+            </DetailRow>
+          )}
+          <DetailRow label="Labels">{org.tags.length ? <LabelChips names={org.tags} /> : null}</DetailRow>
+          {customFields
+            .filter((f) => f.entityType === "organization")
+            .map((f) => {
+              const v = org.custom[f.key];
+              return (
+                <DetailRow key={f.id} label={f.label}>
+                  {f.type === "url" && v ? (
+                    <a href={String(v)} target="_blank" rel="noopener noreferrer nofollow" className="underline-offset-2 hover:underline">
+                      {String(v).replace(/^https?:\/\//, "")}
+                    </a>
+                  ) : (
+                    formatCustomValue(f, v, money) || null
+                  )}
+                </DetailRow>
+              );
+            })}
+        </dl>
+      ) : null}
+    </SideCard>
+  );
+}
+
+/** On a person who isn't at an organization: create theirs from here. Picking one that exists is the Organization field in Details. */
+export function NoOrganizationCard({ person }: { person: Person }) {
+  const { canEdit } = useApp();
+  if (!canEdit || person.archivedAt) return null;
+  const domain = workDomain(person.email);
+  return (
+    <SideCard title="Organization">
+      <p className="text-[12.5px] text-muted">
+        {person.firstName} isn&apos;t at an organization yet. Create it here{domain ? ` (it starts with ${domain} as its website)` : ""}, or pick one that exists from Organization in Details.
+      </p>
+      <Button size="sm" variant="outline" className="mt-2" onClick={() => createOrganizationFor(person)}>
+        <PlusIcon aria-hidden />
+        Create organization
+      </Button>
     </SideCard>
   );
 }

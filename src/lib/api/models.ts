@@ -176,6 +176,23 @@ export const Label = z.object({
   hidden: z.boolean().describe("Hidden labels stay on records but the app doesn't show or offer them."),
 });
 
+const FilterCondition = z.object({
+  field: z.string().describe("What it compares: <record>.<field>, or <record>.custom.<key> for a custom field. The record is the one listed or one tied to it (a person's organization and clients; an organization's people and clients; a client's organization and contact)."),
+  op: z.string().describe("How it compares: is, contains, any_of, has_any, gt, within_days, empty and so on."),
+  value: z.union([z.string(), z.number(), z.array(z.string())]).optional().describe("What it compares with. Money in cents, dates as YYYY-MM-DD, ids for owners, stages and pipelines."),
+});
+
+export const SavedFilter = z.object({
+  id: uuid,
+  name: z.string(),
+  entityType: z.enum(entityTypes).describe("The list it filters: person, organization or client."),
+  shared: z.boolean().describe("Shared with the whole team. Otherwise only its maker sees it."),
+  createdBy: uuid.nullable(),
+  createdByName: z.string().nullable(),
+  conditions: z.object({ all: z.array(FilterCondition).describe("Every one of these must match."), any: z.array(FilterCondition).describe("When there are any, at least one must match.") }),
+  updatedAt: ts,
+});
+
 export const Service = z.object({
   name: z.string().describe("The Stripe product's name, as on a client's billing.products."),
   description: z.string().nullable().describe("What the team says it delivers (Settings → Services): its benchmarks, scope and commitments. Null when nobody described it."),
@@ -352,5 +369,5 @@ export const ChatMessage = z.object({
 });
 
 /** Named schemas, in the order the docs list them. */
-export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, Label, ClientPerson, Metric, User, CustomField, Me, SearchResult, AgentTask, AgentBulk, Skill, ScheduledJob, Draft, Knowledge, File: StoredFile, FileDetail, Folder, ChatMessage, Deleted } as const;
+export const models = { Person, Organization, Client, Activity, Timeline, HistoryEvent, Pipeline, Stage, Service, Label, SavedFilter, ClientPerson, Metric, User, CustomField, Me, SearchResult, AgentTask, AgentBulk, Skill, ScheduledJob, Draft, Knowledge, File: StoredFile, FileDetail, Folder, ChatMessage, Deleted } as const;
 export type ModelName = keyof typeof models;

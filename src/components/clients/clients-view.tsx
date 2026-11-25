@@ -16,6 +16,7 @@ import { AgoCell, NextActivityCell, OwnerCell } from "@/components/table/cells";
 import { ProductLineBadges, ProductTag } from "./product-tag";
 import { DataTable, type Column } from "@/components/table/data-table";
 import { OwnerFilter, Toolbar } from "@/components/table/toolbar";
+import { SavedFilterMenu, type SavedFiltersState } from "@/components/table/saved-filters";
 import { useListParams } from "@/components/table/use-params";
 import { BulkAddLabels, LabelChips, useLabels } from "@/components/records/labels";
 import { MergeDialog, type MergeCandidate } from "@/components/records/merge-dialog";
@@ -53,6 +54,7 @@ export function ClientsView({
   pipelineId,
   counts,
   tags,
+  savedFilters,
 }: {
   rows: ClientRow[];
   view: "board" | "table";
@@ -60,6 +62,7 @@ export function ClientsView({
   pipelineId: string | null;
   counts: Partial<Record<ClientCategory, number>>;
   tags: string[];
+  savedFilters: SavedFiltersState;
 }) {
   const { pipelines, money, viewer, customFields, member, team, workspace, canEdit, services: connected } = useApp();
   const labels = useLabels();
@@ -292,6 +295,7 @@ export function ClientsView({
             ))}
           </Select>
         ) : null}
+        <SavedFilterMenu entity="client" state={savedFilters} />
         <OwnerFilter />
         {category === "current" ? filterSelect("health", "Any health", [...clientHealths.map((h) => ({ value: h, label: clientHealthLabels[h] })), { value: "none", label: "Not set" }]) : null}
         {category === "past" ? filterSelect("reason", "Any reason", churnReasons.map((r) => ({ value: r, label: r }))) : null}
@@ -322,7 +326,7 @@ export function ClientsView({
             rowId={(r) => r.client.id}
             href={(r) => `/clients/${r.client.id}`}
             mine={(r) => r.client.ownerId === viewer.id}
-            empty={<EmptyState icon={BriefcaseIcon} title="No clients match" description="Try another filter, or add a client." />}
+            empty={<EmptyState icon={BriefcaseIcon} title="No clients match" description={savedFilters.missing ? "That saved filter was deleted, or isn't shared with you. Pick another one from Filters." : "Try another filter, or add a client."} />}
             bulk={(ids, clear, selected) => (
               <>
                 <select

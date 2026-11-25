@@ -12,6 +12,7 @@ import { sessionActor } from "@/lib/crm/actor";
 import { recordEvent } from "@/lib/crm/events";
 import { id, optionalId, type orgInput, type personInput } from "@/lib/crm/schemas";
 import { globalSearch, listOrganizations, listPeople, lookup, pageSize } from "@/lib/crm/records";
+import { resolveFilter } from "@/lib/crm/saved-filters";
 import * as svc from "@/lib/crm/service/records";
 import * as merging from "@/lib/crm/service/merge";
 
@@ -36,9 +37,17 @@ export async function updatePerson(personId: string, patch: Partial<z.input<type
 
 // ─── Organizations ───────────────────────────────────────────────────────
 
-export async function createOrganization(input: z.input<typeof orgInput>): Promise<Result<{ id: string; name: string }>> {
+/**
+ * Creates an organization. `linkPersonId` is the person it was made from (the
+ * Organization field or card on their page): they're put at it in the same
+ * step, and both histories say so.
+ */
+export async function createOrganization(input: z.input<typeof orgInput>, opts: { linkPersonId?: string } = {}): Promise<Result<{ id: string; name: string }>> {
   return run(async () => {
-    const row = await svc.createOrganization(sessionActor(await actionUser()), input);
+    const actor = sessionActor(await actionUser());
+    const personId = optionalId.parse(opts.linkPersonId ?? null);
+    const row = await svc.createOrganization(actor, input);
+    if (personId) await svc.updatePerson(actor, personId, { organizationId: row.id });
     refresh();
     return row;
   });
@@ -134,6 +143,8 @@ const listFilter = z.object({
   parentId: z.union([z.uuid(), z.literal("parents")]).optional(),
   sort: z.string().max(40).optional(),
   dir: z.enum(["asc", "desc"]).optional(),
+  /** A saved filter, checked again here: the browser only sends its id. */
+  filterId: z.uuid().optional(),
 });
 const pageRange = z.object({ offset: z.number().int().min(0).max(1_000_000), limit: z.number().int().min(1).max(2000).default(pageSize) });
 
@@ -142,7 +153,8 @@ export async function morePeople(filter: z.input<typeof listFilter>, range: z.in
   return run(async () => {
     const user = await actionUser();
     const f = listFilter.parse(filter);
-    return listPeople({ ...f, ownerId: f.ownerId === "me" ? user.id : f.ownerId }, pageRange.parse(range));
+    const { where: saved } = await resolveFilter(user.id, "person", f.filterId);
+    return listPeople({ ...f, saved, ownerId: f.ownerId === "me" ? user.id : f.ownerId }, pageRange.parse(range));
   });
 }
 
@@ -151,7 +163,8 @@ export async function moreOrganizations(filter: z.input<typeof listFilter>, rang
   return run(async () => {
     const user = await actionUser();
     const f = listFilter.parse(filter);
-    return listOrganizations({ ...f, ownerId: f.ownerId === "me" ? user.id : f.ownerId }, pageRange.parse(range));
+    const { where: saved } = await resolveFilter(user.id, "organization", f.filterId);
+    return listOrganizations({ ...f, saved, ownerId: f.ownerId === "me" ? user.id : f.ownerId }, pageRange.parse(range));
   });
 }
 

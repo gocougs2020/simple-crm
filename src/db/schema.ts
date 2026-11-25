@@ -24,6 +24,7 @@ import type {
   UserRole,
 } from "@/lib/constants";
 import type { BillingStatus } from "@/lib/stripe/rules";
+import type { FilterConditions } from "@/lib/crm/filter-fields";
 import type { ProductFamily } from "@/lib/product-rules";
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -1131,6 +1132,27 @@ export const customFields = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("custom_fields_key_idx").on(t.entityType, t.key)],
+);
+
+/**
+ * Saved filters on the People, Organizations and Clients lists: a name and
+ * conditions on the record and the records tied to it (src/lib/crm/filter-fields.ts).
+ * Private to whoever made one unless `shared`, which puts it in everyone's
+ * Filters menu; only its maker or an admin changes it.
+ */
+export const savedFilters = pgTable(
+  "saved_filters",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    entityType: text("entity_type").$type<EntityType>().notNull(),
+    conditions: jsonb("conditions").$type<FilterConditions>().notNull().default({ all: [], any: [] }),
+    shared: boolean("shared").notNull().default(false),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("saved_filters_entity_idx").on(t.entityType, t.createdBy)],
 );
 
 // ─── Email ───────────────────────────────────────────────────────────────
