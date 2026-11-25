@@ -44,6 +44,7 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tooltip } from
 import { useUploader } from "@/components/files/files-panel";
 import type { FileLinks } from "@/components/files/upload";
 import { useMentionOptions } from "@/components/ui/mention-menu";
+import { agentMentionNames } from "@/lib/crm/mentions";
 import { preloadRichText, RichText } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
 import type { ActivityRow, NoteReply, RecordFile, TimelineItem } from "@/lib/crm/activities";
@@ -759,7 +760,7 @@ function Replies({ noteId, replies: saved }: { noteId: string; replies: NoteRepl
             autoFocus
             toolbar={false}
             mentions={mentionable}
-            placeholder={services.ai.background ? `Reply. Type @ and a teammate's name to notify them, or @${appConfig.agent.name} to hand it something.` : "Reply. Type @ and a teammate's name to notify them."}
+            placeholder={services.ai.background ? `Reply. Type @ and a teammate's name to notify them, or @${agentMentionNames()[0]} to hand it something.` : "Reply. Type @ and a teammate's name to notify them."}
           />
           <div className="mt-1.5 flex justify-end gap-2">
             <Button

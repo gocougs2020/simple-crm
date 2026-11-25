@@ -23,6 +23,7 @@ import { appConfig } from "@/app.config";
 import { Button } from "@/components/ui/button";
 import { Input, Kbd } from "@/components/ui/field";
 import { useMentionOptions } from "@/components/ui/mention-menu";
+import { agentMentionNames } from "@/lib/crm/mentions";
 import { RichText, type RichTextHandle } from "@/components/ui/rich-text";
 import { toast } from "@/components/ui/toast";
 import { activityLabels, callOutcomes, meetingOutcomes, type ActivityType } from "@/lib/constants";
@@ -481,7 +482,7 @@ function ActivityForm({ type, links, contacts, onDone }: { type: ActivityType; l
         placeholder={
           {
             note: assistantWorks
-              ? `Write a note. Only your team sees it. Type @ and a teammate's name to notify them, or @${appConfig.agent.name} to hand it something.`
+              ? `Write a note. Only your team sees it. Type @ and a teammate's name to notify them, or @${agentMentionNames()[0]} to hand it something.`
               : "Write a note. Only your team sees it. Type @ and a teammate's name to notify them.",
             call: "What did you talk about?",
             email: "Paste or summarize the email",

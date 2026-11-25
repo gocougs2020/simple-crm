@@ -22,10 +22,13 @@ import { MentionMenu, useMentionOptions, type MentionOption } from "@/components
 import { toast } from "@/components/ui/toast";
 import type { TeamMember } from "@/lib/crm/context";
 import type { ChatMessage } from "@/lib/chat/service";
-import { matchMentions } from "@/lib/crm/mentions";
+import { agentMentionNames, matchMentions } from "@/lib/crm/mentions";
 import { chatSegments, MAX_CHAT_FILES, MAX_CHAT_LENGTH, mentionQuery } from "@/lib/chat/format";
 import { agentRunStatusLabels } from "@/lib/constants";
 import { dayKey, formatBytes, formatDay, formatFull, formatTime } from "@/lib/format";
+
+/** The names that call on the agent ("@Agent", its full name, "@agent"): tagged like a teammate in what's shown and typed. */
+const agentNames = agentMentionNames();
 
 /** Messages from the same person this close together read as one block. */
 const GROUP_MS = 5 * 60_000;
@@ -182,7 +185,7 @@ export function ChatView({ latest, hasMore, version }: { latest: ChatMessage[]; 
 
   return (
     <div className="flex h-app flex-col">
-      <PageHeader title="Team chat" sub={<p className="mt-0.5 text-[12.5px] text-muted">One conversation for everyone on the team. Type @ to mention someone{services.ai.background ? `, or @${appConfig.agent.name} to hand it something` : ""}.</p>} />
+      <PageHeader title="Team chat" sub={<p className="mt-0.5 text-[12.5px] text-muted">One conversation for everyone on the team. Type @ to mention someone{services.ai.background ? `, or @${agentNames[0]} to hand it something` : ""}.</p>} />
       <div
         ref={scroller}
         className="min-h-0 flex-1 overflow-y-auto scroll-thin"
@@ -280,7 +283,7 @@ function Message({
   const canDelete = m.userId === viewer.id || isAdmin;
   const [editing, setEditing] = useState(false);
   const [pending, start] = useTransition();
-  const segments = useMemo(() => chatSegments(m.body, team), [m.body, team]);
+  const segments = useMemo(() => chatSegments(m.body, team, agentNames), [m.body, team]);
   const pictures = m.files.filter((f) => /^image\/(png|jpe?g|gif|webp|avif)$/i.test(f.contentType));
   const others = m.files.filter((f) => !pictures.includes(f));
 
@@ -335,7 +338,11 @@ function Message({
         ) : m.body ? (
           <p className="text-[14px] leading-6 break-words whitespace-pre-wrap text-primary">
             {segments.map((s, i) =>
-              s.kind === "mention" ? (
+              s.kind === "agent" ? (
+                <span key={i} className="rounded bg-accent-soft px-0.5 font-medium text-accent">
+                  {s.text}
+                </span>
+              ) : s.kind === "mention" ? (
                 <Link key={i} href={`/team/${s.userId}`} className={clsx("rounded px-0.5 font-medium hover:underline", s.userId === viewer.id ? "bg-warning-surface text-warning" : "bg-mention-surface text-mention")}>
                   {s.text}
                 </Link>
@@ -561,7 +568,7 @@ function Composer({ replyTo, onCancelReply, onPosted }: { replyTo: ChatMessage |
               <span className="w-2" />
             )}
             <div className="min-w-0 flex-1">
-              <MentionTextarea value={body} onChange={setBody} onSubmit={send} onPasteFiles={canEdit ? attach : undefined} placeholder={services.ai.background ? `Message the team, or @${appConfig.agent.name} to hand it something` : "Message the team"} label="Message" bare />
+              <MentionTextarea value={body} onChange={setBody} onSubmit={send} onPasteFiles={canEdit ? attach : undefined} placeholder={services.ai.background && canEdit ? `Message the team, or @${agentNames[0]} to hand it something` : "Message the team"} label="Message" bare />
             </div>
             <Button variant="primary" size="icon-sm" onClick={send} disabled={uploading || (!body.trim() && !ready.length)} loading={sending} aria-label="Send">
               <ArrowUpIcon />
@@ -607,7 +614,7 @@ function MentionTextarea({
   const { team } = useApp();
   const ref = useRef<HTMLTextAreaElement>(null);
   const backdrop = useRef<HTMLDivElement>(null);
-  const segments = useMemo(() => (value.includes("@") ? chatSegments(value, team) : null), [value, team]);
+  const segments = useMemo(() => (value.includes("@") ? chatSegments(value, team, agentNames) : null), [value, team]);
   const [cursor, setCursor] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<number | null>(null);
@@ -654,7 +661,7 @@ function MentionTextarea({
     <div className={clsx("relative", !bare && "rounded-md bg-surface")}>
       {segments ? (
         <div ref={backdrop} aria-hidden className={clsx(box, "pointer-events-none absolute inset-0 overflow-hidden border-transparent text-transparent [scrollbar-color:transparent_transparent]")}>
-          {segments.map((s, i) => (s.kind === "mention" ? <mark key={i} className="rounded-[4px] bg-mention-surface text-transparent shadow-[0_0_0_2px_var(--mention-surface)]">{s.text}</mark> : <Fragment key={i}>{s.text}</Fragment>))}{" "}
+          {segments.map((s, i) => (s.kind === "mention" || s.kind === "agent" ? <mark key={i} className="rounded-[4px] bg-mention-surface text-transparent shadow-[0_0_0_2px_var(--mention-surface)]">{s.text}</mark> : <Fragment key={i}>{s.text}</Fragment>))}{" "}
         </div>
       ) : null}
       <textarea

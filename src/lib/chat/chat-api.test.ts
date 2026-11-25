@@ -3,7 +3,8 @@ import { describe, it } from "node:test";
 import { operations } from "@/lib/api/operations";
 import { roleCan } from "@/lib/permissions";
 import { allowedOperations } from "@/lib/agent/policy";
-import { MAX_RUN_PROMPT, runMayUse, runMessage, teamChatRequest } from "@/lib/agent/run-rules";
+import { MAX_RUN_PROMPT, mentionsAgent, runMayUse, runMessage, teamChatRequest } from "@/lib/agent/run-rules";
+import { agentMentionNames, matchMentions } from "@/lib/crm/mentions";
 import { mentionEmailKinds, wantsMentionEmail } from "@/lib/constants";
 import { chatSegments, chatTextFromMarkdown, MAX_CHAT_LENGTH } from "./format";
 import { chatWindow, DEFAULT_CHAT_DAYS, localMidnight } from "./window";
@@ -160,5 +161,36 @@ describe("mention emails", () => {
       assert.equal(wantsMentionEmail({ emailMentions: { [k]: false } }, k), false);
       assert.equal(wantsMentionEmail({ emailMentions: { [k]: true } }, k), true);
     }
+  });
+});
+
+describe("tagging the agent", () => {
+  it("answers to its handle, its full name and plain @agent", () => {
+    assert.deepEqual(agentMentionNames("Recruiting Insight AI", "Agent"), ["Agent", "Recruiting Insight AI"]);
+    assert.deepEqual(agentMentionNames("Agent", "Agent"), ["Agent"]);
+    for (const text of ["@Agent look up Acme", "@agent look up Acme", "@Recruiting Insight AI look up Acme", "@recruiting  insight ai look up Acme"]) {
+      assert.ok(mentionsAgent(text, "Recruiting Insight AI", "Agent"), text);
+    }
+    assert.ok(mentionsAgent("@Scout look", "Recruiting Insight AI", "Scout"));
+    assert.ok(!mentionsAgent("mail sam@agent.example", "Recruiting Insight AI", "Agent"));
+    assert.ok(!mentionsAgent("@Agents of change", "Recruiting Insight AI", "Agent"));
+  });
+
+  it("is found in the @ list by its handle or its full name", () => {
+    const options = [
+      { name: "Agent", aliases: ["Agent", "Recruiting Insight AI"] },
+      { name: "Riley Shaw", aliases: ["Riley Shaw"] },
+    ];
+    assert.deepEqual(matchMentions(options, "ag").map((o) => o.name), ["Agent"]);
+    assert.deepEqual(matchMentions(options, "rec").map((o) => o.name), ["Agent"]);
+    assert.deepEqual(matchMentions(options, "ri").map((o) => o.name), ["Riley Shaw"]);
+    assert.deepEqual(matchMentions(options, "").map((o) => o.name), ["Agent", "Riley Shaw"]);
+  });
+
+  it("shows as a tag in the chat, apart from teammates", () => {
+    const s = chatSegments("@Agent ask @Sam Lee", team, ["Agent", "Recruiting Insight AI"]);
+    assert.deepEqual(s[0], { kind: "agent", text: "@Agent" });
+    assert.equal(s.at(-1)?.kind, "mention");
+    assert.ok(chatSegments("@Agent ask", team).every((x) => x.kind === "text"));
   });
 });
