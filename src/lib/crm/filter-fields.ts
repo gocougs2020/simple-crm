@@ -273,3 +273,24 @@ export function conditionProblem(c: FilterCondition, custom: CustomFieldDef[]): 
 }
 
 export const conditionCount = (c: FilterConditions) => c.all.length + c.any.length;
+
+/** The fields whose values are label names: renaming a label renames it in conditions on these. */
+const labelFields = new Set(["person.labels", "organization.labels", "client.labels"]);
+
+/**
+ * A filter's conditions with a renamed label swapped in, or null when no
+ * condition names it. Without this a filter on the old name would stop
+ * matching ("has any of") or start letting in what it kept out ("has none
+ * of"), since records carry the new name. A deleted label needs nothing:
+ * nobody carries it any more, which is what its conditions already say.
+ */
+export function renameLabelInFilter(f: FilterConditions, from: string, to: string): FilterConditions | null {
+  let changed = false;
+  const swap = (c: FilterCondition): FilterCondition => {
+    if (!labelFields.has(c.field) || !Array.isArray(c.value) || !c.value.includes(from)) return c;
+    changed = true;
+    return { ...c, value: [...new Set(c.value.map((v) => (v === from ? to : v)))] };
+  };
+  const next = { all: f.all.map(swap), any: f.any.map(swap) };
+  return changed ? next : null;
+}

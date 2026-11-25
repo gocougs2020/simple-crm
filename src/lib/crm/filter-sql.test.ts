@@ -8,7 +8,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import * as schema from "@/db/schema";
 import type { EntityType } from "@/lib/constants";
-import { conditionProblem, type CustomFieldDef, type FilterCondition } from "./filter-fields";
+import { conditionProblem, renameLabelInFilter, type CustomFieldDef, type FilterCondition } from "./filter-fields";
 import { filterSql } from "./filter-sql";
 
 const { clients, organizations, people } = schema;
@@ -124,5 +124,19 @@ describe("saved filters", () => {
     assert.match(conditionProblem(tz("contains", "East"), custom)!, /doesn't work on Time Zone/);
     assert.match(conditionProblem({ field: "person.lastActivity", op: "within_days" }, custom)!, /number of days/);
     assert.match(conditionProblem({ field: "client.nope", op: "empty" }, custom)!, /no longer exists/);
+  });
+
+  it("follows a renamed label in label conditions, and leaves everything else alone", async () => {
+    const before = {
+      all: [{ field: "person.labels", op: "has_none" as const, value: ["vip", "cold"] }, { field: "person.title", op: "is" as const, value: "vip" }],
+      any: [{ field: "client.labels", op: "has_any" as const, value: ["vip"] }],
+    };
+    const after = renameLabelInFilter(before, "vip", "key account")!;
+    assert.deepEqual(after.all[0].value, ["key account", "cold"]);
+    assert.equal(after.all[1].value, "vip");
+    assert.deepEqual(after.any[0].value, ["key account"]);
+    assert.equal(renameLabelInFilter(before, "unused", "x"), null);
+    // Renaming onto a label the condition already names keeps it once.
+    assert.deepEqual(renameLabelInFilter({ all: [{ field: "organization.labels", op: "has_any", value: ["a", "b"] }], any: [] }, "a", "b")!.all[0].value, ["b"]);
   });
 });

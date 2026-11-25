@@ -2,6 +2,7 @@ import "server-only";
 import { asc, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { CampaignAudience } from "@/db/schema";
+import { renameLabelInFilter } from "@/lib/crm/filter-fields";
 
 /**
  * Labels: the strings in a record's `tags` (people, organizations and
@@ -66,7 +67,7 @@ export async function labelAudiences(name: string) {
 
 /**
  * Renames a label everywhere it's used (`to` given): records, saved
- * audiences and campaigns' filters. With `to` null it comes off the records
+ * audiences, campaigns' filters and saved list filters. With `to` null it comes off the records
  * only. A filter is never emptied here, because an audience that loses its
  * only label would quietly become everyone: deleting a label that a filter
  * still names is refused first (deleteLabel in src/actions/settings.ts).
@@ -98,6 +99,11 @@ export async function rewriteLabel(from: string, to: string | null) {
   for (const a of await db.select({ id: schema.audiences.id, filters: schema.audiences.filters }).from(schema.audiences)) {
     const next = swap(a.filters);
     if (next) await db.update(schema.audiences).set({ filters: next }).where(eq(schema.audiences.id, a.id));
+  }
+  // Saved list filters follow the new name too (src/lib/crm/filter-fields.ts).
+  for (const f of await db.select({ id: schema.savedFilters.id, conditions: schema.savedFilters.conditions }).from(schema.savedFilters)) {
+    const next = renameLabelInFilter(f.conditions, from, to);
+    if (next) await db.update(schema.savedFilters).set({ conditions: next }).where(eq(schema.savedFilters.id, f.id));
   }
   // Sent campaigns keep the audience they went to, as a record. One that's sending keeps going with the new name.
   for (const c of await db.select({ id: schema.campaigns.id, audience: schema.campaigns.audience, status: schema.campaigns.status }).from(schema.campaigns)) {
