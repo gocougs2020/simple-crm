@@ -48,7 +48,7 @@
     "@tiptap/starter-kit": "^3.35.0",
     "@twilio/voice-sdk": "^2.19.0",
     "@vercel/analytics": "^2.0.1",
-    "@vercel/blob": "^2.8.2",
+    "@vercel/blob": "^2.9.0",
     "@vercel/speed-insights": "^2.0.0",
     "ai": "7.0.173",
     "clsx": "^2.1.1",
